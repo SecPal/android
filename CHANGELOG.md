@@ -30,3 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Corrected invalid `CODEOWNERS` syntax and Android-specific copied repository metadata
 - Removed local preflight bypass guidance and made tests and native Android verification blocking
+- Versioned the generated `android/capacitor-cordova-android-plugins/` module so clean Android Studio syncs and Gradle builds work from a fresh clone
+- Restricted Android file sharing to app-scoped paths and disabled default Android backups for a safer mobile baseline
+- Corrected the domain-policy validation so mixed lines containing both allowed and forbidden `secpal.*` domains still fail the check

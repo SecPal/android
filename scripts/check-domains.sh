@@ -20,15 +20,9 @@ echo "Allowed: secpal.app, secpal.dev"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
-# Search for secpal domains
-# Includes common file types: md, yaml, json, sh, ts, tsx, js, jsx, html,
-# plus Android-related files (kt, java, xml, gradle, properties)
-# Excludes:
-#   - This script itself
-#   - Lines documenting forbidden domains (with "Forbidden:" or "FORBIDDEN:" label)
-#   - YAML arrays of forbidden domains (lines with "- "secpal.")
-#   - Checklist items mentioning forbidden domains (lines with "[ ]")
-violations=$(grep -r "secpal\." \
+# Search for secpal domains and flag every line that contains any forbidden
+# domain, even if the same line also mentions an allowed domain.
+matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]+" \
     --include="*.md" \
     --include="*.yaml" \
     --include="*.yml" \
@@ -50,11 +44,12 @@ violations=$(grep -r "secpal\." \
     --exclude-dir="vendor" \
     . 2>/dev/null | \
     grep -v -- "check-domains.sh" | \
-    grep -v -- "secpal\.app\|secpal\.dev" | \
     grep -v -- "Forbidden:" | \
     grep -v -- "FORBIDDEN:" | \
     grep -v -- '- "secpal\.' | \
     grep -v -- '^[[:space:]]*- \[' || true)
+
+violations=$(printf '%s\n' "$matches" | grep -E "secpal\.(com|org|net|io|example)" || true)
 
 if [[ -z "$violations" ]]; then
     echo -e "${GREEN}✅ Domain Policy Check PASSED${NC}"
