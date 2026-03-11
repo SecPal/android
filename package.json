@@ -1,0 +1,63 @@
+{
+  "name": "@secpal/android",
+  "version": "0.0.1",
+  "description": "SecPal Android Capacitor wrapper that reuses the shared frontend repository",
+  "private": true,
+  "type": "module",
+  "author": "SecPal",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SecPal/android.git"
+  },
+  "homepage": "https://github.com/SecPal/android#readme",
+  "bugs": {
+    "url": "https://github.com/SecPal/android/issues"
+  },
+  "keywords": [
+    "secpal",
+    "android",
+    "capacitor",
+    "dpc",
+    "android-enterprise",
+    "device-policy-controller"
+  ],
+  "scripts": {
+    "build": "npm run cap:sync",
+    "frontend:build": "bash ./scripts/build-frontend-web.sh",
+    "lint": "eslint . --ext ts,js --max-warnings 0",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:run": "vitest run --bail=1",
+    "test:coverage": "vitest run --coverage",
+    "format": "prettier --write --cache '**/*.{md,yml,yaml,json,ts,js,css,html}'",
+    "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,css,html}'",
+    "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",
+    "cap:sync": "npm run frontend:build && npx cap sync android",
+    "cap:copy": "npm run frontend:build && npx cap copy android",
+    "cap:add:android": "npx cap add android && npm run native:verify",
+    "cap:open:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "@eslint/js": "^9.37.0",
+    "@types/node": "^24.6.1",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "@typescript-eslint/parser": "^8.46.1",
+    "eslint": "^9.37.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.1",
+    "vitest": "^3.2.4",
+    "@vitest/coverage-v8": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}

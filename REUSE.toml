@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-License-Identifier: CC0-1.0
+
+version = 1
+SPDX-FileCopyrightText = "SecPal Contributors"
+
+[[annotations]]
+path = "tests/**"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "package.json"
+SPDX-FileCopyrightText = "2026 SecPal"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "package-lock.json"
+SPDX-FileCopyrightText = "2026 SecPal"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["tsconfig*.json", "vitest.config.ts", "eslint.config.js", "capacitor.config.ts", ".editorconfig", ".gitattributes", ".nvmrc"]
+SPDX-FileCopyrightText = "2026 SecPal"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["README.md", "CHANGELOG.md", "docs/**", ".github/**", ".markdownlint*", ".prettier*", ".yamllint.yml", ".preflight-exclude", ".gitignore"]
+SPDX-FileCopyrightText = "2026 SecPal"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "scripts/**"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["android/gradlew", "android/gradlew.bat", "android/gradle/wrapper/**"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["android/**/*.gradle", "android/**/*.java", "android/**/*.xml", "android/**/*.properties", "android/**/*.pro", "android/.gitignore", "android/app/.gitignore", "android/app/src/main/res/**", "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["android/app/src/main/assets/capacitor.config.json", "android/app/src/main/assets/capacitor.plugins.json", "android/app/src/main/assets/public/**"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"

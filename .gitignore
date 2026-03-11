@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: CC0-1.0
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+.vite/
+
+# Capacitor native build artifacts
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
+ios/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
+*.jks
+
+# Testing
+coverage/
+.nyc_output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Tool caches
+.eslintcache
+.prettiercache
+*.tsbuildinfo
+
+# Preflight overrides (local only)
+.preflight-allow-large-pr

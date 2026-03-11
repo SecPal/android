@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-License-Identifier: CC0-1.0
+
+# Dependabot Auto-Merge Workflow (Android Repository)
+# Uses the centralized reusable workflow from .github repository
+#
+# For implementation details, see:
+# SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml
+
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+# Ensure only one auto-merge runs at a time per PR
+concurrency:
+  group: ${{ github.repository }}-dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+# Required permissions for dependabot auto-merge
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@v1
+    with:
+      phase: "1" # Phase 1: Only PATCH updates auto-merge
+      merge-method: "squash" # Use squash merge for cleaner history
