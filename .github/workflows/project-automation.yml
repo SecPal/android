@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-License-Identifier: CC0-1.0
+
+name: Project Board Automation
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+      - closed
+      - labeled
+  pull_request:
+    types:
+      - opened
+      - ready_for_review
+      - closed
+      - converted_to_draft
+      - labeled
+  pull_request_review:
+    types:
+      - submitted
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  project-automation:
+    name: Project automation
+    timeout-minutes: 15
+    uses: SecPal/.github/.github/workflows/project-automation-core.yml@main
+    secrets:
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+
+  draft-reminder:
+    name: Draft PR Reminder
+    timeout-minutes: 10
+    uses: SecPal/.github/.github/workflows/draft-pr-reminder.yml@main
+    permissions:
+      issues: write
+      pull-requests: write

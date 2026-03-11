@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2025 SecPal Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Check for Merge Conflict Markers
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-conflicts:
+    timeout-minutes: 10
+    uses: SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml@main

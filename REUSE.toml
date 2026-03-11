@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-License-Identifier: CC0-1.0
+
+version = 1
+SPDX-FileCopyrightText = "SecPal Contributors"
+
+[[annotations]]
+path = "src/**"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "public/**"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = "package.json"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "package-lock.json"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["tsconfig*.json", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "capacitor.config.ts"]
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["README.md", "CHANGELOG.md", "docs/**", ".github/**", ".markdownlint*", ".prettier*", ".yamllint.yml", ".preflight-exclude", ".gitignore"]
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "scripts/**"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "MIT"

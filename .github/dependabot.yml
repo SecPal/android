@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-License-Identifier: CC0-1.0
+
+# Dependabot configuration for SecPal Frontend (React/TypeScript/Vite)
+# Automatically creates PRs for ALL dependency updates (including Major versions)
+# Security updates are prioritized and checked daily in early morning hours
+version: 2
+updates:
+  # npm - JavaScript/TypeScript dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "npm"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
+
+  # GitHub Actions - Workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
