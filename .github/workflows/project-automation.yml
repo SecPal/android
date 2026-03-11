@@ -27,8 +27,29 @@ permissions:
   pull-requests: write
 
 jobs:
+  check-project-automation-secrets:
+    name: Check project automation secrets
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check whether GitHub App secrets exist
+        id: check
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub App secrets are missing; project automation will be skipped for this repository."
+          fi
+
   project-automation:
     name: Project automation
+    needs: check-project-automation-secrets
+    if: needs.check-project-automation-secrets.outputs.available == 'true'
     uses: SecPal/.github/.github/workflows/project-automation-core.yml@main
     secrets:
       APP_ID: ${{ secrets.APP_ID }}
