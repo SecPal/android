@@ -14,5 +14,4 @@ permissions:
 
 jobs:
   check-conflicts:
-    timeout-minutes: 10
     uses: SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml@main

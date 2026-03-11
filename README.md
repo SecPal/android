@@ -23,11 +23,25 @@ Capacitor consumes the web build output from the sibling `frontend` repository:
 
 This keeps one single UI codebase and avoids divergence between web and mobile UI.
 
+The Android-specific responsibility in this repository is therefore limited to:
+
+- Capacitor configuration
+- Native Android project files
+- DPC and Android Enterprise bridge code
+- Repo-local governance, CI, and validation
+
 ## Local Setup
 
 ```bash
 npm ci
 npm --prefix ../frontend ci
+```
+
+Install Git hooks after cloning:
+
+```bash
+./scripts/setup-pre-commit.sh
+./scripts/setup-pre-push.sh
 ```
 
 ## Capacitor Setup
@@ -40,6 +54,8 @@ npm run cap:open:android
 
 `npm run cap:sync` automatically builds `../frontend` first.
 
+The generated native Android project is committed in this repository and validated by the local test suite.
+
 ## Quality Gates
 
 Run the same baseline checks as other SecPal repositories:
@@ -48,11 +64,7 @@ Run the same baseline checks as other SecPal repositories:
 ./scripts/preflight.sh
 ```
 
-Optional faster push flow while still validated in CI:
-
-```bash
-PREFLIGHT_RUN_TESTS=1 ./scripts/preflight.sh
-```
+The preflight script blocks direct pushes from `main`, runs formatting and governance checks, and executes lint, typecheck, tests, and native Android consistency checks.
 
 ## Roadmap
 

@@ -18,11 +18,11 @@
 
 # Global owner - will be requested for review on all PRs
 
-- @SecPal/maintainers
+* @SecPal/maintainers
 
 # Documentation
 
-\*.md @SecPal/maintainers
+*.md @SecPal/maintainers
 /docs/ @SecPal/maintainers
 
 # GitHub configurations

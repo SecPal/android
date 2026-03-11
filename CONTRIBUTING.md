@@ -14,8 +14,9 @@ We welcome contributions to SecPal! Please read our [Code of Conduct](CODE_OF_CO
 Ensure you have the following tools installed:
 
 - **Git** with GPG signing configured
-- **Node.js** (v22.x) and npm/pnpm/yarn
-- **PHP** 8.4 and Composer (for backend projects)
+- **Node.js** (v22.x) and npm
+- **Java 21** for Android/Gradle tooling
+- **Android Studio** and Android SDK for native development
 - **Pre-commit** hooks tool (optional but recommended)
 
 ### Local Setup
@@ -27,8 +28,9 @@ Create a dedicated directory for all SecPal repositories. This mirrors the GitHu
 ```bash
 <your-workspace>/SecPal/
 ├── .github/          # Organization-wide settings and documentation
-├── api/              # Laravel backend (planned)
+├── api/              # Laravel backend
 ├── frontend/         # React/TypeScript frontend
+├── android/          # Capacitor wrapper + native Android project
 └── contracts/        # OpenAPI 3.1 specifications
 ```
 
@@ -88,10 +90,11 @@ This script runs automatically before every `git push` via the pre-push hook.
 - Code formatting (Prettier)
 - Markdown linting
 - Workflow linting (actionlint)
+- YAML linting
 - REUSE compliance
-- PHP linting and tests (if applicable)
-- Node.js linting and tests (if applicable)
-- OpenAPI validation (if applicable)
+- Domain policy enforcement
+- Node.js linting, typechecking, and tests
+- Native Android project consistency
 - PR size (< 600 lines recommended, excluding lock files and license files)
 
 **Excluded from PR size calculation:**
@@ -130,6 +133,8 @@ rm .preflight-allow-large-pr
 4. **Ensure all tests pass** locally by running `./scripts/preflight.sh`.
 5. **Sign your commits** with GPG (see below).
 6. **Push your branch** and open a pull request against `main`.
+
+All pull requests must target `main`. Direct pushes to `main` are blocked locally and should also be blocked by GitHub branch protection.
 
 All pull requests will be reviewed by a maintainer and by GitHub Copilot.
 

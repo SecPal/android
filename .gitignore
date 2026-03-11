@@ -9,8 +9,11 @@ dist/
 build/
 .vite/
 
-# Capacitor native projects
-android/
+# Capacitor native build artifacts
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
 ios/
 
 # Environment and secrets

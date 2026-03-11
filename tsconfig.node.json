@@ -6,5 +6,5 @@
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "eslint.config.js", "capacitor.config.ts"]
+  "include": ["vitest.config.ts", "eslint.config.js", "capacitor.config.ts"]
 }

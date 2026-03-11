@@ -112,8 +112,7 @@ All PRs automatically run:
 - **Secret Scanning:** GitHub Secret Scanning with push protection
 - **Dependency Scanning:** Dependabot security updates
 - **SAST:** CodeQL (JavaScript/TypeScript only)
-- **PHP Security:** PHPStan (level: max), Laravel Pint
-- **Linting:** ESLint security rules
+- **Static Validation:** ESLint, TypeScript, Vitest, and native Android wrapper checks
 
 ### Secure Development Guidelines
 
@@ -145,29 +144,28 @@ All PRs automatically run:
 
 SecPal repositories have the following security features enabled:
 
-| Feature                         | Status | Description                            |
-| ------------------------------- | ------ | -------------------------------------- |
-| **Secret Scanning**             | ✅     | Detects leaked credentials             |
-| **Push Protection**             | ✅     | Blocks commits with secrets            |
-| **Dependabot Security Updates** | ✅     | Automated security patches             |
-| **Dependabot Version Updates**  | ✅     | Daily dependency updates (04:00 CET)   |
-| **CodeQL Analysis**             | ✅     | SAST for JavaScript/TypeScript         |
-| **Branch Protection**           | ✅     | Enforced status checks, signed commits |
-| **Security Advisories**         | ✅     | Private vulnerability reporting        |
-| **Two-Factor Authentication**   | ✅     | Required for all maintainers           |
+| Feature                         | Status | Description                                                                                           |
+| ------------------------------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| **Secret Scanning**             | ✅     | Detects leaked credentials                                                                            |
+| **Push Protection**             | ✅     | Blocks commits with secrets                                                                           |
+| **Dependabot Security Updates** | ✅     | Automated security patches                                                                            |
+| **Dependabot Version Updates**  | ✅     | Daily dependency updates (04:00 CET)                                                                  |
+| **CodeQL Analysis**             | ✅     | SAST for JavaScript/TypeScript                                                                        |
+| **Branch Protection**           | ✅     | `main` is protected with required checks, linear history, signed commits, and conversation resolution |
+| **Security Advisories**         | ✅     | Private vulnerability reporting                                                                       |
+| **Two-Factor Authentication**   | ✅     | Required for all maintainers                                                                          |
 
 ## Known Security Limitations
 
 ### CodeQL Language Support
 
-**⚠️ PHP is NOT supported by GitHub CodeQL.**
+**⚠️ Kotlin/Java Android code is not covered by the current JavaScript/TypeScript CodeQL workflow in this repository.**
 
 We compensate with:
 
-- **PHPStan** (level: max) - Static analysis
-- **Laravel Pint** - Code style enforcement
-- **Manual security reviews** for PHP code
-- **Consider:** Psalm, Semgrep for additional PHP security scanning
+- **Android Lint/Gradle validation** as native code is introduced
+- **Manual security reviews** for native Android code
+- **Bridge-boundary tests** for Capacitor/native integrations
 
 ### API Rate Limiting
 
@@ -205,7 +203,6 @@ _No vulnerabilities reported yet._
 - [OWASP Top Ten](https://owasp.org/www-project-top-ten/)
 - [CWE Top 25](https://cwe.mitre.org/top25/)
 - [GitHub Security Best Practices](https://docs.github.com/en/code-security)
-- [Laravel Security Documentation](https://laravel.com/docs/security)
 - [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
 
 ## Contact

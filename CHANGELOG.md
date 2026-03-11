@@ -23,3 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Switched Android Capacitor workflow to reuse the sibling `frontend` repository build output (`../frontend/dist`) as the web source of truth
 - Added `scripts/build-frontend-web.sh` and wired `cap:sync`/`cap:copy` to build frontend first before syncing native Android assets
+- Realigned the repository to a wrapper-only architecture by removing the placeholder local web app in favor of configuration and native-wrapper validation
+- Hardened governance files, preflight hooks, and repository metadata for `main`-based workflow enforcement
+
+### Fixed
+
+- Corrected invalid `CODEOWNERS` syntax and Android-specific copied repository metadata
+- Removed local preflight bypass guidance and made tests and native Android verification blocking

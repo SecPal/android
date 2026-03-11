@@ -7,10 +7,8 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
-# Check if pushing from a protected branch
-# NOTE: Update PROTECTED_BRANCHES here if protected branch policy changes.
 CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
-PROTECTED_BRANCHES=("main" "master" "production")
+PROTECTED_BRANCHES=("main")
 
 for branch in "${PROTECTED_BRANCHES[@]}"; do
   if [ "$CURRENT_BRANCH" = "$branch" ]; then
@@ -24,20 +22,11 @@ for branch in "${PROTECTED_BRANCHES[@]}"; do
     echo "  git commit -am 'Your changes'"
     echo "  git push -u origin feat/your-feature-name"
     echo ""
-    echo "EMERGENCY EXCEPTION: If you must bypass this check:"
-    echo "  1. Document the reason for the bypass"
-    echo "  2. Create an issue to track the technical debt"
-    echo "  3. Fix the underlying issue within 24 hours"
-    echo "  4. Use: git push --no-verify"
-    echo ""
     exit 1
   fi
 done
 
-# Auto-detect default branch (fallback to main)
-# Use symbolic-ref instead of remote show to avoid network hang
-BASE="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
-[ -z "${BASE:-}" ] && BASE="main"
+BASE="main"
 
 echo "Using base branch: $BASE"
 
@@ -47,10 +36,14 @@ git fetch origin "$BASE" 2>/dev/null || true
 # Get list of changed files for conditional checks
 CHANGED_FILES=$(git diff --name-only --cached 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
 
+if [ -f scripts/check-conflict-markers.sh ]; then
+  bash scripts/check-conflict-markers.sh
+fi
+
 # 0) Formatting & Compliance
 FORMAT_EXIT=0
 if command -v npx >/dev/null 2>&1; then
-  npx --yes prettier --check --cache '**/*.{md,yml,yaml,json,ts,tsx,js,jsx,css,scss,html}' || FORMAT_EXIT=1
+  npx --yes prettier --check --cache '**/*.{md,yml,yaml,json,ts,js,css,html}' || FORMAT_EXIT=1
 
   # Only run markdownlint if .md files changed
   if echo "$CHANGED_FILES" | grep -q '\.md$'; then
@@ -59,17 +52,16 @@ if command -v npx >/dev/null 2>&1; then
     echo "ℹ️  No markdown files changed, skipping markdownlint"
   fi
 fi
-# Workflow linting (part of documented gates)
-# NOTE: actionlint is disabled in local preflight due to known hanging issues
-# It runs in CI via .github/workflows/actionlint.yml instead
 if [ -d .github/workflows ]; then
   if command -v actionlint >/dev/null 2>&1; then
-    echo "ℹ️  Skipping actionlint in local preflight (runs in CI)" >&2
-    # Uncomment below to enable (may hang):
-    # timeout 30 actionlint || FORMAT_EXIT=1
+    actionlint || FORMAT_EXIT=1
   else
     echo "Warning: .github/workflows found but actionlint not installed - skipping workflow lint" >&2
   fi
+fi
+
+if [ -f .yamllint.yml ] && command -v yamllint >/dev/null 2>&1; then
+  yamllint -c .yamllint.yml . || FORMAT_EXIT=1
 fi
 
 # Only run REUSE lint if new files were added or license-related files changed
@@ -102,57 +94,17 @@ if [ -f scripts/check-domains.sh ]; then
   }
 fi
 
-# 1) PHP / Laravel
-if [ -f composer.json ]; then
-  if ! command -v composer >/dev/null 2>&1; then
-    echo "Warning: composer.json found but composer not installed - skipping PHP checks" >&2
-  else
-    composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
-    # Run Laravel Pint code style check if available (blocking: aligns with gates)
-    if [ -x ./vendor/bin/pint ]; then
-      ./vendor/bin/pint --test
-    fi
-    # Run PHPStan (use configured level from phpstan.neon if exists, else max)
-    if [ -x ./vendor/bin/phpstan ]; then
-      if [ -f phpstan.neon ] || [ -f phpstan.neon.dist ]; then
-        ./vendor/bin/phpstan analyse
-      else
-        ./vendor/bin/phpstan analyse --level=max
-      fi
-    fi
-    # ⚠️ SKIP PHP TESTS IN PRE-PUSH HOOK
-    # Tests run in CI (GitHub Actions) instead to avoid blocking local workflow
-    # Reason: Tests take >2 minutes and block every push
-    # Full test suite runs on every PR via .github/workflows/quality.yml
-    echo "ℹ️  Skipping PHP tests in pre-push hook (tests run in CI)"
-  fi
-fi
-
-# 2) Node / React / Capacitor
+# 1) Node / Capacitor wrapper
 if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
-  # OPTIMIZATION: Skip install if node_modules is up-to-date (massive time saver)
-  # Force install via: PREFLIGHT_FORCE_INSTALL=1 git push
-  if [ "${PREFLIGHT_FORCE_INSTALL:-0}" = "1" ] || [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules ]; then
+  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules ]; then
     pnpm install --frozen-lockfile
   else
-    echo "ℹ️  Skipping pnpm install (dependencies up-to-date, force via PREFLIGHT_FORCE_INSTALL=1)" >&2
+    echo "ℹ️  Skipping pnpm install (dependencies up-to-date)" >&2
   fi
-  # Check if scripts exist before running (pnpm run <script> exits 0 with --if-present)
   pnpm run --if-present lint
   pnpm run --if-present typecheck
-
-  # OPTIMIZATION: Tests are SKIPPED by default in pre-push hook for speed
-  # Enable via: PREFLIGHT_RUN_TESTS=1 git push
-  # Tests always run in CI, so local skip is safe
-  if [ "${PREFLIGHT_RUN_TESTS:-0}" = "1" ]; then
-    echo "→ Running tests (enabled via PREFLIGHT_RUN_TESTS=1)..."
-    pnpm run --if-present test:run
-  else
-    echo "ℹ️  Skipping tests in pre-push hook (enable via PREFLIGHT_RUN_TESTS=1)" >&2
-    echo "   Tests will run in CI pipeline" >&2
-  fi
+  pnpm run --if-present test:run
 elif [ -f package-lock.json ] && command -v npm >/dev/null 2>&1; then
-  # Only run npm ci if node_modules is missing or package-lock.json is newer
   if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
     npm ci
   else
@@ -161,26 +113,13 @@ elif [ -f package-lock.json ] && command -v npm >/dev/null 2>&1; then
 
   npm run --if-present lint
   npm run --if-present typecheck
-
-  # OPTIMIZATION: Tests are SKIPPED by default in pre-push hook for speed
-  # Enable via: PREFLIGHT_RUN_TESTS=1 git push
-  # Tests always run in CI, so local skip is safe
-  if [ "${PREFLIGHT_RUN_TESTS:-0}" = "1" ]; then
-    echo "→ Running tests (enabled via PREFLIGHT_RUN_TESTS=1)..."
-    npm run --if-present test:run
-  else
-    echo "ℹ️  Skipping tests in pre-push hook (enable via PREFLIGHT_RUN_TESTS=1)" >&2
-    echo "   Tests will run in CI pipeline" >&2
-  fi
+  npm run --if-present test:run
 elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then
-  # OPTIMIZATION: Skip install if node_modules is up-to-date (massive time saver)
-  # Force install via: PREFLIGHT_FORCE_INSTALL=1 git push
-  if [ "${PREFLIGHT_FORCE_INSTALL:-0}" = "1" ] || [ ! -d node_modules ] || [ yarn.lock -nt node_modules ]; then
+  if [ ! -d node_modules ] || [ yarn.lock -nt node_modules ]; then
     yarn install --frozen-lockfile
   else
-    echo "ℹ️  Skipping yarn install (dependencies up-to-date, force via PREFLIGHT_FORCE_INSTALL=1)" >&2
+    echo "ℹ️  Skipping yarn install (dependencies up-to-date)" >&2
   fi
-  # Yarn doesn't have --if-present, check package.json using jq or Node.js
   if command -v jq >/dev/null 2>&1; then
     jq -e '.scripts.lint' package.json >/dev/null 2>&1 && yarn lint
     jq -e '.scripts.typecheck' package.json >/dev/null 2>&1 && yarn typecheck
@@ -192,37 +131,25 @@ elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then
     yarn lint 2>/dev/null || true
     yarn typecheck 2>/dev/null || true
   fi
-  # OPTIMIZATION: Tests are SKIPPED by default in pre-push hook for speed
-  # Enable via: PREFLIGHT_RUN_TESTS=1 git push
-  # Tests always run in CI, so local skip is safe
-  if [ "${PREFLIGHT_RUN_TESTS:-0}" = "1" ]; then
-    echo "→ Running tests (enabled via PREFLIGHT_RUN_TESTS=1)..."
-    if command -v jq >/dev/null 2>&1; then
-      jq -e '.scripts."test:run"' package.json >/dev/null 2>&1 && yarn test:run
-    elif command -v node >/dev/null 2>&1; then
-      node -e "process.exit(require('./package.json').scripts?.['test:run'] ? 0 : 1)" && yarn test:run
-    else
-      yarn test:run 2>/dev/null || true
-    fi
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '.scripts."test:run"' package.json >/dev/null 2>&1 && yarn test:run
+  elif command -v node >/dev/null 2>&1; then
+    node -e "process.exit(require('./package.json').scripts?.['test:run'] ? 0 : 1)" && yarn test:run
   else
-    echo "ℹ️  Skipping tests in pre-push hook (enable via PREFLIGHT_RUN_TESTS=1)" >&2
-    echo "   Tests will run in CI pipeline" >&2
+    yarn test:run 2>/dev/null || true
   fi
 fi
 
-# 2b) Capacitor project consistency checks
 if [ -f capacitor.config.ts ]; then
   if [ ! -d android ]; then
-    echo "⚠️  Capacitor config found but native Android project missing (run: npm run cap:add:android)" >&2
+    echo "❌ Capacitor config found but native Android project is missing (run: npm run cap:add:android)" >&2
+    exit 1
   fi
 fi
 
-# 3) OpenAPI (Spectral)
-if [ -f docs/openapi.yaml ] && command -v npx >/dev/null 2>&1; then
-  npx --yes @stoplight/spectral-cli lint docs/openapi.yaml
-fi
+npm run --if-present native:verify
 
-# 4) Check PR size locally (against BASE)
+# 2) Check PR size locally (against BASE)
 if ! git rev-parse -q --verify "origin/$BASE" >/dev/null 2>&1; then
   echo "Warning: Cannot verify base branch origin/$BASE - skipping PR size check." >&2
   echo "Tip: Run 'git fetch origin $BASE' to enable PR size checking." >&2

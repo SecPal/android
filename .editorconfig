@@ -34,13 +34,13 @@ trim_trailing_whitespace = false
 indent_style = space
 indent_size = 2
 
-# PHP files
-[*.php]
-indent_style = space
-indent_size = 4
-
 # JavaScript/TypeScript
-[*.{js,ts,jsx,tsx}]
+[*.{js,ts}]
+indent_style = space
+indent_size = 2
+
+# Android native files
+[*.{kt,kts,gradle,properties,xml}]
 indent_style = space
 indent_size = 2
 

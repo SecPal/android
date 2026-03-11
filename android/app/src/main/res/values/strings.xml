@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SecPal Android</string>
+    <string name="title_activity_main">SecPal Android</string>
+    <string name="package_name">app.secpal.app.mobile</string>
+    <string name="custom_url_scheme">app.secpal.app.mobile</string>
+</resources>
