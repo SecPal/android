@@ -48,6 +48,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: ${{ !startsWith(github.head_ref, 'spike/') && !startsWith(github.ref, 'refs/heads/spike/') }}
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -66,11 +68,10 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
-          # Token is optional for public repos (tokenless uploads supported)
-          # Dependabot PRs cannot access secrets, so token may be empty
-          token: ${{ secrets.CODECOV_TOKEN || '' }}
+          token: ${{ env.CODECOV_TOKEN }}
           files: ./coverage/lcov.info,./coverage/clover.xml
           flags: android
           name: android-coverage
@@ -78,3 +79,7 @@ jobs:
         # Allow step to succeed even if upload fails for dependabot
         # This prevents blocking the PR when CODECOV_TOKEN is unavailable
         continue-on-error: ${{ contains(fromJSON('["dependabot[bot]", "renovate[bot]"]'), github.actor) }}
+
+      - name: Skip Codecov upload when token is unavailable
+        if: ${{ env.CODECOV_TOKEN == '' }}
+        run: echo "Skipping Codecov upload because CODECOV_TOKEN is not configured for this repository."
