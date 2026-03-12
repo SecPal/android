@@ -45,15 +45,14 @@ get_worktree_name_status() {
     while IFS= read -r -d '' file; do
       printf 'A\t%s\n' "$file"
     done < <(git ls-files --others --exclude-standard -z 2>/dev/null)
-  } | sed '/^$/d'
+  } | sed '/^$/d' | awk -F '\t' '!seen[$2]++'
 }
 
 get_effective_pr_numstat() {
   local merge_base="$1"
 
   {
-    git diff --numstat "$merge_base"..HEAD 2>/dev/null || true
-    git diff --numstat HEAD -- 2>/dev/null || true
+    git diff --numstat "$merge_base" -- 2>/dev/null || true
     while IFS= read -r -d '' file; do
       git diff --no-index --numstat -- /dev/null "$file" 2>/dev/null || true
     done < <(git ls-files --others --exclude-standard -z 2>/dev/null)
