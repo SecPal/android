@@ -30,11 +30,41 @@ BASE="main"
 
 echo "Using base branch: $BASE"
 
+get_worktree_changed_files() {
+  {
+    git diff --name-only --cached 2>/dev/null || true
+    git diff --name-only 2>/dev/null || true
+    git ls-files --others --exclude-standard 2>/dev/null || true
+  } | sed '/^$/d' | sort -u
+}
+
+get_worktree_name_status() {
+  {
+    git diff --name-status --cached 2>/dev/null || true
+    git diff --name-status 2>/dev/null || true
+    while IFS= read -r -d '' file; do
+      printf 'A\t%s\n' "$file"
+    done < <(git ls-files --others --exclude-standard -z 2>/dev/null)
+  } | sed '/^$/d' | awk -F '\t' '!seen[$2]++'
+}
+
+get_effective_pr_numstat() {
+  local merge_base="$1"
+
+  {
+    git diff --numstat "$merge_base" -- 2>/dev/null || true
+    while IFS= read -r -d '' file; do
+      git diff --no-index --numstat -- /dev/null "$file" 2>/dev/null || true
+    done < <(git ls-files --others --exclude-standard -z 2>/dev/null)
+  } | sed '/^$/d'
+}
+
 # Fetch base branch for PR size check (failure is handled later)
 git fetch origin "$BASE" 2>/dev/null || true
 
 # Get list of changed files for conditional checks
-CHANGED_FILES=$(git diff --name-only --cached 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
+CHANGED_FILES=$(get_worktree_changed_files)
+NAME_STATUS_CHANGES=$(get_worktree_name_status)
 
 if [ -f scripts/check-conflict-markers.sh ]; then
   bash scripts/check-conflict-markers.sh
@@ -68,7 +98,7 @@ fi
 if command -v reuse >/dev/null 2>&1; then
   if [ -n "$CHANGED_FILES" ]; then
     # Check if any new files were added (A) or license files changed
-    NEW_OR_LICENSE=$(git diff --name-status --cached 2>/dev/null | grep -E '^(A|M.*LICENSE)' || echo "")
+    NEW_OR_LICENSE=$(printf '%s\n' "$NAME_STATUS_CHANGES" | grep -E '^(A[[:space:]]|M[[:space:]].*LICENSE)' || echo "")
     if [ -n "$NEW_OR_LICENSE" ]; then
       reuse lint || FORMAT_EXIT=1
     else
@@ -158,8 +188,8 @@ else
   if [ -z "$MERGE_BASE" ]; then
     echo "Warning: Cannot determine merge base with origin/$BASE. Skipping PR size check." >&2
   else
-    # Get raw diff output
-    RAW_DIFF_OUTPUT=$(git diff --numstat "$MERGE_BASE"..HEAD 2>/dev/null)
+    # Get raw diff output, including committed branch changes plus local worktree deltas.
+    RAW_DIFF_OUTPUT=$(get_effective_pr_numstat "$MERGE_BASE")
     DIFF_OUTPUT="$RAW_DIFF_OUTPUT"
 
     # Load exclude patterns from .preflight-exclude if it exists
