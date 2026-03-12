@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 set -euo pipefail
+umask 077
 
 CONFIG_DIR="${SECPAL_ANDROID_CONFIG_DIR:-$HOME/.config/secpal}"
 ENV_FILE="${SECPAL_ANDROID_RELEASE_ENV_FILE:-$CONFIG_DIR/android-release.env}"
@@ -37,6 +38,13 @@ random_password() {
     set -o pipefail
 }
 
+write_env_assignment() {
+    local key="$1"
+    local value="$2"
+
+    printf '%s=%q\n' "$key" "$value" >>"$ENV_FILE"
+}
+
 KEYSTORE_PASSWORD="${SECPAL_ANDROID_KEYSTORE_PASSWORD:-$(random_password)}"
 KEY_PASSWORD="${SECPAL_ANDROID_KEY_PASSWORD:-$(random_password)}"
 
@@ -53,14 +61,13 @@ keytool -genkeypair \
 
 chmod 600 "$KEYSTORE_PATH"
 
-cat >"$ENV_FILE" <<EOF
-SECPAL_ANDROID_VERSION_CODE=$VERSION_CODE
-SECPAL_ANDROID_VERSION_NAME=$VERSION_NAME
-SECPAL_ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH
-SECPAL_ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD
-SECPAL_ANDROID_KEY_ALIAS=$KEY_ALIAS
-SECPAL_ANDROID_KEY_PASSWORD=$KEY_PASSWORD
-EOF
+: >"$ENV_FILE"
+write_env_assignment "SECPAL_ANDROID_VERSION_CODE" "$VERSION_CODE"
+write_env_assignment "SECPAL_ANDROID_VERSION_NAME" "$VERSION_NAME"
+write_env_assignment "SECPAL_ANDROID_KEYSTORE_PATH" "$KEYSTORE_PATH"
+write_env_assignment "SECPAL_ANDROID_KEYSTORE_PASSWORD" "$KEYSTORE_PASSWORD"
+write_env_assignment "SECPAL_ANDROID_KEY_ALIAS" "$KEY_ALIAS"
+write_env_assignment "SECPAL_ANDROID_KEY_PASSWORD" "$KEY_PASSWORD"
 
 chmod 600 "$ENV_FILE"
 

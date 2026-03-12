@@ -46,3 +46,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restricted Android file sharing to app-scoped paths and disabled default Android backups for a safer mobile baseline
 - Corrected the domain-policy validation so mixed lines containing both allowed and forbidden `secpal.*` domains still fail the check
 - Excluded deprecated `kotlin-stdlib-jdk7` and `kotlin-stdlib-jdk8` transitive modules from the native Android build so Debug APK assembly works with the current Capacitor and AndroidX dependency graph
+- Hardened Android release helper scripts to reject unsafe env-file ownership or permissions, apply restrictive secret-file umask defaults, and escape generated env values safely

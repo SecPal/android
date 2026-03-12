@@ -1,6 +1,13 @@
 apply plugin: 'com.android.application'
 
-def releaseVersionCode = (System.getenv('SECPAL_ANDROID_VERSION_CODE') ?: '1') as Integer
+def releaseVersionCodeEnv = System.getenv('SECPAL_ANDROID_VERSION_CODE')
+def releaseVersionCodeString = (releaseVersionCodeEnv && releaseVersionCodeEnv.trim()) ? releaseVersionCodeEnv.trim() : '1'
+def releaseVersionCode
+try {
+    releaseVersionCode = Integer.parseInt(releaseVersionCodeString)
+} catch (NumberFormatException e) {
+    throw new GradleException("Invalid SECPAL_ANDROID_VERSION_CODE environment variable value '${releaseVersionCodeEnv}'. Expected a numeric integer version code.")
+}
 def releaseVersionName = System.getenv('SECPAL_ANDROID_VERSION_NAME') ?: '1.0.0'
 def releaseKeystorePath = System.getenv('SECPAL_ANDROID_KEYSTORE_PATH')
 def releaseKeystorePassword = System.getenv('SECPAL_ANDROID_KEYSTORE_PASSWORD')
