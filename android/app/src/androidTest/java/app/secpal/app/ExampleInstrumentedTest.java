@@ -1,4 +1,9 @@
-package app.secpal.app.mobile;
+/*
+ * SPDX-FileCopyrightText: 2026 SecPal
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+package app.secpal.app;
 
 import static org.junit.Assert.assertEquals;
 
@@ -15,6 +20,6 @@ public class ExampleInstrumentedTest {
     public void useAppContext() {
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("app.secpal.app.mobile", appContext.getPackageName());
+        assertEquals("app.secpal.app", appContext.getPackageName());
     }
 }

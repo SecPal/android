@@ -36,7 +36,12 @@
     "cap:sync": "npm run frontend:build && npx cap sync android",
     "cap:copy": "npm run frontend:build && npx cap copy android",
     "cap:add:android": "npx cap add android && npm run native:verify",
-    "cap:open:android": "npx cap open android"
+    "cap:open:android": "npx cap open android",
+    "native:assemble:debug": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleDebug'",
+    "native:assemble:release": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleRelease'",
+    "native:bundle:release": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew bundleRelease'",
+    "native:assemble:release:signed": "bash ./scripts/load-android-release-env.sh bash -lc 'cd android && ./gradlew assembleRelease'",
+    "native:bundle:release:signed": "bash ./scripts/load-android-release-env.sh bash -lc 'cd android && ./gradlew bundleRelease'"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",

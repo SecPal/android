@@ -6,8 +6,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "app.secpal.app.mobile",
-  appName: "SecPal Android",
+  appId: "app.secpal.app",
+  appName: "SecPal",
   webDir: "../frontend/dist",
   server: {
     androidScheme: "https",
