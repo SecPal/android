@@ -33,9 +33,9 @@ describe("capacitor Android wrapper configuration", () => {
     ).toBe(true);
   });
 
-  it("uses the SecPal Android app identity and secure scheme", () => {
-    expect(config.appId).toBe("app.secpal.app.mobile");
-    expect(config.appName).toBe("SecPal Android");
+  it("uses the SecPal app identity and secure scheme", () => {
+    expect(config.appId).toBe("app.secpal.app");
+    expect(config.appName).toBe("SecPal");
     expect(config.server?.androidScheme).toBe("https");
   });
 });

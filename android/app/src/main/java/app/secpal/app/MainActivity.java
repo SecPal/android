@@ -1,0 +1,10 @@
+/*
+ * SPDX-FileCopyrightText: 2026 SecPal
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+package app.secpal.app;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {}
