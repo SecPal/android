@@ -33,3 +33,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Versioned the generated `android/capacitor-cordova-android-plugins/` module so clean Android Studio syncs and Gradle builds work from a fresh clone
 - Restricted Android file sharing to app-scoped paths and disabled default Android backups for a safer mobile baseline
 - Corrected the domain-policy validation so mixed lines containing both allowed and forbidden `secpal.*` domains still fail the check
+- Corrected `scripts/preflight.sh` so unstaged and untracked files are included consistently for markdown, REUSE, and local PR-size decisions
