@@ -62,7 +62,7 @@
     "vitest": "^4.1.0"
   },
   "overrides": {
-    "yauzl": ">=3.2.1"
+    "yauzl": "3.2.1"
   },
   "engines": {
     "node": ">=22.0.0",
