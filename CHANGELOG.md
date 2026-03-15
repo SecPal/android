@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Removed the bundled Secrets product feature from the Android wrapper by syncing the updated shared frontend build without Secrets routes, UI, and related web assets.
+- Removed the bundled Secrets product feature from the Android wrapper by syncing the updated shared frontend build without Secrets routes, UI, and related web assets
 
 ### Security
 
