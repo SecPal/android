@@ -33,7 +33,7 @@ Recommended layout:
 
 - daily Android development in a regular AppVM
 - long-term encrypted backup stored outside the working AppVM
-- one offline or strongly controlled backup copy in a dedicated vault-like location
+- one offline or strongly controlled backup copy in a dedicated protected location
 
 Minimum recommendation:
 
