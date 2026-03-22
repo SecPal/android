@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/copilot-instructions.md` now clarifies that if an edited file has no inline SPDX header, its companion `.license` file must be checked and updated instead
 - repo-local Android instructions and overlays now also restate Copilot review handling, signed-commit checks, EPIC/sub-issue requirements, REUSE checks, 4-pass review, and the `secpal.app` vs `secpal.dev` use-case split so project-wide governance is locally complete
 - repo-local Android instructions and overlays now also require warning, audit, and deprecation notices from scripts and package managers to be reviewed and either fixed or tracked immediately
-- `scripts/preflight.sh` now restricts `yamllint` to repository YAML files outside dependency and build directories so Android validation no longer fails on third-party `node_modules` YAML errors
+- `scripts/preflight.sh` now restricts `yamllint` to repository YAML files outside dependency and build directories using a Bash 3-compatible `while read` loop instead of `mapfile` so Android validation no longer fails on third-party `node_modules` YAML errors and the script remains portable across macOS and Linux
 
 ### Removed
 

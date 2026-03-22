@@ -91,7 +91,10 @@ if [ -d .github/workflows ]; then
 fi
 
 if [ -f .yamllint.yml ] && command -v yamllint >/dev/null 2>&1; then
-  mapfile -d '' YAML_FILES < <(
+  YAML_FILES=()
+  while IFS= read -r -d '' file; do
+    YAML_FILES+=("$file")
+  done < <(
     find . \
       \( -path './.git' -o -path './node_modules' -o -path './build' -o -path './dist' -o -path './android/app/build' -o -path './android/build' -o -path './android/.gradle' \) -prune \
       -o -type f \( -name '*.yml' -o -name '*.yaml' \) -print0
