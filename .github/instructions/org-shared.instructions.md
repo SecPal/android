@@ -17,5 +17,14 @@ At runtime, this file now acts as the repo-local overlay for the `android` repos
   applicable, no bypass, fail fast, one topic per change, immediate issue
   creation for out-of-scope findings, and `CHANGELOG.md` updates for real
   changes.
-- Use only `secpal.app` and `secpal.dev`.
+- Use `secpal.app` for production services and all email addresses, and
+  `secpal.dev` only for dev, staging, testing, and examples.
+- Never reply to Copilot review comments with GitHub comment tools; use the
+  approved non-comment review workflow instead.
+- Keep commits GPG-signed, use file and line references instead of verbatim code
+  quotes in GitHub communication, and require EPIC + sub-issues for work that
+  spans more than one PR.
+- Treat warnings, audit findings, deprecation notices, and similar non-fatal
+  diagnostics as actionable; fix them in scope or create a GitHub issue
+  immediately when they are real but out of scope.
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.

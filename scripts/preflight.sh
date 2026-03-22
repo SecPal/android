@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2025 SecPal Contributors
+# SPDX-FileCopyrightText: 2025-2026 SecPal Contributors
 # SPDX-License-Identifier: MIT
 
 set -euo pipefail
@@ -91,7 +91,18 @@ if [ -d .github/workflows ]; then
 fi
 
 if [ -f .yamllint.yml ] && command -v yamllint >/dev/null 2>&1; then
-  yamllint -c .yamllint.yml . || FORMAT_EXIT=1
+  YAML_FILES=()
+  while IFS= read -r -d '' file; do
+    YAML_FILES+=("$file")
+  done < <(
+    find . \
+      \( -path './.git' -o -path './node_modules' -o -path './build' -o -path './dist' -o -path './android/app/build' -o -path './android/build' -o -path './android/.gradle' \) -prune \
+      -o -type f \( -name '*.yml' -o -name '*.yaml' \) -print0
+  )
+
+  if [ "${#YAML_FILES[@]}" -gt 0 ]; then
+    yamllint -c .yamllint.yml "${YAML_FILES[@]}" || FORMAT_EXIT=1
+  fi
 fi
 
 # Only run REUSE lint if new files were added or license-related files changed
