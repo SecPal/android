@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-FileCopyrightText: 2025-2026 SecPal
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Pre-commit hooks for quality checks
@@ -6,6 +6,7 @@
 # Run manually: pre-commit run --all-files
 # Update hooks: pre-commit autoupdate
 
+---
 repos:
   # REUSE compliance
   - repo: https://github.com/fsfe/reuse-tool

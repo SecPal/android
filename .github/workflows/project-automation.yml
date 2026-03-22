@@ -1,6 +1,7 @@
-# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-FileCopyrightText: 2025-2026 SecPal
 # SPDX-License-Identifier: CC0-1.0
 
+---
 name: Project Board Automation
 
 on:
@@ -30,6 +31,7 @@ jobs:
   check-project-automation-secrets:
     name: Check project automation secrets
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
