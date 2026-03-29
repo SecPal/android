@@ -15,6 +15,25 @@ On Fedora, install the baseline packages first:
 sudo dnf install android-tools java-21-openjdk-devel nodejs npm
 ```
 
+After installing, verify the Node and npm versions meet the minimum required by this repository (`engines` in `package.json`):
+
+```bash
+node --version   # must be >= 22.0.0
+npm --version    # must be >= 10.0.0
+```
+
+Fedora's packaged `nodejs` may be older than Node 22. If `node --version` reports a lower version, install Node 22 via a version manager such as `nvm` or `fnm`, or use the NodeSource RPM repository:
+
+```bash
+# nvm (https://github.com/nvm-sh/nvm)
+nvm install 22
+nvm use 22
+
+# fnm (https://github.com/Schniz/fnm)
+fnm install 22
+fnm use 22
+```
+
 The Android repository expects Java 21 and an Android SDK that is available under `~/Android/Sdk` unless you override it explicitly.
 
 Required SDK components:
