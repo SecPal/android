@@ -33,7 +33,7 @@ describe("capacitor Android wrapper configuration", () => {
     ).toBe(true);
   });
 
-  it("uses the SecPal app identity and secure scheme", () => {
+  it("uses the SecPal app identity, configured hostname, and secure scheme", () => {
     expect(config.appId).toBe("app.secpal.app");
     expect(config.appName).toBe("SecPal");
     expect(config.server?.hostname).toBe("app.secpal.dev");
