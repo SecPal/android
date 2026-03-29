@@ -26,4 +26,16 @@ if [ ! -d "$FRONTEND_DIR/dist" ]; then
   exit 1
 fi
 
+FRONTEND_INDEX_HTML="$FRONTEND_DIR/dist/index.html"
+
+if [ ! -f "$FRONTEND_INDEX_HTML" ]; then
+  echo "❌ frontend build completed but index.html is missing at: $FRONTEND_INDEX_HTML" >&2
+  exit 1
+fi
+
+echo "→ Injecting Android native auth bootstrap into $FRONTEND_INDEX_HTML"
+node "$ROOT_DIR/scripts/inject-native-auth-bridge.mjs" \
+  "$FRONTEND_INDEX_HTML" \
+  "$ROOT_DIR/android/app/src/main/res/values/strings.xml"
+
 echo "✅ frontend dist ready: $FRONTEND_DIR/dist"

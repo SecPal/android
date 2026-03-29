@@ -40,6 +40,8 @@ Forbidden storage and exposure paths:
 
 The Android app continues to embed the shared web UI from `../frontend/dist` inside the Capacitor WebView.
 
+At packaging time, the Android wrapper injects a small bootstrap script into the built `index.html` so the shared UI sees the native auth facade from its first render. This keeps the React source tree browser-oriented while ensuring the Android WebView does not boot into the browser-session auth path.
+
 The shared UI is responsible for:
 
 - rendering screens
@@ -88,6 +90,8 @@ Android authentication must be implemented in a native boundary with four respon
 3. The native client loads the token from secure storage.
 4. The native client sends the request with `Authorization: Bearer <token>`.
 5. The response is normalized and returned to the UI.
+
+For the current Android implementation, the wrapper bootstrap also patches authenticated `/v1/` fetch traffic in the WebView so the shared UI can keep using its existing service modules while protected requests are executed natively instead of through browser cookies.
 
 ### Logout
 

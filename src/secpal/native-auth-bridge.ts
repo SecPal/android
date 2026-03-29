@@ -22,12 +22,14 @@ export interface NativeAuthBridge {
 export interface NativeAuthenticatedRequest {
   method: string;
   path: string;
-  body?: string;
+  bodyBase64?: string;
+  contentType?: string;
+  accept?: string;
 }
 
 export interface NativeAuthenticatedResponse {
   status: number;
-  body: string;
+  bodyBase64?: string;
   contentType?: string;
 }
 
@@ -38,7 +40,9 @@ interface SecPalNativeAuthPlugin {
   request(options: {
     method: string;
     path: string;
-    body?: string;
+    bodyBase64?: string;
+    contentType?: string;
+    accept?: string;
   }): Promise<NativeAuthenticatedResponse>;
 }
 
@@ -62,7 +66,9 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       return secPalNativeAuthPlugin.request({
         method: request.method,
         path: request.path,
-        body: request.body,
+        bodyBase64: request.bodyBase64,
+        contentType: request.contentType,
+        accept: request.accept,
       });
     },
   };

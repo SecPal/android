@@ -6,16 +6,16 @@
 package app.secpal.app;
 
 import android.os.Build;
+import android.util.Base64;
 
 import com.getcapacitor.JSObject;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -51,19 +51,30 @@ class NativeAuthHttpClient {
         sendJsonRequest(baseUrl, "/v1/auth/logout", "POST", null, token);
     }
 
-    JSObject request(String baseUrl, String token, String method, String path, String requestBody)
+    JSObject request(
+        String baseUrl,
+        String token,
+        String method,
+        String path,
+        String requestBodyBase64,
+        String contentType,
+        String accept
+    )
         throws IOException, NativeAuthHttpException {
         RequestResponse response = sendRequest(
             baseUrl,
             normalizeRequestPath(path),
             normalizeHttpMethod(method),
-            requestBody,
-            token
+            decodeRequestBody(requestBodyBase64),
+            token,
+            contentType,
+            accept,
+            false
         );
 
         JSObject payload = new JSObject();
         payload.put("status", response.getStatusCode());
-        payload.put("body", response.getResponseBody());
+        payload.put("bodyBase64", response.getResponseBodyBase64());
 
         if (response.getContentType() != null && !response.getContentType().isEmpty()) {
             payload.put("contentType", response.getContentType());
@@ -78,47 +89,70 @@ class NativeAuthHttpClient {
             baseUrl,
             path,
             method,
-            requestBody == null ? null : requestBody.toString(),
-            bearerToken
+            requestBody == null ? null : requestBody.toString().getBytes(StandardCharsets.UTF_8),
+            bearerToken,
+            "application/json",
+            "application/json",
+            true
         );
 
-        return response.getResponseBody().isEmpty() ? new JSONObject() : new JSONObject(response.getResponseBody());
+        String responseBody = response.getResponseBodyAsString();
+
+        return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
     }
 
-    private RequestResponse sendRequest(String baseUrl, String path, String method, String requestBody, String bearerToken)
+    private RequestResponse sendRequest(
+        String baseUrl,
+        String path,
+        String method,
+        byte[] requestBody,
+        String bearerToken,
+        String contentType,
+        String accept,
+        boolean throwOnError
+    )
         throws IOException, NativeAuthHttpException {
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizeBaseUrl(baseUrl) + path).openConnection();
         try {
             connection.setRequestMethod(method);
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json");
+
+            if (accept != null && !accept.trim().isEmpty()) {
+                connection.setRequestProperty("Accept", accept);
+            }
+
+            if (contentType != null && !contentType.trim().isEmpty()) {
+                connection.setRequestProperty("Content-Type", contentType);
+            }
 
             if (bearerToken != null) {
                 connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
             }
 
-            if (requestBody != null && !requestBody.isEmpty()) {
+            if (requestBody != null && requestBody.length > 0) {
                 connection.setDoOutput(true);
                 try (OutputStream outputStream = connection.getOutputStream()) {
-                    outputStream.write(requestBody.getBytes(StandardCharsets.UTF_8));
+                    outputStream.write(requestBody);
                 }
             }
 
             int statusCode = connection.getResponseCode();
             InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            String responseBody;
+            byte[] responseBody;
             if (responseStream != null) {
                 try (InputStream in = responseStream) {
-                    responseBody = readResponseBody(in);
+                    responseBody = readResponseBodyBytes(in);
                 }
             } else {
-                responseBody = "";
+                responseBody = new byte[0];
             }
 
-            if (statusCode >= 400) {
-                throw new NativeAuthHttpException(buildErrorMessage(responseBody, statusCode), statusCode);
+            if (statusCode >= 400 && throwOnError) {
+                throw new NativeAuthHttpException(
+                    buildErrorMessage(new String(responseBody, StandardCharsets.UTF_8), statusCode),
+                    statusCode
+                );
             }
 
             return new RequestResponse(statusCode, responseBody, connection.getContentType());
@@ -300,20 +334,32 @@ class NativeAuthHttpClient {
         return normalizedPath;
     }
 
-    private String readResponseBody(InputStream inputStream) throws IOException {
+    private byte[] readResponseBodyBytes(InputStream inputStream) throws IOException {
         if (inputStream == null) {
-            return "";
+            return new byte[0];
         }
 
-        try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            StringBuilder stringBuilder = new StringBuilder();
-            String line;
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
 
-            while ((line = bufferedReader.readLine()) != null) {
-                stringBuilder.append(line);
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
             }
 
-            return stringBuilder.toString();
+            return outputStream.toByteArray();
+        }
+    }
+
+    private byte[] decodeRequestBody(String requestBodyBase64) throws NativeAuthHttpException {
+        if (requestBodyBase64 == null || requestBodyBase64.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return Base64.decode(requestBodyBase64, Base64.DEFAULT);
+        } catch (IllegalArgumentException exception) {
+            throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
         }
     }
 
@@ -345,10 +391,10 @@ class NativeAuthHttpClient {
 
     static final class RequestResponse {
         private final int statusCode;
-        private final String responseBody;
+        private final byte[] responseBody;
         private final String contentType;
 
-        RequestResponse(int statusCode, String responseBody, String contentType) {
+        RequestResponse(int statusCode, byte[] responseBody, String contentType) {
             this.statusCode = statusCode;
             this.responseBody = responseBody;
             this.contentType = contentType;
@@ -356,7 +402,11 @@ class NativeAuthHttpClient {
 
         int getStatusCode() { return statusCode; }
 
-        String getResponseBody() { return responseBody; }
+        String getResponseBodyAsString() { return new String(responseBody, StandardCharsets.UTF_8); }
+
+        String getResponseBodyBase64() {
+            return responseBody.length == 0 ? "" : Base64.encodeToString(responseBody, Base64.NO_WRAP);
+        }
 
         String getContentType() { return contentType; }
     }

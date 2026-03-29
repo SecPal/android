@@ -52,7 +52,7 @@ describe("capacitor Android wrapper configuration", () => {
     pluginMocks.login.mockResolvedValue({ user: { id: 1 } });
     pluginMocks.request.mockResolvedValue({
       status: 200,
-      body: '{"ok":true}',
+      bodyBase64: "eyJvayI6dHJ1ZX0=",
       contentType: "application/json",
     });
 
@@ -70,7 +70,7 @@ describe("capacitor Android wrapper configuration", () => {
       bridge.request({ method: "GET", path: "/v1/me" })
     ).resolves.toEqual({
       status: 200,
-      body: '{"ok":true}',
+      bodyBase64: "eyJvayI6dHJ1ZX0=",
       contentType: "application/json",
     });
     expect(target.SecPalNativeAuthBridge).toBe(bridge);
@@ -81,7 +81,9 @@ describe("capacitor Android wrapper configuration", () => {
     expect(pluginMocks.request).toHaveBeenCalledWith({
       method: "GET",
       path: "/v1/me",
-      body: undefined,
+      bodyBase64: undefined,
+      contentType: undefined,
+      accept: undefined,
     });
   });
 });
