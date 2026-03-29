@@ -54,7 +54,7 @@ final class KeystoreTokenCipher implements TokenCipher {
             byte[] plaintext = cipher.doFinal(Base64.decode(payload.getCiphertext(), Base64.NO_WRAP));
 
             return new String(plaintext, StandardCharsets.UTF_8);
-        } catch (GeneralSecurityException exception) {
+        } catch (GeneralSecurityException | IllegalArgumentException exception) {
             throw new TokenStorageException("Failed to decrypt Android auth token", exception);
         }
     }

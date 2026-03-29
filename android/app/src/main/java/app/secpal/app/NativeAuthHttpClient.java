@@ -20,13 +20,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 class NativeAuthHttpClient {
     private static final int CONNECT_TIMEOUT_MILLIS = 15000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
-    private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"([^\"]+)\"");
 
     LoginResponse login(String baseUrl, String email, String password) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject requestBody = new JSONObject()
@@ -109,9 +106,14 @@ class NativeAuthHttpClient {
 
     static String buildErrorMessage(String responseBody, int statusCode) {
         if (!responseBody.isEmpty()) {
-            Matcher matcher = MESSAGE_PATTERN.matcher(responseBody);
-            if (matcher.find()) {
-                return matcher.group(1);
+            try {
+                JSONObject response = new JSONObject(responseBody);
+                String message = response.optString("message", null);
+                if (message != null && !message.isEmpty()) {
+                    return message;
+                }
+            } catch (JSONException ignored) {
+                // Fall through to generic message.
             }
         }
 
