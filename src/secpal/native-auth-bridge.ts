@@ -14,6 +14,21 @@ export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
+  request(
+    request: NativeAuthenticatedRequest
+  ): Promise<NativeAuthenticatedResponse>;
+}
+
+export interface NativeAuthenticatedRequest {
+  method: string;
+  path: string;
+  body?: string;
+}
+
+export interface NativeAuthenticatedResponse {
+  status: number;
+  body: string;
+  contentType?: string;
 }
 
 interface SecPalNativeAuthPlugin {
@@ -24,6 +39,12 @@ interface SecPalNativeAuthPlugin {
   }): Promise<unknown>;
   logout(options: { baseUrl: string }): Promise<void>;
   getCurrentUser(options: { baseUrl: string }): Promise<unknown>;
+  request(options: {
+    baseUrl: string;
+    method: string;
+    path: string;
+    body?: string;
+  }): Promise<NativeAuthenticatedResponse>;
 }
 
 export interface NativeAuthBridgeOptions {
@@ -80,6 +101,14 @@ export function createNativeAuthBridge(
     },
     getCurrentUser() {
       return secPalNativeAuthPlugin.getCurrentUser({ baseUrl });
+    },
+    request(request) {
+      return secPalNativeAuthPlugin.request({
+        baseUrl,
+        method: request.method,
+        path: request.path,
+        body: request.body,
+      });
     },
   };
 }

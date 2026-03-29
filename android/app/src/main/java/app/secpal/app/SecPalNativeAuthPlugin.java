@@ -112,6 +112,35 @@ public class SecPalNativeAuthPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void request(PluginCall call) {
+        String baseUrl = requireValue(call, "baseUrl");
+        String method = requireValue(call, "method");
+        String path = requireValue(call, "path");
+
+        if (baseUrl == null || method == null || path == null) {
+            return;
+        }
+
+        String body = call.getString("body");
+
+        runAsync(call, () -> {
+            try {
+                String token = requireStoredToken(call);
+                if (token == null) {
+                    return;
+                }
+
+                call.resolve(httpClient.request(baseUrl, token, method, path, body));
+            } catch (IOException | JSONException | NativeAuthHttpException exception) {
+                maybeClearToken(exception);
+                rejectCall(call, exception);
+            } catch (TokenStorageException exception) {
+                call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
+            }
+        });
+    }
+
     private void runAsync(PluginCall call, Runnable job) {
         if (!taskExecutor.submit(job)) {
             call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");

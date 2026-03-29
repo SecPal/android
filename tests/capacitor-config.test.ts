@@ -13,6 +13,7 @@ const pluginMocks = vi.hoisted(() => ({
   login: vi.fn(),
   logout: vi.fn(),
   getCurrentUser: vi.fn(),
+  request: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -49,6 +50,11 @@ describe("capacitor Android wrapper configuration", () => {
 
   it("installs a native auth bridge that normalizes the API base URL", async () => {
     pluginMocks.login.mockResolvedValue({ user: { id: 1 } });
+    pluginMocks.request.mockResolvedValue({
+      status: 200,
+      body: '{"ok":true}',
+      contentType: "application/json",
+    });
 
     const { installNativeAuthBridge } =
       await import("../src/secpal/native-auth-bridge");
@@ -63,11 +69,24 @@ describe("capacitor Android wrapper configuration", () => {
     await expect(
       bridge.login({ email: "worker@secpal.dev", password: "password123" })
     ).resolves.toEqual({ user: { id: 1 } });
+    await expect(
+      bridge.request({ method: "GET", path: "/v1/me" })
+    ).resolves.toEqual({
+      status: 200,
+      body: '{"ok":true}',
+      contentType: "application/json",
+    });
     expect(target.SecPalNativeAuthBridge).toBe(bridge);
     expect(pluginMocks.login).toHaveBeenCalledWith({
       baseUrl: "https://api.secpal.dev",
       email: "worker@secpal.dev",
       password: "password123",
+    });
+    expect(pluginMocks.request).toHaveBeenCalledWith({
+      baseUrl: "https://api.secpal.dev",
+      method: "GET",
+      path: "/v1/me",
+      body: undefined,
     });
   });
 });

@@ -20,10 +20,14 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 class NativeAuthHttpClient {
     private static final int CONNECT_TIMEOUT_MILLIS = 15000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
+    private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"([^\"]+)\"");
 
     LoginResponse login(String baseUrl, String email, String password) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject requestBody = new JSONObject()
@@ -46,8 +50,42 @@ class NativeAuthHttpClient {
         sendJsonRequest(baseUrl, "/v1/auth/logout", "POST", null, token);
     }
 
+    JSObject request(String baseUrl, String token, String method, String path, String requestBody)
+        throws IOException, JSONException, NativeAuthHttpException {
+        RequestResponse response = sendRequest(
+            baseUrl,
+            normalizeRequestPath(path),
+            normalizeHttpMethod(method),
+            requestBody,
+            token
+        );
+
+        JSObject payload = new JSObject();
+        payload.put("status", response.getStatusCode());
+        payload.put("body", response.getResponseBody());
+
+        if (response.getContentType() != null && !response.getContentType().isEmpty()) {
+            payload.put("contentType", response.getContentType());
+        }
+
+        return payload;
+    }
+
     private JSONObject sendJsonRequest(String baseUrl, String path, String method, JSONObject requestBody, String bearerToken)
         throws IOException, JSONException, NativeAuthHttpException {
+        RequestResponse response = sendRequest(
+            baseUrl,
+            path,
+            method,
+            requestBody == null ? null : requestBody.toString(),
+            bearerToken
+        );
+
+        return response.getResponseBody().isEmpty() ? new JSONObject() : new JSONObject(response.getResponseBody());
+    }
+
+    private RequestResponse sendRequest(String baseUrl, String path, String method, String requestBody, String bearerToken)
+        throws IOException, NativeAuthHttpException {
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizeBaseUrl(baseUrl) + path).openConnection();
         try {
             connection.setRequestMethod(method);
@@ -60,10 +98,10 @@ class NativeAuthHttpClient {
                 connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
             }
 
-            if (requestBody != null) {
+            if (requestBody != null && !requestBody.isEmpty()) {
                 connection.setDoOutput(true);
                 try (OutputStream outputStream = connection.getOutputStream()) {
-                    outputStream.write(requestBody.toString().getBytes(StandardCharsets.UTF_8));
+                    outputStream.write(requestBody.getBytes(StandardCharsets.UTF_8));
                 }
             }
 
@@ -82,7 +120,7 @@ class NativeAuthHttpClient {
                 throw new NativeAuthHttpException(buildErrorMessage(responseBody, statusCode), statusCode);
             }
 
-            return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
+            return new RequestResponse(statusCode, responseBody, connection.getContentType());
         } finally {
             connection.disconnect();
         }
@@ -106,18 +144,46 @@ class NativeAuthHttpClient {
 
     static String buildErrorMessage(String responseBody, int statusCode) {
         if (!responseBody.isEmpty()) {
-            try {
-                JSONObject response = new JSONObject(responseBody);
-                String message = response.optString("message", null);
-                if (message != null && !message.isEmpty()) {
-                    return message;
-                }
-            } catch (JSONException ignored) {
-                // Fall through to generic message.
+            Matcher matcher = MESSAGE_PATTERN.matcher(responseBody);
+            if (matcher.find()) {
+                return matcher.group(1);
             }
         }
 
         return "Android auth request failed with status " + statusCode;
+    }
+
+    static String normalizeHttpMethod(String method) throws NativeAuthHttpException {
+        if (method == null || method.trim().isEmpty()) {
+            throw new NativeAuthHttpException("Android auth bridge requires an HTTP method", 0);
+        }
+
+        String normalizedMethod = method.trim().toUpperCase(Locale.US);
+
+        switch (normalizedMethod) {
+            case "GET":
+            case "POST":
+            case "PUT":
+            case "PATCH":
+            case "DELETE":
+                return normalizedMethod;
+            default:
+                throw new NativeAuthHttpException("Android auth bridge does not support method " + normalizedMethod, 0);
+        }
+    }
+
+    static String normalizeRequestPath(String path) throws NativeAuthHttpException {
+        if (path == null || path.trim().isEmpty()) {
+            throw new NativeAuthHttpException("Android auth bridge requires a request path", 0);
+        }
+
+        String normalizedPath = path.trim();
+
+        if (!normalizedPath.startsWith("/")) {
+            throw new NativeAuthHttpException("Android auth bridge requires a relative request path starting with /", 0);
+        }
+
+        return normalizedPath;
     }
 
     private String readResponseBody(InputStream inputStream) throws IOException {
@@ -161,5 +227,23 @@ class NativeAuthHttpClient {
         JSObject getUser() {
             return user;
         }
+    }
+
+    static final class RequestResponse {
+        private final int statusCode;
+        private final String responseBody;
+        private final String contentType;
+
+        RequestResponse(int statusCode, String responseBody, String contentType) {
+            this.statusCode = statusCode;
+            this.responseBody = responseBody;
+            this.contentType = contentType;
+        }
+
+        int getStatusCode() { return statusCode; }
+
+        String getResponseBody() { return responseBody; }
+
+        String getContentType() { return contentType; }
     }
 }
