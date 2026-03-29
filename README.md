@@ -63,6 +63,8 @@ Install Git hooks after cloning:
 ./scripts/setup-pre-push.sh
 ```
 
+See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
+
 ## Capacitor Setup
 
 ```bash
@@ -114,6 +116,7 @@ See `docs/ANDROID_RELEASE_DISTRIBUTION.md` for the distribution split between di
 See `docs/ANDROID_KEYSTORE_BACKUP_AND_RECOVERY.md` for the backup and recovery baseline for the Android upload key.
 See `docs/ANDROID_FIRST_RELEASE_CHECKLIST.md` for the first direct-download and Play Store release gate.
 See `docs/ANDROID_PLAY_CONSOLE_SETUP.md` for the concrete Play Console setup flow.
+See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for real-device installation and local validation on Fedora/Linux.
 
 The current release baseline uses:
 
