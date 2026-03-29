@@ -12,6 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `TokenCipher` interface and `KeystoreTokenCipher` implementation that extract the AES/GCM/NoPadding encryption logic from `KeystoreTokenStorage` into an injectable seam so cipher behavior can be exercised in unit tests without access to the production Android Keystore
+- `EncryptedTokenPayload` value type that carries ciphertext and IV between the cipher and storage layers
+- `KeystoreTokenStorageTest` with round-trip, empty-storage, and failed-decrypt-clears-storage scenarios exercised through `FakeTokenCipher` and `InMemorySharedPreferences`
+- `NativeAuthHttpClientTest` covering URL normalisation and error-message extraction
+- `SecPalNativeAuthPluginTest` covering HTTP error-code resolution and the non-HTTP fallback path
+
+### Changed
+
+- `KeystoreTokenStorage` now accepts an injectable `TokenCipher` via a package-private secondary constructor so tests can substitute a fake cipher without touching the Keystore
+- `NativeAuthHttpClient.normalizeBaseUrl` and `buildErrorMessage` (formerly `extractErrorMessage`) promoted to `static` visibility for direct unit-test access; `extractErrorMessage` replaced with regex-based extraction to remove the `JSONException` dependency from the helper path
+- `SecPalNativeAuthPlugin.resolveErrorCode` extracted as `static` package-private method so error-code mapping can be verified without a running Capacitor plugin instance
+
 ### Fixed
 
 - Validate API base URL scheme in TypeScript `normalizeBaseUrl` so non-absolute or non-http(s) URLs are rejected at the bridge layer before reaching the native plugin
