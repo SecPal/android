@@ -52,7 +52,12 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]+" \
     grep -v -- '- "secpal\.' | \
     grep -v -- '^[[:space:]]*- \[' || true)
 
-violations=$(printf '%s\n' "$matches" | grep -E "secpal\.(com|org|net|io|example)" || true)
+# Allowlist approach: flag any secpal.* domain not matching an approved pattern.
+# Approved: secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, app.secpal.app (identifier context).
+# This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
+violations=$(printf '%s\n' "$matches" | \
+    grep -Ev 'secpal\.(app|dev)([^a-zA-Z0-9.-]|$)|api\.secpal\.(dev|app)|app\.secpal\.(dev|app)' | \
+    grep -E 'secpal\.' || true)
 
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app|app\.secpal\.app' | \
@@ -72,6 +77,7 @@ deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -v -- "validation_rule" | \
     grep -v -- './.github/copilot-instructions.md:' | \
     grep -v -- './.github/copilot-config.yaml:' | \
+    grep -v -- './.github/instructions/' | \
     grep -v -- 'namespace "app\.secpal\.app"' | \
     grep -v -- 'package app\.secpal\.app;' | \
     grep -v -- 'package_name' | \
@@ -80,11 +86,7 @@ deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -v -- "\`app\.secpal\.app\` package" | \
     grep -v -- 'better default than Android-specific variants' | \
     grep -v -- 'adb shell monkey -p app\.secpal\.app' | \
-    grep -v -- 'deprecated' | \
-    grep -v -- 'mistaken' | \
-    grep -v -- 'before deployment' | \
     grep -v -- 'must not appear as active web hosts' | \
-    grep -v -- 'not deployed' | \
     grep -v -- 'not treated as a deployable web domain' || true)
 
 if [[ -z "$violations" && -z "$deprecated_web_hosts" ]]; then
