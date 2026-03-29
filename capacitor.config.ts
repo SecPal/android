@@ -10,6 +10,7 @@ const config: CapacitorConfig = {
   appName: "SecPal",
   webDir: "../frontend/dist",
   server: {
+    hostname: "app.secpal.dev",
     androidScheme: "https",
   },
 };
