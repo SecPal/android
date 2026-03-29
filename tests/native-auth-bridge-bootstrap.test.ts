@@ -32,7 +32,7 @@ describe("native auth bridge bootstrap injection", () => {
       injectorModulePromise.then(({ readApiBaseUrlFromStringsXml }) =>
         readApiBaseUrlFromStringsXml(stringsXml)
       )
-    ).resolves.toBe("https://api.secpal.app");
+    ).resolves.toBe("https://api.secpal.dev");
   });
 
   it("injects the bootstrap script before the first module script and stays idempotent", async () => {
@@ -49,7 +49,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     const injectedHtml = injectNativeAuthBridgeBootstrap(
       html,
-      "https://api.secpal.app"
+      "https://api.secpal.dev"
     );
 
     expect(injectedHtml).toContain('id="secpal-native-auth-bridge-bootstrap"');
@@ -57,7 +57,7 @@ describe("native auth bridge bootstrap injection", () => {
       injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
     ).toBeLessThan(injectedHtml.indexOf('<script type="module"'));
     expect(
-      injectNativeAuthBridgeBootstrap(injectedHtml, "https://api.secpal.app")
+      injectNativeAuthBridgeBootstrap(injectedHtml, "https://api.secpal.dev")
     ).toBe(injectedHtml);
   });
 
@@ -96,7 +96,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript("https://api.secpal.app"),
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
       sandbox
     );
 
@@ -104,10 +104,10 @@ describe("native auth bridge bootstrap injection", () => {
       login(credentials: { email: string; password: string }): Promise<unknown>;
     };
 
-    await bridge.login({ email: "worker@secpal.app", password: "password123" });
+    await bridge.login({ email: "worker@secpal.dev", password: "password123" });
 
     const response = await (sandbox.fetch as typeof fetch)(
-      "https://api.secpal.app/v1/customers",
+      "https://api.secpal.dev/v1/customers",
       {
         method: "POST",
         headers: {
@@ -119,7 +119,7 @@ describe("native auth bridge bootstrap injection", () => {
     );
 
     expect(plugin.login).toHaveBeenCalledWith({
-      email: "worker@secpal.app",
+      email: "worker@secpal.dev",
       password: "password123",
     });
     expect(plugin.request).toHaveBeenCalledWith({
@@ -167,12 +167,12 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript("https://api.secpal.app"),
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
       sandbox
     );
 
     const response = await (sandbox.fetch as typeof fetch)(
-      "https://api.secpal.app/health/ready",
+      "https://api.secpal.dev/health/ready",
       { method: "GET" }
     );
 
