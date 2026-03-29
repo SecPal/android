@@ -79,7 +79,7 @@ class NativeAuthHttpClient {
             }
 
             if (statusCode >= 400) {
-                throw new NativeAuthHttpException(extractErrorMessage(responseBody, statusCode), statusCode);
+                throw new NativeAuthHttpException(buildErrorMessage(responseBody, statusCode), statusCode);
             }
 
             return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
@@ -88,7 +88,7 @@ class NativeAuthHttpClient {
         }
     }
 
-    private String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {
+    static String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {
         if (baseUrl == null) {
             throw new NativeAuthHttpException("Android auth bridge requires an API base URL", 0);
         }
@@ -104,15 +104,16 @@ class NativeAuthHttpClient {
             : normalizedBaseUrl;
     }
 
-    private String extractErrorMessage(String responseBody, int statusCode) {
+    static String buildErrorMessage(String responseBody, int statusCode) {
         if (!responseBody.isEmpty()) {
             try {
                 JSONObject response = new JSONObject(responseBody);
-                if (response.has("message")) {
-                    return response.getString("message");
+                String message = response.optString("message", null);
+                if (message != null && !message.isEmpty()) {
+                    return message;
                 }
             } catch (JSONException ignored) {
-                // Ignore parsing failure and fall back to a generic message.
+                // Fall through to generic message.
             }
         }
 

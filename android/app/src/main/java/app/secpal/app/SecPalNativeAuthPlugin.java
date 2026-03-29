@@ -141,19 +141,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     private void rejectCall(PluginCall call, Exception exception) {
-        if (exception instanceof NativeAuthHttpException) {
-            NativeAuthHttpException httpException = (NativeAuthHttpException) exception;
-            int statusCode = httpException.getStatusCode();
-            String errorCode = statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
-            call.reject(
-                httpException.getMessage(),
-                errorCode,
-                httpException
-            );
+        String errorCode = resolveErrorCode(exception);
+
+        if (errorCode != null) {
+            call.reject(exception.getMessage(), errorCode, exception);
             return;
         }
 
         call.reject(exception.getMessage(), exception.getClass().getSimpleName(), exception);
+    }
+
+    static String resolveErrorCode(Exception exception) {
+        if (!(exception instanceof NativeAuthHttpException)) {
+            return null;
+        }
+
+        int statusCode = ((NativeAuthHttpException) exception).getStatusCode();
+
+        return statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
     }
 
     private void maybeClearToken(Exception exception) {
