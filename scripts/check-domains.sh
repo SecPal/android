@@ -77,7 +77,7 @@ deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -v -- 'package_name' | \
     grep -v -- 'custom_url_scheme' | \
     grep -v -- 'getPackageName()' | \
-    grep -v -- '`app\.secpal\.app` package' | \
+    grep -v -- "\`app\.secpal\.app\` package" | \
     grep -v -- 'better default than Android-specific variants' | \
     grep -v -- 'adb shell monkey -p app\.secpal\.app' | \
     grep -v -- 'deprecated' | \
