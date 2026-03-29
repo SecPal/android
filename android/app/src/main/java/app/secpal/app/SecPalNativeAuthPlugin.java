@@ -132,7 +132,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 }
 
                 call.resolve(httpClient.request(baseUrl, token, method, path, body));
-            } catch (IOException | JSONException | NativeAuthHttpException exception) {
+            } catch (IOException | NativeAuthHttpException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {

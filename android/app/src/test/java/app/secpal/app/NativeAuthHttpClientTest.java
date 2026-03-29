@@ -58,6 +58,14 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void buildErrorMessageHandlesEscapedQuotesInJsonMessage() {
+        assertEquals(
+            "Bad \"credentials\"",
+            NativeAuthHttpClient.buildErrorMessage("{\"message\":\"Bad \\\"credentials\\\"\"}", 422)
+        );
+    }
+
+    @Test
     public void buildErrorMessageFallsBackToStatusWhenJsonIsInvalid() {
         assertEquals(
             "Android auth request failed with status 503",
