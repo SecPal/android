@@ -20,10 +20,13 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 class NativeAuthHttpClient {
     private static final int CONNECT_TIMEOUT_MILLIS = 15000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
+    private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"([^\"]+)\"");
 
     LoginResponse login(String baseUrl, String email, String password) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject requestBody = new JSONObject()
@@ -79,7 +82,7 @@ class NativeAuthHttpClient {
             }
 
             if (statusCode >= 400) {
-                throw new NativeAuthHttpException(extractErrorMessage(responseBody, statusCode), statusCode);
+                throw new NativeAuthHttpException(buildErrorMessage(responseBody, statusCode), statusCode);
             }
 
             return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
@@ -88,7 +91,7 @@ class NativeAuthHttpClient {
         }
     }
 
-    private String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {
+    static String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {
         if (baseUrl == null) {
             throw new NativeAuthHttpException("Android auth bridge requires an API base URL", 0);
         }
@@ -104,15 +107,11 @@ class NativeAuthHttpClient {
             : normalizedBaseUrl;
     }
 
-    private String extractErrorMessage(String responseBody, int statusCode) {
+    static String buildErrorMessage(String responseBody, int statusCode) {
         if (!responseBody.isEmpty()) {
-            try {
-                JSONObject response = new JSONObject(responseBody);
-                if (response.has("message")) {
-                    return response.getString("message");
-                }
-            } catch (JSONException ignored) {
-                // Ignore parsing failure and fall back to a generic message.
+            Matcher matcher = MESSAGE_PATTERN.matcher(responseBody);
+            if (matcher.find()) {
+                return matcher.group(1);
             }
         }
 
