@@ -48,7 +48,7 @@ describe("capacitor Android wrapper configuration", () => {
     expect(config.server?.androidScheme).toBe("https");
   });
 
-  it("installs a native auth bridge that normalizes the API base URL", async () => {
+  it("installs a native auth bridge without exposing the API origin to plugin calls", async () => {
     pluginMocks.login.mockResolvedValue({ user: { id: 1 } });
     pluginMocks.request.mockResolvedValue({
       status: 200,
@@ -61,10 +61,7 @@ describe("capacitor Android wrapper configuration", () => {
     const target = {} as typeof globalThis & {
       SecPalNativeAuthBridge?: unknown;
     };
-    const bridge = installNativeAuthBridge(
-      { apiBaseUrl: "https://api.secpal.dev/" },
-      target
-    );
+    const bridge = installNativeAuthBridge(target);
 
     await expect(
       bridge.login({ email: "worker@secpal.dev", password: "password123" })
@@ -78,12 +75,10 @@ describe("capacitor Android wrapper configuration", () => {
     });
     expect(target.SecPalNativeAuthBridge).toBe(bridge);
     expect(pluginMocks.login).toHaveBeenCalledWith({
-      baseUrl: "https://api.secpal.dev",
       email: "worker@secpal.dev",
       password: "password123",
     });
     expect(pluginMocks.request).toHaveBeenCalledWith({
-      baseUrl: "https://api.secpal.dev",
       method: "GET",
       path: "/v1/me",
       body: undefined,

@@ -20,10 +20,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private TokenStorage tokenStorage;
     private NativeAuthHttpClient httpClient;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+    private String apiBaseUrl;
 
     @Override
     public void load() {
         super.load();
+        apiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
         tokenStorage = new KeystoreTokenStorage(getContext());
         httpClient = new NativeAuthHttpClient();
     }
@@ -36,17 +38,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void login(PluginCall call) {
-        String baseUrl = requireValue(call, "baseUrl");
         String email = requireValue(call, "email");
         String password = requireValue(call, "password");
 
-        if (baseUrl == null || email == null || password == null) {
+        if (email == null || password == null) {
             return;
         }
 
         runAsync(call, () -> {
             try {
-                NativeAuthHttpClient.LoginResponse response = httpClient.login(baseUrl, email, password);
+                NativeAuthHttpClient.LoginResponse response = httpClient.login(apiBaseUrl, email, password);
                 tokenStorage.saveToken(response.getToken());
 
                 JSObject payload = new JSObject();
@@ -62,12 +63,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getCurrentUser(PluginCall call) {
-        String baseUrl = requireValue(call, "baseUrl");
-
-        if (baseUrl == null) {
-            return;
-        }
-
         runAsync(call, () -> {
             try {
                 String token = requireStoredToken(call);
@@ -75,7 +70,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     return;
                 }
 
-                call.resolve(httpClient.getCurrentUser(baseUrl, token));
+                call.resolve(httpClient.getCurrentUser(apiBaseUrl, token));
             } catch (IOException | JSONException | NativeAuthHttpException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
@@ -87,12 +82,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void logout(PluginCall call) {
-        String baseUrl = requireValue(call, "baseUrl");
-
-        if (baseUrl == null) {
-            return;
-        }
-
         runAsync(call, () -> {
             try {
                 String token = requireStoredToken(call);
@@ -100,7 +89,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     return;
                 }
 
-                httpClient.logout(baseUrl, token);
+                httpClient.logout(apiBaseUrl, token);
                 tokenStorage.clearToken();
                 call.resolve();
             } catch (IOException | JSONException | NativeAuthHttpException exception) {
@@ -114,11 +103,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void request(PluginCall call) {
-        String baseUrl = requireValue(call, "baseUrl");
         String method = requireValue(call, "method");
         String path = requireValue(call, "path");
 
-        if (baseUrl == null || method == null || path == null) {
+        if (method == null || path == null) {
             return;
         }
 
@@ -131,7 +119,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     return;
                 }
 
-                call.resolve(httpClient.request(baseUrl, token, method, path, body));
+                call.resolve(httpClient.request(apiBaseUrl, token, method, path, body));
             } catch (IOException | NativeAuthHttpException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
@@ -188,6 +176,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
         int statusCode = ((NativeAuthHttpException) exception).getStatusCode();
 
         return statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
+    }
+
+    static String resolveConfiguredApiBaseUrl(String configuredValue) {
+        try {
+            return NativeAuthHttpClient.normalizeBaseUrl(configuredValue);
+        } catch (NativeAuthHttpException exception) {
+            throw new IllegalStateException("Invalid Android auth API origin configuration", exception);
+        }
     }
 
     private void maybeClearToken(Exception exception) {
