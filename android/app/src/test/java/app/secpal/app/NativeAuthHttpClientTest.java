@@ -89,6 +89,14 @@ public class NativeAuthHttpClientTest {
         );
     }
 
+    @Test
+    public void buildErrorMessageDecodesUnicodeEscapesInJsonMessage() {
+        assertEquals(
+            "Not found \u2014 resource missing",
+            NativeAuthHttpClient.buildErrorMessage("{\"message\":\"Not found \\u2014 resource missing\"}", 404)
+        );
+    }
+
     private void assertErrorMessage(String expected, String baseUrl) {
         try {
             NativeAuthHttpClient.normalizeBaseUrl(baseUrl);

@@ -218,6 +218,40 @@ class NativeAuthHttpClient {
                 case 't':
                     decodedValue.append('\t');
                     break;
+                case 'u':
+                    if (index + 4 < value.length()) {
+                        String hex = value.substring(index + 1, index + 5);
+                        try {
+                            int codeUnit = Integer.parseInt(hex, 16);
+                            index += 4;
+                            char ch = (char) codeUnit;
+                            if (Character.isHighSurrogate(ch)
+                                    && index + 6 < value.length()
+                                    && value.charAt(index + 1) == '\\'
+                                    && value.charAt(index + 2) == 'u') {
+                                String lowHex = value.substring(index + 3, index + 7);
+                                try {
+                                    int lowCodeUnit = Integer.parseInt(lowHex, 16);
+                                    char lowCh = (char) lowCodeUnit;
+                                    if (Character.isLowSurrogate(lowCh)) {
+                                        decodedValue.appendCodePoint(Character.toCodePoint(ch, lowCh));
+                                        index += 6;
+                                    } else {
+                                        decodedValue.append(ch);
+                                    }
+                                } catch (NumberFormatException ignored) {
+                                    decodedValue.append(ch);
+                                }
+                            } else {
+                                decodedValue.append(ch);
+                            }
+                        } catch (NumberFormatException ignored) {
+                            decodedValue.append('u');
+                        }
+                    } else {
+                        decodedValue.append('u');
+                    }
+                    break;
                 default:
                     decodedValue.append(currentCharacter);
                     break;
