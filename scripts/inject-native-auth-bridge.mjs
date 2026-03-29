@@ -61,7 +61,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     "    const locationHost = globalThis.location?.hostname;",
     "    return url.pathname.startsWith('/v1/') && (",
     "      url.hostname === nativeApiHost ||",
-    "      url.hostname === 'api.secpal.dev' ||",
     "      (locationHost !== undefined && url.hostname === locationHost)",
     "    );",
     "  };",
