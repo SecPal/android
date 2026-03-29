@@ -110,7 +110,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
 
-        String body = call.getString("body");
+        String bodyBase64 = call.getString("bodyBase64");
+        String contentType = call.getString("contentType");
+        String accept = call.getString("accept");
 
         runAsync(call, () -> {
             try {
@@ -119,7 +121,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     return;
                 }
 
-                call.resolve(httpClient.request(apiBaseUrl, token, method, path, body));
+                JSObject response = httpClient.request(apiBaseUrl, token, method, path, bodyBase64, contentType, accept);
+
+                Integer statusCode = response.getInteger("status");
+                if (statusCode != null && statusCode == 401) {
+                    tokenStorage.clearToken();
+                }
+
+                call.resolve(response);
             } catch (IOException | NativeAuthHttpException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
