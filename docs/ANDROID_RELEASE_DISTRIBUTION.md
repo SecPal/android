@@ -56,7 +56,7 @@ That gives you:
 - one managed Google Play listing if the app is later distributed to enterprise tenants
 - simpler support and fewer migration risks
 
-For the current SecPal setup, this means `app.secpal.app` is the better default than Android-specific variants such as `app.secpal.android` or transitional names such as `app.secpal.mobile`.
+For the current SecPal setup, this means `app.secpal.app` is the better default than Android-specific variants such as an application ID ending in `.android` or transitional names such as an ID ending in `.mobile`.
 
 The chosen SecPal baseline is to keep DPC capability inside the same `SecPal` app instead of creating a second enterprise-only package. Installation path, policy state, and managed configuration should determine behavior, not a different application ID.
 
