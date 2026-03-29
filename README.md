@@ -30,6 +30,17 @@ The Android-specific responsibility in this repository is therefore limited to:
 - DPC and Android Enterprise bridge code
 - Repo-local governance, CI, and validation
 
+## Authentication Boundary
+
+The shared UI codebase does **not** imply shared authentication mechanics.
+
+- **Web / PWA:** session-based Laravel Sanctum SPA auth with httpOnly cookies and CSRF
+- **Android app:** native bearer-token auth via `POST /v1/auth/token`
+
+Android bearer tokens must be stored in Android-native secure storage and must never be persisted in JavaScript-accessible storage such as `localStorage`, `sessionStorage`, IndexedDB, cookies, or Capacitor `Preferences`.
+
+See `docs/ANDROID_AUTH_ARCHITECTURE.md` for the mandatory long-term Android auth design and the prohibited shortcuts.
+
 ## Local Setup
 
 ```bash
