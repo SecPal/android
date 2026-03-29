@@ -49,32 +49,43 @@ class NativeAuthHttpClient {
     private JSONObject sendJsonRequest(String baseUrl, String path, String method, JSONObject requestBody, String bearerToken)
         throws IOException, JSONException, NativeAuthHttpException {
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizeBaseUrl(baseUrl) + path).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-        connection.setReadTimeout(READ_TIMEOUT_MILLIS);
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("Content-Type", "application/json");
+        try {
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "application/json");
 
-        if (bearerToken != null) {
-            connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
-        }
-
-        if (requestBody != null) {
-            connection.setDoOutput(true);
-            try (OutputStream outputStream = connection.getOutputStream()) {
-                outputStream.write(requestBody.toString().getBytes(StandardCharsets.UTF_8));
+            if (bearerToken != null) {
+                connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
             }
+
+            if (requestBody != null) {
+                connection.setDoOutput(true);
+                try (OutputStream outputStream = connection.getOutputStream()) {
+                    outputStream.write(requestBody.toString().getBytes(StandardCharsets.UTF_8));
+                }
+            }
+
+            int statusCode = connection.getResponseCode();
+            InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            String responseBody;
+            if (responseStream != null) {
+                try (InputStream in = responseStream) {
+                    responseBody = readResponseBody(in);
+                }
+            } else {
+                responseBody = "";
+            }
+
+            if (statusCode >= 400) {
+                throw new NativeAuthHttpException(extractErrorMessage(responseBody, statusCode), statusCode);
+            }
+
+            return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
+        } finally {
+            connection.disconnect();
         }
-
-        int statusCode = connection.getResponseCode();
-        InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String responseBody = readResponseBody(responseStream);
-
-        if (statusCode >= 400) {
-            throw new NativeAuthHttpException(extractErrorMessage(responseBody, statusCode), statusCode);
-        }
-
-        return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
     }
 
     private String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {

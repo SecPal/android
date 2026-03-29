@@ -34,17 +34,32 @@ const secPalNativeAuthPlugin =
   registerPlugin<SecPalNativeAuthPlugin>("SecPalNativeAuth");
 
 function normalizeBaseUrl(apiBaseUrl: string): string {
-  const normalizedBaseUrl = apiBaseUrl.trim();
+  const trimmedBaseUrl = apiBaseUrl.trim();
 
-  if (normalizedBaseUrl.length === 0) {
+  if (trimmedBaseUrl.length === 0) {
     throw new Error(
       "Native Android auth bridge requires a non-empty API base URL"
     );
   }
 
-  return normalizedBaseUrl.endsWith("/")
-    ? normalizedBaseUrl.slice(0, -1)
-    : normalizedBaseUrl;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmedBaseUrl);
+  } catch {
+    throw new Error(
+      `Native Android auth bridge requires an absolute http(s) API base URL, got: ${trimmedBaseUrl}`
+    );
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error(
+      `Native Android auth bridge requires an absolute http(s) API base URL, got: ${trimmedBaseUrl}`
+    );
+  }
+
+  return trimmedBaseUrl.endsWith("/")
+    ? trimmedBaseUrl.slice(0, -1)
+    : trimmedBaseUrl;
 }
 
 export function createNativeAuthBridge(
