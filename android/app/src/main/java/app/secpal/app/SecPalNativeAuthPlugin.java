@@ -19,12 +19,19 @@ import java.io.IOException;
 public class SecPalNativeAuthPlugin extends Plugin {
     private TokenStorage tokenStorage;
     private NativeAuthHttpClient httpClient;
+    private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
 
     @Override
     public void load() {
         super.load();
         tokenStorage = new KeystoreTokenStorage(getContext());
         httpClient = new NativeAuthHttpClient();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        super.handleOnDestroy();
+        taskExecutor.shutdownNow();
     }
 
     @PluginMethod
@@ -37,7 +44,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
 
-        new Thread(() -> {
+        runAsync(call, () -> {
             try {
                 NativeAuthHttpClient.LoginResponse response = httpClient.login(baseUrl, email, password);
                 tokenStorage.saveToken(response.getToken());
@@ -50,7 +57,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
-        }).start();
+        });
     }
 
     @PluginMethod
@@ -61,7 +68,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
 
-        new Thread(() -> {
+        runAsync(call, () -> {
             try {
                 String token = requireStoredToken(call);
                 if (token == null) {
@@ -75,7 +82,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             } catch (TokenStorageException exception) {
                 call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
-        }).start();
+        });
     }
 
     @PluginMethod
@@ -86,7 +93,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
 
-        new Thread(() -> {
+        runAsync(call, () -> {
             try {
                 String token = requireStoredToken(call);
                 if (token == null) {
@@ -102,7 +109,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
             } catch (TokenStorageException exception) {
                 call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
-        }).start();
+        });
+    }
+
+    private void runAsync(PluginCall call, Runnable job) {
+        if (!taskExecutor.submit(job)) {
+            call.reject("Failed to execute auth request - plugin was shutdown");
+        }
     }
 
     private String requireStoredToken(PluginCall call) throws TokenStorageException {
