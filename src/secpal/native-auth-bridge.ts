@@ -32,79 +32,34 @@ export interface NativeAuthenticatedResponse {
 }
 
 interface SecPalNativeAuthPlugin {
-  login(options: {
-    baseUrl: string;
-    email: string;
-    password: string;
-  }): Promise<unknown>;
-  logout(options: { baseUrl: string }): Promise<void>;
-  getCurrentUser(options: { baseUrl: string }): Promise<unknown>;
+  login(options: { email: string; password: string }): Promise<unknown>;
+  logout(): Promise<void>;
+  getCurrentUser(): Promise<unknown>;
   request(options: {
-    baseUrl: string;
     method: string;
     path: string;
     body?: string;
   }): Promise<NativeAuthenticatedResponse>;
 }
 
-export interface NativeAuthBridgeOptions {
-  apiBaseUrl: string;
-}
-
 const secPalNativeAuthPlugin =
   registerPlugin<SecPalNativeAuthPlugin>("SecPalNativeAuth");
-
-function normalizeBaseUrl(apiBaseUrl: string): string {
-  const trimmedBaseUrl = apiBaseUrl.trim();
-
-  if (trimmedBaseUrl.length === 0) {
-    throw new Error(
-      "Native Android auth bridge requires a non-empty API base URL"
-    );
-  }
-
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(trimmedBaseUrl);
-  } catch {
-    throw new Error(
-      `Native Android auth bridge requires an absolute http(s) API base URL, got: ${trimmedBaseUrl}`
-    );
-  }
-
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw new Error(
-      `Native Android auth bridge requires an absolute http(s) API base URL, got: ${trimmedBaseUrl}`
-    );
-  }
-
-  return trimmedBaseUrl.endsWith("/")
-    ? trimmedBaseUrl.slice(0, -1)
-    : trimmedBaseUrl;
-}
-
-export function createNativeAuthBridge(
-  options: NativeAuthBridgeOptions
-): NativeAuthBridge {
-  const baseUrl = normalizeBaseUrl(options.apiBaseUrl);
-
+export function createNativeAuthBridge(): NativeAuthBridge {
   return {
     login(credentials) {
       return secPalNativeAuthPlugin.login({
-        baseUrl,
         email: credentials.email,
         password: credentials.password,
       });
     },
     logout() {
-      return secPalNativeAuthPlugin.logout({ baseUrl });
+      return secPalNativeAuthPlugin.logout();
     },
     getCurrentUser() {
-      return secPalNativeAuthPlugin.getCurrentUser({ baseUrl });
+      return secPalNativeAuthPlugin.getCurrentUser();
     },
     request(request) {
       return secPalNativeAuthPlugin.request({
-        baseUrl,
         method: request.method,
         path: request.path,
         body: request.body,
@@ -114,10 +69,9 @@ export function createNativeAuthBridge(
 }
 
 export function installNativeAuthBridge(
-  options: NativeAuthBridgeOptions,
   target: typeof globalThis = globalThis
 ): NativeAuthBridge {
-  const bridge = createNativeAuthBridge(options);
+  const bridge = createNativeAuthBridge();
 
   (
     target as typeof globalThis & {

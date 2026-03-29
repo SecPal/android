@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `SecPalNativeAuthPlugin` now resolves its API base URL from native Android resources instead of accepting a token-bearing request origin from the WebView bridge, and `NativeAuthHttpClient.normalizeBaseUrl` now parses URL components strictly to reject userinfo, paths, query strings, and fragments before any credentialed request is sent
+- `api_base_url` in `strings.xml` is now split across `main` (production: `api.secpal.app`) and `debug` build-type override (`api.secpal.dev`) so release builds always target the production origin and debug builds target dev
+- `decodeJsonStringFragment` in `NativeAuthHttpClient` now handles JSON `\\uXXXX` unicode escapes (including surrogate pairs) so server error messages that contain unicode escape sequences are displayed correctly
 - `SecPalNativeAuthPlugin` and `native-auth-bridge.ts` now expose a dedicated authenticated request path in addition to login, current-user bootstrap, and logout so later Android flow wiring can call protected endpoints without moving the bearer token into JavaScript
 - `KeystoreTokenStorage` now accepts an injectable `TokenCipher` via a package-private secondary constructor so tests can substitute a fake cipher without touching the Keystore
 - `NativeAuthHttpClient.normalizeBaseUrl` and `buildErrorMessage` (formerly `extractErrorMessage`) promoted to `static` visibility for direct unit-test access; `extractErrorMessage` replaced with regex-based extraction to remove the `JSONException` dependency from the helper path

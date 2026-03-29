@@ -7,6 +7,8 @@ package app.secpal.app;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
@@ -31,5 +33,24 @@ public class SecPalNativeAuthPluginTest {
     @Test
     public void resolveErrorCodeIgnoresNonHttpExceptions() {
         assertNull(SecPalNativeAuthPlugin.resolveErrorCode(new IllegalStateException("boom")));
+    }
+
+    @Test
+    public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
+        assertEquals(
+            "https://api.secpal.dev",
+            SecPalNativeAuthPlugin.resolveConfiguredApiBaseUrl(" https://api.secpal.dev/ ")
+        );
+    }
+
+    @Test
+    public void resolveConfiguredApiBaseUrlFailsFastForInvalidOrigin() {
+        try {
+            SecPalNativeAuthPlugin.resolveConfiguredApiBaseUrl("https://api.secpal.dev@evil.example");
+            fail("Expected IllegalStateException");
+        } catch (IllegalStateException exception) {
+            assertEquals("Invalid Android auth API origin configuration", exception.getMessage());
+            assertTrue(exception.getCause() instanceof NativeAuthHttpException);
+        }
     }
 }

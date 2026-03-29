@@ -27,6 +27,22 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void normalizeBaseUrlRejectsUserInfo() {
+        assertErrorMessage(
+            "Android auth bridge requires a bare API origin without userinfo, path, query, or fragment",
+            "https://api.secpal.dev@evil.example"
+        );
+    }
+
+    @Test
+    public void normalizeBaseUrlRejectsPathQueryAndFragment() {
+        assertErrorMessage(
+            "Android auth bridge requires a bare API origin without userinfo, path, query, or fragment",
+            "https://api.secpal.dev/v1?token=1#frag"
+        );
+    }
+
+    @Test
     public void normalizeHttpMethodUppercasesSupportedMethods() throws Exception {
         assertEquals("PATCH", NativeAuthHttpClient.normalizeHttpMethod("patch"));
     }
@@ -70,6 +86,14 @@ public class NativeAuthHttpClientTest {
         assertEquals(
             "Android auth request failed with status 503",
             NativeAuthHttpClient.buildErrorMessage("<html>", 503)
+        );
+    }
+
+    @Test
+    public void buildErrorMessageDecodesUnicodeEscapesInJsonMessage() {
+        assertEquals(
+            "Not found \u2014 resource missing",
+            NativeAuthHttpClient.buildErrorMessage("{\"message\":\"Not found \\u2014 resource missing\"}", 404)
         );
     }
 
