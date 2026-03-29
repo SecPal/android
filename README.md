@@ -122,7 +122,7 @@ The current release baseline uses:
 
 - public app name: `SecPal`
 - public developer or publisher name: `SecPal`
-- application ID: `app.secpal.app`
+- application ID: `app.secpal.app` (Android identifier only, not a web domain)
 - technical Android contact: `android@secpal.app`
 - public support contact: `support@secpal.app`
 

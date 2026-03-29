@@ -19,9 +19,11 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Before any commit, PR, or merge, announce and verify the required checklist. Stop on the first failed check.
 - Update `CHANGELOG.md` in the same change set for real fixes, features, or breaking changes.
 - Keep GitHub-facing communication in English.
-- Domain policy is strict: use `secpal.app` for production services and all
-  email addresses, and `secpal.dev` only for dev, staging, testing, and
-  examples.
+- Domain policy is strict: use `secpal.app` only for the public homepage and
+  real email addresses, `api.secpal.dev` for the API, `app.secpal.dev` for the
+  PWA/frontend, and `secpal.dev` for dev, staging, testing, and examples.
+  Treat `api.secpal.app` and `app.secpal.app` as deprecated web hosts;
+  `app.secpal.app` remains valid only as the Android application identifier.
 - Never reply to Copilot review comments with GitHub comment tools. Fix the
   code, push, and resolve review threads through the approved non-comment
   workflow.

@@ -13,7 +13,7 @@ Use this baseline consistently:
 
 - app name: `SecPal`
 - public developer name: `SecPal`
-- application ID: `app.secpal.app`
+- application ID: `app.secpal.app` (Android identifier only, not a web domain)
 - technical Android contact: `android@secpal.app`
 - public support contact: `support@secpal.app`
 - one shared app for direct download, DPC capability, and Google Play
@@ -40,7 +40,7 @@ Create one Android app with:
 
 Use the same application identity that is already built locally:
 
-- package name: `app.secpal.app`
+- package name: `app.secpal.app` (Android package namespace, not a web host)
 
 ## 3. App Signing Decision
 
@@ -59,7 +59,7 @@ Before any public rollout:
 1. create an internal testing track
 2. upload the signed AAB produced by `npm run native:bundle:release:signed`
 3. verify package name, version code, and release notes
-4. confirm that the uploaded app is still `app.secpal.app`
+4. confirm that the uploaded package name is still `app.secpal.app`
 
 ## 5. Store Listing Requirements
 

@@ -11,7 +11,7 @@ This checklist is the baseline for the first real SecPal Android release.
 
 - app name is `SecPal`
 - public developer or publisher name is `SecPal`
-- application ID is `app.secpal.app`
+- application ID is `app.secpal.app` (Android identifier only, not a web domain)
 - one shared app identity is used for direct download, DPC rollout, and Google Play
 - technical Android contact is `android@secpal.app`
 - public support contact is `support@secpal.app`

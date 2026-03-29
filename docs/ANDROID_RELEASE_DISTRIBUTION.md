@@ -12,7 +12,7 @@ This repository can support both SecPal distribution channels on Android:
 
 ## Current Technical Baseline
 
-- package/application ID: `app.secpal.app`
+- package/application ID: `app.secpal.app` (Android identifier only, not a web domain)
 - current visible app name: `SecPal`
 - intended publisher display name: `SecPal`
 - technical Android contact: `android@secpal.app`
@@ -28,7 +28,7 @@ For the first production-ready Android rollout, the recommended baseline is:
 
 - public app name: `SecPal`
 - public developer or publisher name: `SecPal`
-- application ID: `app.secpal.app`
+- application ID: `app.secpal.app` (Android identifier only, not a web domain)
 - one shared app identity for direct download, DPC rollouts, and Google Play
 - technical Android contact: `android@secpal.app`
 - public user-facing support contact: `support@secpal.app`
@@ -56,7 +56,7 @@ That gives you:
 - one managed Google Play listing if the app is later distributed to enterprise tenants
 - simpler support and fewer migration risks
 
-For the current SecPal setup, this means `app.secpal.app` is the better default than Android-specific variants such as `app.secpal.android` or transitional names such as `app.secpal.app.mobile`.
+For the current SecPal setup, this means `app.secpal.app` is the better default than Android-specific variants such as `app.secpal.android` or transitional names such as `app.secpal.mobile`.
 
 The chosen SecPal baseline is to keep DPC capability inside the same `SecPal` app instead of creating a second enterprise-only package. Installation path, policy state, and managed configuration should determine behavior, not a different application ID.
 

@@ -17,8 +17,11 @@ At runtime, this file now acts as the repo-local overlay for the `android` repos
   applicable, no bypass, fail fast, one topic per change, immediate issue
   creation for out-of-scope findings, and `CHANGELOG.md` updates for real
   changes.
-- Use `secpal.app` for production services and all email addresses, and
-  `secpal.dev` only for dev, staging, testing, and examples.
+- Use `secpal.app` only for the public homepage and real email addresses,
+  `api.secpal.dev` for the API, `app.secpal.dev` for the PWA/frontend, and
+  `secpal.dev` for dev, staging, testing, and examples. Treat
+  `api.secpal.app` and `app.secpal.app` as deprecated web hosts;
+  `app.secpal.app` remains valid only as the Android application identifier.
 - Never reply to Copilot review comments with GitHub comment tools; use the
   approved non-comment review workflow instead.
 - Keep commits GPG-signed, use file and line references instead of verbatim code
