@@ -114,7 +114,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     private void runAsync(PluginCall call, Runnable job) {
         if (!taskExecutor.submit(job)) {
-            call.reject("Failed to execute auth request - plugin was shutdown");
+            call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");
         }
     }
 

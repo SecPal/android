@@ -24,7 +24,12 @@ class NativeAuthTaskExecutor {
             return false;
         }
 
-        executorService.submit(job);
+        try {
+            executorService.submit(job);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            return false;
+        }
+
         return true;
     }
 

@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replace raw `new Thread()` calls in `SecPalNativeAuthPlugin` with a `NativeAuthTaskExecutor` backed by a single-thread `ExecutorService` so native auth work stays bounded and lifecycle-aware; shut the executor down in `handleOnDestroy()` so no threads are left detached after the plugin is destroyed
+- Replace raw `new Thread()` calls in `SecPalNativeAuthPlugin` with a `NativeAuthTaskExecutor` backed by a single-thread `ExecutorService` so native auth work runs on a single serialized background thread and remains lifecycle-aware; shut the executor down in `handleOnDestroy()` so no threads are left detached after the plugin is destroyed
 - `.github/copilot-instructions.md` now requires a branch hygiene check before any write action so Android work never starts on local `main` and dirty non-`main` branches must be assessed before continuing
 - `.github/copilot-instructions.md` now requires stale `SPDX-FileCopyrightText` years in edited files and license sidecars to be normalized to `YYYY` or `YYYY-YYYY` without spaces
 - `.github/copilot-instructions.md` now clarifies that if an edited file has no inline SPDX header, its companion `.license` file must be checked and updated instead

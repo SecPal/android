@@ -21,10 +21,12 @@ public class NativeAuthTaskExecutorTest {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(Executors.newSingleThreadExecutor());
         CountDownLatch latch = new CountDownLatch(1);
 
-        assertTrue(taskExecutor.submit(latch::countDown));
-        assertTrue(latch.await(2, TimeUnit.SECONDS));
-
-        taskExecutor.shutdownNow();
+        try {
+            assertTrue(taskExecutor.submit(latch::countDown));
+            assertTrue(latch.await(2, TimeUnit.SECONDS));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
     }
 
     @Test
