@@ -75,12 +75,15 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void purgeLegacyPwaState() {
-        File dataDirectory = getDataDir();
+        // getDataDir() requires API 24; use getApplicationInfo().dataDir (API 1) for minSdkVersion 23 compatibility.
+        String dataDirPath = getApplicationInfo().dataDir;
 
-        if (dataDirectory == null) {
+        if (dataDirPath == null || dataDirPath.isEmpty()) {
             Log.w(LOG_TAG, "App data directory unavailable; skipping legacy PWA cleanup");
             return;
         }
+
+        File dataDirectory = new File(dataDirPath);
 
         for (String relativePath : LEGACY_PWA_STATE_PATHS) {
             File target = new File(dataDirectory, relativePath);
