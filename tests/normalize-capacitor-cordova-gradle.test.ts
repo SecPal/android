@@ -60,4 +60,41 @@ describe("Capacitor Cordova Gradle normalization", () => {
       normalizedGradle
     );
   });
+
+  it("preserves other repositories blocks that do not match the generated flatDir block", async () => {
+    const { normalizeCapacitorCordovaGradle } = await loadNormalizerModule();
+    const gradleWithBothBlocks = [
+      "ext {",
+      "    androidxAppCompatVersion = '1.7.1'",
+      "}",
+      "",
+      "repositories {",
+      "    google()",
+      "    mavenCentral()",
+      "    flatDir{",
+      "        dirs 'src/main/libs', 'libs'",
+      "    }",
+      "}",
+      "",
+      "buildscript {",
+      "    repositories {",
+      "        mavenCentral()",
+      "    }",
+      "}",
+      "",
+      "dependencies {",
+      "    implementation fileTree(dir: 'src/main/libs', include: ['*.jar'])",
+      "}",
+      "",
+    ].join("\n");
+
+    const result = normalizeCapacitorCordovaGradle(gradleWithBothBlocks);
+
+    expect(result).not.toContain("flatDir{");
+    expect(result).toContain("buildscript {");
+    expect(result).toContain("    repositories {");
+    expect(result).toContain("        mavenCentral()");
+    expect(result).toContain("dependencies {");
+    expect(result.endsWith("\n")).toBe(true);
+  });
 });
