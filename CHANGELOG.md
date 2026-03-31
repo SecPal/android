@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fail fast on missing Android connectivity before native auth requests start and shorten the native startup `/v1/me` timeout budget, so cached-session bootstrap no longer burns the full 15-second HTTP timeout before the frontend can recover.
+- Expose Android's native connectivity status to the injected auth bridge so the shared frontend can skip `GET /v1/me` revalidation when the device is truly offline, avoiding repeated startup recovery loops caused by stale WebView `navigator.onLine` state.
 - Normalize the Capacitor-generated `android/capacitor-cordova-android-plugins/build.gradle` immediately after `cap sync` and `cap add android` so the reintroduced `flatDir` block from `@capacitor/cli@8.3.0` no longer leaves the Android worktree dirty or restores the Gradle metadata warning.
 - Reject malformed authenticated-request `bodyBase64` payloads in `NativeAuthHttpClient` before any native bearer-token request is sent, so invalid WebView input now fails locally with `VALIDATION_ERROR` instead of being forwarded as an empty body.
 - Purge stale WebView service-worker and cache directories on Android app reinstall or update so the native wrapper no longer boots an outdated cached PWA shell that bypasses the injected native auth bridge.

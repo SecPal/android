@@ -36,6 +36,16 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void resolveErrorCodeUsesNetworkOfflineForMissingConnectivity() {
+        assertEquals(
+            "NETWORK_OFFLINE",
+            SecPalNativeAuthPlugin.resolveErrorCode(
+                new NetworkUnavailableException("Android auth requires an active internet connection")
+            )
+        );
+    }
+
+    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",

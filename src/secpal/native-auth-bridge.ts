@@ -14,6 +14,7 @@ export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
+  isNetworkAvailable(): Promise<boolean>;
   request(
     request: NativeAuthenticatedRequest
   ): Promise<NativeAuthenticatedResponse>;
@@ -37,6 +38,7 @@ interface SecPalNativeAuthPlugin {
   login(options: { email: string; password: string }): Promise<unknown>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
+  isNetworkAvailable(): Promise<{ available?: boolean }>;
   request(options: {
     method: string;
     path: string;
@@ -61,6 +63,11 @@ export function createNativeAuthBridge(): NativeAuthBridge {
     },
     getCurrentUser() {
       return secPalNativeAuthPlugin.getCurrentUser();
+    },
+    async isNetworkAvailable() {
+      const result = await secPalNativeAuthPlugin.isNetworkAvailable();
+
+      return result.available === true;
     },
     request(request) {
       return secPalNativeAuthPlugin.request({

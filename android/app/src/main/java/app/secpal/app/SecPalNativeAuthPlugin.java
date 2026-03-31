@@ -19,6 +19,7 @@ import java.io.IOException;
 public class SecPalNativeAuthPlugin extends Plugin {
     private TokenStorage tokenStorage;
     private NativeAuthHttpClient httpClient;
+    private NetworkState networkState;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private String apiBaseUrl;
 
@@ -28,6 +29,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         apiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
         tokenStorage = new KeystoreTokenStorage(getContext());
         httpClient = new NativeAuthHttpClient();
+        networkState = new NetworkState();
     }
 
     @Override
@@ -47,13 +49,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         runAsync(call, () -> {
             try {
+                requireNetworkConnection();
                 NativeAuthHttpClient.LoginResponse response = httpClient.login(apiBaseUrl, email, password);
                 tokenStorage.saveToken(response.getToken());
 
                 JSObject payload = new JSObject();
                 payload.put("user", response.getUser());
                 call.resolve(payload);
-            } catch (IOException | JSONException | NativeAuthHttpException exception) {
+            } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
@@ -65,19 +68,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void getCurrentUser(PluginCall call) {
         runAsync(call, () -> {
             try {
+                requireNetworkConnection();
                 String token = requireStoredToken(call);
                 if (token == null) {
                     return;
                 }
 
                 call.resolve(httpClient.getCurrentUser(apiBaseUrl, token));
-            } catch (IOException | JSONException | NativeAuthHttpException exception) {
+            } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
         });
+    }
+
+    @PluginMethod
+    public void isNetworkAvailable(PluginCall call) {
+        JSObject payload = new JSObject();
+        payload.put("available", networkState.isNetworkAvailable(getContext()));
+        call.resolve(payload);
     }
 
     @PluginMethod
@@ -116,6 +127,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         runAsync(call, () -> {
             try {
+                requireNetworkConnection();
                 String token = requireStoredToken(call);
                 if (token == null) {
                     return;
@@ -129,7 +141,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 }
 
                 call.resolve(response);
-            } catch (IOException | NativeAuthHttpException exception) {
+            } catch (IOException | NativeAuthHttpException | NetworkUnavailableException exception) {
                 maybeClearToken(exception);
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {
@@ -178,6 +190,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     static String resolveErrorCode(Exception exception) {
+        if (exception instanceof NetworkUnavailableException) {
+            return "NETWORK_OFFLINE";
+        }
+
         if (!(exception instanceof NativeAuthHttpException)) {
             return null;
         }
@@ -202,6 +218,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
             if (httpException.getStatusCode() == 401) {
                 tokenStorage.clearToken();
             }
+        }
+    }
+
+    private void requireNetworkConnection() throws NetworkUnavailableException {
+        if (!networkState.isNetworkAvailable(getContext())) {
+            throw new NetworkUnavailableException(
+                "Android auth requires an active internet connection"
+            );
         }
     }
 }
