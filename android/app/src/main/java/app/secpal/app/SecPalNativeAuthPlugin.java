@@ -68,12 +68,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void getCurrentUser(PluginCall call) {
         runAsync(call, () -> {
             try {
-                requireNetworkConnection();
                 String token = requireStoredToken(call);
                 if (token == null) {
                     return;
                 }
 
+                requireNetworkConnection();
                 call.resolve(httpClient.getCurrentUser(apiBaseUrl, token));
             } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
                 maybeClearToken(exception);
@@ -127,12 +127,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         runAsync(call, () -> {
             try {
-                requireNetworkConnection();
                 String token = requireStoredToken(call);
                 if (token == null) {
                     return;
                 }
 
+                requireNetworkConnection();
                 JSObject response = httpClient.request(apiBaseUrl, token, method, path, bodyBase64, contentType, accept);
 
                 Integer statusCode = response.getInteger("status");
