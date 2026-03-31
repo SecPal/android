@@ -97,6 +97,19 @@ public class NativeAuthHttpClientTest {
         );
     }
 
+    @Test
+    public void validateRequestBodyBase64AcceptsCanonicalBase64() throws Exception {
+        NativeAuthHttpClient.validateRequestBodyBase64("eyJvayI6dHJ1ZX0=");
+    }
+
+    @Test
+    public void validateRequestBodyBase64RejectsMalformedBase64() {
+        assertDecodeErrorMessage(
+            "Android auth bridge received an invalid Base64 request body",
+            "!!!"
+        );
+    }
+
     private void assertErrorMessage(String expected, String baseUrl) {
         try {
             NativeAuthHttpClient.normalizeBaseUrl(baseUrl);
@@ -122,6 +135,17 @@ public class NativeAuthHttpClientTest {
     private void assertPathErrorMessage(String expected, String path) {
         try {
             NativeAuthHttpClient.normalizeRequestPath(path);
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(expected, exception.getMessage());
+            return;
+        }
+
+        throw new AssertionError("Expected NativeAuthHttpException");
+    }
+
+    private void assertDecodeErrorMessage(String expected, String requestBodyBase64) {
+        try {
+            NativeAuthHttpClient.validateRequestBodyBase64(requestBodyBase64);
         } catch (NativeAuthHttpException exception) {
             assertEquals(expected, exception.getMessage());
             return;

@@ -29,6 +29,9 @@ class NativeAuthHttpClient {
     private static final int CONNECT_TIMEOUT_MILLIS = 15000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
     private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
+    private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
+        "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    );
 
     LoginResponse login(String baseUrl, String email, String password) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject requestBody = new JSONObject()
@@ -351,13 +354,25 @@ class NativeAuthHttpClient {
         }
     }
 
-    private byte[] decodeRequestBody(String requestBodyBase64) throws NativeAuthHttpException {
+    static void validateRequestBodyBase64(String requestBodyBase64) throws NativeAuthHttpException {
+        if (requestBodyBase64 == null || requestBodyBase64.isEmpty()) {
+            return;
+        }
+
+        if (!REQUEST_BODY_BASE64_PATTERN.matcher(requestBodyBase64).matches()) {
+            throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
+        }
+    }
+
+    static byte[] decodeRequestBody(String requestBodyBase64) throws NativeAuthHttpException {
         if (requestBodyBase64 == null || requestBodyBase64.isEmpty()) {
             return null;
         }
 
+        validateRequestBodyBase64(requestBodyBase64);
+
         try {
-            return Base64.decode(requestBodyBase64, Base64.DEFAULT);
+            return Base64.decode(requestBodyBase64, Base64.NO_WRAP);
         } catch (IllegalArgumentException exception) {
             throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
         }
