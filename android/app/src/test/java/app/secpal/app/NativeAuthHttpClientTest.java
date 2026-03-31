@@ -98,6 +98,22 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void resolveConnectTimeoutMillisUsesShorterBudgetForCurrentUserBootstrap() {
+        assertEquals(3000, NativeAuthHttpClient.resolveConnectTimeoutMillis("GET", "/v1/me"));
+    }
+
+    @Test
+    public void resolveReadTimeoutMillisUsesShorterBudgetForCurrentUserBootstrap() {
+        assertEquals(3000, NativeAuthHttpClient.resolveReadTimeoutMillis("GET", "/v1/me"));
+    }
+
+    @Test
+    public void timeoutResolutionKeepsDefaultBudgetForNonBootstrapRequests() {
+        assertEquals(15000, NativeAuthHttpClient.resolveConnectTimeoutMillis("POST", "/v1/auth/token"));
+        assertEquals(15000, NativeAuthHttpClient.resolveReadTimeoutMillis("POST", "/v1/auth/token"));
+    }
+
+    @Test
     public void validateRequestBodyBase64AcceptsCanonicalBase64() throws Exception {
         NativeAuthHttpClient.validateRequestBodyBase64("eyJvayI6dHJ1ZX0=");
     }
