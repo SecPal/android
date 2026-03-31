@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject malformed authenticated-request `bodyBase64` payloads in `NativeAuthHttpClient` before any native bearer-token request is sent, so invalid WebView input now fails locally with `VALIDATION_ERROR` instead of being forwarded as an empty body.
 - Purge stale WebView service-worker and cache directories on Android app reinstall or update so the native wrapper no longer boots an outdated cached PWA shell that bypasses the injected native auth bridge.
 - Export the Android `api_base_url` into the sibling frontend production build so the packaged login health check no longer throws a missing-`VITE_API_URL` configuration error before it can reach `https://api.secpal.dev/health/ready`.
 - Validate API base URL scheme in TypeScript `normalizeBaseUrl` so non-absolute or non-http(s) URLs are rejected at the bridge layer before reaching the native plugin
