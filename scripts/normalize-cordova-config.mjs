@@ -20,7 +20,7 @@ export function normalizeCordovaConfig(configContent) {
       "\n"
     )
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/<\/widget>\s*$/m, `${REQUIRED_ACCESS_POLICY}\n</widget>`);
+    .replace(/<\/widget>\s*$/, `${REQUIRED_ACCESS_POLICY}\n</widget>`);
 
   if (
     normalizedContent === configContent &&
