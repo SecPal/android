@@ -50,28 +50,20 @@ const splashBackgroundColor = "#18181B";
 
 export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
   const frontendPublicDirectory = resolve(repoRoot, "../frontend/public");
-  const androidResourceDirectory = resolve(
-    repoRoot,
-    "android/app/src/main/res"
-  );
+  const androidResourceDirectory = resolve(repoRoot, "android/app/src/main/res");
 
   return {
     launcherSource: resolve(frontendPublicDirectory, "logo-light-512.png"),
     splashSource: resolve(frontendPublicDirectory, "logo-dark-512.png"),
-    launcherForegroundTargets: launcherForegroundSpecs.map(
-      ([density, size]) => ({
-        path: resolve(
-          androidResourceDirectory,
-          `mipmap-${density}/ic_launcher_foreground.png`
-        ),
-        size,
-      })
-    ),
-    launcherTargets: launcherSpecs.map(([density, size]) => ({
+    launcherForegroundTargets: launcherForegroundSpecs.map(([density, size]) => ({
       path: resolve(
         androidResourceDirectory,
-        `mipmap-${density}/ic_launcher.png`
+        `mipmap-${density}/ic_launcher_foreground.png`
       ),
+      size,
+    })),
+    launcherTargets: launcherSpecs.map(([density, size]) => ({
+      path: resolve(androidResourceDirectory, `mipmap-${density}/ic_launcher.png`),
       size,
     })),
     roundLauncherTargets: launcherSpecs.map(([density, size]) => ({
@@ -91,9 +83,7 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
       "drawable-nodpi/secpal_splash_icon.png"
     ),
     splashIconCanvasSize,
-    splashIconLogoSize: Math.round(
-      splashIconCanvasSize * splashIconInsetFactor
-    ),
+    splashIconLogoSize: Math.round(splashIconCanvasSize * splashIconInsetFactor),
   };
 }
 
@@ -121,9 +111,7 @@ function runMagick(argumentsList) {
   const result = spawnSync("magick", argumentsList, { stdio: "inherit" });
 
   if (result.status !== 0) {
-    throw new Error(
-      `ImageMagick failed for arguments: ${argumentsList.join(" ")}`
-    );
+    throw new Error(`ImageMagick failed for arguments: ${argumentsList.join(" ")}`);
   }
 }
 
@@ -131,13 +119,7 @@ function ensureParentDirectory(filePath) {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
-function renderSquareLogo(
-  sourcePath,
-  targetPath,
-  canvasSize,
-  logoSize,
-  background
-) {
+function renderSquareLogo(sourcePath, targetPath, canvasSize, logoSize, background) {
   ensureParentDirectory(targetPath);
   runMagick([
     "-size",
@@ -157,12 +139,7 @@ function renderSquareLogo(
   ]);
 }
 
-function renderTransparentSquareLogo(
-  sourcePath,
-  targetPath,
-  canvasSize,
-  logoSize
-) {
+function renderTransparentSquareLogo(sourcePath, targetPath, canvasSize, logoSize) {
   ensureParentDirectory(targetPath);
   runMagick([
     sourcePath,
@@ -217,10 +194,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     );
   }
 
-  for (const target of [
-    ...plan.launcherTargets,
-    ...plan.roundLauncherTargets,
-  ]) {
+  for (const target of [...plan.launcherTargets, ...plan.roundLauncherTargets]) {
     renderSquareLogo(
       plan.launcherSource,
       target.path,

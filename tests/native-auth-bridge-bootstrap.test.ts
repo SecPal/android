@@ -67,6 +67,7 @@ describe("native auth bridge bootstrap injection", () => {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
       logout: vi.fn().mockResolvedValue(undefined),
       getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn().mockResolvedValue({
         status: 200,
         bodyBase64: encodeBase64('{"ok":true}'),
@@ -133,12 +134,54 @@ describe("native auth bridge bootstrap injection", () => {
     expect(browserFetch).not.toHaveBeenCalled();
   });
 
+  it("exposes native connectivity status through the injected bridge", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: false }),
+      request: vi.fn(),
+    };
+
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      isNetworkAvailable(): Promise<boolean>;
+    };
+
+    await expect(bridge.isNetworkAvailable()).resolves.toBe(false);
+    expect(plugin.isNetworkAvailable).toHaveBeenCalledOnce();
+  });
+
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn(),
       logout: vi.fn(),
       getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
     };
     const browserFetch = vi.fn().mockResolvedValue(

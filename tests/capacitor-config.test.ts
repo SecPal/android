@@ -13,6 +13,7 @@ const pluginMocks = vi.hoisted(() => ({
   login: vi.fn(),
   logout: vi.fn(),
   getCurrentUser: vi.fn(),
+  isNetworkAvailable: vi.fn(),
   request: vi.fn(),
 }));
 
@@ -66,6 +67,8 @@ describe("capacitor Android wrapper configuration", () => {
     await expect(
       bridge.login({ email: "worker@secpal.dev", password: "password123" })
     ).resolves.toEqual({ user: { id: 1 } });
+    pluginMocks.isNetworkAvailable.mockResolvedValue({ available: false });
+    await expect(bridge.isNetworkAvailable()).resolves.toBe(false);
     await expect(
       bridge.request({ method: "GET", path: "/v1/me" })
     ).resolves.toEqual({
@@ -78,6 +81,7 @@ describe("capacitor Android wrapper configuration", () => {
       email: "worker@secpal.dev",
       password: "password123",
     });
+    expect(pluginMocks.isNetworkAvailable).toHaveBeenCalledTimes(1);
     expect(pluginMocks.request).toHaveBeenCalledWith({
       method: "GET",
       path: "/v1/me",

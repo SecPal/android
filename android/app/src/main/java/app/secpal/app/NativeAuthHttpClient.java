@@ -28,6 +28,8 @@ import java.util.regex.Pattern;
 class NativeAuthHttpClient {
     private static final int CONNECT_TIMEOUT_MILLIS = 15000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
+    private static final int CURRENT_USER_CONNECT_TIMEOUT_MILLIS = 3000;
+    private static final int CURRENT_USER_READ_TIMEOUT_MILLIS = 3000;
     private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
     private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
         "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
@@ -118,8 +120,8 @@ class NativeAuthHttpClient {
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizeBaseUrl(baseUrl) + path).openConnection();
         try {
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setConnectTimeout(resolveConnectTimeoutMillis(method, path));
+            connection.setReadTimeout(resolveReadTimeoutMillis(method, path));
 
             if (accept != null && !accept.trim().isEmpty()) {
                 connection.setRequestProperty("Accept", accept);
@@ -162,6 +164,22 @@ class NativeAuthHttpClient {
         } finally {
             connection.disconnect();
         }
+    }
+
+    static int resolveConnectTimeoutMillis(String method, String path) {
+        return isCurrentUserBootstrapRequest(method, path)
+            ? CURRENT_USER_CONNECT_TIMEOUT_MILLIS
+            : CONNECT_TIMEOUT_MILLIS;
+    }
+
+    static int resolveReadTimeoutMillis(String method, String path) {
+        return isCurrentUserBootstrapRequest(method, path)
+            ? CURRENT_USER_READ_TIMEOUT_MILLIS
+            : READ_TIMEOUT_MILLIS;
+    }
+
+    private static boolean isCurrentUserBootstrapRequest(String method, String path) {
+        return "GET".equals(method) && "/v1/me".equals(path);
     }
 
     static String normalizeBaseUrl(String baseUrl) throws NativeAuthHttpException {
