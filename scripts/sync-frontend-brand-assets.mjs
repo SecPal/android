@@ -62,10 +62,7 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
       frontendPublicDirectory,
       "logo-light-512.png"
     ),
-    splashIconDarkSource: resolve(
-      frontendPublicDirectory,
-      "logo-dark-512.png"
-    ),
+    splashIconDarkSource: resolve(frontendPublicDirectory, "logo-dark-512.png"),
     launcherForegroundTargets: launcherForegroundSpecs.map(
       ([density, size]) => ({
         path: resolve(
@@ -280,7 +277,6 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
       Math.round(target.size * launcherForegroundInsetFactor)
     );
   }
-
 
   for (const target of [
     ...plan.launcherTargets,
