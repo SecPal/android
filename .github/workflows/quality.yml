@@ -25,7 +25,7 @@ jobs:
 
   prettier:
     name: Formatting Check
-    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@main
+    uses: ./.github/workflows/local-prettier.yml
 
   markdown-lint:
     name: Markdown Lint
