@@ -13,14 +13,8 @@ const REQUIRED_ACCESS_POLICY = [
 export function normalizeCordovaConfig(configContent) {
   const normalizedContent = configContent
     .replace(/\s*<access origin="\*" \/>\n?/g, "\n")
-    .replace(
-      /\s*<access origin="https:\/\/api\.secpal\.dev" \/>\n?/g,
-      "\n"
-    )
-    .replace(
-      /\s*<access origin="https:\/\/app\.secpal\.dev" \/>\n?/g,
-      "\n"
-    )
+    .replace(/\s*<access origin="https:\/\/api\.secpal\.dev" \/>\n?/g, "\n")
+    .replace(/\s*<access origin="https:\/\/app\.secpal\.dev" \/>\n?/g, "\n")
     .replace(
       /\s*<allow-navigation href="https:\/\/app\.secpal\.dev\/\*" \/>\n?/g,
       "\n"
@@ -28,7 +22,10 @@ export function normalizeCordovaConfig(configContent) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/<\/widget>\s*$/m, `${REQUIRED_ACCESS_POLICY}\n</widget>`);
 
-  if (normalizedContent === configContent && !configContent.includes("</widget>")) {
+  if (
+    normalizedContent === configContent &&
+    !configContent.includes("</widget>")
+  ) {
     throw new Error("Expected a Cordova widget root in config.xml");
   }
 
