@@ -28,8 +28,10 @@ async function loadBrandSyncModule(): Promise<{
 
 describe("frontend brand asset sync", () => {
   it("fails fast when the canonical frontend logo assets are unavailable", async () => {
-    const { assertFrontendBrandAssetSourcesExist, buildFrontendBrandAssetPlan } =
-      await loadBrandSyncModule();
+    const {
+      assertFrontendBrandAssetSourcesExist,
+      buildFrontendBrandAssetPlan,
+    } = await loadBrandSyncModule();
 
     expect(() =>
       assertFrontendBrandAssetSourcesExist(
