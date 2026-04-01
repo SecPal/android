@@ -19,7 +19,10 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Never reply to Copilot review comments with GitHub comment tools. Fix the code, push, and resolve threads through the approved non-comment workflow.
 - Use EPIC plus sub-issues before starting work that will span more than one PR.
 - Keep `SPDX-FileCopyrightText` years current in edited files or companion `.license` sidecars.
-- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `api.secpal.dev` for the API, `app.secpal.dev` for the PWA/frontend, `secpal.dev` for dev, staging, testing, and examples, and `app.secpal.app` only as the Android application identifier.
+- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `api.secpal.dev` for the
+  API, `app.secpal.dev` for the PWA/frontend, `secpal.dev` for dev, staging, testing, and examples, and
+  `app.secpal.app` only as the Android application identifier; `api.secpal.app` and any use of `app.secpal.app`
+  as a web origin are deprecated and must not be used as deployable hosts.
 
 ## Required Validation
 
