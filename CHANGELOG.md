@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- extended the local Prettier scripts to include `.mjs` helpers so formatting checks cover Node maintenance scripts consistently; introduced a repo-local `local-prettier.yml` reusable workflow that produces the `Formatting Check / Check Code Formatting` check name required by branch protection, working around a CI failure in the shared `reusable-prettier` caused by the newly introduced `setup-node-with-deps` composite action (tracked in SecPal/.github)
+- documented the ImageMagick `magick` prerequisite for `npm run brand:sync` in the Android README so launcher and splash asset sync no longer depends on undocumented local tooling
 - reduced the repo-local Copilot always-on context by replacing the long runtime baseline and removing the auto-loaded overlay fallback, which lowers request size in large VS Code workspaces without dropping the Android-specific governance rules
 - Android launcher icons and splash artwork are now generated from the canonical frontend SecPal logo assets via `npm run brand:sync`, so the native wrapper reuses the same brand mark instead of drifting onto Android-only placeholder artwork
 - clarified across repo-local instructions, validation scripts, and Android release docs that `app.secpal.app` remains only the Android application identifier, while `api.secpal.dev` and `app.secpal.dev` are the active API/PWA hosts and `secpal.app` stays limited to the public homepage plus real email addresses; rewrote ANDROID_RELEASE_DISTRIBUTION.md example sentence to remove invented `secpal.*` identifiers and replace them with descriptive phrases so the domain policy check is not weakened by line-colocation
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- restricted the Cordova access whitelist to `https://api.secpal.dev` and `https://app.secpal.dev`, enabled R8/resource shrinking for release builds with Capacitor-safe keep rules, tightened FileProvider exports to dedicated `shared/` subdirectories, and added Android network security config that disables cleartext traffic and pins the live `api.secpal.dev` certificate chain
 - Updated `package-lock.json` to remediate the current transitive `npm audit` findings by resolving `brace-expansion` to `5.0.5` and `picomatch` to `4.0.4` without changing declared dependency ranges
 - Updated `package-lock.json` to resolve transitive `flatted` to `3.4.2`, removing the current high-severity `npm audit` finding without changing declared package ranges
 - Scoped the transitive `yauzl` override to `native-run` and pinned it to `3.2.1` so Capacitor CLI tooling no longer resolves the vulnerable ZIP parser version reported by `npm audit`

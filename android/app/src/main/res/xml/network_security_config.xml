@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">api.secpal.dev</domain>
+        <pin-set expiration="2027-04-01">
+            <pin digest="SHA-256">3BJmezOWc04OlOrJ501K2t07GXxrHS5qQC7T7OnnO7k=</pin>
+            <pin digest="SHA-256">iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>
