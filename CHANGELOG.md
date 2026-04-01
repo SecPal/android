@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- launcher icon visibility: increased foreground inset factor from 0.35 to 0.52 and switched to logo-source.png to ensure icon is clearly visible on home screen across all density variants
+- splash screen background: now respects light/dark system theme via color resource qualifiers, rendering white background in light mode and dark background in dark mode instead of always black
+- splash screen logo contrast: separated splash icon assets for day/night modes using logo-light-512.png and logo-dark-512.png respectively, and removed animated icon overlay that was causing brightness wash-out
 - launcher icon appearance: monochrome variant now displays the actual SecPal shield logo instead of blank/faded image, enabling proper dark-mode icon rendering on Android 12+
 - launcher icon sizing: foreground SVGs resized consistently across all density buckets (mdpi, xhdpi, xxhdpi, xxxhdpi) to prevent oversized appearance on home screen
 

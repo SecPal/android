@@ -1,0 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_screen_background">#FFFFFF</color>
+</resources>

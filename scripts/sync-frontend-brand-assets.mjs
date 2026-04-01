@@ -40,8 +40,8 @@ const splashSpecs = [
   ["drawable-land-xxxhdpi", 1920, 1280],
 ];
 
-const launcherForegroundInsetFactor = 0.35;
-const launcherInsetFactor = 0.35;
+const launcherForegroundInsetFactor = 0.52;
+const launcherInsetFactor = 0.52;
 const legacySplashLogoFactor = 0.16;
 const splashIconCanvasSize = 512;
 const splashIconInsetFactor = 0.32;
@@ -56,8 +56,16 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
   );
 
   return {
-    launcherSource: resolve(frontendPublicDirectory, "logo-light-512.png"),
+    launcherSource: resolve(frontendPublicDirectory, "logo-source.png"),
     splashSource: resolve(frontendPublicDirectory, "logo-dark-512.png"),
+    splashIconLightSource: resolve(
+      frontendPublicDirectory,
+      "logo-light-512.png"
+    ),
+    splashIconDarkSource: resolve(
+      frontendPublicDirectory,
+      "logo-dark-512.png"
+    ),
     launcherForegroundTargets: launcherForegroundSpecs.map(
       ([density, size]) => ({
         path: resolve(
@@ -95,9 +103,13 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
       width,
       height,
     })),
-    splashIconTarget: resolve(
+    splashIconLightTarget: resolve(
       androidResourceDirectory,
       "drawable-nodpi/secpal_splash_icon.png"
+    ),
+    splashIconDarkTarget: resolve(
+      androidResourceDirectory,
+      "drawable-night-nodpi/secpal_splash_icon.png"
     ),
     splashIconCanvasSize,
     splashIconLogoSize: Math.round(
@@ -107,7 +119,12 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
 }
 
 export function assertFrontendBrandAssetSourcesExist(plan) {
-  for (const sourcePath of [plan.launcherSource, plan.splashSource]) {
+  for (const sourcePath of [
+    plan.launcherSource,
+    plan.splashSource,
+    plan.splashIconLightSource,
+    plan.splashIconDarkSource,
+  ]) {
     if (!existsSync(sourcePath)) {
       throw new Error(
         `Missing canonical frontend brand asset: ${sourcePath}. Ensure the sibling frontend repository is available with the expected public logo assets before running brand:sync.`
@@ -278,8 +295,15 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
   }
 
   renderTransparentSquareLogo(
-    plan.splashSource,
-    plan.splashIconTarget,
+    plan.splashIconLightSource,
+    plan.splashIconLightTarget,
+    plan.splashIconCanvasSize,
+    plan.splashIconLogoSize
+  );
+
+  renderTransparentSquareLogo(
+    plan.splashIconDarkSource,
+    plan.splashIconDarkTarget,
     plan.splashIconCanvasSize,
     plan.splashIconLogoSize
   );
