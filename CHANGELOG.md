@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- extended the local Prettier scripts to include `.mjs` helpers and switched the Android quality workflow to a repo-local Prettier job so formatting checks cover Node maintenance scripts consistently without relying on the failing reusable-prettier path
+- extended the local Prettier scripts to include `.mjs` helpers so formatting checks cover Node maintenance scripts consistently; reverted the Android quality workflow back to the shared `reusable-prettier` workflow which uses `npm run format:check` and therefore benefits from the extended glob automatically
 - documented the ImageMagick `magick` prerequisite for `npm run brand:sync` in the Android README so launcher and splash asset sync no longer depends on undocumented local tooling
 - reduced the repo-local Copilot always-on context by replacing the long runtime baseline and removing the auto-loaded overlay fallback, which lowers request size in large VS Code workspaces without dropping the Android-specific governance rules
 - Android launcher icons and splash artwork are now generated from the canonical frontend SecPal logo assets via `npm run brand:sync`, so the native wrapper reuses the same brand mark instead of drifting onto Android-only placeholder artwork
