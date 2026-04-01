@@ -14,20 +14,13 @@ const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
 describe("Android native hardening", () => {
-  it("runs the Cordova config normalizer after Capacitor sync and add", () => {
-    const packageJson = JSON.parse(readRepoFile("package.json")) as {
-      scripts: Record<string, string>;
-    };
+  it("defines the Cordova access allowlist in Capacitor source config", async () => {
+    const { default: config } = await import("../capacitor.config");
 
-    expect(packageJson.scripts["native:normalize:cordova-config"]).toContain(
-      "normalize-cordova-config.mjs"
-    );
-    expect(packageJson.scripts["cap:sync"]).toContain(
-      "native:normalize:cordova-config"
-    );
-    expect(packageJson.scripts["cap:add:android"]).toContain(
-      "native:normalize:cordova-config"
-    );
+    expect(config.cordova?.accessOrigins).toEqual([
+      "https://api.secpal.dev",
+      "https://app.secpal.dev",
+    ]);
   });
 
   it("hardens release builds with R8, resource shrinking, and keep rules", () => {
