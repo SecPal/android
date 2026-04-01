@@ -40,11 +40,11 @@ const splashSpecs = [
   ["drawable-land-xxxhdpi", 1920, 1280],
 ];
 
-const launcherForegroundInsetFactor = 0.74;
-const launcherInsetFactor = 0.72;
-const legacySplashLogoFactor = 0.22;
+const launcherForegroundInsetFactor = 0.35;
+const launcherInsetFactor = 0.35;
+const legacySplashLogoFactor = 0.16;
 const splashIconCanvasSize = 512;
-const splashIconInsetFactor = 0.41;
+const splashIconInsetFactor = 0.32;
 const launcherBackgroundColor = "#FFFFFF";
 const splashBackgroundColor = "#18181B";
 
@@ -63,6 +63,15 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
         path: resolve(
           androidResourceDirectory,
           `mipmap-${density}/ic_launcher_foreground.png`
+        ),
+        size,
+      })
+    ),
+    launcherMonochromeTargets: launcherForegroundSpecs.map(
+      ([density, size]) => ({
+        path: resolve(
+          androidResourceDirectory,
+          `mipmap-${density}/ic_launcher_monochrome.png`
         ),
         size,
       })
@@ -180,6 +189,35 @@ function renderTransparentSquareLogo(
   ]);
 }
 
+function renderMonochromeSquareLogo(
+  sourcePath,
+  targetPath,
+  canvasSize,
+  logoSize
+) {
+  ensureParentDirectory(targetPath);
+  runMagick([
+    sourcePath,
+    "-trim",
+    "+repage",
+    "-resize",
+    `${logoSize}x${logoSize}`,
+    "-channel",
+    "RGB",
+    "-evaluate",
+    "set",
+    "100%",
+    "+channel",
+    "-background",
+    "none",
+    "-gravity",
+    "center",
+    "-extent",
+    `${canvasSize}x${canvasSize}`,
+    targetPath,
+  ]);
+}
+
 function renderSplash(sourcePath, targetPath, width, height) {
   const logoSize = Math.round(Math.min(width, height) * legacySplashLogoFactor);
 
@@ -210,6 +248,15 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
 
   for (const target of plan.launcherForegroundTargets) {
     renderTransparentSquareLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      Math.round(target.size * launcherForegroundInsetFactor)
+    );
+  }
+
+  for (const target of plan.launcherMonochromeTargets) {
+    renderMonochromeSquareLogo(
       plan.launcherSource,
       target.path,
       target.size,

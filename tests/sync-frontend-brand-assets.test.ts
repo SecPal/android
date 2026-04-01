@@ -14,6 +14,7 @@ async function loadBrandSyncModule(): Promise<{
     launcherSource: string;
     splashSource: string;
     launcherForegroundTargets: Array<{ path: string; size: number }>;
+    launcherMonochromeTargets: Array<{ path: string; size: number }>;
     launcherTargets: Array<{ path: string; size: number }>;
     roundLauncherTargets: Array<{ path: string; size: number }>;
     splashTargets: Array<{ path: string; width: number; height: number }>;
@@ -56,7 +57,7 @@ describe("frontend brand asset sync", () => {
       "/workspace/android/android/app/src/main/res/drawable-nodpi/secpal_splash_icon.png"
     );
     expect(plan.splashIconCanvasSize).toBe(512);
-    expect(plan.splashIconLogoSize).toBe(210);
+    expect(plan.splashIconLogoSize).toBe(164);
   });
 
   it("covers every Android density bucket and both splash orientations", async () => {
@@ -82,6 +83,29 @@ describe("frontend brand asset sync", () => {
       },
       {
         path: "/workspace/android/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+        size: 432,
+      },
+    ]);
+
+    expect(plan.launcherMonochromeTargets).toEqual([
+      {
+        path: "/workspace/android/android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png",
+        size: 108,
+      },
+      {
+        path: "/workspace/android/android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png",
+        size: 162,
+      },
+      {
+        path: "/workspace/android/android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png",
+        size: 216,
+      },
+      {
+        path: "/workspace/android/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png",
+        size: 324,
+      },
+      {
+        path: "/workspace/android/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png",
         size: 432,
       },
     ]);
