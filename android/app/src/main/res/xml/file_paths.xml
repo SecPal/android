@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <files-path name="app_files" path="." />
-    <cache-path name="app_cache" path="." />
+    <files-path name="shared_files" path="shared/" />
+    <cache-path name="shared_cache" path="shared/" />
 </paths>

@@ -1,3 +1,6 @@
+## SPDX-FileCopyrightText: 2026 SecPal
+## SPDX-License-Identifier: AGPL-3.0-or-later
+
 # Add project specific ProGuard rules here.
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
@@ -19,3 +22,19 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Capacitor plugin registration and bridge dispatch depend on runtime annotations.
+-keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations,AnnotationDefault,InnerClasses,EnclosingMethod,Signature
+
+# Preserve Capacitor bridge classes and plugin entry points that are discovered reflectively.
+-keep class com.getcapacitor.** { *; }
+-keep interface com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keepclassmembers class * {
+	@com.getcapacitor.PluginMethod <methods>;
+	@android.webkit.JavascriptInterface <methods>;
+}
+
+# Keep the registered Android bridge entry points stable in release builds.
+-keep class app.secpal.app.MainActivity { *; }
+-keep class app.secpal.app.SecPalNativeAuthPlugin { *; }

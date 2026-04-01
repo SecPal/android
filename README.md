@@ -48,6 +48,8 @@ npm ci
 npm --prefix ../frontend ci
 ```
 
+If you need to regenerate launcher icons or splash assets with `npm run brand:sync`, install ImageMagick first so the `magick` CLI is available in your shell.
+
 For Fedora-based local builds, keep the Android toolchain available in your shell:
 
 ```bash
@@ -55,6 +57,8 @@ source ~/.zshrc
 java -version
 sdkmanager --version
 ```
+
+On Fedora, install the required binary with `sudo dnf install ImageMagick`. On Debian or Ubuntu, use `sudo apt install imagemagick`.
 
 Install Git hooks after cloning:
 
