@@ -4,5 +4,5 @@ SPDX-FileCopyrightText: 2026 SecPal
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 <resources>
-    <color name="ic_launcher_background">#1F1F1F</color>
+    <color name="ic_launcher_background">#0f172a</color>
 </resources>
