@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NativeAuthHttpClientTest` covering URL normalisation and error-message extraction
 - `SecPalNativeAuthPluginTest` covering HTTP error-code resolution and the non-HTTP fallback path
 - `tests/native-auth-bridge-bootstrap.test.ts` covering the injected Android bootstrap script, bridge installation, native `/v1/` request routing, and the browser-session fallback for non-native/public traffic
+- `values-night/ic_launcher_background.xml` for dark-mode adaptive icon background, ensuring proper contrast and visibility in system dark theme mode
+
+### Fixed
+
+- launcher icon visibility: increased foreground inset factor from 0.35 to 0.52 and switched to logo-source.png to ensure icon is clearly visible on home screen across all density variants
+- splash screen background: now respects light/dark system theme via color resource qualifiers, rendering white background in light mode and dark background in dark mode instead of always black
+- splash screen logo contrast: separated splash icon assets for day/night modes using logo-light-512.png and logo-dark-512.png respectively, and removed animated icon overlay that was causing brightness wash-out
+- launcher icon appearance: monochrome variant now displays the actual SecPal shield logo instead of blank/faded image, enabling proper dark-mode icon rendering on Android 12+
+- launcher icon sizing: foreground SVGs resized consistently across all density buckets (mdpi, xhdpi, xxhdpi, xxxhdpi) to prevent oversized appearance on home screen
 
 ### Changed
 
@@ -43,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reduced the generated Android launcher, Android 12 splash icon, and legacy splash logo scale so the SecPal mark no longer appears oversized on home screens and launch/loading surfaces on real devices, and added a monochrome adaptive icon asset so Android 13+ themed icons can follow launcher theming instead of staying fixed to the full-color mark.
 - Fail fast on missing Android connectivity before native auth requests start and shorten the native startup `/v1/me` timeout budget, so cached-session bootstrap no longer burns the full 15-second HTTP timeout before the frontend can recover.
 - Expose Android's native connectivity status to the injected auth bridge so the shared frontend can skip `GET /v1/me` revalidation when the device is truly offline, avoiding repeated startup recovery loops caused by stale WebView `navigator.onLine` state.
 - Normalize the Capacitor-generated `android/capacitor-cordova-android-plugins/build.gradle` immediately after `cap sync` and `cap add android` so the reintroduced `flatDir` block from `@capacitor/cli@8.3.0` no longer leaves the Android worktree dirty or restores the Gradle metadata warning.
