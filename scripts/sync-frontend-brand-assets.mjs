@@ -281,6 +281,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     );
   }
 
+
   for (const target of [
     ...plan.launcherTargets,
     ...plan.roundLauncherTargets,

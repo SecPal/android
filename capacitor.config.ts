@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
   appId: "app.secpal.app",
   appName: "SecPal",
   webDir: "../frontend/dist",
+  cordova: {
+    accessOrigins: ["https://api.secpal.dev", "https://app.secpal.dev"],
+  },
   server: {
     hostname: "app.secpal.dev",
     androidScheme: "https",

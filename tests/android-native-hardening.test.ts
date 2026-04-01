@@ -30,6 +30,15 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("defines the Cordova access allowlist in Capacitor source config", async () => {
+    const { default: config } = await import("../capacitor.config");
+
+    expect(config.cordova?.accessOrigins).toEqual([
+      "https://api.secpal.dev",
+      "https://app.secpal.dev",
+    ]);
+  });
+
   it("hardens release builds with R8, resource shrinking, and keep rules", () => {
     const buildGradle = readRepoFile("android", "app", "build.gradle");
     const proguardRules = readRepoFile("android", "app", "proguard-rules.pro");
