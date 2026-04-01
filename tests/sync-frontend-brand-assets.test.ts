@@ -9,16 +9,21 @@ async function loadBrandSyncModule(): Promise<{
   assertFrontendBrandAssetSourcesExist: (plan: {
     launcherSource: string;
     splashSource: string;
+    splashIconLightSource: string;
+    splashIconDarkSource: string;
   }) => void;
   buildFrontendBrandAssetPlan: (repoRoot: string) => {
     launcherSource: string;
     splashSource: string;
+    splashIconLightSource: string;
+    splashIconDarkSource: string;
     launcherForegroundTargets: Array<{ path: string; size: number }>;
     launcherMonochromeTargets: Array<{ path: string; size: number }>;
     launcherTargets: Array<{ path: string; size: number }>;
     roundLauncherTargets: Array<{ path: string; size: number }>;
     splashTargets: Array<{ path: string; width: number; height: number }>;
-    splashIconTarget: string;
+    splashIconLightTarget: string;
+    splashIconDarkTarget: string;
     splashIconCanvasSize: number;
     splashIconLogoSize: number;
   };
@@ -39,7 +44,7 @@ describe("frontend brand asset sync", () => {
         buildFrontendBrandAssetPlan("/tmp/brand-sync-missing-assets")
       )
     ).toThrowError(
-      "Missing canonical frontend brand asset: /tmp/frontend/public/logo-light-512.png"
+      "Missing canonical frontend brand asset: /tmp/frontend/public/logo-source.png"
     );
   });
 
@@ -48,13 +53,16 @@ describe("frontend brand asset sync", () => {
     const plan = buildFrontendBrandAssetPlan("/workspace/android");
 
     expect(plan.launcherSource).toBe(
-      "/workspace/frontend/public/logo-light-512.png"
+      "/workspace/frontend/public/logo-source.png"
     );
     expect(plan.splashSource).toBe(
       "/workspace/frontend/public/logo-dark-512.png"
     );
-    expect(plan.splashIconTarget).toBe(
+    expect(plan.splashIconLightTarget).toBe(
       "/workspace/android/android/app/src/main/res/drawable-nodpi/secpal_splash_icon.png"
+    );
+    expect(plan.splashIconDarkTarget).toBe(
+      "/workspace/android/android/app/src/main/res/drawable-night-nodpi/secpal_splash_icon.png"
     );
     expect(plan.splashIconCanvasSize).toBe(512);
     expect(plan.splashIconLogoSize).toBe(164);
