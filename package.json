@@ -25,6 +25,7 @@
   "scripts": {
     "build": "npm run cap:sync",
     "frontend:build": "bash ./scripts/build-frontend-web.sh",
+    "brand:sync": "node ./scripts/sync-frontend-brand-assets.mjs",
     "native:normalize:cordova-gradle": "node ./scripts/normalize-capacitor-cordova-gradle.mjs ./android/capacitor-cordova-android-plugins/build.gradle",
     "lint": "eslint . --ext ts,js --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
