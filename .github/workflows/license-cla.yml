@@ -59,7 +59,7 @@ jobs:
 
             IFS=',' read -r -a exempt_patterns <<< "$EXEMPT_LOGINS"
             for pattern in "${exempt_patterns[@]}"; do
-              if [[ -n "$pattern" && "$login" == $pattern ]]; then
+              if [[ -n "$pattern" && "$login" == "$pattern" ]]; then
                 return 0
               fi
             done
@@ -188,7 +188,6 @@ jobs:
 
           head_sha="$(jq -r '.head.sha' "$pr_response")"
           pr_author="$(jq -r '.user.login' "$pr_response")"
-          pr_url="$(jq -r '.html_url' "$pr_response")"
 
           update_status pending "Checking contributor signatures"
 
@@ -235,23 +234,21 @@ jobs:
                 --arg repository_name "$repository" \
                 --arg signed_at "$(date -u +%FT%TZ)" \
                 --argjson pull_request_number "$pr_number" \
-                '
-                  .document_version = $version
-                  | .document_url = $document_url
-                  | .signatures = (
-                      (.signatures // [])
-                      | map(select(.login != $login or .version != $version))
-                      + [{
-                          login: $login,
-                          version: $version,
-                          document_url: $document_url,
-                          repository: $repository_name,
-                          pull_request: $pull_request_number,
-                          signed_at: $signed_at,
-                          source: "pull_request_comment"
-                        }]
-                    )
-                ' "$signature_json" >"$tmp_signature_json"
+                ".document_version = \$version
+                | .document_url = \$document_url
+                | .signatures = (
+                    (.signatures // [])
+                    | map(select(.login != \$login or .version != \$version))
+                    + [{
+                        login: \$login,
+                        version: \$version,
+                        document_url: \$document_url,
+                        repository: \$repository_name,
+                        pull_request: \$pull_request_number,
+                        signed_at: \$signed_at,
+                        source: \"pull_request_comment\"
+                      }]
+                  )" "$signature_json" >"$tmp_signature_json"
               mv "$tmp_signature_json" "$signature_json"
               save_signatures "chore(cla): record signature for $comment_author"
             else
@@ -260,7 +257,7 @@ jobs:
           fi
 
           signed_contributors="$({
-            jq -r --arg version "$CLA_VERSION" '.signatures[]? | select(.version == $version) | .login' "$signature_json"
+            jq -r --arg version "$CLA_VERSION" ".signatures[]? | select(.version == \$version) | .login" "$signature_json"
           } | awk 'NF' | sort -u)"
 
           missing_contributors=()
@@ -275,7 +272,7 @@ jobs:
             missing_block=""
             if [[ "${#missing_contributors[@]}" -gt 0 ]]; then
               missing_list="$(printf '%s\n' "${missing_contributors[@]}" | sed 's/^/- @/')"
-              missing_block="$(printf 'The following linked contributors still need to sign the CLA for version `%s`:\n\n%s\n\n' "$CLA_VERSION" "$missing_list")"
+              missing_block="$(printf "The following linked contributors still need to sign the CLA for version \`%s\`:\n\n%s\n\n" "$CLA_VERSION" "$missing_list")"
             fi
             update_status failure "Maintainer action required for unlinked commit authors"
             comment_body="$(printf '%s\n' \
