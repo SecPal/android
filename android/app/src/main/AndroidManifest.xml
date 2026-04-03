@@ -5,6 +5,35 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+
+        <provider android:authorities="com.android.contacts" />
+
+        <intent>
+            <action android:name="android.intent.action.INSERT" />
+            <data android:mimeType="vnd.android.cursor.dir/contact" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.INSERT_OR_EDIT" />
+            <data android:mimeType="vnd.android.cursor.item/contact" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -30,6 +59,38 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
         </activity>
 
+        <activity
+            android:name=".DedicatedDeviceHomeActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/title_activity_main"
+            android:launchMode="singleTask"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:theme="@style/AppTheme.NoActionBar">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter android:priority="1000">
+                <action android:name="android.settings.SETTINGS" />
+                <action android:name="android.settings.WIFI_SETTINGS" />
+                <action android:name="android.settings.WIRELESS_SETTINGS" />
+                <action android:name="android.settings.BLUETOOTH_SETTINGS" />
+                <action android:name="android.settings.DATA_USAGE_SETTINGS" />
+                <action android:name="android.settings.NETWORK_OPERATOR_SETTINGS" />
+                <action android:name="android.settings.SECURITY_SETTINGS" />
+                <action android:name="android.settings.SOUND_SETTINGS" />
+                <action android:name="android.settings.APPLICATION_SETTINGS" />
+                <action android:name="android.settings.APPLICATION_DEVELOPMENT_SETTINGS" />
+                <action android:name="android.settings.CALL_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -39,6 +100,23 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <receiver
+            android:name=".SecPalDeviceAdminReceiver"
+            android:description="@string/enterprise_device_admin_description"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/secpal_device_admin" />
+
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->

@@ -169,3 +169,64 @@ If your current change also affects the shared frontend authentication flow or A
 - rerun `npm run cap:sync`
 - reinstall the APK with `adb install -r`
 - if needed, uninstall the app once and install again to remove old debug state
+
+## Safe Dedicated-Device Test Flow
+
+If you want to test the DPC and device-owner path on a disposable device, prefer the debug APK first.
+
+Why this is safer:
+
+- the debug Android manifest marks the app as `testOnly`
+- Android's `dpm remove-active-admin` shell command can then remove the active admin and owner role again
+- you keep a rollback path over USB without having to rely on the app UI staying reachable
+
+Recommended sequence:
+
+```bash
+npm run cap:sync
+npm run native:assemble:debug
+./scripts/with-android-env.sh bash -lc 'adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk'
+./scripts/with-android-env.sh bash -lc 'adb shell dpm set-device-owner app.secpal.app/.SecPalDeviceAdminReceiver'
+```
+
+Rollback path for the debug build:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell dpm remove-active-admin app.secpal.app/.SecPalDeviceAdminReceiver'
+```
+
+Enable the strict kiosk case where only SecPal stays visible:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true app.secpal.app'
+./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal.app -c android.intent.category.LAUNCHER 1'
+```
+
+Allow SecPal plus Phone and SMS:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_allow_phone true --ez secpal_allow_sms true app.secpal.app'
+```
+
+Allow normal navigation between SecPal and a curated app set while still keeping SecPal as HOME:
+
+```bash
+./scripts/with-android-env.sh bash -lc "adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings' app.secpal.app"
+```
+
+With that policy, the dedicated-device home screen shows only the approved apps and HOME keeps returning to that managed launcher instead of the stock launcher.
+
+Clear the debug kiosk policy again without removing device owner:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal.app'
+```
+
+Important notes:
+
+- keep USB debugging enabled before starting the device-owner test
+- keep this host authorized for ADB on the device
+- test the debug flow first before attempting provisioning with a release build
+- if owner assignment fails or the shell path is lost, the device's stock recovery and a manual factory reset remain the fallback
+
+On a normal retail Android device, I cannot safely promise a fully unattended factory reset purely from the current ADB shell context. The reliable last-resort reset path remains physical recovery mode on the device itself.
