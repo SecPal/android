@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android domain-policy preflight no longer flags valid Android package and class identifiers from the approved application ID namespace as deprecated web-host usage, so repo checks stay compatible with native plugin references
 - launcher icon visibility: increased foreground inset factor from 0.35 to 0.52 and switched to logo-source.png to ensure icon is clearly visible on home screen across all density variants
 - splash screen background: now respects light/dark system theme via color resource qualifiers, rendering white background in light mode and dark background in dark mode instead of always black
 - splash screen logo contrast: separated splash icon assets for day/night modes using logo-light-512.png and logo-dark-512.png respectively, and removed animated icon overlay that was causing brightness wash-out
@@ -34,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- extended the local Prettier scripts to include `.mjs` helpers so formatting checks cover Node maintenance scripts consistently; introduced a repo-local `local-prettier.yml` reusable workflow that produces the `Formatting Check / Check Code Formatting` check name required by branch protection, working around a CI failure in the shared `reusable-prettier` caused by the newly introduced `setup-node-with-deps` composite action (tracked in SecPal/.github)
+- extended the local Prettier scripts to include `.mjs` helpers so formatting checks cover Node maintenance scripts consistently, and switched Android back from the temporary repo-local `local-prettier.yml` workaround to the shared `SecPal/.github` reusable Prettier workflow after the upstream setup regression was fixed
 - documented the ImageMagick `magick` prerequisite for `npm run brand:sync` in the Android README so launcher and splash asset sync no longer depends on undocumented local tooling
 - reduced the repo-local Copilot always-on context by replacing the long runtime baseline and removing the auto-loaded overlay fallback, which lowers request size in large VS Code workspaces without dropping the Android-specific governance rules
 - Android launcher icons and splash artwork are now generated from the canonical frontend SecPal logo assets via `npm run brand:sync`, so the native wrapper reuses the same brand mark instead of drifting onto Android-only placeholder artwork
