@@ -54,7 +54,7 @@ describe("Android native hardening", () => {
     expect(proguardRules).toContain(
       "@com.getcapacitor.PluginMethod <methods>;"
     );
-    expect(proguardRules).toContain("app.secpal.app.SecPalNativeAuthPlugin");
+    expect(proguardRules).toContain("app.secpal.SecPalNativeAuthPlugin");
   });
 
   it("locks file sharing to dedicated subdirectories and disables cleartext traffic", () => {
@@ -165,7 +165,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterprisePolicyController.java"
     );
 
@@ -206,7 +205,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "SecPalEnterprisePlugin.java"
     );
     const navigationController = readRepoFile(
@@ -217,7 +215,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "SystemNavigationController.java"
     );
     const injector = readRepoFile("scripts", "inject-native-auth-bridge.mjs");
@@ -252,7 +249,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterprisePolicyController.java"
     );
     const managedState = readRepoFile(
@@ -263,7 +259,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterpriseManagedState.java"
     );
     const dedicatedHomeActivity = readRepoFile(
@@ -274,7 +269,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "DedicatedDeviceHomeActivity.java"
     );
 
@@ -292,7 +286,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterprisePolicyController.java"
     );
     const managedState = readRepoFile(
@@ -303,7 +296,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterpriseManagedState.java"
     );
     const dedicatedHomeActivity = readRepoFile(
@@ -314,7 +306,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "DedicatedDeviceHomeActivity.java"
     );
 
@@ -352,7 +343,6 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "app",
       "EnterprisePolicyController.java"
     );
     const readme = readRepoFile("README.md");

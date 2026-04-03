@@ -118,7 +118,7 @@ Install or replace the debug build on the connected device:
 Launch the app manually on the device, or trigger a basic launch from the shell:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal.app -c android.intent.category.LAUNCHER 1'
+./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
 ```
 
 ## Useful Validation Commands
@@ -186,32 +186,32 @@ Recommended sequence:
 npm run cap:sync
 npm run native:assemble:debug
 ./scripts/with-android-env.sh bash -lc 'adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk'
-./scripts/with-android-env.sh bash -lc 'adb shell dpm set-device-owner app.secpal.app/.SecPalDeviceAdminReceiver'
+./scripts/with-android-env.sh bash -lc 'adb shell dpm set-device-owner app.secpal/.SecPalDeviceAdminReceiver'
 ```
 
 Rollback path for the debug build:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell dpm remove-active-admin app.secpal.app/.SecPalDeviceAdminReceiver'
+./scripts/with-android-env.sh bash -lc 'adb shell dpm remove-active-admin app.secpal/.SecPalDeviceAdminReceiver'
 ```
 
 Enable the strict kiosk case where only SecPal stays visible:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true app.secpal.app'
-./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal.app -c android.intent.category.LAUNCHER 1'
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true app.secpal'
+./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
 ```
 
 Allow SecPal plus Phone and SMS:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_allow_phone true --ez secpal_allow_sms true app.secpal.app'
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_allow_phone true --ez secpal_allow_sms true app.secpal'
 ```
 
 Allow normal navigation between SecPal and a curated app set while still keeping SecPal as HOME:
 
 ```bash
-./scripts/with-android-env.sh bash -lc "adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings' app.secpal.app"
+./scripts/with-android-env.sh bash -lc "adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings' app.secpal"
 ```
 
 With that policy, the dedicated-device home screen shows only the approved apps and HOME keeps returning to that managed launcher instead of the stock launcher.
@@ -219,7 +219,7 @@ With that policy, the dedicated-device home screen shows only the approved apps 
 Clear the debug kiosk policy again without removing device owner:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.app.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal.app'
+./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal'
 ```
 
 Important notes:

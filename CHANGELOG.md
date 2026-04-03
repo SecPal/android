@@ -51,16 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- renamed the Android application identifier to `app.secpal`, updated the native package namespace and debug broadcast actions to match, and removed the old identifier exception from repo-local governance and validation text
 - extended the local Prettier scripts to include `.mjs` helpers so formatting checks cover Node maintenance scripts consistently, and switched Android back from the temporary repo-local `local-prettier.yml` workaround to the shared `SecPal/.github` reusable Prettier workflow after the upstream setup regression was fixed
 - documented the ImageMagick `magick` prerequisite for `npm run brand:sync` in the Android README so launcher and splash asset sync no longer depends on undocumented local tooling
 - reduced the repo-local Copilot always-on context by replacing the long runtime baseline and removing the auto-loaded overlay fallback, which lowers request size in large VS Code workspaces without dropping the Android-specific governance rules
 - Android launcher icons and splash artwork are now generated from the canonical frontend SecPal logo assets via `npm run brand:sync`, so the native wrapper reuses the same brand mark instead of drifting onto Android-only placeholder artwork
-- clarified across repo-local instructions, validation scripts, and Android release docs that `app.secpal.app` remains only the Android application identifier, while `api.secpal.dev` and `app.secpal.dev` are the active API/PWA hosts and `secpal.app` stays limited to the public homepage plus real email addresses; rewrote ANDROID_RELEASE_DISTRIBUTION.md example sentence to remove invented `secpal.*` identifiers and replace them with descriptive phrases so the domain policy check is not weakened by line-colocation
+- clarified across repo-local instructions, validation scripts, and Android release docs that `app.secpal` remains only the Android application identifier, while `api.secpal.dev` and `app.secpal.dev` are the active API/PWA hosts and `secpal.app` stays limited to the public homepage plus real email addresses; rewrote ANDROID_RELEASE_DISTRIBUTION.md example sentence to remove invented `secpal.*` identifiers and replace them with descriptive phrases so the domain policy check is not weakened by line-colocation
 - strengthened `check-domains.sh` violations allowlist with proper word-boundary anchors so subdomains such as `myapi.secpal.dev` are no longer incorrectly excluded by substring matching
 - the Android wrapper build now patches the generated sibling frontend `dist/index.html` with a native-auth bootstrap script so `SecPalNativeAuthBridge` is available before the shared React app resolves its auth transport, and authenticated `/v1/` API calls in the Android WebView no longer rely on browser cookies or `/sanctum/csrf-cookie`
 - `SecPalNativeAuthPlugin.request`, `NativeAuthHttpClient.request`, and `native-auth-bridge.ts` now transport raw request and response bodies as Base64 so the Android wrapper can proxy JSON, multipart uploads, and binary downloads through the native bearer-token boundary while preserving HTTP status codes for the shared UI
 - `SecPalNativeAuthPlugin` now resolves its API base URL from native Android resources instead of accepting a token-bearing request origin from the WebView bridge, and `NativeAuthHttpClient.normalizeBaseUrl` now parses URL components strictly to reject userinfo, paths, query strings, and fragments before any credentialed request is sent
-- `api_base_url` in Android resources now stays on the canonical `api.secpal.dev` API origin; `app.secpal.app` remains only the Android application identifier and is not treated as a deployable web domain
+- `api_base_url` in Android resources now stays on the canonical `api.secpal.dev` API origin; `app.secpal` remains only the Android application identifier and is not treated as a deployable web domain
 - `decodeJsonStringFragment` in `NativeAuthHttpClient` now handles JSON `\\uXXXX` unicode escapes (including surrogate pairs) so server error messages that contain unicode escape sequences are displayed correctly
 - `SecPalNativeAuthPlugin` and `native-auth-bridge.ts` now expose a dedicated authenticated request path in addition to login, current-user bootstrap, and logout so later Android flow wiring can call protected endpoints without moving the bearer token into JavaScript
 - `KeystoreTokenStorage` now accepts an injectable `TokenCipher` via a package-private secondary constructor so tests can substitute a fake cipher without touching the Keystore
@@ -80,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wrap `HttpURLConnection` in `try/finally` and call `disconnect()` after each request to avoid leaking sockets; close response `InputStream` via try-with-resources
 - Replace `HTTP_0` error code for URL-validation failures in the native plugin with `VALIDATION_ERROR` to avoid misleading HTTP status semantics
 - Align `MainActivity.java` indentation to 4-space style consistent with all other Java sources in the package
-- Set the Capacitor Android wrapper hostname to `app.secpal.dev` so the native WebView origin matches the API CORS allowlist and the login health check no longer fails with a false "System not ready" state while still keeping the Android package ID at `app.secpal.app`
+- Set the Capacitor Android wrapper hostname to `app.secpal.dev` so the native WebView origin matches the API CORS allowlist and the login health check no longer fails with a false "System not ready" state while still keeping the Android package ID at `app.secpal`
 
 ### Added
 
@@ -131,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded the Android wrapper toolchain to Capacitor `8.2.0` across `@capacitor/android`, `@capacitor/core`, and `@capacitor/cli`
 - Upgraded the repository validation toolchain to ESLint `10.0.3`, `@eslint/js` `10.0.1`, `globals` `17.4.0`, Vitest `4.0.18`, and `@vitest/coverage-v8` `4.0.18`
 - Made the native Android app module read release versioning and signing inputs from environment variables so direct APK and Play Store release builds can share one Gradle path
-- Updated the Android product identity to the public `SecPal` app name with the shared application ID `app.secpal.app`
+- Updated the Android product identity to the public `SecPal` app name with the shared application ID `app.secpal`
 - Added a structured Android release-identity baseline covering the recommended public developer name, application ID, and split between technical and user-facing support contacts
 - Finalized the Android release baseline around the public `SecPal` publisher identity with `android@secpal.app` for technical Android topics and `support@secpal.app` for user-facing support
 - Locked in the shared-app strategy so DPC capability remains part of the same `SecPal` package instead of a separate enterprise-only Android app

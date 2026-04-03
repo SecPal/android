@@ -19,10 +19,10 @@ def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
-    namespace "app.secpal.app"
+    namespace "app.secpal"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.secpal.app"
+        applicationId "app.secpal"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseVersionCode
