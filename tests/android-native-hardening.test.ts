@@ -111,11 +111,271 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("declares a device-admin receiver for dedicated-device provisioning", () => {
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const deviceAdminXml = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "xml",
+      "secpal_device_admin.xml"
+    );
+
+    expect(manifest).toContain("SecPalDeviceAdminReceiver");
+    expect(manifest).toContain("DedicatedDeviceHomeActivity");
+    expect(manifest).toContain("android.intent.category.LAUNCHER");
+    expect(manifest).toContain("android.settings.SETTINGS");
+    expect(manifest).toContain("android.settings.WIFI_SETTINGS");
+    expect(manifest).toContain("android.permission.BIND_DEVICE_ADMIN");
+    expect(manifest).toContain(
+      "android.app.action.PROFILE_PROVISIONING_COMPLETE"
+    );
+    expect(deviceAdminXml).toContain("<device-admin");
+    expect(deviceAdminXml).toContain("<force-lock />");
+  });
+
+  it("marks debug builds as test-only so adb can remove test device owners", () => {
+    const debugManifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "AndroidManifest.xml"
+    );
+
+    expect(debugManifest).toContain('android:testOnly="true"');
+    expect(debugManifest).toContain("DEBUG_SET_ENTERPRISE_POLICY");
+    expect(debugManifest).toContain("DEBUG_CLEAR_ENTERPRISE_POLICY");
+  });
+
+  it("clears the dedicated-device gesture preference when debug policy is reset", () => {
+    const policyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterprisePolicyController.java"
+    );
+
+    expect(policyController).toContain(
+      'editor.remove("prefer_gesture_navigation")'
+    );
+  });
+
   it("documents the ImageMagick prerequisite for brand asset sync", () => {
     const readme = readRepoFile("README.md");
 
     expect(readme).toContain("ImageMagick");
     expect(readme).toContain("npm run brand:sync");
     expect(readme).toContain("magick");
+  });
+
+  it("documents dedicated-device provisioning behavior in the README", () => {
+    const readme = readRepoFile("README.md");
+
+    expect(readme).toContain("same `SecPal` app");
+    expect(readme).toContain("secpal_kiosk_mode_enabled");
+    expect(readme).toContain("secpal_lock_task_enabled");
+    expect(readme).toContain("secpal_allow_phone");
+    expect(readme).toContain("secpal_allow_sms");
+    expect(readme).toContain("secpal_prefer_gesture_navigation");
+    expect(readme).toContain("debug build");
+    expect(readme).toContain("remove-active-admin");
+    expect(readme).toContain("SecPalEnterpriseBridge");
+    expect(readme).toContain("openGestureNavigationSettings");
+  });
+
+  it("exposes app-controlled gesture-navigation settings through the enterprise bridge", () => {
+    const plugin = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "SecPalEnterprisePlugin.java"
+    );
+    const navigationController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "SystemNavigationController.java"
+    );
+    const injector = readRepoFile("scripts", "inject-native-auth-bridge.mjs");
+
+    expect(plugin).toContain("openGestureNavigationSettings");
+    expect(plugin).toContain("gestureNavigationEnabled");
+    expect(plugin).toContain("gestureNavigationSettingsAvailable");
+    expect(navigationController).toContain(
+      "applyProvisioningGestureNavigationIfRequested"
+    );
+    expect(navigationController).toContain(
+      "maybeCompleteProvisioningGestureNavigation"
+    );
+    expect(navigationController).toContain("setSecureSetting(");
+    expect(navigationController).toContain("setGlobalSetting(");
+    expect(navigationController).toContain(
+      "com.samsung.settings.NAVIGATION_BAR_SETTING"
+    );
+    expect(navigationController).toContain(
+      "com.android.settings.GESTURE_NAVIGATION_SETTINGS"
+    );
+    expect(injector).toContain("SecPalEnterpriseBridge");
+    expect(injector).toContain("openGestureNavigationSettings");
+  });
+
+  it("keeps the enterprise launcher implementation vendor-neutral", () => {
+    const policyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterprisePolicyController.java"
+    );
+    const managedState = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterpriseManagedState.java"
+    );
+    const dedicatedHomeActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "DedicatedDeviceHomeActivity.java"
+    );
+
+    expect(policyController).not.toMatch(/Samsung|samsung|com\.sec\./);
+    expect(managedState).not.toMatch(/Samsung|samsung|com\.sec\./);
+    expect(dedicatedHomeActivity).not.toMatch(/Samsung|samsung|com\.sec\./);
+  });
+
+  it("only shows Phone and SMS tiles when Android can resolve real handlers", () => {
+    const policyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterprisePolicyController.java"
+    );
+    const managedState = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterpriseManagedState.java"
+    );
+    const dedicatedHomeActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "DedicatedDeviceHomeActivity.java"
+    );
+
+    expect(managedState).toContain("queryIntentActivities(intent, 0)");
+    expect(policyController).toContain("resolveLaunchableIntent");
+    expect(policyController).toContain("resolveFirstComponent");
+    expect(policyController).toContain("applied_policy_signature");
+    expect(policyController).toContain("buildAppliedPolicySignature");
+    expect(policyController).toContain("managed_hidden_packages");
+    expect(policyController).toContain("restoreManagedHiddenPackages");
+    expect(policyController).toContain("excludedPackages");
+    expect(policyController).toContain(
+      "managedState.resolveDialerPackage(context)"
+    );
+    expect(policyController).toContain(
+      "managedState.resolveSmsPackage(context)"
+    );
+    expect(managedState).toContain("ContactsContract.AUTHORITY");
+    expect(managedState).toContain("ACTION_INSERT_OR_EDIT");
+    expect(managedState).toContain("resolveContactSupportPackages");
+    expect(dedicatedHomeActivity).toContain(
+      "managedState.isAllowPhone() && dialerPackage != null"
+    );
+    expect(dedicatedHomeActivity).toContain(
+      "managedState.isAllowSms() && smsPackage != null"
+    );
+  });
+
+  it("locks down status-bar shortcuts and system configuration in kiosk mode", () => {
+    const policyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "app",
+      "EnterprisePolicyController.java"
+    );
+    const readme = readRepoFile("README.md");
+
+    expect(policyController).toContain("KIOSK_LOCK_TASK_FEATURES");
+    expect(policyController).toContain(
+      "setStatusBarDisabled(adminComponent, true)"
+    );
+    expect(policyController).toContain(
+      "setKioskUserRestrictions(devicePolicyManager, adminComponent, true)"
+    );
+    expect(policyController).toContain("KIOSK_REDIRECTED_SETTINGS_ACTIONS");
+    expect(policyController).toContain("android.settings.SETTINGS");
+    expect(policyController).toContain(
+      "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+    );
+    expect(policyController).toContain("android.settings.WIFI_SETTINGS");
+    expect(policyController).toContain("UserManager.DISALLOW_CONFIG_WIFI");
+    expect(policyController).toContain("UserManager.DISALLOW_CONFIG_BLUETOOTH");
+    expect(policyController).toContain(
+      "UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS"
+    );
+    expect(policyController).toContain("UserManager.DISALLOW_INSTALL_APPS");
+    expect(readme).not.toContain("com.android.settings");
   });
 });

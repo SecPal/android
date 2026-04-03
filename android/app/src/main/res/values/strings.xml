@@ -5,4 +5,13 @@
     <string name="package_name">app.secpal.app</string>
     <string name="custom_url_scheme">app.secpal.app</string>
     <string name="api_base_url">https://api.secpal.dev</string>
+    <string name="enterprise_device_admin_description">Allows SecPal to manage dedicated Android devices when provisioned as the device policy controller.</string>
+    <string name="enterprise_disable_warning">Disabling SecPal device management removes kiosk restrictions and dedicated-device enforcement.</string>
+    <string name="enterprise_profile_name">SecPal Work</string>
+    <string name="enterprise_home_title">Allowed apps</string>
+    <string name="enterprise_home_summary">This device only shows applications approved by SecPal policy.</string>
+    <string name="enterprise_home_open_secpal">SecPal</string>
+    <string name="enterprise_home_phone_label">Phone</string>
+    <string name="enterprise_home_sms_label">SMS</string>
+    <string name="enterprise_home_empty_state">No approved apps are currently available.</string>
 </resources>

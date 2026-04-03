@@ -31,8 +31,20 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SecPalNativeAuthPlugin.class);
+        registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
         super.onCreate(savedInstanceState);
+        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
+        EnterprisePolicyController.maybeEnterLockTask(this);
+        SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
+        EnterprisePolicyController.maybeEnterLockTask(this);
+        SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
     }
 
     private void purgeLegacyPwaStateIfAppUpdated() {

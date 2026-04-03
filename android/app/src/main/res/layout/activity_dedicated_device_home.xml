@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/enterprise_home_background"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="28dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="32dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/enterprise_home_title"
+            android:textAppearance="@android:style/TextAppearance.Large"
+            android:textColor="@android:color/white"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/enterprise_home_summary"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:textColor="#D0D5DD" />
+
+        <GridLayout
+            android:id="@+id/enterprise_home_app_grid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:alignmentMode="alignMargins"
+            android:columnCount="3"
+            android:useDefaultMargins="false" />
+
+        <TextView
+            android:id="@+id/enterprise_home_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="@string/enterprise_home_empty_state"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:textColor="#D0D5DD"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

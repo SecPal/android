@@ -5,7 +5,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
-
 export function readApiBaseUrlFromStringsXml(stringsXml) {
   const match = stringsXml.match(
     /<string\s+name="api_base_url">([^<]+)<\/string>/
@@ -35,6 +34,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     "    const plugin = globalThis.Capacitor?.Plugins?.SecPalNativeAuth;",
     "    if (!plugin) {",
     '      throw new Error("SecPal native auth plugin is unavailable");',
+    "    }",
+    "    return plugin;",
+    "  };",
+    "  const getEnterprisePlugin = () => {",
+    "    const plugin = globalThis.Capacitor?.Plugins?.SecPalEnterprise;",
+    "    if (!plugin) {",
+    '      throw new Error("SecPal enterprise plugin is unavailable");',
     "    }",
     "    return plugin;",
     "  };",
@@ -98,7 +104,29 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     "      return getPlugin().request(request);",
     "    },",
     "  };",
+    "  const enterpriseBridge = {",
+    "    getManagedState() {",
+    "      return getEnterprisePlugin().getManagedState();",
+    "    },",
+    "    launchPhone() {",
+    "      return getEnterprisePlugin().launchPhone();",
+    "    },",
+    "    launchSms() {",
+    "      return getEnterprisePlugin().launchSms();",
+    "    },",
+    "    launchAllowedApp(options) {",
+    "      return getEnterprisePlugin().launchAllowedApp(options);",
+    "    },",
+    "    openGestureNavigationSettings() {",
+    "      const plugin = getEnterprisePlugin();",
+    "      if (typeof plugin.openGestureNavigationSettings !== 'function') {",
+    '        throw new Error("SecPal gesture navigation settings are unavailable");',
+    "      }",
+    "      return plugin.openGestureNavigationSettings();",
+    "    },",
+    "  };",
     "  globalThis.SecPalNativeAuthBridge = bridge;",
+    "  globalThis.SecPalEnterpriseBridge = enterpriseBridge;",
     "  if (typeof globalThis.fetch === 'function') {",
     "    const originalFetch = globalThis.fetch.bind(globalThis);",
     "    globalThis.fetch = async (input, init) => {",
@@ -145,11 +173,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 }
 
 export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
-  if (html.includes(`id="${BOOTSTRAP_SCRIPT_ID}"`)) {
-    return html;
+  const scriptTag = `<script id="${BOOTSTRAP_SCRIPT_ID}">${buildNativeAuthBridgeBootstrapScript(apiBaseUrl)}</script>`;
+  const existingScriptPattern = new RegExp(
+    `<script id="${BOOTSTRAP_SCRIPT_ID}">[\\s\\S]*?<\\/script>`
+  );
+
+  if (existingScriptPattern.test(html)) {
+    return html.replace(existingScriptPattern, scriptTag);
   }
 
-  const scriptTag = `<script id="${BOOTSTRAP_SCRIPT_ID}">${buildNativeAuthBridgeBootstrapScript(apiBaseUrl)}</script>`;
   const moduleScriptIndex = html.indexOf('<script type="module"');
 
   if (moduleScriptIndex >= 0) {

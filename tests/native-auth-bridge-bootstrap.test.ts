@@ -7,6 +7,93 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
+class MockElement {
+  id = "";
+  textContent = "";
+  style: Record<string, string> = {};
+  attributes: Record<string, string> = {};
+  children: MockElement[] = [];
+  listeners = new Map<
+    string,
+    Array<(event: { preventDefault(): void }) => void>
+  >();
+  ownerDocument: MockDocument | null = null;
+
+  constructor(readonly tagName: string) {}
+
+  setAttribute(name: string, value: string) {
+    this.attributes[name] = value;
+  }
+
+  appendChild(child: MockElement) {
+    child.ownerDocument = this.ownerDocument;
+    this.children.push(child);
+    this.ownerDocument?.register(child);
+    return child;
+  }
+
+  addEventListener(
+    eventName: string,
+    listener: (event: { preventDefault(): void }) => void
+  ) {
+    const listeners = this.listeners.get(eventName) ?? [];
+
+    listeners.push(listener);
+    this.listeners.set(eventName, listeners);
+  }
+
+  click() {
+    for (const listener of this.listeners.get("click") ?? []) {
+      listener({
+        preventDefault() {
+          // no-op
+        },
+      });
+    }
+  }
+
+  remove() {
+    this.ownerDocument?.unregister(this.id);
+  }
+}
+
+class MockDocument {
+  readonly body = new MockElement("body");
+  readyState = "complete";
+  private readonly elementsById = new Map<string, MockElement>();
+
+  constructor() {
+    this.body.ownerDocument = this;
+  }
+
+  createElement(tagName: string) {
+    const element = new MockElement(tagName);
+
+    element.ownerDocument = this;
+    return element;
+  }
+
+  getElementById(id: string) {
+    return this.elementsById.get(id) ?? null;
+  }
+
+  addEventListener() {
+    // no-op for this test harness
+  }
+
+  register(element: MockElement) {
+    if (element.id) {
+      this.elementsById.set(element.id, element);
+    }
+  }
+
+  unregister(id: string) {
+    if (id) {
+      this.elementsById.delete(id);
+    }
+  }
+}
+
 async function loadInjectorModule(): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
   injectNativeAuthBridgeBootstrap: (html: string, apiBaseUrl: string) => string;
@@ -59,6 +146,33 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       injectNativeAuthBridgeBootstrap(injectedHtml, "https://api.secpal.dev")
     ).toBe(injectedHtml);
+  });
+
+  it("replaces an existing bootstrap script when reinjecting updated content", async () => {
+    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      '<script id="secpal-native-auth-bridge-bootstrap">window.__staleBootstrap = true;</script>',
+      '<script type="module" src="/assets/index.js"></script>',
+      "</head>",
+      "<body></body>",
+      "</html>",
+    ].join("\n");
+
+    const reinjectedHtml = injectNativeAuthBridgeBootstrap(
+      html,
+      "https://api.secpal.dev"
+    );
+
+    expect(reinjectedHtml).toContain(
+      'id="secpal-native-auth-bridge-bootstrap"'
+    );
+    expect(reinjectedHtml).not.toContain("window.__staleBootstrap = true;");
+    expect(
+      reinjectedHtml.match(/id="secpal-native-auth-bridge-bootstrap"/g)
+    ).toHaveLength(1);
   });
 
   it("installs the native bridge and routes authenticated /v1/ fetch traffic through the native plugin", async () => {
@@ -175,6 +289,92 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.isNetworkAvailable).toHaveBeenCalledOnce();
   });
 
+  it("exposes an enterprise bridge for managed-state reads and gesture-navigation settings", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      getManagedState: vi.fn().mockResolvedValue({
+        managed: true,
+        mode: "device_owner",
+        kioskActive: true,
+        lockTaskEnabled: true,
+        gestureNavigationEnabled: false,
+        gestureNavigationSettingsAvailable: true,
+        allowPhone: true,
+        allowSms: true,
+        allowedApps: [],
+      }),
+      launchPhone: vi.fn().mockResolvedValue(undefined),
+      launchSms: vi.fn().mockResolvedValue(undefined),
+      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+      openGestureNavigationSettings: vi.fn().mockResolvedValue({
+        opened: true,
+        gestureNavigationEnabled: false,
+        willReenterLockTaskOnResume: true,
+      }),
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    expect(enterprisePlugin.getManagedState).not.toHaveBeenCalled();
+
+    const bridge = sandbox.SecPalEnterpriseBridge as {
+      getManagedState(): Promise<unknown>;
+      openGestureNavigationSettings(): Promise<unknown>;
+    };
+
+    await expect(bridge.getManagedState()).resolves.toEqual({
+      managed: true,
+      mode: "device_owner",
+      kioskActive: true,
+      lockTaskEnabled: true,
+      gestureNavigationEnabled: false,
+      gestureNavigationSettingsAvailable: true,
+      allowPhone: true,
+      allowSms: true,
+      allowedApps: [],
+    });
+    await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({
+      opened: true,
+      gestureNavigationEnabled: false,
+      willReenterLockTaskOnResume: true,
+    });
+    expect(enterprisePlugin.getManagedState).toHaveBeenCalledOnce();
+    expect(
+      enterprisePlugin.openGestureNavigationSettings
+    ).toHaveBeenCalledOnce();
+  });
+
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -222,5 +422,189 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.request).not.toHaveBeenCalled();
     expect(browserFetch).toHaveBeenCalledOnce();
     await expect(response.text()).resolves.toBe('{"status":"ready"}');
+  });
+
+  it("does not render the removed in-app dedicated-device launcher", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      getManagedState: vi.fn().mockResolvedValue({
+        mode: "device_owner",
+        kioskActive: true,
+        allowedApps: [
+          { packageName: "com.android.chrome", label: "Chrome" },
+          { packageName: "com.android.settings", label: "Settings" },
+        ],
+        allowPhone: true,
+        allowSms: true,
+      }),
+      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+      launchPhone: vi.fn().mockResolvedValue(undefined),
+      launchSms: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      document,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(enterprisePlugin.getManagedState).not.toHaveBeenCalled();
+    expect(document.body.children).toHaveLength(0);
+  });
+
+  it("does not retry a removed in-app launcher when the enterprise plugin appears later", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      getManagedState: vi.fn().mockResolvedValue({
+        mode: "device_owner",
+        kioskActive: true,
+        allowedApps: [
+          { packageName: "com.android.settings", label: "Settings" },
+        ],
+        allowPhone: false,
+        allowSms: false,
+      }),
+      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+      launchPhone: vi.fn().mockResolvedValue(undefined),
+      launchSms: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const capacitor: { Plugins: Record<string, unknown> } = {
+      Plugins: {
+        SecPalNativeAuth: {
+          login: vi.fn(),
+          logout: vi.fn(),
+          getCurrentUser: vi.fn(),
+          isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+          request: vi.fn(),
+        },
+      },
+    };
+    const sandbox = {
+      Capacitor: capacitor,
+      document,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    capacitor.Plugins.SecPalEnterprise = enterprisePlugin;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(enterprisePlugin.getManagedState).not.toHaveBeenCalled();
+    expect(document.getElementById("secpal-system-app-launcher")).toBeNull();
+  });
+
+  it("does not call the enterprise plugin during bootstrap just to render a removed launcher", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      getManagedState: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("bridge not ready"))
+        .mockResolvedValue({
+          mode: "device_owner",
+          kioskActive: true,
+          allowedApps: [{ packageName: "com.android.chrome", label: "Chrome" }],
+          allowPhone: false,
+          allowSms: false,
+        }),
+      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+      launchPhone: vi.fn().mockResolvedValue(undefined),
+      launchSms: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      document,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(enterprisePlugin.getManagedState).not.toHaveBeenCalled();
+    expect(document.getElementById("secpal-system-app-launcher")).toBeNull();
   });
 });
