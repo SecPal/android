@@ -43,7 +43,7 @@ describe("capacitor Android wrapper configuration", () => {
   });
 
   it("uses the SecPal app identity, configured hostname, and secure scheme", () => {
-    expect(config.appId).toBe("app.secpal.app");
+    expect(config.appId).toBe("app.secpal");
     expect(config.appName).toBe("SecPal");
     expect(config.cordova?.accessOrigins).toEqual([
       "https://api.secpal.dev",

@@ -126,7 +126,7 @@ The current release baseline uses:
 
 - public app name: `SecPal`
 - public developer or publisher name: `SecPal`
-- application ID: `app.secpal.app` (Android identifier only, not a web domain)
+- application ID: `app.secpal` (Android identifier only, not a web domain)
 - technical Android contact: `android@secpal.app`
 - public support contact: `support@secpal.app`
 
@@ -173,37 +173,37 @@ The currently supported provisioning and managed-configuration keys are:
 
 If the app is not device owner or profile owner, these controls stay inactive and the package behaves like a normal Android application.
 
-For local dedicated-device testing, the debug variant is intentionally marked as a `testOnly` app. That keeps one important rollback path open: if you assign the debug build as device owner through `adb shell dpm set-device-owner`, you can remove it again with `adb shell dpm remove-active-admin app.secpal.app/.SecPalDeviceAdminReceiver` instead of being forced into a factory reset every time.
+For local dedicated-device testing, the debug variant is intentionally marked as a `testOnly` app. That keeps one important rollback path open: if you assign the debug build as device owner through `adb shell dpm set-device-owner`, you can remove it again with `adb shell dpm remove-active-admin app.secpal/.SecPalDeviceAdminReceiver` instead of being forced into a factory reset every time.
 
 That safety net is for debug testing only. Release builds must not rely on it.
 
 For debug-only kiosk testing on a real device, you can also inject enterprise policy locally over ADB without rebuilding the app around provisioning extras. The debug receiver accepts:
 
-- `app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY`
-- `app.secpal.app.action.DEBUG_CLEAR_ENTERPRISE_POLICY`
+- `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY`
+- `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`
 
 Example to enable the strict kiosk case with only SecPal visible:
 
 ```bash
-adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY \
+adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
     --ez secpal_kiosk_mode_enabled true \
-    app.secpal.app
+    app.secpal
 ```
 
 Example to clear the debug policy again:
 
 ```bash
-adb shell am broadcast -a app.secpal.app.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal.app
+adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal
 ```
 
 Example to keep SecPal as the managed home screen but allow normal switching among approved apps:
 
 ```bash
-adb shell am broadcast -a app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY \
+adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
     --ez secpal_kiosk_mode_enabled true \
     --ez secpal_lock_task_enabled false \
     --es secpal_allowed_packages 'com.example.approvedapp' \
-    app.secpal.app
+    app.secpal
 ```
 
 When the Android wrapper runs as device owner, the web layer can also trigger the supported system gesture-navigation flow through the injected enterprise bridge:

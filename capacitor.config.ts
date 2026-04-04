@@ -7,7 +7,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   // Android package/application identifier only; not a deployable web domain.
-  appId: "app.secpal.app",
+  appId: "app.secpal",
   appName: "SecPal",
   webDir: "../frontend/dist",
   cordova: {

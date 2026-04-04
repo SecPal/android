@@ -36,6 +36,6 @@
 }
 
 # Keep the registered Android bridge entry points stable in release builds.
--keep class app.secpal.app.MainActivity { *; }
--keep class app.secpal.app.SecPalNativeAuthPlugin { *; }
--keep class app.secpal.app.SecPalEnterprisePlugin { *; }
+-keep class app.secpal.MainActivity { *; }
+-keep class app.secpal.SecPalNativeAuthPlugin { *; }
+-keep class app.secpal.SecPalEnterprisePlugin { *; }

@@ -15,8 +15,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             android:exported="true">
 
             <intent-filter>
-                <action android:name="app.secpal.app.action.DEBUG_SET_ENTERPRISE_POLICY" />
-                <action android:name="app.secpal.app.action.DEBUG_CLEAR_ENTERPRISE_POLICY" />
+                <action android:name="app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY" />
+                <action android:name="app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY" />
             </intent-filter>
         </receiver>
     </application>

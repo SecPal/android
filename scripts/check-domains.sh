@@ -18,8 +18,8 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}=== Domain Policy Check ===${NC}"
 echo "Allowed: secpal.app, secpal.dev"
 echo "Active web hosts: api.secpal.dev, app.secpal.dev"
-echo "Identifier-only: app.secpal.app (Android application ID)"
-echo "Deprecated web hosts: api.secpal.app, app.secpal.app"
+echo "Identifier-only: app.secpal (Android application ID)"
+echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
@@ -53,22 +53,19 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]+" \
     grep -v -- '^[[:space:]]*- \[' || true)
 
 # Allowlist approach: flag any secpal.* domain not matching an approved pattern.
-# Approved: secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, app.secpal.app (identifier context).
+# Approved: secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts.
+# app.secpal sub-patterns are narrowed to:
+#   - standalone app.secpal (as Android app ID),
+#   - app.secpal.ClassName (Java class imports, starting with uppercase), and
+#   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
+# This prevents domain-like strings (e.g. app.secpal.com) from passing as approved.
 # This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
 violations=$(printf '%s\n' "$matches" | \
-    grep -Ev '(^|[^A-Za-z0-9.-])secpal\.(app|dev)([^a-zA-Z0-9.-]|$)|(^|[^A-Za-z0-9.-])(api\.secpal\.(dev|app)|app\.secpal\.(dev|app))([^A-Za-z0-9.-]|$)|(^|[^A-Za-z0-9.-])app\.secpal\.app(\.[A-Za-z_][A-Za-z0-9_]*)+([^A-Za-z0-9._-]|$)' | \
+    grep -Ev '(^|[^A-Za-z0-9.-])secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])(\*\.|\.)?([A-Za-z0-9-]+\.)*secpal\.dev(\.[A-Za-z0-9_-]+)*($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])api\.secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])app\.secpal([^A-Za-z0-9._-]|$)|(^|[^A-Za-z0-9.-])app\.secpal\.[A-Z][A-Za-z0-9_]*([^A-Za-z0-9._-]|$)|(^|[^A-Za-z0-9.-])app\.secpal\.action\.[A-Z_][A-Z0-9_]*([^A-Za-z0-9._-]|$)' | \
     grep -E 'secpal\.' || true)
 
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
-    grep -E 'api\.secpal\.app|app\.secpal\.app' | \
-    grep -vE -- 'app\.secpal\.app(\.[A-Za-z_][A-Za-z0-9_]*)+' | \
-    grep -v -- "appId" | \
-    grep -v -- "applicationId" | \
-    grep -v -- "package name" | \
-    grep -v -- "package/application ID" | \
-    grep -v -- "application ID" | \
-    grep -v -- "Android application identifier" | \
-    grep -v -- "Android identifier" | \
+    grep -E 'api\.secpal\.app' | \
     grep -v -- "Android package ID" | \
     grep -v -- "identifier-only" | \
     grep -v -- "active web hosts" | \
@@ -79,14 +76,6 @@ deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -v -- './.github/copilot-instructions.md:' | \
     grep -v -- './.github/copilot-config.yaml:' | \
     grep -v -- './.github/instructions/' | \
-    grep -v -- 'namespace "app\.secpal\.app"' | \
-    grep -v -- 'package app\.secpal\.app;' | \
-    grep -v -- 'package_name' | \
-    grep -v -- 'custom_url_scheme' | \
-    grep -v -- 'getPackageName()' | \
-    grep -v -- "\`app\.secpal\.app\` package" | \
-    grep -v -- 'better default than Android-specific variants' | \
-    grep -v -- 'adb shell monkey -p app\.secpal\.app' | \
     grep -v -- 'must not appear as active web hosts' | \
     grep -v -- 'not treated as a deployable web domain' || true)
 
@@ -112,8 +101,8 @@ else
     echo "  - api.secpal.dev: live API host"
     echo "  - app.secpal.dev: live PWA/frontend host"
     echo "  - secpal.dev: development, staging, testing, examples"
-    echo "  - app.secpal.app: Android application identifier only"
-    echo "  - DEPRECATED as web hosts: api.secpal.app, app.secpal.app"
+    echo "  - app.secpal: Android application identifier only"
+    echo "  - DEPRECATED as web hosts: api.secpal.app"
     echo "  - FORBIDDEN: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example"
     echo ""
     echo "Fix these violations before committing."
