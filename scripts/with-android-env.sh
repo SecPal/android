@@ -4,8 +4,17 @@
 
 set -euo pipefail
 
-if [[ -z "${JAVA_HOME:-}" && -d "/usr/lib/jvm/java-21-openjdk" ]]; then
-    export JAVA_HOME="/usr/lib/jvm/java-21-openjdk"
+if [[ -z "${JAVA_HOME:-}" ]]; then
+    for _jvm_candidate in \
+        "/usr/lib/jvm/java-21-openjdk" \
+        "/usr/lib/jvm/java-21-openjdk-amd64" \
+        "/usr/lib/jvm/java-21-openjdk-arm64"; do
+        if [[ -d "$_jvm_candidate" && -x "$_jvm_candidate/bin/java" ]]; then
+            export JAVA_HOME="$_jvm_candidate"
+            break
+        fi
+    done
+    unset _jvm_candidate
 fi
 
 if [[ -z "${ANDROID_SDK_ROOT:-}" && -d "$HOME/Android/Sdk" ]]; then
