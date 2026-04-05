@@ -456,15 +456,47 @@ public final class EnterprisePolicyController {
             dedicatedHomeComponent
         );
 
-        for (String action : KIOSK_REDIRECTED_SETTINGS_ACTIONS) {
-            IntentFilter settingsIntentFilter = new IntentFilter(action);
+        for (KioskSettingsRedirectFilterSpec filterSpec : buildKioskSettingsRedirectFilters()) {
+            IntentFilter settingsIntentFilter = new IntentFilter(filterSpec.getAction());
 
-            settingsIntentFilter.addCategory(Intent.CATEGORY_DEFAULT);
+            if (filterSpec.hasDefaultCategory()) {
+                settingsIntentFilter.addCategory(Intent.CATEGORY_DEFAULT);
+            }
+
             devicePolicyManager.addPersistentPreferredActivity(
                 adminComponent,
                 settingsIntentFilter,
                 dedicatedHomeComponent
             );
+        }
+    }
+
+    static List<KioskSettingsRedirectFilterSpec> buildKioskSettingsRedirectFilters() {
+        ArrayList<KioskSettingsRedirectFilterSpec> filters = new ArrayList<>();
+
+        for (String action : KIOSK_REDIRECTED_SETTINGS_ACTIONS) {
+            filters.add(new KioskSettingsRedirectFilterSpec(action, false));
+            filters.add(new KioskSettingsRedirectFilterSpec(action, true));
+        }
+
+        return filters;
+    }
+
+    static final class KioskSettingsRedirectFilterSpec {
+        private final String action;
+        private final boolean defaultCategory;
+
+        KioskSettingsRedirectFilterSpec(String action, boolean defaultCategory) {
+            this.action = action;
+            this.defaultCategory = defaultCategory;
+        }
+
+        String getAction() {
+            return action;
+        }
+
+        boolean hasDefaultCategory() {
+            return defaultCategory;
         }
     }
 

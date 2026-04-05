@@ -7,8 +7,10 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Collections;
+import java.util.List;
 
 import org.junit.Test;
 
@@ -42,5 +44,30 @@ public class EnterprisePolicyControllerTest {
     public void resolveFirstComponentReturnsNullWhenNothingLaunchableExists() {
         assertNull(EnterprisePolicyController.resolveFirstComponent(Collections.emptyList()));
         assertNull(EnterprisePolicyController.resolveFirstComponent(null));
+    }
+
+    @Test
+    public void kioskSettingsRedirectFiltersCoverPlainAndDefaultCategoryIntents() {
+        List<EnterprisePolicyController.KioskSettingsRedirectFilterSpec> filters =
+            EnterprisePolicyController.buildKioskSettingsRedirectFilters();
+        boolean foundWithoutCategory = false;
+        boolean foundWithDefaultCategory = false;
+
+        for (EnterprisePolicyController.KioskSettingsRedirectFilterSpec filter : filters) {
+            if (!"android.settings.SETTINGS".equals(filter.getAction())) {
+                continue;
+            }
+
+            if (!filter.hasDefaultCategory()) {
+                foundWithoutCategory = true;
+            }
+
+            if (filter.hasDefaultCategory()) {
+                foundWithDefaultCategory = true;
+            }
+        }
+
+        assertTrue(foundWithoutCategory);
+        assertTrue(foundWithDefaultCategory);
     }
 }
