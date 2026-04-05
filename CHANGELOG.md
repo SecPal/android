@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- dedicated-device persistent preferred settings routing now registers each redirected Settings action both with and without `android.intent.category.DEFAULT`, so category-less generic Settings intents are still redirected back to SecPal HOME on OEM builds that resolve them without the default category
 - Android domain-policy preflight no longer flags valid Android package and class identifiers from the approved application ID namespace as deprecated web-host usage, so repo checks stay compatible with native plugin references
 - dedicated-device defaults now keep lock task enabled again unless `secpal_lock_task_enabled` is explicitly set to `false`; with the repaired contacts-support allowlist, Phone/SMS and dialer contact creation still work under the strict managed mode, which closes the route back into stock Settings/Developer Options that appeared in the temporarily relaxed default
 - dedicated-device settings redirection now also covers the direct Developer Options action so explicit launches of that settings page are bounced back to the managed home screen
