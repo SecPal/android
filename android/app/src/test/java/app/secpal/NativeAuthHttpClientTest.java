@@ -170,6 +170,22 @@ public class NativeAuthHttpClientTest {
         );
     }
 
+    @Test
+    public void parseBootstrapExchangeResponseDefaultsTenantIdToZeroWhenAbsent() {
+        Map<String, Object> response = new HashMap<>();
+
+        response.put("enrollment_session_id", "session-456");
+        response.put("tenant_name", "Fallback Tenant");
+        response.put("api_base_url", "https://api.secpal.dev/v1");
+        response.put("update_channel", "managed_device");
+
+        ProvisioningBootstrapExchangeResult result =
+            NativeAuthHttpClient.parseBootstrapExchangePayload(response);
+
+        assertEquals(0, result.getTenantId());
+        assertEquals("session-456", result.getEnrollmentSessionId());
+    }
+
     private void assertErrorMessage(String expected, String baseUrl) {
         try {
             NativeAuthHttpClient.normalizeBaseUrl(baseUrl);

@@ -465,7 +465,15 @@ class NativeAuthHttpClient {
             return ((Number) value).intValue();
         }
 
-        return Integer.parseInt(String.valueOf(value));
+        if (value == null) {
+            return 0;
+        }
+
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     @SuppressWarnings("unchecked")
