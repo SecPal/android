@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly recommend `PREFLIGHT_RUN_TESTS=1` for behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
+
 ### Added
 
 - app-controlled gesture-navigation support in the Android wrapper: `SecPalEnterprisePlugin` and the injected `SecPalEnterpriseBridge` can now open the device's official navigation-mode settings screen from SecPal itself, temporarily leaving lock task for that system flow and re-entering the managed kiosk when the user returns; dedicated-device provisioning now also prefers gesture navigation by default, applies managed navigation settings during provisioning, and falls back to the official gesture-navigation screen on first managed launch when a device still requires the OEM settings UI

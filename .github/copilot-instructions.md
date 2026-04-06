@@ -51,6 +51,7 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - When local review finds zero issues, commit and push the finished branch before opening any PR.
 - The first PR state must be draft. Do not open a normal PR first.
 - Mark a draft PR ready only after the final self-review in the PR view still finds zero issues.
+- When creating or editing PRs programmatically, write multi-line body content to a file and use `--body-file` to prevent shell escaping issues.
 
 ## Required Validation
 
@@ -64,6 +65,8 @@ At minimum verify:
 - `CHANGELOG.md` was updated for real changes
 - commits are GPG-signed
 - REUSE compliance was checked when changed files require it
+- when a fix alters observable behavior, state lifecycle, error handling, or security constraints, the corresponding tests were identified and updated in the same commit
+- before pushing behavioral or security-critical changes, affected tests were run locally (`PREFLIGHT_RUN_TESTS=1 git push` or invoke the test runner directly)
 - the local 4-pass review was completed, including DRY, KISS, YAGNI, SOLID, quality-first, and issue-management checks
 - no bypass was used
 
