@@ -139,6 +139,8 @@ public class MainActivity extends BridgeActivity {
                 if (outcome == ProvisioningBootstrapCoordinator.SyncOutcome.COMPLETED) {
                     runOnUiThread(this::refreshManagedPolicyState);
                 }
+            } catch (RuntimeException exception) {
+                Log.e(LOG_TAG, "Unexpected error during provisioning bootstrap sync", exception);
             } finally {
                 provisioningBootstrapSyncInFlight.set(false);
             }

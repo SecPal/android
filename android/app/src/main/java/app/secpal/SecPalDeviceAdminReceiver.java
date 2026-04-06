@@ -76,11 +76,13 @@ public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
     }
 
     private void persistBootstrapExtras(Context context, PersistableBundle adminExtras) {
+        ProvisioningBootstrapStore bootstrapStore = ProvisioningBootstrapStore.fromContext(context);
+
         try {
-            ProvisioningBootstrapStore.fromContext(context).persistProvisioningExtras(adminExtras);
-        } catch (TokenStorageException exception) {
+            bootstrapStore.persistProvisioningExtras(adminExtras);
+        } catch (TokenStorageException | RuntimeException exception) {
             Log.w(LOG_TAG, "Failed to persist bootstrap provisioning extras", exception);
-            ProvisioningBootstrapStore.fromContext(context).markExchangeFailure(
+            bootstrapStore.markExchangeFailure(
                 ProvisioningBootstrapCoordinator.TOKEN_STORAGE_ERROR_CODE,
                 true
             );

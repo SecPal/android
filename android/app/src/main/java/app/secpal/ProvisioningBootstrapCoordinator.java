@@ -111,6 +111,9 @@ final class ProvisioningBootstrapCoordinator {
 
             store.markExchangeFailure(SecPalNativeAuthPlugin.resolveErrorCode(exception), terminal);
             return terminal ? SyncOutcome.FAILED_TERMINAL : SyncOutcome.FAILED_RETRYABLE;
+        } catch (RuntimeException exception) {
+            store.markExchangeFailure(RETRY_ERROR_CODE, false);
+            return SyncOutcome.FAILED_RETRYABLE;
         }
     }
 
