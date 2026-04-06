@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android domain-policy validation now accepts `apk.secpal.app` as the canonical Android artifact and metadata host, so bridge and rollout tests can reference the approved distribution URLs without tripping repo-local governance checks
 - dedicated-device persistent preferred settings routing now registers each redirected Settings action both with and without `android.intent.category.DEFAULT`, so category-less generic Settings intents are still redirected back to SecPal HOME on OEM builds that resolve them without the default category
 - pinned `@xmldom/xmldom` to `0.8.12` through npm overrides so the Capacitor CLI dependency chain no longer leaves the Android repo with the open high-severity GHSA-wh4c-j3r5-mjhp audit finding during local validation
 - Android domain-policy preflight no longer flags valid Android package and class identifiers from the approved application ID namespace as deprecated web-host usage, so repo checks stay compatible with native plugin references
