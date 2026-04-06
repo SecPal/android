@@ -10,8 +10,6 @@ import android.content.SharedPreferences;
 import android.os.PersistableBundle;
 
 final class ProvisioningBootstrapStore {
-    static final String PREFS_NAME = "secpal_enterprise_policy";
-
     private static final String PREF_STATUS = "bootstrap_status";
     private static final String PREF_SESSION_ID = "bootstrap_enrollment_session_id";
     private static final String PREF_UPDATE_CHANNEL = "bootstrap_update_channel";
@@ -31,7 +29,7 @@ final class ProvisioningBootstrapStore {
 
     static ProvisioningBootstrapStore fromContext(Context context) {
         return new ProvisioningBootstrapStore(
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+            context.getSharedPreferences(EnterprisePolicyController.ENTERPRISE_PREFS, Context.MODE_PRIVATE),
             new KeystoreTokenStorage(context, "bootstrap_token")
         );
     }
@@ -54,8 +52,7 @@ final class ProvisioningBootstrapStore {
             return;
         }
 
-        tokenStorage.saveToken(normalizedToken);
-        preferences.edit()
+        boolean pendingStatePersisted = preferences.edit()
             .putString(PREF_STATUS, ProvisioningBootstrapState.STATUS_PENDING)
             .putString(PREF_SESSION_ID, normalize(enrollmentSessionId))
             .remove(PREF_UPDATE_CHANNEL)
@@ -64,7 +61,21 @@ final class ProvisioningBootstrapStore {
             .remove(PREF_TENANT_NAME)
             .remove(PREF_LAST_ERROR_CODE)
             .remove(PREF_TENANT_ID)
-            .apply();
+            .commit();
+
+        if (!pendingStatePersisted) {
+            throw new IllegalStateException("Failed to persist bootstrap pending state");
+        }
+
+        try {
+            tokenStorage.saveToken(normalizedToken);
+        } catch (TokenStorageException exception) {
+            preferences.edit()
+                .putString(PREF_STATUS, ProvisioningBootstrapState.STATUS_NONE)
+                .remove(PREF_SESSION_ID)
+                .commit();
+            throw exception;
+        }
     }
 
     ProvisioningBootstrapState getState() throws TokenStorageException {
@@ -108,7 +119,7 @@ final class ProvisioningBootstrapStore {
             .remove(PREF_LAST_ERROR_CODE);
 
         EnterprisePolicyConfig.fromMap(result.getProvisioningProfile()).writeToPreferences(editor);
-        editor.apply();
+        editor.commit();
         tokenStorage.clearToken();
     }
 

@@ -22,7 +22,7 @@ import org.junit.Test;
 public class ProvisioningBootstrapStoreTest {
 
     @Test
-    public void persistProvisioningExtrasStoresPendingBootstrapState() throws Exception {
+    public void persistProvisioningDataStoresPendingBootstrapState() throws Exception {
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
         ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(
             new InMemorySharedPreferences(),
