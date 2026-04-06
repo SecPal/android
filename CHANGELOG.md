@@ -54,7 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- aligned the Android repo-local domain policy and pre-push domain checker with the Epic-approved `apk.secpal.app` artifact host so native provisioning/update tests can reference the canonical Android release metadata endpoint without tripping local governance
 - clarified the repo-local branch-start and post-merge readiness workflow so new Android work must start from a clean, updated local `main`, and post-merge cleanup now explicitly returns the repo to `main`, refreshes dependencies with `npm ci` where applicable, runs `npm run build` when available, and confirms a clean working tree
 - restored explicit repo-local Copilot governance by making TDD-first, quality-first, one-topic-per-PR, immediate issue creation for out-of-scope findings, and EPIC-plus-sub-issue requirements always-on again; the Android runtime overlay now auto-loads repo-wide so these rules remain present while working
 - clarified the repo-local PR workflow so finished Android work must be self-reviewed, committed, and pushed before any PR exists, and the first PR state must always be draft until the final PR-view self-review is clean
