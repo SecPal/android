@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Android provisioning bootstrap state foundation for Epic SecPal/.github#327: device-owner provisioning extras can now persist the short-lived enrollment token securely, `KeystoreTokenStorage` supports isolated encrypted token namespaces, and dedicated bootstrap state/storage tests cover the tenant/channel metadata handoff needed for the later runtime exchange flow
 - app-controlled gesture-navigation support in the Android wrapper: `SecPalEnterprisePlugin` and the injected `SecPalEnterpriseBridge` can now open the device's official navigation-mode settings screen from SecPal itself, temporarily leaving lock task for that system flow and re-entering the managed kiosk when the user returns; dedicated-device provisioning now also prefers gesture navigation by default, applies managed navigation settings during provisioning, and falls back to the official gesture-navigation screen on first managed launch when a device still requires the OEM settings UI
 - dedicated-device launcher support for arbitrary allowlisted apps, plus a separate `secpal_lock_task_enabled` policy switch so SecPal can remain the managed HOME screen without forcing a single-app kiosk when you want users to move normally between approved apps; the managed launcher now renders as a homescreen-like icon grid instead of a plain button list
 - debug-only ADB policy receiver and dedicated HOME alias so real-device kiosk tests can enable strict SecPal-only mode or Phone/SMS exceptions over `am broadcast`, while persistent-home routing now targets a dedicated home component instead of the normal launcher activity
@@ -53,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- aligned the Android repo-local domain policy and pre-push domain checker with the Epic-approved `apk.secpal.app` artifact host so native provisioning/update tests can reference the canonical Android release metadata endpoint without tripping local governance
 - clarified the repo-local branch-start and post-merge readiness workflow so new Android work must start from a clean, updated local `main`, and post-merge cleanup now explicitly returns the repo to `main`, refreshes dependencies with `npm ci` where applicable, runs `npm run build` when available, and confirms a clean working tree
 - restored explicit repo-local Copilot governance by making TDD-first, quality-first, one-topic-per-PR, immediate issue creation for out-of-scope findings, and EPIC-plus-sub-issue requirements always-on again; the Android runtime overlay now auto-loads repo-wide so these rules remain present while working
 - clarified the repo-local PR workflow so finished Android work must be self-reviewed, committed, and pushed before any PR exists, and the first PR state must always be draft until the final PR-view self-review is clean
