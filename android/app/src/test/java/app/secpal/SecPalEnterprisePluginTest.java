@@ -39,7 +39,7 @@ public class SecPalEnterprisePluginTest {
     }
 
     @Test
-    public void buildDistributionStateMapPreservesPendingFailureVisibilityWithoutTokenData() {
+    public void buildDistributionStateMapPreservesFailedErrorVisibilityWithoutTokenData() {
         ProvisioningBootstrapState state = new ProvisioningBootstrapState(
             ProvisioningBootstrapState.STATUS_FAILED,
             "session-123",
@@ -57,5 +57,26 @@ public class SecPalEnterprisePluginTest {
         assertNull(payload.get("updateChannel"));
         assertNull(payload.get("releaseMetadataUrl"));
         assertEquals("HTTP_409", payload.get("bootstrapLastErrorCode"));
+    }
+
+    @Test
+    public void buildDistributionStateMapExposesPendingStatusWithoutTokenData() {
+        ProvisioningBootstrapState state = new ProvisioningBootstrapState(
+            ProvisioningBootstrapState.STATUS_PENDING,
+            null,
+            null,
+            null,
+            null,
+            null,
+            0,
+            null
+        );
+
+        Map<String, Object> payload = SecPalEnterprisePlugin.buildDistributionStateMap(state);
+
+        assertEquals("pending", payload.get("bootstrapStatus"));
+        assertNull(payload.get("updateChannel"));
+        assertNull(payload.get("releaseMetadataUrl"));
+        assertNull(payload.get("bootstrapLastErrorCode"));
     }
 }
