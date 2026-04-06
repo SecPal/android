@@ -31,7 +31,7 @@ import java.util.Set;
 
 public final class EnterprisePolicyController {
     private static final String LOG_TAG = "SecPalEnterprise";
-    private static final String ENTERPRISE_PREFS = "secpal_enterprise_policy";
+    static final String ENTERPRISE_PREFS = "secpal_enterprise_policy";
     private static final String PREF_MANAGED_MODE = "managed_mode";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
