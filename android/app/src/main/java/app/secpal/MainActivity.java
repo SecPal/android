@@ -13,6 +13,9 @@ import android.os.Build;
 import android.util.Log;
 
 import java.io.File;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -27,6 +30,8 @@ public class MainActivity extends BridgeActivity {
         "app_webview/Default/Code Cache",
         "app_webview/Code Cache"
     };
+    private final ExecutorService provisioningBootstrapExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean provisioningBootstrapSyncInFlight = new AtomicBoolean(false);
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -34,17 +39,21 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
         super.onCreate(savedInstanceState);
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
-        EnterprisePolicyController.maybeEnterLockTask(this);
-        SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+        scheduleProvisioningBootstrapSync();
+        refreshManagedPolicyState();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
-        EnterprisePolicyController.maybeEnterLockTask(this);
-        SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+        scheduleProvisioningBootstrapSync();
+        refreshManagedPolicyState();
+    }
+
+    @Override
+    public void onDestroy() {
+        provisioningBootstrapExecutor.shutdownNow();
+        super.onDestroy();
     }
 
     private void purgeLegacyPwaStateIfAppUpdated() {
@@ -108,6 +117,34 @@ public class MainActivity extends BridgeActivity {
                 Log.w(LOG_TAG, "Failed to fully delete stale WebView path: " + target.getAbsolutePath());
             }
         }
+    }
+
+    private void refreshManagedPolicyState() {
+        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
+
+        EnterprisePolicyController.maybeEnterLockTask(this);
+        SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+    }
+
+    private void scheduleProvisioningBootstrapSync() {
+        if (!provisioningBootstrapSyncInFlight.compareAndSet(false, true)) {
+            return;
+        }
+
+        provisioningBootstrapExecutor.execute(() -> {
+            try {
+                ProvisioningBootstrapCoordinator.SyncOutcome outcome =
+                    ProvisioningBootstrapCoordinator.fromContext(getApplicationContext()).syncPendingBootstrap();
+
+                if (outcome == ProvisioningBootstrapCoordinator.SyncOutcome.COMPLETED) {
+                    runOnUiThread(this::refreshManagedPolicyState);
+                }
+            } catch (RuntimeException exception) {
+                Log.e(LOG_TAG, "Unexpected error during provisioning bootstrap sync", exception);
+            } finally {
+                provisioningBootstrapSyncInFlight.set(false);
+            }
+        });
     }
 
     private boolean deleteRecursively(File target) {
