@@ -301,6 +301,13 @@ describe("native auth bridge bootstrap injection", () => {
         gestureNavigationSettingsAvailable: true,
         allowPhone: true,
         allowSms: true,
+        distributionState: {
+          bootstrapStatus: "completed",
+          updateChannel: "managed_device",
+          releaseMetadataUrl:
+            "https://apk.secpal.app/android/channels/managed_device/latest.json",
+          bootstrapLastErrorCode: null,
+        },
         allowedApps: [],
       }),
       launchPhone: vi.fn().mockResolvedValue(undefined),
@@ -362,6 +369,13 @@ describe("native auth bridge bootstrap injection", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: true,
       allowSms: true,
+      distributionState: {
+        bootstrapStatus: "completed",
+        updateChannel: "managed_device",
+        releaseMetadataUrl:
+          "https://apk.secpal.app/android/channels/managed_device/latest.json",
+        bootstrapLastErrorCode: null,
+      },
       allowedApps: [],
     });
     await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({

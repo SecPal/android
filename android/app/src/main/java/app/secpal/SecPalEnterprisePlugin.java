@@ -14,6 +14,9 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @CapacitorPlugin(name = "SecPalEnterprise")
 public class SecPalEnterprisePlugin extends Plugin {
 
@@ -40,6 +43,10 @@ public class SecPalEnterprisePlugin extends Plugin {
             "gestureNavigationSettingsAvailable",
             SystemNavigationController.canOpenGestureNavigationSettings(getContext())
         );
+        payload.put(
+            "distributionState",
+            toJsObject(buildDistributionStateMap(resolveProvisioningBootstrapState()))
+        );
 
         JSArray allowedApps = new JSArray();
 
@@ -55,6 +62,44 @@ public class SecPalEnterprisePlugin extends Plugin {
         payload.put("allowedApps", allowedApps);
 
         call.resolve(payload);
+    }
+
+    static Map<String, Object> buildDistributionStateMap(ProvisioningBootstrapState state) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+
+        payload.put("bootstrapStatus", state.getStatus());
+        payload.put("updateChannel", state.getUpdateChannel());
+        payload.put("releaseMetadataUrl", state.getReleaseMetadataUrl());
+        payload.put("bootstrapLastErrorCode", state.getLastErrorCode());
+
+        return payload;
+    }
+
+    private ProvisioningBootstrapState resolveProvisioningBootstrapState() {
+        try {
+            return ProvisioningBootstrapStore.fromContext(getContext()).getState();
+        } catch (TokenStorageException exception) {
+            return new ProvisioningBootstrapState(
+                ProvisioningBootstrapState.STATUS_FAILED,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                ProvisioningBootstrapCoordinator.TOKEN_STORAGE_ERROR_CODE
+            );
+        }
+    }
+
+    private static JSObject toJsObject(Map<String, Object> values) {
+        JSObject payload = new JSObject();
+
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            payload.put(entry.getKey(), entry.getValue());
+        }
+
+        return payload;
     }
 
     @PluginMethod

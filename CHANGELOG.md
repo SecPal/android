@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- enterprise bridge distribution-state visibility in the Android wrapper: `SecPalEnterprisePlugin.getManagedState()` now exposes the persisted bootstrap status, update channel, release metadata URL, and last bootstrap error code so later Android update UX can reason about managed-device rollout state without touching bootstrap tokens
 - Android bootstrap exchange runtime for Epic SecPal/.github#327: the wrapper now persists provisioning QR bootstrap extras during Device Owner hand-off, retries the public `/v1/android/bootstrap/exchange` flow on managed app startup when connectivity is available, and stores the exchanged tenant/channel/release metadata plus managed policy profile for the single-package `app.secpal` architecture
 - Android provisioning bootstrap state foundation for Epic SecPal/.github#327: device-owner provisioning extras can now persist the short-lived enrollment token securely, `KeystoreTokenStorage` supports isolated encrypted token namespaces, and dedicated bootstrap state/storage tests cover the tenant/channel metadata handoff needed for the later runtime exchange flow
 - app-controlled gesture-navigation support in the Android wrapper: `SecPalEnterprisePlugin` and the injected `SecPalEnterpriseBridge` can now open the device's official navigation-mode settings screen from SecPal itself, temporarily leaving lock task for that system flow and re-entering the managed kiosk when the user returns; dedicated-device provisioning now also prefers gesture navigation by default, applies managed navigation settings during provisioning, and falls back to the official gesture-navigation screen on first managed launch when a device still requires the OEM settings UI
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android domain-policy validation now accepts `apk.secpal.app` as the canonical Android artifact and metadata host, so bridge and rollout tests can reference the approved distribution URLs without tripping repo-local governance checks
 - dedicated-device persistent preferred settings routing now registers each redirected Settings action both with and without `android.intent.category.DEFAULT`, so category-less generic Settings intents are still redirected back to SecPal HOME on OEM builds that resolve them without the default category
 - pinned `@xmldom/xmldom` to `0.8.12` through npm overrides so the Capacitor CLI dependency chain no longer leaves the Android repo with the open high-severity GHSA-wh4c-j3r5-mjhp audit finding during local validation
 - Android domain-policy preflight no longer flags valid Android package and class identifiers from the approved application ID namespace as deprecated web-host usage, so repo checks stay compatible with native plugin references
