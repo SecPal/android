@@ -11,13 +11,16 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.PersistableBundle;
+import android.util.Log;
 
 public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
+    private static final String LOG_TAG = "SecPalDeviceAdmin";
 
     @Override
     public void onEnabled(Context context, Intent intent) {
         PersistableBundle adminExtras = EnterprisePolicyController.extractProvisioningAdminExtras(intent);
 
+        persistBootstrapExtras(context, adminExtras);
         EnterprisePolicyController.persistProvisioningConfig(context, adminExtras);
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(context);
 
@@ -48,6 +51,7 @@ public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
     public void onProfileProvisioningComplete(Context context, Intent intent) {
         PersistableBundle adminExtras = EnterprisePolicyController.extractProvisioningAdminExtras(intent);
 
+        persistBootstrapExtras(context, adminExtras);
         EnterprisePolicyController.persistProvisioningConfig(context, adminExtras);
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(context);
 
@@ -69,5 +73,17 @@ public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
 
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         context.startActivity(launchIntent);
+    }
+
+    private void persistBootstrapExtras(Context context, PersistableBundle adminExtras) {
+        try {
+            ProvisioningBootstrapStore.fromContext(context).persistProvisioningExtras(adminExtras);
+        } catch (TokenStorageException exception) {
+            Log.w(LOG_TAG, "Failed to persist bootstrap provisioning extras", exception);
+            ProvisioningBootstrapStore.fromContext(context).markExchangeFailure(
+                ProvisioningBootstrapCoordinator.TOKEN_STORAGE_ERROR_CODE,
+                true
+            );
+        }
     }
 }
