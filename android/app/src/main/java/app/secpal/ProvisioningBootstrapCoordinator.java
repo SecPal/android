@@ -101,7 +101,11 @@ final class ProvisioningBootstrapCoordinator {
         }
 
         try {
-            store.applyExchangeResult(exchangeClient.exchange(bootstrapToken, runtimeInfo));
+            if (!store.applyExchangeResult(exchangeClient.exchange(bootstrapToken, runtimeInfo))) {
+                store.markExchangeFailure(RETRY_ERROR_CODE, false);
+                return SyncOutcome.FAILED_RETRYABLE;
+            }
+
             return SyncOutcome.COMPLETED;
         } catch (IOException | JSONException exception) {
             store.markExchangeFailure(RETRY_ERROR_CODE, false);
