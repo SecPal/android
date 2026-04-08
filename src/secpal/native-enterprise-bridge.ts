@@ -50,16 +50,8 @@ export interface NativeEnterpriseBridge {
   openGestureNavigationSettings(): Promise<OpenGestureNavigationSettingsResult>;
 }
 
-interface SecPalEnterprisePlugin {
-  getManagedState(): Promise<EnterpriseManagedState>;
-  launchPhone(): Promise<void>;
-  launchSms(): Promise<void>;
-  launchAllowedApp(options: LaunchAllowedAppOptions): Promise<void>;
-  openGestureNavigationSettings(): Promise<OpenGestureNavigationSettingsResult>;
-}
-
 const secPalEnterprisePlugin =
-  registerPlugin<SecPalEnterprisePlugin>("SecPalEnterprise");
+  registerPlugin<NativeEnterpriseBridge>("SecPalEnterprise");
 
 export function createNativeEnterpriseBridge(): NativeEnterpriseBridge {
   return {
