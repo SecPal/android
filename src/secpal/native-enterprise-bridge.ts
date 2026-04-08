@@ -5,7 +5,11 @@
 
 import { registerPlugin } from "@capacitor/core";
 
-export type EnterpriseBootstrapStatus = "pending" | "completed" | "failed";
+export type EnterpriseBootstrapStatus =
+  | "none"
+  | "pending"
+  | "completed"
+  | "failed";
 
 export interface EnterpriseDistributionState {
   bootstrapStatus: EnterpriseBootstrapStatus;
@@ -19,9 +23,11 @@ export interface EnterpriseAllowedApp {
   label: string;
 }
 
+export type EnterpriseManagedMode = "none" | "profile_owner" | "device_owner";
+
 export interface EnterpriseManagedState {
   managed: boolean;
-  mode: string;
+  mode: EnterpriseManagedMode;
   kioskActive: boolean;
   lockTaskEnabled: boolean;
   gestureNavigationEnabled: boolean;
