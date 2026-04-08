@@ -1,71 +1,7 @@
-  it("preserves pending managed distribution state through the enterprise bridge", async () => {
-    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
-    const enterprisePlugin = {
-      getManagedState: vi.fn().mockResolvedValue({
-        managed: true,
-        mode: "device_owner",
-        kioskActive: true,
-        lockTaskEnabled: true,
-        gestureNavigationEnabled: true,
-        gestureNavigationSettingsAvailable: true,
-        allowPhone: false,
-        allowSms: false,
-        distributionState: {
-          bootstrapStatus: "pending",
-          updateChannel: null,
-          releaseMetadataUrl: null,
-          bootstrapLastErrorCode: null,
-        },
-        allowedApps: [],
-      }),
-      launchPhone: vi.fn().mockResolvedValue(undefined),
-      launchSms: vi.fn().mockResolvedValue(undefined),
-      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
-      openGestureNavigationSettings: vi.fn().mockResolvedValue({
-        opened: true,
-        gestureNavigationEnabled: true,
-        willReenterLockTaskOnResume: true,
-      }),
-    };
-    const sandbox = {
-      Capacitor: {
-        Plugins: {
-          SecPalNativeAuth: {
-            login: vi.fn(),
-            logout: vi.fn(),
-            getCurrentUser: vi.fn(),
-            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
-            request: vi.fn(),
-          },
-          SecPalEnterprise: enterprisePlugin,
-        },
-      },
-      fetch,
-      Request,
-      Response,
-      Headers,
-      URL,
-      Uint8Array,
-      ArrayBuffer,
-      TextEncoder,
-      TextDecoder,
-      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
-      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
-      console,
-      location: { href: "https://app.secpal.dev/" },
-    } as Record<string, unknown>;
-    sandbox.globalThis = sandbox;
-
-    vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
-      sandbox
-    );
-
-    const bridge = sandbox.SecPalEnterpriseBridge as {
-      getManagedState(): Promise<unknown>;
-    };
-
-    await expect(bridge.getManagedState()).resolves.toEqual({
+it("preserves pending managed distribution state through the enterprise bridge", async () => {
+  const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+  const enterprisePlugin = {
+    getManagedState: vi.fn().mockResolvedValue({
       managed: true,
       mode: "device_owner",
       kioskActive: true,
@@ -81,77 +17,77 @@
         bootstrapLastErrorCode: null,
       },
       allowedApps: [],
-    });
-  });
-
-  it("preserves failed managed distribution state through the enterprise bridge", async () => {
-    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
-    const enterprisePlugin = {
-      getManagedState: vi.fn().mockResolvedValue({
-        managed: true,
-        mode: "device_owner",
-        kioskActive: true,
-        lockTaskEnabled: true,
-        gestureNavigationEnabled: false,
-        gestureNavigationSettingsAvailable: true,
-        allowPhone: false,
-        allowSms: false,
-        distributionState: {
-          bootstrapStatus: "failed",
-          updateChannel: null,
-          releaseMetadataUrl: null,
-          bootstrapLastErrorCode: "TOKEN_STORAGE_UNAVAILABLE",
+    }),
+    launchPhone: vi.fn().mockResolvedValue(undefined),
+    launchSms: vi.fn().mockResolvedValue(undefined),
+    launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+    openGestureNavigationSettings: vi.fn().mockResolvedValue({
+      opened: true,
+      gestureNavigationEnabled: true,
+      willReenterLockTaskOnResume: true,
+    }),
+  };
+  const sandbox = {
+    Capacitor: {
+      Plugins: {
+        SecPalNativeAuth: {
+          login: vi.fn(),
+          logout: vi.fn(),
+          getCurrentUser: vi.fn(),
+          isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+          request: vi.fn(),
         },
-        allowedApps: [],
-      }),
-      launchPhone: vi.fn().mockResolvedValue(undefined),
-      launchSms: vi.fn().mockResolvedValue(undefined),
-      launchAllowedApp: vi.fn().mockResolvedValue(undefined),
-      openGestureNavigationSettings: vi.fn().mockResolvedValue({
-        opened: true,
-        gestureNavigationEnabled: false,
-        willReenterLockTaskOnResume: true,
-      }),
-    };
-    const sandbox = {
-      Capacitor: {
-        Plugins: {
-          SecPalNativeAuth: {
-            login: vi.fn(),
-            logout: vi.fn(),
-            getCurrentUser: vi.fn(),
-            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
-            request: vi.fn(),
-          },
-          SecPalEnterprise: enterprisePlugin,
-        },
+        SecPalEnterprise: enterprisePlugin,
       },
-      fetch,
-      Request,
-      Response,
-      Headers,
-      URL,
-      Uint8Array,
-      ArrayBuffer,
-      TextEncoder,
-      TextDecoder,
-      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
-      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
-      console,
-      location: { href: "https://app.secpal.dev/" },
-    } as Record<string, unknown>;
-    sandbox.globalThis = sandbox;
+    },
+    fetch,
+    Request,
+    Response,
+    Headers,
+    URL,
+    Uint8Array,
+    ArrayBuffer,
+    TextEncoder,
+    TextDecoder,
+    btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+    atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+    console,
+    location: { href: "https://app.secpal.dev/" },
+  } as Record<string, unknown>;
+  sandbox.globalThis = sandbox;
 
-    vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
-      sandbox
-    );
+  vm.runInNewContext(
+    buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+    sandbox
+  );
 
-    const bridge = sandbox.SecPalEnterpriseBridge as {
-      getManagedState(): Promise<unknown>;
-    };
+  const bridge = sandbox.SecPalEnterpriseBridge as {
+    getManagedState(): Promise<unknown>;
+  };
 
-    await expect(bridge.getManagedState()).resolves.toEqual({
+  await expect(bridge.getManagedState()).resolves.toEqual({
+    managed: true,
+    mode: "device_owner",
+    kioskActive: true,
+    lockTaskEnabled: true,
+    gestureNavigationEnabled: true,
+    gestureNavigationSettingsAvailable: true,
+    allowPhone: false,
+    allowSms: false,
+    distributionState: {
+      bootstrapStatus: "pending",
+      updateChannel: null,
+      releaseMetadataUrl: null,
+      bootstrapLastErrorCode: null,
+    },
+    allowedApps: [],
+  });
+});
+
+it("preserves failed managed distribution state through the enterprise bridge", async () => {
+  const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+  const enterprisePlugin = {
+    getManagedState: vi.fn().mockResolvedValue({
       managed: true,
       mode: "device_owner",
       kioskActive: true,
@@ -167,8 +103,72 @@
         bootstrapLastErrorCode: "TOKEN_STORAGE_UNAVAILABLE",
       },
       allowedApps: [],
-    });
-  });/*
+    }),
+    launchPhone: vi.fn().mockResolvedValue(undefined),
+    launchSms: vi.fn().mockResolvedValue(undefined),
+    launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+    openGestureNavigationSettings: vi.fn().mockResolvedValue({
+      opened: true,
+      gestureNavigationEnabled: false,
+      willReenterLockTaskOnResume: true,
+    }),
+  };
+  const sandbox = {
+    Capacitor: {
+      Plugins: {
+        SecPalNativeAuth: {
+          login: vi.fn(),
+          logout: vi.fn(),
+          getCurrentUser: vi.fn(),
+          isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+          request: vi.fn(),
+        },
+        SecPalEnterprise: enterprisePlugin,
+      },
+    },
+    fetch,
+    Request,
+    Response,
+    Headers,
+    URL,
+    Uint8Array,
+    ArrayBuffer,
+    TextEncoder,
+    TextDecoder,
+    btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+    atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+    console,
+    location: { href: "https://app.secpal.dev/" },
+  } as Record<string, unknown>;
+  sandbox.globalThis = sandbox;
+
+  vm.runInNewContext(
+    buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+    sandbox
+  );
+
+  const bridge = sandbox.SecPalEnterpriseBridge as {
+    getManagedState(): Promise<unknown>;
+  };
+
+  await expect(bridge.getManagedState()).resolves.toEqual({
+    managed: true,
+    mode: "device_owner",
+    kioskActive: true,
+    lockTaskEnabled: true,
+    gestureNavigationEnabled: false,
+    gestureNavigationSettingsAvailable: true,
+    allowPhone: false,
+    allowSms: false,
+    distributionState: {
+      bootstrapStatus: "failed",
+      updateChannel: null,
+      releaseMetadataUrl: null,
+      bootstrapLastErrorCode: "TOKEN_STORAGE_UNAVAILABLE",
+    },
+    allowedApps: [],
+  });
+}); /*
  * SPDX-FileCopyrightText: 2026 SecPal
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

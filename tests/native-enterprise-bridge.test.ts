@@ -44,9 +44,8 @@ describe("native enterprise bridge", () => {
       willReenterLockTaskOnResume: true,
     });
 
-    const { installNativeEnterpriseBridge } = await import(
-      "../src/secpal/native-enterprise-bridge"
-    );
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
     const target = {} as typeof globalThis & {
       SecPalEnterpriseBridge?: unknown;
     };
