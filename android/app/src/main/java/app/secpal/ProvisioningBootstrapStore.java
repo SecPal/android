@@ -107,7 +107,7 @@ final class ProvisioningBootstrapStore {
         return tokenStorage.getToken();
     }
 
-    void applyExchangeResult(ProvisioningBootstrapExchangeResult result) {
+    boolean applyExchangeResult(ProvisioningBootstrapExchangeResult result) {
         SharedPreferences.Editor editor = preferences.edit()
             .putString(PREF_STATUS, ProvisioningBootstrapState.STATUS_COMPLETED)
             .putString(PREF_SESSION_ID, normalize(result.getEnrollmentSessionId()))
@@ -119,8 +119,13 @@ final class ProvisioningBootstrapStore {
             .remove(PREF_LAST_ERROR_CODE);
 
         EnterprisePolicyConfig.fromMap(result.getProvisioningProfile()).writeToPreferences(editor);
-        editor.commit();
+
+        if (!editor.commit()) {
+            return false;
+        }
+
         tokenStorage.clearToken();
+        return true;
     }
 
     void markExchangeFailure(String errorCode, boolean terminal) {

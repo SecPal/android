@@ -143,6 +143,34 @@ public class ProvisioningBootstrapCoordinatorTest {
         assertEquals("bootstrap-token-123", tokenStorage.token);
     }
 
+    @Test
+    public void syncPendingBootstrapKeepsPendingStateWhenExchangeResultCommitFails() throws Exception {
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);
+        store.persistProvisioningData("bootstrap-token-123", "session-123");
+
+        FakeExchangeClient exchangeClient = new FakeExchangeClient();
+        exchangeClient.result = createExchangeResult();
+        preferences.setCommitResult(false);
+
+        ProvisioningBootstrapCoordinator coordinator = new ProvisioningBootstrapCoordinator(
+            store,
+            exchangeClient,
+            () -> true,
+            new ProvisioningBootstrapRuntimeInfo("app.secpal", "1.4.0", 10400, null, null, null, null)
+        );
+
+        ProvisioningBootstrapCoordinator.SyncOutcome outcome = coordinator.syncPendingBootstrap();
+        ProvisioningBootstrapState state = store.getState();
+
+        assertEquals(ProvisioningBootstrapCoordinator.SyncOutcome.FAILED_RETRYABLE, outcome);
+        assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
+        assertEquals("BOOTSTRAP_EXCHANGE_RETRY", state.getLastErrorCode());
+        assertNull(state.getUpdateChannel());
+        assertEquals("bootstrap-token-123", tokenStorage.token);
+    }
+
     private static ProvisioningBootstrapExchangeResult createExchangeResult() {
         Map<String, Object> profile = new HashMap<>();
 
@@ -215,6 +243,11 @@ public class ProvisioningBootstrapCoordinatorTest {
 
     private static final class InMemorySharedPreferences implements SharedPreferences {
         private final Map<String, Object> values = new HashMap<>();
+        private boolean commitResult = true;
+
+        void setCommitResult(boolean commitResult) {
+            this.commitResult = commitResult;
+        }
 
         @Override
         public Map<String, ?> getAll() { return Collections.unmodifiableMap(values); }
@@ -268,38 +301,93 @@ public class ProvisioningBootstrapCoordinatorTest {
         @Override
         public Editor edit() {
             return new Editor() {
-                @Override
-                public Editor putString(String key, String value) { values.put(key, value); return this; }
+                private final Map<String, Object> pendingValues = new HashMap<>();
+                private final Set<String> removedKeys = new LinkedHashSet<>();
+                private boolean clearRequested;
 
                 @Override
-                public Editor putStringSet(String key, Set<String> values) {
-                    InMemorySharedPreferences.this.values.put(key, new LinkedHashSet<>(values));
+                public Editor putString(String key, String value) {
+                    pendingValues.put(key, value);
+                    removedKeys.remove(key);
                     return this;
                 }
 
                 @Override
-                public Editor putInt(String key, int value) { values.put(key, value); return this; }
+                public Editor putStringSet(String key, Set<String> values) {
+                    pendingValues.put(key, new LinkedHashSet<>(values));
+                    removedKeys.remove(key);
+                    return this;
+                }
 
                 @Override
-                public Editor putLong(String key, long value) { values.put(key, value); return this; }
+                public Editor putInt(String key, int value) {
+                    pendingValues.put(key, value);
+                    removedKeys.remove(key);
+                    return this;
+                }
 
                 @Override
-                public Editor putFloat(String key, float value) { values.put(key, value); return this; }
+                public Editor putLong(String key, long value) {
+                    pendingValues.put(key, value);
+                    removedKeys.remove(key);
+                    return this;
+                }
 
                 @Override
-                public Editor putBoolean(String key, boolean value) { values.put(key, value); return this; }
+                public Editor putFloat(String key, float value) {
+                    pendingValues.put(key, value);
+                    removedKeys.remove(key);
+                    return this;
+                }
 
                 @Override
-                public Editor remove(String key) { values.remove(key); return this; }
+                public Editor putBoolean(String key, boolean value) {
+                    pendingValues.put(key, value);
+                    removedKeys.remove(key);
+                    return this;
+                }
 
                 @Override
-                public Editor clear() { values.clear(); return this; }
+                public Editor remove(String key) {
+                    pendingValues.remove(key);
+                    removedKeys.add(key);
+                    return this;
+                }
 
                 @Override
-                public boolean commit() { return true; }
+                public Editor clear() {
+                    clearRequested = true;
+                    pendingValues.clear();
+                    removedKeys.clear();
+                    return this;
+                }
 
                 @Override
-                public void apply() {}
+                public boolean commit() {
+                    if (!commitResult) {
+                        return false;
+                    }
+
+                    applyPendingChanges();
+                    return true;
+                }
+
+                @Override
+                public void apply() {
+                    applyPendingChanges();
+                }
+
+                private void applyPendingChanges() {
+                    if (clearRequested) {
+                        InMemorySharedPreferences.this.values.clear();
+                    }
+
+                    for (String key : removedKeys) {
+                        InMemorySharedPreferences.this.values.remove(key);
+                    }
+
+                    InMemorySharedPreferences.this.values.putAll(pendingValues);
+                }
             };
         }
 
