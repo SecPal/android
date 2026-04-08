@@ -121,6 +121,18 @@ final class ProvisioningBootstrapStore {
         EnterprisePolicyConfig.fromMap(result.getProvisioningProfile()).writeToPreferences(editor);
 
         if (!editor.commit()) {
+            // The disk write failed. Android may have already applied the pending
+            // values to the in-process SharedPreferences map, so explicitly roll
+            // back to STATUS_PENDING and remove the completion-only fields to keep
+            // same-process reads consistent with the on-disk state.
+            preferences.edit()
+                .putString(PREF_STATUS, ProvisioningBootstrapState.STATUS_PENDING)
+                .remove(PREF_UPDATE_CHANNEL)
+                .remove(PREF_RELEASE_METADATA_URL)
+                .remove(PREF_API_BASE_URL)
+                .remove(PREF_TENANT_NAME)
+                .remove(PREF_TENANT_ID)
+                .apply();
             return false;
         }
 

@@ -364,12 +364,10 @@ public class ProvisioningBootstrapCoordinatorTest {
 
                 @Override
                 public boolean commit() {
-                    if (!commitResult) {
-                        return false;
-                    }
-
+                    // Model real Android behavior: in-process map is updated
+                    // before the disk write; commit() just reports disk success.
                     applyPendingChanges();
-                    return true;
+                    return commitResult;
                 }
 
                 @Override
