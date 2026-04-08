@@ -793,5 +793,4 @@ describe("native auth bridge bootstrap injection", () => {
       allowedApps: [],
     });
   });
-
 });
