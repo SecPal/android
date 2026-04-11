@@ -26,7 +26,7 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Treat warnings, audit findings, and deprecations as actionable. Fix them in scope or track them immediately.
 - Never reply to Copilot review comments with GitHub comment tools. Fix the code, push, and resolve threads through the approved non-comment workflow.
 - Keep `SPDX-FileCopyrightText` years current in edited files or companion `.license` sidecars.
-- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `api.secpal.dev` for the
+- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `changelog.secpal.app` for the public changelog site, `api.secpal.dev` for the
   API, `app.secpal.dev` for the PWA/frontend, `secpal.dev` for dev, staging, testing, and examples, and
   `app.secpal` only as the Android application identifier; `api.secpal.app` remains deprecated and must not be used
   as a deployable host.
