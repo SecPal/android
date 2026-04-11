@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC0-1.0
 
 # SecPal Android
 
-Android app repository for SecPal, based on Capacitor and the shared web app from `../frontend`.
+Android app for SecPal — operations software for German private security services. Built with Capacitor on top of the shared web frontend from `../frontend`.
 
 ## Goals
 
