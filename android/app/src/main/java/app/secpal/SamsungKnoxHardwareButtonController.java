@@ -31,7 +31,7 @@ final class SamsungKnoxHardwareButtonController {
     static final String PERMISSION_KNOX_KIOSK_MODE =
         "com.samsung.android.knox.permission.KNOX_KIOSK_MODE";
     static final String EXTRA_HARDWARE_TRIGGER_PRESS_TYPE =
-        "secpal.intent.extra.HARDWARE_TRIGGER_PRESS_TYPE";
+        "hardware_trigger_press_type";
     private static final String LOG_TAG = "SecPalHardwareButtons";
     private static final String PRO_KIOSK_MANAGER_CLASS =
         "com.samsung.android.knox.custom.ProKioskManager";
