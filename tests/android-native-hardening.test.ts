@@ -320,13 +320,27 @@ describe("Android native hardening", () => {
     expect(manifest).toContain(
       'android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK"'
     );
-    expect(manifest).toContain("com.samsung.android.knox.intent.action.HARD_KEY_PRESS");
-    expect(manifest).toContain("com.samsung.android.knox.intent.action.HARD_KEY_REPORT");
-    expect(manifest).toContain("com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK");
-    expect(manifest).toContain("com.samsung.android.knox.permission.KNOX_KIOSK_MODE");
-    expect(manifest.match(/android.intent.category.LAUNCHER/g)?.length).toBeGreaterThan(1);
-    expect(hardwarePolicyController).toContain("SamsungKnoxHardwareButtonController");
-    expect(hardwarePolicyController).toContain("SamsungSystemKeyConfigurationController");
+    expect(manifest).toContain(
+      "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
+    );
+    expect(manifest).toContain(
+      "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
+    );
+    expect(manifest).toContain(
+      "com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK"
+    );
+    expect(manifest).toContain(
+      "com.samsung.android.knox.permission.KNOX_KIOSK_MODE"
+    );
+    expect(
+      manifest.match(/android.intent.category.LAUNCHER/g)?.length
+    ).toBeGreaterThan(1);
+    expect(hardwarePolicyController).toContain(
+      "SamsungKnoxHardwareButtonController"
+    );
+    expect(hardwarePolicyController).toContain(
+      "SamsungSystemKeyConfigurationController"
+    );
     expect(hardwarePolicyController).toContain("HardwareButtonLaunchRouter");
     expect(hardwarePolicyController).toContain("syncManagedState");
     expect(samsungAdapter).toContain("ACTION_HARD_KEY_PRESS");

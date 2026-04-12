@@ -293,8 +293,10 @@ describe("native auth bridge bootstrap injection", () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const listenerHandle = { remove: vi.fn() };
     const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> =
+      [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> =
+      [];
     const enterprisePlugin = {
       getManagedState: vi.fn().mockResolvedValue({
         managed: true,
@@ -322,21 +324,23 @@ describe("native auth bridge bootstrap injection", () => {
         gestureNavigationEnabled: false,
         willReenterLockTaskOnResume: true,
       }),
-      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
-        if (eventName === "hardwareButtonPressed") {
-          hardwareButtonListeners.push(listener);
-        }
+      addListener: vi.fn(
+        (eventName: string, listener: (payload: unknown) => void) => {
+          if (eventName === "hardwareButtonPressed") {
+            hardwareButtonListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonShortPressed") {
-          hardwareButtonShortPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonShortPressed") {
+            hardwareButtonShortPressListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonLongPressed") {
-          hardwareButtonLongPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonLongPressed") {
+            hardwareButtonLongPressListeners.push(listener);
+          }
 
-        return listenerHandle;
-      }),
+          return listenerHandle;
+        }
+      ),
     };
     const sandbox = {
       Capacitor: {
@@ -416,7 +420,9 @@ describe("native auth bridge bootstrap injection", () => {
       listenerHandle
     );
     expect(
-      bridge.addHardwareButtonShortPressListener(hardwareButtonShortPressListener)
+      bridge.addHardwareButtonShortPressListener(
+        hardwareButtonShortPressListener
+      )
     ).toBe(listenerHandle);
     expect(
       bridge.addHardwareButtonLongPressListener(hardwareButtonLongPressListener)
@@ -526,29 +532,33 @@ describe("native auth bridge bootstrap injection", () => {
   it("opens the profile page on short press and the about page on long press", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> =
+      [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> =
+      [];
     const enterprisePlugin = {
       getManagedState: vi.fn(),
       launchPhone: vi.fn(),
       launchSms: vi.fn(),
       launchAllowedApp: vi.fn(),
       openGestureNavigationSettings: vi.fn(),
-      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
-        if (eventName === "hardwareButtonPressed") {
-          hardwareButtonListeners.push(listener);
-        }
+      addListener: vi.fn(
+        (eventName: string, listener: (payload: unknown) => void) => {
+          if (eventName === "hardwareButtonPressed") {
+            hardwareButtonListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonShortPressed") {
-          hardwareButtonShortPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonShortPressed") {
+            hardwareButtonShortPressListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonLongPressed") {
-          hardwareButtonLongPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonLongPressed") {
+            hardwareButtonLongPressListeners.push(listener);
+          }
 
-        return { remove: vi.fn() };
-      }),
+          return { remove: vi.fn() };
+        }
+      ),
     };
     const sandbox = {
       Capacitor: {
@@ -612,7 +622,9 @@ describe("native auth bridge bootstrap injection", () => {
       source: 257,
     });
 
-    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+    expect(sandbox.location).toEqual({
+      href: "https://app.secpal.dev/profile",
+    });
 
     sandbox.location = { href: "https://app.secpal.dev/" };
 
@@ -634,29 +646,33 @@ describe("native auth bridge bootstrap injection", () => {
   it("opens the profile page on Samsung Knox press fallback and refines long reports to the about page", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
-    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> =
+      [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> =
+      [];
     const enterprisePlugin = {
       getManagedState: vi.fn(),
       launchPhone: vi.fn(),
       launchSms: vi.fn(),
       launchAllowedApp: vi.fn(),
       openGestureNavigationSettings: vi.fn(),
-      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
-        if (eventName === "hardwareButtonPressed") {
-          hardwareButtonListeners.push(listener);
-        }
+      addListener: vi.fn(
+        (eventName: string, listener: (payload: unknown) => void) => {
+          if (eventName === "hardwareButtonPressed") {
+            hardwareButtonListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonShortPressed") {
-          hardwareButtonShortPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonShortPressed") {
+            hardwareButtonShortPressListeners.push(listener);
+          }
 
-        if (eventName === "hardwareButtonLongPressed") {
-          hardwareButtonLongPressListeners.push(listener);
-        }
+          if (eventName === "hardwareButtonLongPressed") {
+            hardwareButtonLongPressListeners.push(listener);
+          }
 
-        return { remove: vi.fn() };
-      }),
+          return { remove: vi.fn() };
+        }
+      ),
     };
     const sandbox = {
       Capacitor: {
@@ -708,7 +724,9 @@ describe("native auth bridge bootstrap injection", () => {
       source: 0,
     });
 
-    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+    expect(sandbox.location).toEqual({
+      href: "https://app.secpal.dev/profile",
+    });
 
     sandbox.location = { href: "https://app.secpal.dev/" };
 
@@ -724,7 +742,9 @@ describe("native auth bridge bootstrap injection", () => {
       source: 0,
     });
 
-    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+    expect(sandbox.location).toEqual({
+      href: "https://app.secpal.dev/profile",
+    });
 
     sandbox.location = { href: "https://app.secpal.dev/" };
 
