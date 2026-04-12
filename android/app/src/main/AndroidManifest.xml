@@ -59,6 +59,34 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
         </activity>
 
+        <activity-alias
+            android:name=".ProfileHardwareTriggerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/title_activity_main"
+            android:targetActivity=".MainActivity"
+            android:theme="@style/AppTheme.NoActionBarLaunch">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AboutHardwareTriggerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/title_activity_main"
+            android:targetActivity=".MainActivity"
+            android:theme="@style/AppTheme.NoActionBarLaunch">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".DedicatedDeviceHomeActivity"
             android:enabled="false"
@@ -117,10 +145,24 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".SamsungHardKeyReceiver"
+            android:enabled="true"
+            android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS" />
+                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_REPORT" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK" />
+    <uses-permission android:name="com.samsung.android.knox.permission.KNOX_KIOSK_MODE" />
 </manifest>

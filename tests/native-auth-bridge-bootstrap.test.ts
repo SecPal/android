@@ -291,6 +291,10 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("exposes an enterprise bridge for managed-state reads and gesture-navigation settings", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const listenerHandle = { remove: vi.fn() };
+    const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
     const enterprisePlugin = {
       getManagedState: vi.fn().mockResolvedValue({
         managed: true,
@@ -317,6 +321,21 @@ describe("native auth bridge bootstrap injection", () => {
         opened: true,
         gestureNavigationEnabled: false,
         willReenterLockTaskOnResume: true,
+      }),
+      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
+        if (eventName === "hardwareButtonPressed") {
+          hardwareButtonListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonShortPressed") {
+          hardwareButtonShortPressListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonLongPressed") {
+          hardwareButtonLongPressListeners.push(listener);
+        }
+
+        return listenerHandle;
       }),
     };
     const sandbox = {
@@ -358,7 +377,17 @@ describe("native auth bridge bootstrap injection", () => {
     const bridge = sandbox.SecPalEnterpriseBridge as {
       getManagedState(): Promise<unknown>;
       openGestureNavigationSettings(): Promise<unknown>;
+      addHardwareButtonListener(listener: (payload: unknown) => void): unknown;
+      addHardwareButtonShortPressListener(
+        listener: (payload: unknown) => void
+      ): unknown;
+      addHardwareButtonLongPressListener(
+        listener: (payload: unknown) => void
+      ): unknown;
     };
+    const hardwareButtonListener = vi.fn();
+    const hardwareButtonShortPressListener = vi.fn();
+    const hardwareButtonLongPressListener = vi.fn();
 
     await expect(bridge.getManagedState()).resolves.toEqual({
       managed: true,
@@ -383,10 +412,335 @@ describe("native auth bridge bootstrap injection", () => {
       gestureNavigationEnabled: false,
       willReenterLockTaskOnResume: true,
     });
+    expect(bridge.addHardwareButtonListener(hardwareButtonListener)).toBe(
+      listenerHandle
+    );
+    expect(
+      bridge.addHardwareButtonShortPressListener(hardwareButtonShortPressListener)
+    ).toBe(listenerHandle);
+    expect(
+      bridge.addHardwareButtonLongPressListener(hardwareButtonLongPressListener)
+    ).toBe(listenerHandle);
+
+    hardwareButtonListeners.at(-1)?.({
+      action: "down",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      deviceId: 9,
+      source: 257,
+    });
+    hardwareButtonShortPressListeners.at(-1)?.({
+      action: "short_press",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      holdDurationMs: 1200,
+      deviceId: 9,
+      source: 257,
+    });
+    hardwareButtonLongPressListeners.at(-1)?.({
+      action: "long_press",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      holdDurationMs: 5000,
+      deviceId: 9,
+      source: 257,
+    });
+
     expect(enterprisePlugin.getManagedState).toHaveBeenCalledOnce();
     expect(
       enterprisePlugin.openGestureNavigationSettings
     ).toHaveBeenCalledOnce();
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      1,
+      "hardwareButtonPressed",
+      expect.any(Function)
+    );
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      2,
+      "hardwareButtonShortPressed",
+      expect.any(Function)
+    );
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      3,
+      "hardwareButtonLongPressed",
+      expect.any(Function)
+    );
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      4,
+      "hardwareButtonPressed",
+      hardwareButtonListener
+    );
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      5,
+      "hardwareButtonShortPressed",
+      hardwareButtonShortPressListener
+    );
+    expect(enterprisePlugin.addListener).toHaveBeenNthCalledWith(
+      6,
+      "hardwareButtonLongPressed",
+      hardwareButtonLongPressListener
+    );
+    expect(hardwareButtonListener).toHaveBeenCalledWith({
+      action: "down",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      deviceId: 9,
+      source: 257,
+    });
+    expect(hardwareButtonShortPressListener).toHaveBeenCalledWith({
+      action: "short_press",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      holdDurationMs: 1200,
+      deviceId: 9,
+      source: 257,
+    });
+    expect(hardwareButtonLongPressListener).toHaveBeenCalledWith({
+      action: "long_press",
+      origin: "activity_dispatch",
+      keyCode: 286,
+      keyName: "KEYCODE_STEM_PRIMARY",
+      scanCode: 703,
+      repeatCount: 0,
+      holdDurationMs: 5000,
+      deviceId: 9,
+      source: 257,
+    });
+  });
+
+  it("opens the profile page on short press and the about page on long press", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
+    const enterprisePlugin = {
+      getManagedState: vi.fn(),
+      launchPhone: vi.fn(),
+      launchSms: vi.fn(),
+      launchAllowedApp: vi.fn(),
+      openGestureNavigationSettings: vi.fn(),
+      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
+        if (eventName === "hardwareButtonPressed") {
+          hardwareButtonListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonShortPressed") {
+          hardwareButtonShortPressListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonLongPressed") {
+          hardwareButtonLongPressListeners.push(listener);
+        }
+
+        return { remove: vi.fn() };
+      }),
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    expect(enterprisePlugin.addListener).toHaveBeenCalledTimes(3);
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/" });
+
+    hardwareButtonListeners[0]?.({
+      action: "down",
+      origin: "activity_dispatch",
+      keyCode: 1015,
+      keyName: "1015",
+      scanCode: 252,
+      repeatCount: 0,
+      deviceId: 2,
+      source: 257,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/" });
+
+    hardwareButtonShortPressListeners[0]?.({
+      action: "short_press",
+      origin: "activity_dispatch",
+      keyCode: 1015,
+      keyName: "1015",
+      scanCode: 252,
+      repeatCount: 0,
+      holdDurationMs: 1200,
+      deviceId: 2,
+      source: 257,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+
+    sandbox.location = { href: "https://app.secpal.dev/" };
+
+    hardwareButtonLongPressListeners[0]?.({
+      action: "long_press",
+      origin: "activity_dispatch",
+      keyCode: 1015,
+      keyName: "1015",
+      scanCode: 252,
+      repeatCount: 0,
+      holdDurationMs: 5000,
+      deviceId: 2,
+      source: 257,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/about" });
+  });
+
+  it("opens the profile page on Samsung Knox press fallback and refines long reports to the about page", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const hardwareButtonListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonShortPressListeners: Array<(payload: unknown) => void> = [];
+    const hardwareButtonLongPressListeners: Array<(payload: unknown) => void> = [];
+    const enterprisePlugin = {
+      getManagedState: vi.fn(),
+      launchPhone: vi.fn(),
+      launchSms: vi.fn(),
+      launchAllowedApp: vi.fn(),
+      openGestureNavigationSettings: vi.fn(),
+      addListener: vi.fn((eventName: string, listener: (payload: unknown) => void) => {
+        if (eventName === "hardwareButtonPressed") {
+          hardwareButtonListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonShortPressed") {
+          hardwareButtonShortPressListeners.push(listener);
+        }
+
+        if (eventName === "hardwareButtonLongPressed") {
+          hardwareButtonLongPressListeners.push(listener);
+        }
+
+        return { remove: vi.fn() };
+      }),
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    expect(enterprisePlugin.addListener).toHaveBeenCalledTimes(3);
+    expect(hardwareButtonShortPressListeners).toHaveLength(1);
+    expect(hardwareButtonLongPressListeners).toHaveLength(1);
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/" });
+
+    hardwareButtonListeners[0]?.({
+      action: "down",
+      origin: "samsung_knox_broadcast",
+      keyCode: 1015,
+      keyName: "KEYCODE_XCOVER_TOP",
+      scanCode: -1,
+      repeatCount: 0,
+      deviceId: -1,
+      source: 0,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+
+    sandbox.location = { href: "https://app.secpal.dev/" };
+
+    hardwareButtonShortPressListeners[0]?.({
+      action: "short_press",
+      origin: "samsung_knox_broadcast",
+      keyCode: 1015,
+      keyName: "KEYCODE_XCOVER_TOP",
+      scanCode: -1,
+      repeatCount: 0,
+      holdDurationMs: 1200,
+      deviceId: -1,
+      source: 0,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/profile" });
+
+    sandbox.location = { href: "https://app.secpal.dev/" };
+
+    hardwareButtonLongPressListeners[0]?.({
+      action: "long_press",
+      origin: "samsung_knox_broadcast",
+      keyCode: 1015,
+      keyName: "KEYCODE_XCOVER_TOP",
+      scanCode: -1,
+      repeatCount: 0,
+      holdDurationMs: 5000,
+      deviceId: -1,
+      source: 0,
+    });
+
+    expect(sandbox.location).toEqual({ href: "https://app.secpal.dev/about" });
   });
 
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {

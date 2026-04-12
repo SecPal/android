@@ -371,6 +371,8 @@ public final class EnterprisePolicyController {
         ComponentName adminComponent = new ComponentName(context, SecPalDeviceAdminReceiver.class);
         Set<String> managedHiddenPackages = readManagedHiddenPackages(context);
 
+        devicePolicyManager.setKeyguardDisabled(adminComponent, true);
+
         if (managedState.isKioskActive()) {
             restoreManagedHiddenPackages(devicePolicyManager, adminComponent, managedHiddenPackages);
             Set<String> allowedPackages = managedState.resolveAllowedPackages(context);

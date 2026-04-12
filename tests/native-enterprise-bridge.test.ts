@@ -11,6 +11,7 @@ const pluginMocks = vi.hoisted(() => ({
   launchSms: vi.fn(),
   launchAllowedApp: vi.fn(),
   openGestureNavigationSettings: vi.fn(),
+  addListener: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -84,5 +85,56 @@ describe("native enterprise bridge", () => {
       packageName: "com.android.settings",
     });
     expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
+  });
+
+  it("forwards hardware button listener registration to the native enterprise plugin", async () => {
+    const handle = { remove: vi.fn() };
+    const listener = vi.fn();
+
+    pluginMocks.addListener.mockReturnValue(handle);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    expect(bridge.addHardwareButtonListener(listener)).toBe(handle);
+    expect(pluginMocks.addListener).toHaveBeenCalledWith(
+      "hardwareButtonPressed",
+      listener
+    );
+  });
+
+  it("forwards hardware button short-press listener registration to the native enterprise plugin", async () => {
+    const handle = { remove: vi.fn() };
+    const listener = vi.fn();
+
+    pluginMocks.addListener.mockReturnValue(handle);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    expect(bridge.addHardwareButtonShortPressListener(listener)).toBe(handle);
+    expect(pluginMocks.addListener).toHaveBeenCalledWith(
+      "hardwareButtonShortPressed",
+      listener
+    );
+  });
+
+  it("forwards hardware button long-press listener registration to the native enterprise plugin", async () => {
+    const handle = { remove: vi.fn() };
+    const listener = vi.fn();
+
+    pluginMocks.addListener.mockReturnValue(handle);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    expect(bridge.addHardwareButtonLongPressListener(listener)).toBe(handle);
+    expect(pluginMocks.addListener).toHaveBeenCalledWith(
+      "hardwareButtonLongPressed",
+      listener
+    );
   });
 });

@@ -5,12 +5,15 @@
 
 package app.secpal;
 
+import android.app.KeyguardManager;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -38,9 +41,19 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalNativeAuthPlugin.class);
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
+        emitHardwareTriggerLaunchEvent(getIntent());
         super.onCreate(savedInstanceState);
+        applyHardwareTriggerWindowState(getIntent());
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        emitHardwareTriggerLaunchEvent(intent);
+        applyHardwareTriggerWindowState(intent);
     }
 
     @Override
@@ -48,6 +61,12 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -122,6 +141,7 @@ public class MainActivity extends BridgeActivity {
     private void refreshManagedPolicyState() {
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
 
+        HardwareButtonPolicyController.syncManagedState(this, managedState);
         EnterprisePolicyController.maybeEnterLockTask(this);
         SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
     }
@@ -145,6 +165,39 @@ public class MainActivity extends BridgeActivity {
                 provisioningBootstrapSyncInFlight.set(false);
             }
         });
+    }
+
+    private void applyHardwareTriggerWindowState(Intent intent) {
+        if (!HardwareButtonPolicyController.isHardwareTriggerLaunch(intent)) {
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            KeyguardManager keyguardManager = getSystemService(KeyguardManager.class);
+
+            if (keyguardManager != null) {
+                keyguardManager.requestDismissKeyguard(this, null);
+            }
+        }
+    }
+
+    private void emitHardwareTriggerLaunchEvent(Intent intent) {
+        SamsungKnoxHardwareButtonController.HardKeyPressType pressType =
+            HardwareButtonLaunchRouter.resolvePressType(intent);
+
+        if (pressType == SamsungKnoxHardwareButtonController.HardKeyPressType.SHORT_PRESS) {
+            SecPalEnterprisePlugin.emitSamsungKnoxHardwareButtonShortPressEvent(KeyEvent.KEYCODE_STEM_PRIMARY);
+            return;
+        }
+
+        if (pressType == SamsungKnoxHardwareButtonController.HardKeyPressType.LONG_PRESS) {
+            SecPalEnterprisePlugin.emitSamsungKnoxHardwareButtonLongPressEvent(KeyEvent.KEYCODE_STEM_PRIMARY);
+        }
     }
 
     private boolean deleteRecursively(File target) {

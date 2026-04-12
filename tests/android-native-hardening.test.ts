@@ -254,6 +254,100 @@ describe("Android native hardening", () => {
     expect(injector).toContain("openGestureNavigationSettings");
   });
 
+  it("keeps Samsung hard-key support behind a dedicated vendor adapter", () => {
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const hardwarePolicyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "HardwareButtonPolicyController.java"
+    );
+    const samsungAdapter = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SamsungKnoxHardwareButtonController.java"
+    );
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const launchRouter = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "HardwareButtonLaunchRouter.java"
+    );
+    const samsungSystemKeyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SamsungSystemKeyConfigurationController.java"
+    );
+
+    expect(manifest).toContain("SamsungHardKeyReceiver");
+    expect(manifest).toContain("ProfileHardwareTriggerActivity");
+    expect(manifest).toContain("AboutHardwareTriggerActivity");
+    expect(manifest).not.toContain("android.permission.WRITE_SETTINGS");
+    expect(manifest).toContain(
+      'android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK"'
+    );
+    expect(manifest).toContain("com.samsung.android.knox.intent.action.HARD_KEY_PRESS");
+    expect(manifest).toContain("com.samsung.android.knox.intent.action.HARD_KEY_REPORT");
+    expect(manifest).toContain("com.samsung.android.knox.permission.KNOX_CUSTOM_PROKIOSK");
+    expect(manifest).toContain("com.samsung.android.knox.permission.KNOX_KIOSK_MODE");
+    expect(manifest.match(/android.intent.category.LAUNCHER/g)?.length).toBeGreaterThan(1);
+    expect(hardwarePolicyController).toContain("SamsungKnoxHardwareButtonController");
+    expect(hardwarePolicyController).toContain("SamsungSystemKeyConfigurationController");
+    expect(hardwarePolicyController).toContain("HardwareButtonLaunchRouter");
+    expect(hardwarePolicyController).toContain("syncManagedState");
+    expect(samsungAdapter).toContain("ACTION_HARD_KEY_PRESS");
+    expect(samsungAdapter).toContain("ACTION_HARD_KEY_REPORT");
+    expect(samsungAdapter).toContain("EXTRA_KEY_CODE");
+    expect(samsungAdapter).toContain("setHardKeyIntentState");
+    expect(samsungAdapter).toContain("setHardKeyReportState");
+    expect(samsungAdapter).toContain("allowHardwareKeys");
+    expect(samsungAdapter).toContain("managedState.isDeviceOwner()");
+    expect(samsungAdapter).not.toContain("isKioskActive");
+    expect(launchRouter).toContain("PROFILE_HARDWARE_TRIGGER_ACTIVITY");
+    expect(launchRouter).toContain("ABOUT_HARDWARE_TRIGGER_ACTIVITY");
+    expect(samsungSystemKeyController).toContain("DevicePolicyManager");
+    expect(samsungSystemKeyController).toContain("setSecureSetting");
+    expect(samsungSystemKeyController).toContain("dedicated_app_xcover");
+    expect(samsungSystemKeyController).toContain("short_press_app");
+    expect(samsungSystemKeyController).toContain("long_press_app");
+    expect(mainActivity).toContain("emitHardwareTriggerLaunchEvent");
+    expect(mainActivity).not.toMatch(/com\.samsung\.android\.knox/);
+  });
+
   it("keeps the enterprise launcher implementation vendor-neutral", () => {
     const policyController = readRepoFile(
       "android",
@@ -364,6 +458,9 @@ describe("Android native hardening", () => {
     expect(policyController).toContain("KIOSK_LOCK_TASK_FEATURES");
     expect(policyController).toContain(
       "setStatusBarDisabled(adminComponent, true)"
+    );
+    expect(policyController).toContain(
+      "setKeyguardDisabled(adminComponent, true)"
     );
     expect(policyController).toContain(
       "setKioskUserRestrictions(devicePolicyManager, adminComponent, true)"
