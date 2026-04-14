@@ -137,8 +137,11 @@ public class ProvisioningBootstrapStoreTest {
         store.markExchangeFailure("HTTP_500", false);
 
         ProvisioningBootstrapState state = store.getState();
-        assertEquals(ProvisioningBootstrapState.STATUS_FAILED, state.getStatus());
+        assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
         assertEquals("HTTP_500", state.getLastErrorCode());
+        assertNull(state.getUpdateChannel());
+        assertNull(state.getReleaseMetadataUrl());
+        assertEquals("bootstrap-token-123", tokenStorage.token);
     }
 
     @Test
