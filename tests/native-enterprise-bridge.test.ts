@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pluginMocks = vi.hoisted(() => ({
   getManagedState: vi.fn(),
@@ -19,6 +19,10 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 describe("native enterprise bridge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("installs a typed enterprise bridge with managed distribution metadata", async () => {
     pluginMocks.getManagedState.mockResolvedValue({
       managed: true,
@@ -38,6 +42,8 @@ describe("native enterprise bridge", () => {
       },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],
     });
+    pluginMocks.launchPhone.mockResolvedValue(undefined);
+    pluginMocks.launchSms.mockResolvedValue(undefined);
     pluginMocks.launchAllowedApp.mockResolvedValue(undefined);
     pluginMocks.openGestureNavigationSettings.mockResolvedValue({
       opened: true,
@@ -70,6 +76,8 @@ describe("native enterprise bridge", () => {
       },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],
     });
+    await expect(bridge.launchPhone()).resolves.toBeUndefined();
+    await expect(bridge.launchSms()).resolves.toBeUndefined();
     await expect(
       bridge.launchAllowedApp({ packageName: "com.android.settings" })
     ).resolves.toBeUndefined();
@@ -81,6 +89,8 @@ describe("native enterprise bridge", () => {
 
     expect(target.SecPalEnterpriseBridge).toBe(bridge);
     expect(pluginMocks.getManagedState).toHaveBeenCalledOnce();
+    expect(pluginMocks.launchPhone).toHaveBeenCalledWith();
+    expect(pluginMocks.launchSms).toHaveBeenCalledWith();
     expect(pluginMocks.launchAllowedApp).toHaveBeenCalledWith({
       packageName: "com.android.settings",
     });
@@ -114,5 +124,80 @@ describe("native enterprise bridge", () => {
       expect(register(listener)).toBe(handle);
       expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
     }
+  });
+
+  it("delegates launchPhone and launchSms to the native plugin", async () => {
+    pluginMocks.launchPhone.mockResolvedValue(undefined);
+    pluginMocks.launchSms.mockResolvedValue(undefined);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge(globalThis);
+
+    await expect(bridge.launchPhone()).resolves.toBeUndefined();
+    await expect(bridge.launchSms()).resolves.toBeUndefined();
+
+    expect(pluginMocks.launchPhone).toHaveBeenCalledWith();
+    expect(pluginMocks.launchSms).toHaveBeenCalledWith();
+  });
+
+  it("propagates plugin errors for rejected calls", async () => {
+    const managedStateError = new Error("managed state unavailable");
+    const launchAllowedAppError = new Error("app launch blocked");
+    pluginMocks.getManagedState.mockRejectedValue(managedStateError);
+    pluginMocks.launchAllowedApp.mockRejectedValue(launchAllowedAppError);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge(globalThis);
+
+    await expect(bridge.getManagedState()).rejects.toThrow(
+      "managed state unavailable"
+    );
+    await expect(
+      bridge.launchAllowedApp({ packageName: "com.android.settings" })
+    ).rejects.toThrow("app launch blocked");
+  });
+
+  it("returns alternate managed state values unchanged", async () => {
+    pluginMocks.getManagedState.mockResolvedValue({
+      managed: false,
+      mode: "none",
+      kioskActive: false,
+      lockTaskEnabled: false,
+      gestureNavigationEnabled: true,
+      gestureNavigationSettingsAvailable: false,
+      allowPhone: false,
+      allowSms: true,
+      distributionState: {
+        bootstrapStatus: "idle",
+        updateChannel: null,
+        releaseMetadataUrl: null,
+        bootstrapLastErrorCode: "NETWORK_ERROR",
+      },
+      allowedApps: [],
+    });
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge(globalThis);
+
+    await expect(bridge.getManagedState()).resolves.toEqual({
+      managed: false,
+      mode: "none",
+      kioskActive: false,
+      lockTaskEnabled: false,
+      gestureNavigationEnabled: true,
+      gestureNavigationSettingsAvailable: false,
+      allowPhone: false,
+      allowSms: true,
+      distributionState: {
+        bootstrapStatus: "idle",
+        updateChannel: null,
+        releaseMetadataUrl: null,
+        bootstrapLastErrorCode: "NETWORK_ERROR",
+      },
+      allowedApps: [],
+    });
   });
 });
