@@ -121,8 +121,12 @@ describe("native enterprise bridge", () => {
     ] as const;
 
     for (const [eventName, listener, register] of registrations) {
-      expect(register(listener)).toBe(handle);
+      const registration = register(listener);
+      expect(registration).toBe(handle);
       expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
+      registration.remove();
+      expect(handle.remove).toHaveBeenCalledTimes(1);
+      handle.remove.mockClear();
     }
   });
 
