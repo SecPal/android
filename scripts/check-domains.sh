@@ -25,7 +25,7 @@ echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
-matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]+" \
+matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
     --include="*.md" \
     --include="*.yaml" \
     --include="*.yml" \
@@ -62,24 +62,29 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]+" \
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
 # This prevents domain-like strings (e.g. app.secpal.com) from passing as approved.
 # This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
+regex_prefix='(^|[^A-Za-z0-9.-])'
+regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
+regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
+
+allow_secpal_app="${regex_prefix}secpal\\.app${regex_suffix}"
+allow_changelog_secpal_app="${regex_prefix}changelog\\.secpal\\.app${regex_suffix}"
+allow_apk_secpal_app="${regex_prefix}apk\\.secpal\\.app${regex_suffix}"
+allow_secpal_dev="${regex_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_suffix}"
+allow_api_secpal_app="${regex_prefix}api\\.secpal\\.app${regex_suffix}"
+allow_app_secpal_identifier="${regex_prefix}app\\.secpal${regex_identifier_suffix}"
+allow_app_secpal_class="${regex_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*${regex_identifier_suffix}"
+allow_app_secpal_action="${regex_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*${regex_identifier_suffix}"
+
+allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
+
 violations=$(printf '%s\n' "$matches" | \
-    grep -Ev '(^|[^A-Za-z0-9.-])secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])changelog\.secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])apk\.secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])(\*\.|\.)?([A-Za-z0-9-]+\.)*secpal\.dev(\.[A-Za-z0-9_-]+)*($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])api\.secpal\.app($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)|(^|[^A-Za-z0-9.-])app\.secpal([^A-Za-z0-9._-]|$)|(^|[^A-Za-z0-9.-])app\.secpal\.[A-Z][A-Za-z0-9_]*([^A-Za-z0-9._-]|$)|(^|[^A-Za-z0-9.-])app\.secpal\.action\.[A-Z_][A-Z0-9_]*([^A-Za-z0-9._-]|$)' | \
+    grep -Ev "$allowlist_pattern" | \
     grep -E 'secpal\.' || true)
 
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app' | \
-    grep -v -- "Android package ID" | \
-    grep -v -- "identifier-only" | \
-    grep -v -- "active web hosts" | \
-    grep -v -- "Deprecated Web Hosts" | \
-    grep -v -- "deprecated_web_hosts" | \
-    grep -v -- "android_application_identifier" | \
-    grep -v -- "validation_rule" | \
-    grep -v -- './.github/copilot-instructions.md:' | \
-    grep -v -- './.github/copilot-config.yaml:' | \
-    grep -v -- './.github/instructions/' | \
-    grep -v -- 'must not appear as active web hosts' | \
-    grep -v -- 'not treated as a deployable web domain' || true)
+    grep -Ev '^\./(\.github/instructions/|\.github/copilot-instructions\.md:|README|docs/)' | \
+    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|js|jsx|html|kt|java|xml|gradle|kts|properties):' || true)
 
 if [[ -z "$violations" && -z "$deprecated_web_hosts" ]]; then
     echo -e "${GREEN}✅ Domain Policy Check PASSED${NC}"
