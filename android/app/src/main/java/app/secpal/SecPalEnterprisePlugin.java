@@ -343,7 +343,7 @@ public class SecPalEnterprisePlugin extends Plugin {
                     return "KEYCODE_VOLUME_MUTE";
                 case KeyEvent.KEYCODE_APP_SWITCH:
                     return "KEYCODE_APP_SWITCH";
-                case 286:
+                case KeyEvent.KEYCODE_STEM_PRIMARY:
                     return "KEYCODE_STEM_PRIMARY";
                 default:
                     return "KEYCODE_" + keyCode;

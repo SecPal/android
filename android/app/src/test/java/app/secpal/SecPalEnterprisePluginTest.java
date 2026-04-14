@@ -10,6 +10,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import android.view.KeyEvent;
+
 import java.util.Map;
 
 import org.junit.Test;
@@ -84,16 +86,16 @@ public class SecPalEnterprisePluginTest {
 
     @Test
     public void shouldEmitHardwareButtonEventAcceptsOnlySingleActionDownForNonSystemKeys() {
-        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 286, 0, false));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 286, 1, false));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 24, 0, false));
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 1, false));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP, 0, false));
     }
 
     @Test
     public void hardwareButtonEventMapsIncludeKeyMetadataAndDurations() {
-        Map<String, Object> pressedPayload = SecPalEnterprisePlugin.buildHardwareButtonEventMap(0, 286, 703, 0, 7, 257);
+        Map<String, Object> pressedPayload = SecPalEnterprisePlugin.buildHardwareButtonEventMap(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 703, 0, 7, 257);
         Map<String, Object> shortPayload = SecPalEnterprisePlugin.buildHardwareButtonShortPressEventMap(
-            286,
+            KeyEvent.KEYCODE_STEM_PRIMARY,
             703,
             0,
             2,
@@ -101,7 +103,7 @@ public class SecPalEnterprisePluginTest {
             1200L
         );
         Map<String, Object> longPayload = SecPalEnterprisePlugin.buildHardwareButtonLongPressEventMap(
-            286,
+            KeyEvent.KEYCODE_STEM_PRIMARY,
             703,
             0,
             2,
@@ -111,7 +113,7 @@ public class SecPalEnterprisePluginTest {
 
         assertEquals("down", pressedPayload.get("action"));
         assertEquals("activity_dispatch", pressedPayload.get("origin"));
-        assertEquals(286, pressedPayload.get("keyCode"));
+        assertEquals(KeyEvent.KEYCODE_STEM_PRIMARY, pressedPayload.get("keyCode"));
         assertEquals("KEYCODE_STEM_PRIMARY", pressedPayload.get("keyName"));
         assertEquals(703, pressedPayload.get("scanCode"));
         assertEquals(0, pressedPayload.get("repeatCount"));
@@ -129,15 +131,15 @@ public class SecPalEnterprisePluginTest {
 
     @Test
     public void hardwareButtonPressThresholdsRespectTheFiveSecondBoundary() {
-        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 5000L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 4999L));
-        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 4999L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 5000L));
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 4999L));
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 4999L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 5000L));
     }
 
     @Test
     public void shouldEmitHardwareButtonLongPressRejectsCanceledAndSystemKeys() {
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, true, 5000L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 24, 0, false, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, true, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP, 0, false, 5000L));
     }
 }
