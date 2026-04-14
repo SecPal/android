@@ -6,7 +6,11 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import android.view.KeyEvent;
 
 import java.util.Map;
 
@@ -78,5 +82,64 @@ public class SecPalEnterprisePluginTest {
         assertNull(payload.get("updateChannel"));
         assertNull(payload.get("releaseMetadataUrl"));
         assertNull(payload.get("bootstrapLastErrorCode"));
+    }
+
+    @Test
+    public void shouldEmitHardwareButtonEventAcceptsOnlySingleActionDownForNonSystemKeys() {
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 1, false));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP, 0, false));
+    }
+
+    @Test
+    public void hardwareButtonEventMapsIncludeKeyMetadataAndDurations() {
+        Map<String, Object> pressedPayload = SecPalEnterprisePlugin.buildHardwareButtonEventMap(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_STEM_PRIMARY, 703, 0, 7, 257);
+        Map<String, Object> shortPayload = SecPalEnterprisePlugin.buildHardwareButtonShortPressEventMap(
+            KeyEvent.KEYCODE_STEM_PRIMARY,
+            703,
+            0,
+            2,
+            257,
+            1200L
+        );
+        Map<String, Object> longPayload = SecPalEnterprisePlugin.buildHardwareButtonLongPressEventMap(
+            KeyEvent.KEYCODE_STEM_PRIMARY,
+            703,
+            0,
+            2,
+            257,
+            5000L
+        );
+
+        assertEquals("down", pressedPayload.get("action"));
+        assertEquals("activity_dispatch", pressedPayload.get("origin"));
+        assertEquals(KeyEvent.KEYCODE_STEM_PRIMARY, pressedPayload.get("keyCode"));
+        assertEquals("KEYCODE_STEM_PRIMARY", pressedPayload.get("keyName"));
+        assertEquals(703, pressedPayload.get("scanCode"));
+        assertEquals(0, pressedPayload.get("repeatCount"));
+        assertEquals(7, pressedPayload.get("deviceId"));
+        assertEquals(257, pressedPayload.get("source"));
+
+        assertEquals("short_press", shortPayload.get("action"));
+        assertEquals("activity_dispatch", shortPayload.get("origin"));
+        assertEquals(1200L, shortPayload.get("holdDurationMs"));
+
+        assertEquals("long_press", longPayload.get("action"));
+        assertEquals("activity_dispatch", longPayload.get("origin"));
+        assertEquals(5000L, longPayload.get("holdDurationMs"));
+    }
+
+    @Test
+    public void hardwareButtonPressThresholdsRespectTheFiveSecondBoundary() {
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 4999L));
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 4999L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, false, 5000L));
+    }
+
+    @Test
+    public void shouldEmitHardwareButtonLongPressRejectsCanceledAndSystemKeys() {
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_STEM_PRIMARY, 0, true, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP, 0, false, 5000L));
     }
 }

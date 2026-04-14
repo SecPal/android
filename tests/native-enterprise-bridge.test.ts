@@ -11,6 +11,7 @@ const pluginMocks = vi.hoisted(() => ({
   launchSms: vi.fn(),
   launchAllowedApp: vi.fn(),
   openGestureNavigationSettings: vi.fn(),
+  addListener: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -94,6 +95,35 @@ describe("native enterprise bridge", () => {
       packageName: "com.android.settings",
     });
     expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
+  });
+
+  it("forwards hardware button listener registrations to the native enterprise plugin", async () => {
+    const handle = { remove: vi.fn() };
+
+    pluginMocks.addListener.mockReturnValue(handle);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    const registrations = [
+      ["hardwareButtonPressed", vi.fn(), bridge.addHardwareButtonListener],
+      [
+        "hardwareButtonShortPressed",
+        vi.fn(),
+        bridge.addHardwareButtonShortPressListener,
+      ],
+      [
+        "hardwareButtonLongPressed",
+        vi.fn(),
+        bridge.addHardwareButtonLongPressListener,
+      ],
+    ] as const;
+
+    for (const [eventName, listener, register] of registrations) {
+      expect(register(listener)).toBe(handle);
+      expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
+    }
   });
 
   it("delegates launchPhone and launchSms to the native plugin", async () => {

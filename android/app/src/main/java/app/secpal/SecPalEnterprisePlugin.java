@@ -6,6 +6,7 @@
 package app.secpal;
 
 import android.app.Activity;
+import android.view.KeyEvent;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -16,9 +17,35 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @CapacitorPlugin(name = "SecPalEnterprise")
 public class SecPalEnterprisePlugin extends Plugin {
+    static final long HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS = 5000L;
+    static final String HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH = "activity_dispatch";
+    private static final String HARDWARE_BUTTON_PRESSED_EVENT = "hardwareButtonPressed";
+    private static final String HARDWARE_BUTTON_SHORT_PRESSED_EVENT = "hardwareButtonShortPressed";
+    private static final String HARDWARE_BUTTON_LONG_PRESSED_EVENT = "hardwareButtonLongPressed";
+    private static volatile SecPalEnterprisePlugin activeInstance;
+    private static final Map<String, Long> activeButtonPressStartedAt = new ConcurrentHashMap<>();
+
+    @Override
+    public void load() {
+        super.load();
+        activeButtonPressStartedAt.clear();
+        activeInstance = this;
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        activeButtonPressStartedAt.clear();
+
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
+
+        super.handleOnDestroy();
+    }
 
     @PluginMethod
     public void getManagedState(PluginCall call) {
@@ -62,6 +89,282 @@ public class SecPalEnterprisePlugin extends Plugin {
         payload.put("allowedApps", allowedApps);
 
         call.resolve(payload);
+    }
+
+    static void emitHardwareButtonEvent(KeyEvent event) {
+        if (event == null) {
+            return;
+        }
+
+        emitHardwareButtonEvent(
+            event.getAction(),
+            event.getKeyCode(),
+            event.getScanCode(),
+            event.getRepeatCount(),
+            event.getDeviceId(),
+            event.getSource(),
+            event.getEventTime(),
+            event.isCanceled()
+        );
+    }
+
+    static void emitHardwareButtonEvent(
+        int action,
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        long eventTime,
+        boolean canceled
+    ) {
+        SecPalEnterprisePlugin plugin = activeInstance;
+
+        if (plugin == null) {
+            return;
+        }
+
+        String buttonKey = buildHardwareButtonKey(keyCode, scanCode, deviceId, source);
+
+        if (action == KeyEvent.ACTION_DOWN) {
+            if (!shouldEmitHardwareButtonEvent(action, keyCode, repeatCount, canceled)) {
+                return;
+            }
+
+            activeButtonPressStartedAt.put(buttonKey, eventTime);
+            plugin.notifyListeners(
+                HARDWARE_BUTTON_PRESSED_EVENT,
+                toJsObject(buildHardwareButtonEventMap(action, keyCode, scanCode, repeatCount, deviceId, source)),
+                true
+            );
+            return;
+        }
+
+        if (action != KeyEvent.ACTION_UP) {
+            if (canceled) {
+                activeButtonPressStartedAt.remove(buttonKey);
+            }
+
+            return;
+        }
+
+        Long pressedAt = activeButtonPressStartedAt.remove(buttonKey);
+
+        if (pressedAt == null) {
+            return;
+        }
+
+        long holdDurationMs = Math.max(0L, eventTime - pressedAt.longValue());
+
+        if (shouldEmitHardwareButtonShortPress(action, keyCode, repeatCount, canceled, holdDurationMs)) {
+            plugin.notifyListeners(
+                HARDWARE_BUTTON_SHORT_PRESSED_EVENT,
+                toJsObject(
+                    buildHardwareButtonShortPressEventMap(
+                        keyCode,
+                        scanCode,
+                        repeatCount,
+                        deviceId,
+                        source,
+                        holdDurationMs
+                    )
+                ),
+                true
+            );
+            return;
+        }
+
+        if (!shouldEmitHardwareButtonLongPress(action, keyCode, repeatCount, canceled, holdDurationMs)) {
+            return;
+        }
+
+        plugin.notifyListeners(
+            HARDWARE_BUTTON_LONG_PRESSED_EVENT,
+            toJsObject(
+                buildHardwareButtonLongPressEventMap(
+                    keyCode,
+                    scanCode,
+                    repeatCount,
+                    deviceId,
+                    source,
+                    holdDurationMs
+                )
+            ),
+            true
+        );
+    }
+
+    static boolean shouldEmitHardwareButtonEvent(int action, int keyCode, int repeatCount, boolean canceled) {
+        if (action != KeyEvent.ACTION_DOWN) {
+            return false;
+        }
+
+        if (canceled || repeatCount > 0) {
+            return false;
+        }
+
+        return !isSystemKeyCode(keyCode);
+    }
+
+    static boolean shouldEmitHardwareButtonLongPress(
+        int action,
+        int keyCode,
+        int repeatCount,
+        boolean canceled,
+        long holdDurationMs
+    ) {
+        if (action != KeyEvent.ACTION_UP) {
+            return false;
+        }
+
+        if (canceled || repeatCount > 0) {
+            return false;
+        }
+
+        if (holdDurationMs < HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS) {
+            return false;
+        }
+
+        return !isSystemKeyCode(keyCode);
+    }
+
+    static boolean shouldEmitHardwareButtonShortPress(
+        int action,
+        int keyCode,
+        int repeatCount,
+        boolean canceled,
+        long holdDurationMs
+    ) {
+        if (action != KeyEvent.ACTION_UP) {
+            return false;
+        }
+
+        if (canceled || repeatCount > 0) {
+            return false;
+        }
+
+        if (holdDurationMs >= HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS) {
+            return false;
+        }
+
+        return !isSystemKeyCode(keyCode);
+    }
+
+    static Map<String, Object> buildHardwareButtonEventMap(
+        int action,
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source
+    ) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+
+        payload.put("action", action == KeyEvent.ACTION_DOWN ? "down" : "unknown");
+        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("keyCode", keyCode);
+        payload.put("keyName", resolveKeyName(keyCode));
+        payload.put("scanCode", scanCode);
+        payload.put("repeatCount", repeatCount);
+        payload.put("deviceId", deviceId);
+        payload.put("source", source);
+
+        return payload;
+    }
+
+    static Map<String, Object> buildHardwareButtonShortPressEventMap(
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        long holdDurationMs
+    ) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+
+        payload.put("action", "short_press");
+        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("keyCode", keyCode);
+        payload.put("keyName", resolveKeyName(keyCode));
+        payload.put("scanCode", scanCode);
+        payload.put("repeatCount", repeatCount);
+        payload.put("holdDurationMs", holdDurationMs);
+        payload.put("deviceId", deviceId);
+        payload.put("source", source);
+
+        return payload;
+    }
+
+    static Map<String, Object> buildHardwareButtonLongPressEventMap(
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        long holdDurationMs
+    ) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+
+        payload.put("action", "long_press");
+        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("keyCode", keyCode);
+        payload.put("keyName", resolveKeyName(keyCode));
+        payload.put("scanCode", scanCode);
+        payload.put("repeatCount", repeatCount);
+        payload.put("holdDurationMs", holdDurationMs);
+        payload.put("deviceId", deviceId);
+        payload.put("source", source);
+
+        return payload;
+    }
+
+    private static String buildHardwareButtonKey(int keyCode, int scanCode, int deviceId, int source) {
+        return keyCode + ":" + scanCode + ":" + deviceId + ":" + source;
+    }
+
+    private static String resolveKeyName(int keyCode) {
+        try {
+            return KeyEvent.keyCodeToString(keyCode);
+        } catch (RuntimeException exception) {
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_BACK:
+                    return "KEYCODE_BACK";
+                case KeyEvent.KEYCODE_HOME:
+                    return "KEYCODE_HOME";
+                case KeyEvent.KEYCODE_MENU:
+                    return "KEYCODE_MENU";
+                case KeyEvent.KEYCODE_POWER:
+                    return "KEYCODE_POWER";
+                case KeyEvent.KEYCODE_VOLUME_DOWN:
+                    return "KEYCODE_VOLUME_DOWN";
+                case KeyEvent.KEYCODE_VOLUME_UP:
+                    return "KEYCODE_VOLUME_UP";
+                case KeyEvent.KEYCODE_VOLUME_MUTE:
+                    return "KEYCODE_VOLUME_MUTE";
+                case KeyEvent.KEYCODE_APP_SWITCH:
+                    return "KEYCODE_APP_SWITCH";
+                case KeyEvent.KEYCODE_STEM_PRIMARY:
+                    return "KEYCODE_STEM_PRIMARY";
+                default:
+                    return "KEYCODE_" + keyCode;
+            }
+        }
+    }
+
+    private static boolean isSystemKeyCode(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_POWER:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_APP_SWITCH:
+            case KeyEvent.KEYCODE_MENU:
+                return true;
+            default:
+                return false;
+        }
     }
 
     static Map<String, Object> buildDistributionStateMap(ProvisioningBootstrapState state) {

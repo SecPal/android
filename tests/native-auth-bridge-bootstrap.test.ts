@@ -389,6 +389,66 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveBeenCalledOnce();
   });
 
+  it("registers enterprise hardware-button listeners and routes short and long presses", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const listeners: Record<string, Array<() => void>> = {
+      hardwareButtonShortPressed: [],
+      hardwareButtonLongPressed: [],
+    };
+    const enterprisePlugin = {
+      addListener: vi.fn((eventName: string, listener: () => void) => {
+        if (eventName in listeners) {
+          listeners[eventName].push(listener);
+        }
+
+        return { remove: vi.fn() };
+      }),
+    };
+    const location = { href: "https://app.secpal.dev/dashboard" };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location,
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    expect(listeners.hardwareButtonShortPressed).toHaveLength(1);
+    expect(listeners.hardwareButtonLongPressed).toHaveLength(1);
+
+    listeners.hardwareButtonShortPressed[0]?.();
+    expect(location.href).toBe("https://app.secpal.dev/profile");
+
+    listeners.hardwareButtonLongPressed[0]?.();
+    expect(location.href).toBe("https://app.secpal.dev/about");
+  });
+
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- generic Android hardware-button bridge events in the enterprise wrapper: foreground `dispatchKeyEvent` input now reaches `SecPalEnterpriseBridge` as typed pressed, short-press, and long-press callbacks so the Android shell can wire emergency navigation without Samsung-specific launch plumbing in the same PR
 - typed Android enterprise bridge source API: the wrapper now ships `src/secpal/native-enterprise-bridge.ts` with strict TypeScript contracts for managed-state distribution metadata and focused tests for completed, pending, and failed bootstrap visibility, so later Android rollout/update UX can consume `SecPalEnterprise` without ad-hoc global typing
 - enterprise bridge distribution-state visibility in the Android wrapper: `SecPalEnterprisePlugin.getManagedState()` now exposes the persisted bootstrap status, update channel, release metadata URL, and last bootstrap error code so later Android update UX can reason about managed-device rollout state without touching bootstrap tokens
 - Android bootstrap exchange runtime for Epic SecPal/.github#327: the wrapper now persists provisioning QR bootstrap extras during Device Owner hand-off, retries the public `/v1/android/bootstrap/exchange` flow on managed app startup when connectivity is available, and stores the exchanged tenant/channel/release metadata plus managed policy profile for the single-package `app.secpal` architecture
