@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pluginMocks = vi.hoisted(() => ({
   getManagedState: vi.fn(),
@@ -18,6 +18,10 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 describe("native enterprise bridge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("installs a typed enterprise bridge with managed distribution metadata", async () => {
     pluginMocks.getManagedState.mockResolvedValue({
       managed: true,
@@ -84,5 +88,67 @@ describe("native enterprise bridge", () => {
       packageName: "com.android.settings",
     });
     expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
+  });
+
+  it("delegates phone and sms launches to the native enterprise plugin", async () => {
+    pluginMocks.launchPhone.mockResolvedValue(undefined);
+    pluginMocks.launchSms.mockResolvedValue(undefined);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    await expect(bridge.launchPhone()).resolves.toBeUndefined();
+    await expect(bridge.launchSms()).resolves.toBeUndefined();
+
+    expect(pluginMocks.launchPhone).toHaveBeenCalledOnce();
+    expect(pluginMocks.launchSms).toHaveBeenCalledOnce();
+  });
+
+  it("passes through alternate managed-state payloads without reshaping them", async () => {
+    const managedState = {
+      managed: false,
+      mode: "none" as const,
+      kioskActive: false,
+      lockTaskEnabled: false,
+      gestureNavigationEnabled: true,
+      gestureNavigationSettingsAvailable: false,
+      allowPhone: false,
+      allowSms: true,
+      distributionState: {
+        bootstrapStatus: "failed" as const,
+        updateChannel: null,
+        releaseMetadataUrl: null,
+        bootstrapLastErrorCode: "BOOTSTRAP_EXCHANGE_RETRY",
+      },
+      allowedApps: [{ packageName: "com.android.contacts", label: "Contacts" }],
+    };
+    pluginMocks.getManagedState.mockResolvedValue(managedState);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    await expect(bridge.getManagedState()).resolves.toEqual(managedState);
+    expect(pluginMocks.getManagedState).toHaveBeenCalledOnce();
+  });
+
+  it("propagates native plugin rejections for telephony and gesture-navigation actions", async () => {
+    const phoneError = new Error("phone unavailable");
+    const smsError = new Error("sms unavailable");
+    const settingsError = new Error("settings unavailable");
+    pluginMocks.launchPhone.mockRejectedValue(phoneError);
+    pluginMocks.launchSms.mockRejectedValue(smsError);
+    pluginMocks.openGestureNavigationSettings.mockRejectedValue(settingsError);
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const bridge = installNativeEnterpriseBridge();
+
+    await expect(bridge.launchPhone()).rejects.toThrow(phoneError);
+    await expect(bridge.launchSms()).rejects.toThrow(smsError);
+    await expect(bridge.openGestureNavigationSettings()).rejects.toThrow(
+      settingsError
+    );
   });
 });

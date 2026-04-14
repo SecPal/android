@@ -15,9 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
+- Android domain-policy validation now composes its approved-host allowlist from named regex fragments and bounds raw `secpal.*` discovery matches, making the check easier to review while preserving the existing host policy.
 
 ### Added
 
+- Regression coverage for bootstrap-store retry persistence after a failed exchange commit and for native enterprise-bridge delegation of phone, SMS, and gesture-navigation calls.
 - typed Android enterprise bridge source API: the wrapper now ships `src/secpal/native-enterprise-bridge.ts` with strict TypeScript contracts for managed-state distribution metadata and focused tests for completed, pending, and failed bootstrap visibility, so later Android rollout/update UX can consume `SecPalEnterprise` without ad-hoc global typing
 - enterprise bridge distribution-state visibility in the Android wrapper: `SecPalEnterprisePlugin.getManagedState()` now exposes the persisted bootstrap status, update channel, release metadata URL, and last bootstrap error code so later Android update UX can reason about managed-device rollout state without touching bootstrap tokens
 - Android bootstrap exchange runtime for Epic SecPal/.github#327: the wrapper now persists provisioning QR bootstrap extras during Device Owner hand-off, retries the public `/v1/android/bootstrap/exchange` flow on managed app startup when connectivity is available, and stores the exchanged tenant/channel/release metadata plus managed policy profile for the single-package `app.secpal` architecture
