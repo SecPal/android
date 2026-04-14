@@ -113,8 +113,7 @@ public class ProvisioningBootstrapStoreTest {
     }
 
     @Test
-    public void commitResultToggleRestoresRetryFailurePersistenceAfterExchangeCommitFailure()
-        throws Exception {
+    public void commitResultToggleRestoresPersistenceAfterFailure() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
         ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);
@@ -132,14 +131,12 @@ public class ProvisioningBootstrapStoreTest {
                 Collections.emptyMap()
             )
         );
-
         assertFalse(persisted);
 
         preferences.setCommitResult(true);
         store.markExchangeFailure("HTTP_500", false);
 
         ProvisioningBootstrapState state = store.getState();
-
         assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
         assertEquals("HTTP_500", state.getLastErrorCode());
         assertNull(state.getUpdateChannel());

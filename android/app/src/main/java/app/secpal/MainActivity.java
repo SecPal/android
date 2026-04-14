@@ -11,6 +11,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -48,6 +49,12 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
+        return super.dispatchKeyEvent(event);
     }
 
     @Override

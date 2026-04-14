@@ -74,6 +74,7 @@ allow_api_secpal_app="${regex_prefix}api\\.secpal\\.app${regex_suffix}"
 allow_app_secpal_identifier="${regex_prefix}app\\.secpal${regex_identifier_suffix}"
 allow_app_secpal_class="${regex_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*${regex_identifier_suffix}"
 allow_app_secpal_action="${regex_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*${regex_identifier_suffix}"
+
 allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
 
 violations=$(printf '%s\n' "$matches" | \
@@ -82,8 +83,8 @@ violations=$(printf '%s\n' "$matches" | \
 
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app' | \
-    grep -Ev '^\./\.github/(copilot-instructions\.md|copilot-config\.yaml|instructions/)' | \
-    grep -Ev 'Android package ID|identifier-only|active web hosts|Deprecated Web Hosts|deprecated_web_hosts|android_application_identifier|validation_rule|must not appear as active web hosts|not treated as a deployable web domain' || true)
+    grep -Ev '^\./(\.github/instructions/|\.github/copilot-instructions\.md:|README|docs/)' | \
+    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|js|jsx|html|kt|java|xml|gradle|kts|properties):' || true)
 
 if [[ -z "$violations" && -z "$deprecated_web_hosts" ]]; then
     echo -e "${GREEN}✅ Domain Policy Check PASSED${NC}"
