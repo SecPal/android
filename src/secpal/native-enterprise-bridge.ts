@@ -120,9 +120,8 @@ interface SecPalEnterprisePlugin {
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
 }
 
-const secPalEnterprisePlugin = registerPlugin<SecPalEnterprisePlugin>(
-  "SecPalEnterprise"
-);
+const secPalEnterprisePlugin =
+  registerPlugin<SecPalEnterprisePlugin>("SecPalEnterprise");
 
 export function createNativeEnterpriseBridge(): NativeEnterpriseBridge {
   return {

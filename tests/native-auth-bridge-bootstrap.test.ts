@@ -19,7 +19,7 @@ class MockElement {
   >();
   ownerDocument: MockDocument | null = null;
 
-  constructor(readonly tagName: string) { }
+  constructor(readonly tagName: string) {}
 
   setAttribute(name: string, value: string) {
     this.attributes[name] = value;
