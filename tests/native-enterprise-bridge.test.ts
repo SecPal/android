@@ -87,9 +87,8 @@ describe("native enterprise bridge", () => {
     expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
   });
 
-  it("forwards hardware button listener registration to the native enterprise plugin", async () => {
+  it("forwards hardware button listener registrations to the native enterprise plugin", async () => {
     const handle = { remove: vi.fn() };
-    const listener = vi.fn();
 
     pluginMocks.addListener.mockReturnValue(handle);
 
@@ -97,44 +96,23 @@ describe("native enterprise bridge", () => {
       await import("../src/secpal/native-enterprise-bridge");
     const bridge = installNativeEnterpriseBridge();
 
-    expect(bridge.addHardwareButtonListener(listener)).toBe(handle);
-    expect(pluginMocks.addListener).toHaveBeenCalledWith(
-      "hardwareButtonPressed",
-      listener
-    );
-  });
+    const registrations = [
+      ["hardwareButtonPressed", vi.fn(), bridge.addHardwareButtonListener],
+      [
+        "hardwareButtonShortPressed",
+        vi.fn(),
+        bridge.addHardwareButtonShortPressListener,
+      ],
+      [
+        "hardwareButtonLongPressed",
+        vi.fn(),
+        bridge.addHardwareButtonLongPressListener,
+      ],
+    ] as const;
 
-  it("forwards hardware button short-press listener registration to the native enterprise plugin", async () => {
-    const handle = { remove: vi.fn() };
-    const listener = vi.fn();
-
-    pluginMocks.addListener.mockReturnValue(handle);
-
-    const { installNativeEnterpriseBridge } =
-      await import("../src/secpal/native-enterprise-bridge");
-    const bridge = installNativeEnterpriseBridge();
-
-    expect(bridge.addHardwareButtonShortPressListener(listener)).toBe(handle);
-    expect(pluginMocks.addListener).toHaveBeenCalledWith(
-      "hardwareButtonShortPressed",
-      listener
-    );
-  });
-
-  it("forwards hardware button long-press listener registration to the native enterprise plugin", async () => {
-    const handle = { remove: vi.fn() };
-    const listener = vi.fn();
-
-    pluginMocks.addListener.mockReturnValue(handle);
-
-    const { installNativeEnterpriseBridge } =
-      await import("../src/secpal/native-enterprise-bridge");
-    const bridge = installNativeEnterpriseBridge();
-
-    expect(bridge.addHardwareButtonLongPressListener(listener)).toBe(handle);
-    expect(pluginMocks.addListener).toHaveBeenCalledWith(
-      "hardwareButtonLongPressed",
-      listener
-    );
+    for (const [eventName, listener, register] of registrations) {
+      expect(register(listener)).toBe(handle);
+      expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
+    }
   });
 });

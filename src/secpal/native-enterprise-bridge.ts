@@ -50,7 +50,7 @@ export interface LaunchAllowedAppOptions {
 
 export interface HardwareButtonPressedEvent {
   action: "down";
-  origin: "activity_dispatch" | "samsung_knox_broadcast";
+  origin: "activity_dispatch";
   keyCode: number;
   keyName: string;
   scanCode: number;
@@ -61,7 +61,7 @@ export interface HardwareButtonPressedEvent {
 
 export interface HardwareButtonShortPressedEvent {
   action: "short_press";
-  origin: "activity_dispatch" | "samsung_knox_broadcast";
+  origin: "activity_dispatch";
   keyCode: number;
   keyName: string;
   scanCode: number;
@@ -73,7 +73,7 @@ export interface HardwareButtonShortPressedEvent {
 
 export interface HardwareButtonLongPressedEvent {
   action: "long_press";
-  origin: "activity_dispatch" | "samsung_knox_broadcast";
+  origin: "activity_dispatch";
   keyCode: number;
   keyName: string;
   scanCode: number;
@@ -120,8 +120,9 @@ interface SecPalEnterprisePlugin {
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
 }
 
-const secPalEnterprisePlugin =
-  registerPlugin<SecPalEnterprisePlugin>("SecPalEnterprise");
+const secPalEnterprisePlugin = registerPlugin<SecPalEnterprisePlugin>(
+  "SecPalEnterprise"
+);
 
 export function createNativeEnterpriseBridge(): NativeEnterpriseBridge {
   return {

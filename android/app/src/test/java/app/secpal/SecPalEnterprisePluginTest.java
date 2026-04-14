@@ -83,51 +83,24 @@ public class SecPalEnterprisePluginTest {
     }
 
     @Test
-    public void shouldEmitHardwareButtonEventAcceptsSingleActionDownForNonSystemKeys() {
+    public void shouldEmitHardwareButtonEventAcceptsOnlySingleActionDownForNonSystemKeys() {
         assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 286, 0, false));
-    }
-
-    @Test
-    public void shouldEmitHardwareButtonEventRejectsRepeatedAndSystemKeys() {
         assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 286, 1, false));
         assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonEvent(0, 24, 0, false));
     }
 
     @Test
-    public void buildHardwareButtonEventMapIncludesKeyMetadata() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildHardwareButtonEventMap(0, 286, 703, 0, 7, 257);
-
-        assertEquals("down", payload.get("action"));
-        assertEquals("activity_dispatch", payload.get("origin"));
-        assertEquals(286, payload.get("keyCode"));
-        assertEquals("KEYCODE_STEM_PRIMARY", payload.get("keyName"));
-        assertEquals(703, payload.get("scanCode"));
-        assertEquals(0, payload.get("repeatCount"));
-        assertEquals(7, payload.get("deviceId"));
-        assertEquals(257, payload.get("source"));
-    }
-
-    @Test
-    public void shouldEmitHardwareButtonLongPressRequiresAtLeastFiveSeconds() {
-        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 5000L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 4999L));
-    }
-
-    @Test
-    public void shouldEmitHardwareButtonShortPressOnlyBelowFiveSeconds() {
-        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 4999L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 5000L));
-    }
-
-    @Test
-    public void shouldEmitHardwareButtonLongPressRejectsCanceledAndSystemKeys() {
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, true, 5000L));
-        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 24, 0, false, 5000L));
-    }
-
-    @Test
-    public void buildHardwareButtonLongPressEventMapIncludesHoldDuration() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildHardwareButtonLongPressEventMap(
+    public void hardwareButtonEventMapsIncludeKeyMetadataAndDurations() {
+        Map<String, Object> pressedPayload = SecPalEnterprisePlugin.buildHardwareButtonEventMap(0, 286, 703, 0, 7, 257);
+        Map<String, Object> shortPayload = SecPalEnterprisePlugin.buildHardwareButtonShortPressEventMap(
+            286,
+            703,
+            0,
+            2,
+            257,
+            1200L
+        );
+        Map<String, Object> longPayload = SecPalEnterprisePlugin.buildHardwareButtonLongPressEventMap(
             286,
             703,
             0,
@@ -136,69 +109,35 @@ public class SecPalEnterprisePluginTest {
             5000L
         );
 
-        assertEquals("long_press", payload.get("action"));
-        assertEquals("activity_dispatch", payload.get("origin"));
-        assertEquals(286, payload.get("keyCode"));
-        assertEquals("KEYCODE_STEM_PRIMARY", payload.get("keyName"));
-        assertEquals(703, payload.get("scanCode"));
-        assertEquals(0, payload.get("repeatCount"));
-        assertEquals(2, payload.get("deviceId"));
-        assertEquals(257, payload.get("source"));
-        assertEquals(5000L, payload.get("holdDurationMs"));
+        assertEquals("down", pressedPayload.get("action"));
+        assertEquals("activity_dispatch", pressedPayload.get("origin"));
+        assertEquals(286, pressedPayload.get("keyCode"));
+        assertEquals("KEYCODE_STEM_PRIMARY", pressedPayload.get("keyName"));
+        assertEquals(703, pressedPayload.get("scanCode"));
+        assertEquals(0, pressedPayload.get("repeatCount"));
+        assertEquals(7, pressedPayload.get("deviceId"));
+        assertEquals(257, pressedPayload.get("source"));
+
+        assertEquals("short_press", shortPayload.get("action"));
+        assertEquals("activity_dispatch", shortPayload.get("origin"));
+        assertEquals(1200L, shortPayload.get("holdDurationMs"));
+
+        assertEquals("long_press", longPayload.get("action"));
+        assertEquals("activity_dispatch", longPayload.get("origin"));
+        assertEquals(5000L, longPayload.get("holdDurationMs"));
     }
 
     @Test
-    public void buildHardwareButtonShortPressEventMapIncludesHoldDuration() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildHardwareButtonShortPressEventMap(
-            286,
-            703,
-            0,
-            2,
-            257,
-            1200L
-        );
-
-        assertEquals("short_press", payload.get("action"));
-        assertEquals("activity_dispatch", payload.get("origin"));
-        assertEquals(286, payload.get("keyCode"));
-        assertEquals("KEYCODE_STEM_PRIMARY", payload.get("keyName"));
-        assertEquals(703, payload.get("scanCode"));
-        assertEquals(0, payload.get("repeatCount"));
-        assertEquals(2, payload.get("deviceId"));
-        assertEquals(257, payload.get("source"));
-        assertEquals(1200L, payload.get("holdDurationMs"));
+    public void hardwareButtonPressThresholdsRespectTheFiveSecondBoundary() {
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, false, 4999L));
+        assertTrue(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 4999L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonShortPress(1, 286, 0, false, 5000L));
     }
 
     @Test
-    public void buildSamsungKnoxHardwareButtonEventMapMarksSamsungOrigin() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildSamsungKnoxHardwareButtonEventMap(1015);
-
-        assertEquals("down", payload.get("action"));
-        assertEquals("samsung_knox_broadcast", payload.get("origin"));
-        assertEquals(1015, payload.get("keyCode"));
-        assertEquals(-1, payload.get("scanCode"));
-        assertEquals(0, payload.get("repeatCount"));
-        assertEquals(-1, payload.get("deviceId"));
-        assertEquals(0, payload.get("source"));
-    }
-
-    @Test
-    public void buildSamsungKnoxHardwareButtonShortPressEventMapMarksSamsungOrigin() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildSamsungKnoxHardwareButtonShortPressEventMap(1015);
-
-        assertEquals("short_press", payload.get("action"));
-        assertEquals("samsung_knox_broadcast", payload.get("origin"));
-        assertEquals(1015, payload.get("keyCode"));
-        assertEquals(0L, payload.get("holdDurationMs"));
-    }
-
-    @Test
-    public void buildSamsungKnoxHardwareButtonLongPressEventMapMarksSamsungOrigin() {
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildSamsungKnoxHardwareButtonLongPressEventMap(1015);
-
-        assertEquals("long_press", payload.get("action"));
-        assertEquals("samsung_knox_broadcast", payload.get("origin"));
-        assertEquals(1015, payload.get("keyCode"));
-        assertEquals(5000L, payload.get("holdDurationMs"));
+    public void shouldEmitHardwareButtonLongPressRejectsCanceledAndSystemKeys() {
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 286, 0, true, 5000L));
+        assertFalse(SecPalEnterprisePlugin.shouldEmitHardwareButtonLongPress(1, 24, 0, false, 5000L));
     }
 }
