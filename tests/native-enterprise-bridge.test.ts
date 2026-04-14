@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pluginMocks = vi.hoisted(() => ({
   getManagedState: vi.fn(),
@@ -18,6 +18,10 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 describe("native enterprise bridge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("installs a typed enterprise bridge with managed distribution metadata", async () => {
     pluginMocks.getManagedState.mockResolvedValue({
       managed: true,

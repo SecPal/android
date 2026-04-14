@@ -41,9 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- added provisioning-bootstrap store coverage for commit-result toggling so persistence paths are validated when `InMemorySharedPreferences` switches from failed `commit()` back to success
-- expanded native enterprise bridge tests to cover `launchPhone`/`launchSms`, rejected plugin calls, and alternate managed-state payloads for stronger bridge delegation/error coverage
-- hardened and simplified domain policy scanning by bounding `secpal.*` match length, extracting allowlist regex components into named variables, and replacing brittle deprecated-host exclusion chains with path/type-based filters
+- Added provisioning-bootstrap store coverage for commit-result toggling so persistence paths are validated when `InMemorySharedPreferences` switches from failed `commit()` back to success
+- Expanded native enterprise bridge tests to cover `launchPhone`/`launchSms`, rejected plugin calls, and alternate managed-state payloads for stronger bridge delegation/error coverage
+- Hardened and simplified domain policy scanning by bounding `secpal.*` match length, extracting allowlist regex components into named variables, and replacing brittle deprecated-host exclusion chains with path/type-based filters
 - Android bootstrap exchange persistence now preserves the pending provisioning state and bootstrap token when `SharedPreferences.Editor.commit()` fails while storing the exchange result, so managed-device startup retries the exchange instead of silently dropping tenant and enrollment metadata; an explicit in-memory rollback via `apply()` now also resets the in-process `SharedPreferences` map to `STATUS_PENDING` when the disk write fails, because Android may have already applied the completed-exchange values to the in-memory map before reporting the write failure
 - Android domain-policy validation now accepts `apk.secpal.app` as the canonical Android artifact and metadata host, so bridge and rollout tests can reference the approved distribution URLs without tripping repo-local governance checks
 - dedicated-device persistent preferred settings routing now registers each redirected Settings action both with and without `android.intent.category.DEFAULT`, so category-less generic Settings intents are still redirected back to SecPal HOME on OEM builds that resolve them without the default category
