@@ -3,12 +3,10 @@
 SPDX-FileCopyrightText: 2026 SecPal
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:testOnly="true"
-        tools:replace="android:testOnly">
+        android:testOnly="true">
 
         <receiver
             android:name=".DebugEnterprisePolicyReceiver"
