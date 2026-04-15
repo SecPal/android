@@ -10,8 +10,8 @@ import android.content.Context;
 import android.content.Intent;
 
 final class SamsungHardwareButtonLaunch {
-    static final String EXTRA_HARDWARE_TRIGGER_ACTION = "app.secpal.extra.HARDWARE_TRIGGER_ACTION";
-    static final String EXTRA_HARDWARE_TRIGGER_HANDLED = "app.secpal.extra.HARDWARE_TRIGGER_HANDLED";
+    static final String EXTRA_HARDWARE_TRIGGER_ACTION = "hardware_trigger_action";
+    static final String EXTRA_HARDWARE_TRIGGER_HANDLED = "hardware_trigger_handled";
     static final String HARDWARE_TRIGGER_ACTION_SHORT_PRESS = "short_press";
     static final String HARDWARE_TRIGGER_ACTION_LONG_PRESS = "long_press";
     private static final String SHORT_PRESS_ALIAS_CLASS_NAME = ".SamsungEmergencyShortPressAlias";
