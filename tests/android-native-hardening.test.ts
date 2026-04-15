@@ -184,12 +184,8 @@ describe("Android native hardening", () => {
   it("wires Samsung partner app-key manifest placeholders through the Android build", () => {
     const buildGradle = readRepoFile("android", "app", "build.gradle");
 
-    expect(buildGradle).toContain(
-      "SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA"
-    );
-    expect(buildGradle).toContain(
-      "SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA"
-    );
+    expect(buildGradle).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
+    expect(buildGradle).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
     expect(buildGradle).toContain("manifestPlaceholders");
     expect(buildGradle).toContain("secpalSamsungAppKeyPttData");
     expect(buildGradle).toContain("secpalSamsungAppKeySosData");
