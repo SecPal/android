@@ -187,7 +187,7 @@ public class ProvisioningBootstrapStoreTest {
         assertEquals("managed_device", state.getUpdateChannel());
         assertEquals("https://secpal.dev/android/channels/managed_device/latest.json", state.getReleaseMetadataUrl());
         assertNull(state.getLastErrorCode());
-        assertEquals("bootstrap-token-123", tokenStorage.token);
+        assertNull(tokenStorage.token);
     }
 
     @Test

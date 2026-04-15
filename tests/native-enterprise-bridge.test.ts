@@ -130,26 +130,61 @@ describe("native enterprise bridge", () => {
     const bridge = installNativeEnterpriseBridge();
 
     const registrations = [
-      ["hardwareButtonPressed", vi.fn(), bridge.addHardwareButtonListener],
+      [
+        "hardwareButtonPressed",
+        vi.fn(),
+        bridge.addHardwareButtonListener,
+        {
+          action: "down",
+          origin: "activity_dispatch",
+          keyCode: 1,
+          keyName: "k",
+          scanCode: 0,
+          repeatCount: 0,
+          deviceId: 1,
+          source: 1,
+        },
+      ],
       [
         "hardwareButtonShortPressed",
         vi.fn(),
         bridge.addHardwareButtonShortPressListener,
+        {
+          action: "short_press",
+          origin: "activity_dispatch",
+          keyCode: 1,
+          keyName: "k",
+          scanCode: 0,
+          repeatCount: 0,
+          holdDurationMs: 100,
+          deviceId: 1,
+          source: 1,
+        },
       ],
       [
         "hardwareButtonLongPressed",
         vi.fn(),
         bridge.addHardwareButtonLongPressListener,
+        {
+          action: "long_press",
+          origin: "activity_dispatch",
+          keyCode: 1,
+          keyName: "k",
+          scanCode: 0,
+          repeatCount: 0,
+          holdDurationMs: 6000,
+          deviceId: 1,
+          source: 1,
+        },
       ],
     ] as const;
 
-    for (const [eventName, listener, register] of registrations) {
+    for (const [eventName, listener, register, event] of registrations) {
       const registration = register(listener);
       expect(registration).toBe(handle);
       expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
 
       const nativeCallback = pluginMocks.addListener.mock.lastCall?.[1];
-      const event = { source: "native", eventName };
       expect(nativeCallback).toBeTypeOf("function");
       (nativeCallback as (value: typeof event) => void)(event);
       expect(listener).toHaveBeenCalledWith(event);
