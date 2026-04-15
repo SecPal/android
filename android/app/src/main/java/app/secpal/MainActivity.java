@@ -160,7 +160,10 @@ public class MainActivity extends BridgeActivity {
         }
 
         requestHardwareTriggerWakeState();
-        SecPalEnterprisePlugin.emitSamsungHardwareButtonLaunch(hardwareAction);
+        SecPalEnterprisePlugin.emitSamsungHardwareButtonLaunch(
+            hardwareAction,
+            SamsungHardwareButtonLaunch.resolveLaunchKeyCode(intent)
+        );
         SamsungHardwareButtonLaunch.markHandled(intent);
     }
 
