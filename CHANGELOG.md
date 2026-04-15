@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored focused Android Java unit-test compilation after the bootstrap state API rename by aligning `ProvisioningBootstrapStoreTest` with `ProvisioningBootstrapState.getApiBaseUrl()`, so `testDebugUnitTest --tests ...` no longer fails before the requested class is compiled.
 - The debug Android manifest overlay now sets `android:testOnly="true"` directly without an unnecessary replace directive, removing the Gradle manifest-merge warning during focused unit-test runs.
 
 ### Added
