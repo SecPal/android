@@ -70,6 +70,13 @@ At minimum verify:
 - the local 4-pass review was completed, including DRY, KISS, YAGNI, SOLID, quality-first, and issue-management checks
 - no bypass was used
 
+## AI Findings Triage
+
+- Treat AI findings and AI-generated fix PRs as hints, not proof.
+- Before merge, prove the defect with a failing test, a reproducible defect, or a stated invariant and why the current code violates it.
+- Green CI alone is not enough for AI-generated changes, especially test, lifecycle, shell, regex, or refactor diffs; review the semantic risk explicitly.
+- Reject AI-generated bridge or auth cleanups that do not prove listener-handle behavior, teardown ordering, or managed-state semantics with focused tests.
+
 ## Repository Conventions
 
 - Stack: Node 22, React, TypeScript strict mode, Vite, Vitest, React Testing Library, and Capacitor 7.

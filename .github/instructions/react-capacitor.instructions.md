@@ -13,3 +13,7 @@ applyTo: "src/**/*.ts,src/**/*.tsx,tests/**/*.ts,tests/**/*.tsx,vite.config.ts,v
 - Prefer functional components and named exports.
 - Test user-visible behavior with Testing Library and verify bridge-facing behavior with focused unit tests/mocks.
 - Keep web code platform-agnostic where possible to preserve future iOS support.
+- For bridge or listener fixes, assert both registration arguments and returned handle behavior, including cleanup via
+  `remove()`.
+- For async auth or bridge teardown, prove ordering with tests and prefer `finally` when cleanup must run after the
+  awaited call settles.
