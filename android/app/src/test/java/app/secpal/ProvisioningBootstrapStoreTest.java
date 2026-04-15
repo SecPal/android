@@ -113,7 +113,7 @@ public class ProvisioningBootstrapStoreTest {
     }
 
     @Test
-    public void commitResultToggleRestoresPersistenceAfterFailure() throws Exception {
+    public void applyExchangeResultSucceedsAfterCommitResultToggledFromFalseToTrue() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
         ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);
@@ -142,6 +142,52 @@ public class ProvisioningBootstrapStoreTest {
         assertNull(state.getUpdateChannel());
         assertNull(state.getReleaseMetadataUrl());
         assertEquals("bootstrap-token-123", tokenStorage.token);
+    }
+
+    @Test
+    public void applyExchangeResultSucceedsAfterCommitResultTogglesBackToTrue() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);
+        store.persistProvisioningData("bootstrap-token-123", "session-123");
+
+        preferences.setCommitResult(false);
+        boolean firstPersisted = store.applyExchangeResult(
+            new ProvisioningBootstrapExchangeResult(
+                "session-123",
+                7,
+                "Tenant 7",
+                "https://api.secpal.dev/v1",
+                "managed_device",
+                "https://secpal.dev/android/channels/managed_device/latest.json",
+                Collections.emptyMap()
+            )
+        );
+        assertFalse(firstPersisted);
+
+        preferences.setCommitResult(true);
+        boolean secondPersisted = store.applyExchangeResult(
+            new ProvisioningBootstrapExchangeResult(
+                "session-123",
+                7,
+                "Tenant 7",
+                "https://api.secpal.dev/v1",
+                "managed_device",
+                "https://secpal.dev/android/channels/managed_device/latest.json",
+                Collections.emptyMap()
+            )
+        );
+        assertTrue(secondPersisted);
+
+        ProvisioningBootstrapState state = store.getState();
+        assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());
+        assertEquals(7, state.getTenantId());
+        assertEquals("Tenant 7", state.getTenantName());
+        assertEquals("https://api.secpal.dev/v1", state.getServerBaseUrl());
+        assertEquals("managed_device", state.getUpdateChannel());
+        assertEquals("https://secpal.dev/android/channels/managed_device/latest.json", state.getReleaseMetadataUrl());
+        assertNull(state.getLastErrorCode());
+        assertNull(tokenStorage.token);
     }
 
     @Test
