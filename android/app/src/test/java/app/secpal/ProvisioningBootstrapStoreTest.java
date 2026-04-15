@@ -183,7 +183,7 @@ public class ProvisioningBootstrapStoreTest {
         assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());
         assertEquals(7, state.getTenantId());
         assertEquals("Tenant 7", state.getTenantName());
-        assertEquals("https://api.secpal.dev/v1", state.getServerBaseUrl());
+        assertEquals("https://api.secpal.dev/v1", state.getApiBaseUrl());
         assertEquals("managed_device", state.getUpdateChannel());
         assertEquals("https://secpal.dev/android/channels/managed_device/latest.json", state.getReleaseMetadataUrl());
         assertNull(state.getLastErrorCode());
