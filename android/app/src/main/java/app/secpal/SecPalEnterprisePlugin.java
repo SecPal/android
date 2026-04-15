@@ -30,6 +30,7 @@ public class SecPalEnterprisePlugin extends Plugin {
     private static final String HARDWARE_BUTTON_LONG_PRESSED_EVENT = "hardwareButtonLongPressed";
     private static volatile SecPalEnterprisePlugin activeInstance;
     private static final Map<String, Long> activeButtonPressStartedAt = new ConcurrentHashMap<>();
+    private static final int MAX_PENDING_HARDWARE_EVENTS = 5;
     private static final ConcurrentLinkedQueue<PendingHardwareEvent> pendingHardwareEvents =
         new ConcurrentLinkedQueue<>();
 
@@ -54,6 +55,7 @@ public class SecPalEnterprisePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         activeButtonPressStartedAt.clear();
+        pendingHardwareEvents.clear();
 
         if (activeInstance == this) {
             activeInstance = null;
@@ -442,6 +444,9 @@ public class SecPalEnterprisePlugin extends Plugin {
             return;
         }
 
+        while (pendingHardwareEvents.size() >= MAX_PENDING_HARDWARE_EVENTS) {
+            pendingHardwareEvents.poll();
+        }
         pendingHardwareEvents.add(new PendingHardwareEvent(eventName, payload));
     }
 

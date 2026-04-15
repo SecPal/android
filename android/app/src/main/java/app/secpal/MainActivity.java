@@ -65,6 +65,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onPause() {
+        clearHardwareTriggerWakeState();
+        super.onPause();
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
         return super.dispatchKeyEvent(event);
@@ -153,10 +159,7 @@ public class MainActivity extends BridgeActivity {
             return;
         }
 
-        if (SamsungHardwareButtonLaunch.shouldWakeDevice(intent, getPackageName())) {
-            requestHardwareTriggerWakeState();
-        }
-
+        requestHardwareTriggerWakeState();
         SecPalEnterprisePlugin.emitSamsungHardwareButtonLaunch(hardwareAction);
         SamsungHardwareButtonLaunch.markHandled(intent);
     }
@@ -176,6 +179,20 @@ public class MainActivity extends BridgeActivity {
         }
 
         getWindow().addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
+    }
+
+    private void clearHardwareTriggerWakeState() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false);
+            setTurnScreenOn(false);
+            return;
+        }
+
+        getWindow().clearFlags(
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
