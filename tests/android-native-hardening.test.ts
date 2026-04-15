@@ -156,6 +156,23 @@ describe("Android native hardening", () => {
     expect(deviceAdminXml).toContain("<force-lock />");
   });
 
+  it("declares Samsung Knox hardware-button receiver and launch aliases", () => {
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+
+    expect(manifest).toContain("SamsungHardKeyReceiver");
+    expect(manifest).toContain(
+      "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
+    );
+    expect(manifest).toContain("SamsungEmergencyShortPressAlias");
+    expect(manifest).toContain("SamsungEmergencyLongPressAlias");
+  });
+
   it("marks debug builds as test-only so adb can remove test device owners", () => {
     const debugManifest = readRepoFile(
       "android",
