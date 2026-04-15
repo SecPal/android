@@ -145,7 +145,7 @@ public class ProvisioningBootstrapStoreTest {
     }
 
     @Test
-    public void applyExchangeResultSucceedsOnRetryAfterCommitResultToggledToTrue() throws Exception {
+    public void applyExchangeResultSucceedsAfterCommitResultTogglesBackToTrue() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
         ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);

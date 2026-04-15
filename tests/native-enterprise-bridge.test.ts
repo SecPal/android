@@ -151,11 +151,7 @@ describe("native enterprise bridge", () => {
       const nativeCallback = pluginMocks.addListener.mock.lastCall?.[1];
       const event = { source: "native", eventName };
       expect(nativeCallback).toBeTypeOf("function");
-      expect(nativeCallback).toBeDefined();
-      if (!nativeCallback) {
-        throw new Error("Expected native callback to be registered");
-      }
-      nativeCallback(event);
+      (nativeCallback as (value: typeof event) => void)(event);
       expect(listener).toHaveBeenCalledWith(event);
 
       registration.remove();
