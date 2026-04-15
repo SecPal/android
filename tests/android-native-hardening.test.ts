@@ -169,6 +169,9 @@ describe("Android native hardening", () => {
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
     );
+    expect(manifest).toContain(
+      "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
+    );
     expect(manifest).toContain("SamsungEmergencyShortPressAlias");
     expect(manifest).toContain("SamsungEmergencyLongPressAlias");
   });

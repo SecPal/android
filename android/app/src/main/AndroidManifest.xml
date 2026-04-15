@@ -138,6 +138,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
             <intent-filter>
                 <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS" />
+                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_REPORT" />
             </intent-filter>
         </receiver>
     </application>

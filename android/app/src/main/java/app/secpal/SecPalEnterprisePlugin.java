@@ -205,11 +205,15 @@ public class SecPalEnterprisePlugin extends Plugin {
     }
 
     static void emitSamsungHardwareButtonLaunch(String hardwareAction) {
+        emitSamsungHardwareButtonLaunch(hardwareAction, KeyEvent.KEYCODE_UNKNOWN);
+    }
+
+    static void emitSamsungHardwareButtonLaunch(String hardwareAction, int keyCode) {
         if (SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS.equals(hardwareAction)) {
             dispatchOrQueueHardwareEvent(
                 HARDWARE_BUTTON_SHORT_PRESSED_EVENT,
                 buildHardwareButtonShortPressEventMap(
-                    KeyEvent.KEYCODE_UNKNOWN,
+                    keyCode,
                     0,
                     0,
                     0,
@@ -228,7 +232,7 @@ public class SecPalEnterprisePlugin extends Plugin {
         dispatchOrQueueHardwareEvent(
             HARDWARE_BUTTON_LONG_PRESSED_EVENT,
             buildHardwareButtonLongPressEventMap(
-                KeyEvent.KEYCODE_UNKNOWN,
+                keyCode,
                 0,
                 0,
                 0,
