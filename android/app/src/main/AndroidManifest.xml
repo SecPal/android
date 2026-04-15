@@ -59,6 +59,20 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
         </activity>
 
+        <activity-alias
+            android:name=".SamsungEmergencyShortPressAlias"
+            android:enabled="true"
+            android:exported="false"
+            android:label="@string/title_activity_main"
+            android:targetActivity=".MainActivity" />
+
+        <activity-alias
+            android:name=".SamsungEmergencyLongPressAlias"
+            android:enabled="true"
+            android:exported="false"
+            android:label="@string/title_activity_main"
+            android:targetActivity=".MainActivity" />
+
         <activity
             android:name=".DedicatedDeviceHomeActivity"
             android:enabled="false"
@@ -115,6 +129,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
                 <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".SamsungHardKeyReceiver"
+            android:exported="false">
+
+            <intent-filter>
+                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS" />
             </intent-filter>
         </receiver>
     </application>

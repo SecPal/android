@@ -5,6 +5,8 @@
 
 package app.secpal;
 
+import android.app.KeyguardManager;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -12,6 +14,7 @@ import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.WindowManager;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +43,16 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
         super.onCreate(savedInstanceState);
+        handleSamsungHardwareButtonLaunch(getIntent());
+        scheduleProvisioningBootstrapSync();
+        refreshManagedPolicyState();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleSamsungHardwareButtonLaunch(intent);
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
     }
@@ -49,6 +62,12 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
+    }
+
+    @Override
+    public void onPause() {
+        clearHardwareTriggerWakeState();
+        super.onPause();
     }
 
     @Override
@@ -131,6 +150,53 @@ public class MainActivity extends BridgeActivity {
 
         EnterprisePolicyController.maybeEnterLockTask(this);
         SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+    }
+
+    private void handleSamsungHardwareButtonLaunch(Intent intent) {
+        String hardwareAction = SamsungHardwareButtonLaunch.resolveLaunchAction(intent, getPackageName());
+
+        if (hardwareAction == null) {
+            return;
+        }
+
+        requestHardwareTriggerWakeState();
+        SecPalEnterprisePlugin.emitSamsungHardwareButtonLaunch(hardwareAction);
+        SamsungHardwareButtonLaunch.markHandled(intent);
+    }
+
+    private void requestHardwareTriggerWakeState() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+
+            KeyguardManager keyguardManager = getSystemService(KeyguardManager.class);
+
+            if (keyguardManager != null) {
+                keyguardManager.requestDismissKeyguard(this, null);
+            }
+
+            return;
+        }
+
+        getWindow().addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
+    }
+
+    private void clearHardwareTriggerWakeState() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false);
+            setTurnScreenOn(false);
+            return;
+        }
+
+        getWindow().clearFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
     }
 
     private void scheduleProvisioningBootstrapSync() {
