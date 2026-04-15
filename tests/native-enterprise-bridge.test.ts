@@ -97,6 +97,29 @@ describe("native enterprise bridge", () => {
     expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
   });
 
+  it("returns a failed gesture navigation settings result when settings cannot be opened", async () => {
+    pluginMocks.openGestureNavigationSettings.mockResolvedValue({
+      opened: false,
+      gestureNavigationEnabled: false,
+      willReenterLockTaskOnResume: false,
+    });
+
+    const { installNativeEnterpriseBridge } =
+      await import("../src/secpal/native-enterprise-bridge");
+    const target = {} as typeof globalThis & {
+      SecPalEnterpriseBridge?: unknown;
+    };
+    const bridge = installNativeEnterpriseBridge(target);
+
+    await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({
+      opened: false,
+      gestureNavigationEnabled: false,
+      willReenterLockTaskOnResume: false,
+    });
+
+    expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
+  });
+
   it("forwards hardware button listener registrations to the native enterprise plugin", async () => {
     const handle = { remove: vi.fn() };
 
@@ -124,6 +147,13 @@ describe("native enterprise bridge", () => {
       const registration = register(listener);
       expect(registration).toBe(handle);
       expect(pluginMocks.addListener).toHaveBeenCalledWith(eventName, listener);
+
+      const nativeCallback = pluginMocks.addListener.mock.lastCall?.[1];
+      const event = { source: "native", eventName };
+      expect(nativeCallback).toBeTypeOf("function");
+      nativeCallback?.(event);
+      expect(listener).toHaveBeenCalledWith(event);
+
       registration.remove();
       expect(handle.remove).toHaveBeenCalledTimes(1);
       handle.remove.mockClear();
