@@ -18,22 +18,37 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @CapacitorPlugin(name = "SecPalEnterprise")
 public class SecPalEnterprisePlugin extends Plugin {
     static final long HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS = 5000L;
     static final String HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH = "activity_dispatch";
+    static final String HARDWARE_BUTTON_ORIGIN_SAMSUNG_HARD_KEY = "samsung_hard_key";
     private static final String HARDWARE_BUTTON_PRESSED_EVENT = "hardwareButtonPressed";
     private static final String HARDWARE_BUTTON_SHORT_PRESSED_EVENT = "hardwareButtonShortPressed";
     private static final String HARDWARE_BUTTON_LONG_PRESSED_EVENT = "hardwareButtonLongPressed";
     private static volatile SecPalEnterprisePlugin activeInstance;
     private static final Map<String, Long> activeButtonPressStartedAt = new ConcurrentHashMap<>();
+    private static final ConcurrentLinkedQueue<PendingHardwareEvent> pendingHardwareEvents =
+        new ConcurrentLinkedQueue<>();
+
+    private static final class PendingHardwareEvent {
+        private final String eventName;
+        private final JSObject payload;
+
+        private PendingHardwareEvent(String eventName, JSObject payload) {
+            this.eventName = eventName;
+            this.payload = payload;
+        }
+    }
 
     @Override
     public void load() {
         super.load();
         activeButtonPressStartedAt.clear();
         activeInstance = this;
+        flushPendingHardwareEvents();
     }
 
     @Override
@@ -132,10 +147,9 @@ public class SecPalEnterprisePlugin extends Plugin {
             }
 
             activeButtonPressStartedAt.put(buttonKey, eventTime);
-            plugin.notifyListeners(
+            dispatchOrQueueHardwareEvent(
                 HARDWARE_BUTTON_PRESSED_EVENT,
-                toJsObject(buildHardwareButtonEventMap(action, keyCode, scanCode, repeatCount, deviceId, source)),
-                true
+                buildHardwareButtonEventMap(action, keyCode, scanCode, repeatCount, deviceId, source)
             );
             return;
         }
@@ -157,19 +171,16 @@ public class SecPalEnterprisePlugin extends Plugin {
         long holdDurationMs = Math.max(0L, eventTime - pressedAt.longValue());
 
         if (shouldEmitHardwareButtonShortPress(action, keyCode, repeatCount, canceled, holdDurationMs)) {
-            plugin.notifyListeners(
+            dispatchOrQueueHardwareEvent(
                 HARDWARE_BUTTON_SHORT_PRESSED_EVENT,
-                toJsObject(
-                    buildHardwareButtonShortPressEventMap(
-                        keyCode,
-                        scanCode,
-                        repeatCount,
-                        deviceId,
-                        source,
-                        holdDurationMs
-                    )
-                ),
-                true
+                buildHardwareButtonShortPressEventMap(
+                    keyCode,
+                    scanCode,
+                    repeatCount,
+                    deviceId,
+                    source,
+                    holdDurationMs
+                )
             );
             return;
         }
@@ -178,19 +189,51 @@ public class SecPalEnterprisePlugin extends Plugin {
             return;
         }
 
-        plugin.notifyListeners(
+        dispatchOrQueueHardwareEvent(
             HARDWARE_BUTTON_LONG_PRESSED_EVENT,
-            toJsObject(
-                buildHardwareButtonLongPressEventMap(
-                    keyCode,
-                    scanCode,
-                    repeatCount,
-                    deviceId,
-                    source,
-                    holdDurationMs
+            buildHardwareButtonLongPressEventMap(
+                keyCode,
+                scanCode,
+                repeatCount,
+                deviceId,
+                source,
+                holdDurationMs
+            )
+        );
+    }
+
+    static void emitSamsungHardwareButtonLaunch(String hardwareAction) {
+        if (SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS.equals(hardwareAction)) {
+            dispatchOrQueueHardwareEvent(
+                HARDWARE_BUTTON_SHORT_PRESSED_EVENT,
+                buildHardwareButtonShortPressEventMap(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0L,
+                    HARDWARE_BUTTON_ORIGIN_SAMSUNG_HARD_KEY
                 )
-            ),
-            true
+            );
+            return;
+        }
+
+        if (!SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS.equals(hardwareAction)) {
+            return;
+        }
+
+        dispatchOrQueueHardwareEvent(
+            HARDWARE_BUTTON_LONG_PRESSED_EVENT,
+            buildHardwareButtonLongPressEventMap(
+                KeyEvent.KEYCODE_UNKNOWN,
+                0,
+                0,
+                0,
+                0,
+                HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS,
+                HARDWARE_BUTTON_ORIGIN_SAMSUNG_HARD_KEY
+            )
         );
     }
 
@@ -258,10 +301,30 @@ public class SecPalEnterprisePlugin extends Plugin {
         int deviceId,
         int source
     ) {
+        return buildHardwareButtonEventMap(
+            action,
+            keyCode,
+            scanCode,
+            repeatCount,
+            deviceId,
+            source,
+            HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH
+        );
+    }
+
+    static Map<String, Object> buildHardwareButtonEventMap(
+        int action,
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        String origin
+    ) {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 
         payload.put("action", action == KeyEvent.ACTION_DOWN ? "down" : "unknown");
-        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("origin", origin);
         payload.put("keyCode", keyCode);
         payload.put("keyName", resolveKeyName(keyCode));
         payload.put("scanCode", scanCode);
@@ -280,10 +343,30 @@ public class SecPalEnterprisePlugin extends Plugin {
         int source,
         long holdDurationMs
     ) {
+        return buildHardwareButtonShortPressEventMap(
+            keyCode,
+            scanCode,
+            repeatCount,
+            deviceId,
+            source,
+            holdDurationMs,
+            HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH
+        );
+    }
+
+    static Map<String, Object> buildHardwareButtonShortPressEventMap(
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        long holdDurationMs,
+        String origin
+    ) {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 
         payload.put("action", "short_press");
-        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("origin", origin);
         payload.put("keyCode", keyCode);
         payload.put("keyName", resolveKeyName(keyCode));
         payload.put("scanCode", scanCode);
@@ -303,10 +386,30 @@ public class SecPalEnterprisePlugin extends Plugin {
         int source,
         long holdDurationMs
     ) {
+        return buildHardwareButtonLongPressEventMap(
+            keyCode,
+            scanCode,
+            repeatCount,
+            deviceId,
+            source,
+            holdDurationMs,
+            HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH
+        );
+    }
+
+    static Map<String, Object> buildHardwareButtonLongPressEventMap(
+        int keyCode,
+        int scanCode,
+        int repeatCount,
+        int deviceId,
+        int source,
+        long holdDurationMs,
+        String origin
+    ) {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 
         payload.put("action", "long_press");
-        payload.put("origin", HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH);
+        payload.put("origin", origin);
         payload.put("keyCode", keyCode);
         payload.put("keyName", resolveKeyName(keyCode));
         payload.put("scanCode", scanCode);
@@ -320,6 +423,26 @@ public class SecPalEnterprisePlugin extends Plugin {
 
     private static String buildHardwareButtonKey(int keyCode, int scanCode, int deviceId, int source) {
         return keyCode + ":" + scanCode + ":" + deviceId + ":" + source;
+    }
+
+    private void flushPendingHardwareEvents() {
+        PendingHardwareEvent pendingEvent;
+
+        while ((pendingEvent = pendingHardwareEvents.poll()) != null) {
+            notifyListeners(pendingEvent.eventName, pendingEvent.payload, true);
+        }
+    }
+
+    private static void dispatchOrQueueHardwareEvent(String eventName, Map<String, Object> values) {
+        JSObject payload = toJsObject(values);
+        SecPalEnterprisePlugin plugin = activeInstance;
+
+        if (plugin != null) {
+            plugin.notifyListeners(eventName, payload, true);
+            return;
+        }
+
+        pendingHardwareEvents.add(new PendingHardwareEvent(eventName, payload));
     }
 
     private static String resolveKeyName(int keyCode) {

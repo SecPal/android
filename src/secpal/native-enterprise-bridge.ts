@@ -50,7 +50,7 @@ export interface LaunchAllowedAppOptions {
 
 export interface HardwareButtonPressedEvent {
   action: "down";
-  origin: "activity_dispatch";
+  origin: "activity_dispatch" | "samsung_hard_key";
   keyCode: number;
   keyName: string;
   scanCode: number;
@@ -61,7 +61,7 @@ export interface HardwareButtonPressedEvent {
 
 export interface HardwareButtonShortPressedEvent {
   action: "short_press";
-  origin: "activity_dispatch";
+  origin: "activity_dispatch" | "samsung_hard_key";
   keyCode: number;
   keyName: string;
   scanCode: number;
@@ -73,7 +73,7 @@ export interface HardwareButtonShortPressedEvent {
 
 export interface HardwareButtonLongPressedEvent {
   action: "long_press";
-  origin: "activity_dispatch";
+  origin: "activity_dispatch" | "samsung_hard_key";
   keyCode: number;
   keyName: string;
   scanCode: number;
