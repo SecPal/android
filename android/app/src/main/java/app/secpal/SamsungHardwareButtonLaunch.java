@@ -12,6 +12,7 @@ import android.view.KeyEvent;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 final class SamsungHardwareButtonLaunch {
     static final String EXTRA_HARDWARE_TRIGGER_ACTION = "hardware_trigger_action";
@@ -22,6 +23,7 @@ final class SamsungHardwareButtonLaunch {
     private static final String SHORT_PRESS_ALIAS_CLASS_NAME = ".SamsungEmergencyShortPressAlias";
     private static final String LONG_PRESS_ALIAS_CLASS_NAME = ".SamsungEmergencyLongPressAlias";
     private static final Map<Integer, Long> activeHardKeyReportStartedAt = new ConcurrentHashMap<>();
+    static LongSupplier hardKeyReportTimeMs = () -> System.nanoTime() / 1_000_000L;
 
     private SamsungHardwareButtonLaunch() {
     }
@@ -200,7 +202,12 @@ final class SamsungHardwareButtonLaunch {
             || keyCode == SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS;
     }
 
+    static void resetHardKeyReportState() {
+        activeHardKeyReportStartedAt.clear();
+        hardKeyReportTimeMs = () -> System.nanoTime() / 1_000_000L;
+    }
+
     private static long currentHardKeyReportTimeMs() {
-        return System.nanoTime() / 1_000_000L;
+        return hardKeyReportTimeMs.getAsLong();
     }
 }

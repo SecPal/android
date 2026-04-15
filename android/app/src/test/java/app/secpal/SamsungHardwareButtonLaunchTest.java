@@ -16,9 +16,15 @@ import android.content.Intent;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.junit.Before;
 import org.junit.Test;
 
 public class SamsungHardwareButtonLaunchTest {
+
+    @Before
+    public void resetHardKeyState() {
+        SamsungHardwareButtonLaunch.resetHardKeyReportState();
+    }
 
     @Test
     public void resolvesSamsungHardKeyReportDownUpToShortPress() {
@@ -203,6 +209,43 @@ public class SamsungHardwareButtonLaunchTest {
 
         assertEquals(
             SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(upIntent, "app.secpal")
+        );
+    }
+
+    @Test
+    public void resolvesSamsungHardKeyReportDownThenLongUpToLongPress() {
+        long threshold = SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS;
+
+        FakeIntent downIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS
+        );
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_DOWN
+        );
+
+        SamsungHardwareButtonLaunch.hardKeyReportTimeMs = () -> 0L;
+        assertNull(SamsungHardwareButtonLaunch.resolveLaunchAction(downIntent, "app.secpal"));
+
+        SamsungHardwareButtonLaunch.hardKeyReportTimeMs = () -> threshold;
+
+        FakeIntent upIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS
+        );
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_UP
+        );
+
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS,
             SamsungHardwareButtonLaunch.resolveLaunchAction(upIntent, "app.secpal")
         );
     }
