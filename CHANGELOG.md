@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Samsung managed-device hard-key setup now wires optional partner `app_key_ptt_data` and `app_key_sos_data` manifest metadata through Android build placeholders, so Knox-distributed SecPal builds can inject Samsung app-key values without forking the committed manifest while local and non-Samsung builds keep working with empty defaults.
 - Samsung XCover hard-key routing now also declares and interprets Knox `HARD_KEY_REPORT` broadcasts, including Samsung key-code and report-type extras for XCover and SOS hardware buttons, so the Android wrapper can forward Samsung-origin launch events instead of relying only on the older `HARD_KEY_PRESS` path.
 - Restored focused Android Java unit-test compilation after the bootstrap state API rename by aligning `ProvisioningBootstrapStoreTest` with `ProvisioningBootstrapState.getApiBaseUrl()`, so `testDebugUnitTest --tests ...` no longer fails before the requested class is compiled.
 - The debug Android manifest overlay now sets `android:testOnly="true"` directly without an unnecessary replace directive, removing the Gradle manifest-merge warning during focused unit-test runs.

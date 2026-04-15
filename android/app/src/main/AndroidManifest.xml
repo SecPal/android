@@ -136,6 +136,18 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             android:name=".SamsungHardKeyReceiver"
             android:exported="false">
 
+            <meta-data
+                android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
+                android:value="true" />
+
+            <meta-data
+                android:name="app_key_ptt_data"
+                android:value="${secpalSamsungAppKeyPttData}" />
+
+            <meta-data
+                android:name="app_key_sos_data"
+                android:value="${secpalSamsungAppKeySosData}" />
+
             <intent-filter>
                 <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS" />
                 <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_REPORT" />

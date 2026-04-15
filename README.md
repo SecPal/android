@@ -114,6 +114,13 @@ Release signing is picked up from environment variables when present:
 - `SECPAL_ANDROID_KEY_ALIAS`
 - `SECPAL_ANDROID_KEY_PASSWORD`
 
+Samsung managed-device hard-key partner metadata can also be injected through environment variables when your Knox distribution path provides those values:
+
+- `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA`
+- `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA`
+
+If those variables are unset, SecPal keeps the manifest entries present with empty values so the Android wrapper stays buildable across non-Samsung and local development flows.
+
 The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts.
 
 See `docs/ANDROID_RELEASE_DISTRIBUTION.md` for the distribution split between direct APK delivery and Google Play.

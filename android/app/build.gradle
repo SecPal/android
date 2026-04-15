@@ -16,6 +16,8 @@ def releaseKeystorePath = System.getenv('SECPAL_ANDROID_KEYSTORE_PATH')
 def releaseKeystorePassword = System.getenv('SECPAL_ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('SECPAL_ANDROID_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
+def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim()
+def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
@@ -27,6 +29,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseVersionCode
         versionName releaseVersionName
+        manifestPlaceholders = [
+            secpalSamsungAppKeyPttData: samsungAppKeyPttData,
+            secpalSamsungAppKeySosData: samsungAppKeySosData,
+        ]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

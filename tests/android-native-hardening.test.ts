@@ -172,8 +172,27 @@ describe("Android native hardening", () => {
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
     );
+    expect(manifest).toContain(
+      'android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"'
+    );
+    expect(manifest).toContain('android:name="app_key_ptt_data"');
+    expect(manifest).toContain('android:name="app_key_sos_data"');
     expect(manifest).toContain("SamsungEmergencyShortPressAlias");
     expect(manifest).toContain("SamsungEmergencyLongPressAlias");
+  });
+
+  it("wires Samsung partner app-key manifest placeholders through the Android build", () => {
+    const buildGradle = readRepoFile("android", "app", "build.gradle");
+
+    expect(buildGradle).toContain(
+      "SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA"
+    );
+    expect(buildGradle).toContain(
+      "SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA"
+    );
+    expect(buildGradle).toContain("manifestPlaceholders");
+    expect(buildGradle).toContain("secpalSamsungAppKeyPttData");
+    expect(buildGradle).toContain("secpalSamsungAppKeySosData");
   });
 
   it("marks debug builds as test-only so adb can remove test device owners", () => {
@@ -228,6 +247,8 @@ describe("Android native hardening", () => {
     expect(readme).toContain("remove-active-admin");
     expect(readme).toContain("SecPalEnterpriseBridge");
     expect(readme).toContain("openGestureNavigationSettings");
+    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
+    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
   });
 
   it("exposes app-controlled gesture-navigation settings through the enterprise bridge", () => {
