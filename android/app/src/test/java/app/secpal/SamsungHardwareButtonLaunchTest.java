@@ -140,6 +140,73 @@ public class SamsungHardwareButtonLaunchTest {
         assertNull(SamsungHardwareButtonLaunch.resolveLaunchAction(handledIntent, "app.secpal"));
     }
 
+    @Test
+    public void resolvesSamsungHardKeyReportNewLongUpBooleanToLongPress() {
+        FakeIntent intent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        intent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
+        );
+        intent.putExtra(SamsungHardKeyReceiver.EXTRA_REPORT_TYPE_NEW_LONG_UP, true);
+
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(intent, "app.secpal")
+        );
+    }
+
+    @Test
+    public void resolvesSamsungHardKeyReportUpWithoutPriorDownToShortPress() {
+        FakeIntent intent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        intent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
+        );
+        intent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_UP
+        );
+
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(intent, "app.secpal")
+        );
+    }
+
+    @Test
+    public void resolvesSamsungHardKeyReportDownThenImmediateUpToShortPress() {
+        FakeIntent downIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS
+        );
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_DOWN
+        );
+
+        assertNull(SamsungHardwareButtonLaunch.resolveLaunchAction(downIntent, "app.secpal"));
+
+        FakeIntent upIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS
+        );
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_UP
+        );
+
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(upIntent, "app.secpal")
+        );
+    }
+
     private static final class FakeIntent extends Intent {
         private final Map<String, Object> extras = new HashMap<>();
         private String action;
