@@ -172,8 +172,8 @@ describe("Android native hardening", () => {
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
     );
-    expect(manifest).toContain(
-      'android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"'
+    expect(manifest).toMatch(
+      /<meta-data\b[^>]*android:name="com\.samsung\.android\.knox\.intent\.action\.HARD_KEY_PRESS"[^>]*android:value="true"[^>]*\/?>/
     );
     expect(manifest).toContain('android:name="app_key_ptt_data"');
     expect(manifest).toContain('android:name="app_key_sos_data"');
