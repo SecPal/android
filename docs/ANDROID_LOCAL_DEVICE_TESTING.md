@@ -244,6 +244,10 @@ For the current XCover 7 validation path, seed the Samsung secure settings expli
 
 Known limits from real-device validation on `SM-G556B` / Android 16:
 
+- The single physical special key currently identifiable on this device maps to Samsung `keyCode=1015` (XCover/PTT path). A raw `getevent -lt` capture exposes it as Linux input key `0x00fc`, and Android delivers it to `MainActivity` as `keyCode=1015` when SecPal is already in the foreground.
+- With `MainActivity` foregrounded, the same physical key reaches SecPal through the normal `dispatchKeyEvent` path and the app emits the regular enterprise-bridge hardware-button events. In the captured run, short presses produced `hardwareButtonPressed` / `hardwareButtonShortPressed`, which proves the in-app key path works even without Samsung partner tokens.
+- The kiosk-home problem remains separate: from `DedicatedDeviceHomeActivity`, the same physical key still did not produce a detectable Samsung `HARD_KEY_*` launch or bring SecPal back to `MainActivity` in the local no-token setup.
+- SecPal treats long presses only at `>= 5000 ms`. If you try to validate the long-press event path in `MainActivity`, hold the special key for at least five full seconds; shorter holds still resolve to the short-press event.
 - `adb shell input keyevent 1015` and `adb shell input keyevent 1079` do not reproduce the OEM Samsung hardware-button route. Even in device-owner kiosk mode with the secure settings above, the device stays on `DedicatedDeviceHomeActivity` with `mLockTaskModeState=LOCKED`.
 - `adb shell am start -n app.secpal/.SamsungEmergencyShortPressAlias` is expected to fail with `Permission Denial` because the Samsung alias activities are not exported. That means plain ADB cannot simulate the external alias launch path either.
 - The final proof for issue `#123` still requires a real physical XCover or SOS button press on the managed device.
