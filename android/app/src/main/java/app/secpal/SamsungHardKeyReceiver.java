@@ -36,11 +36,22 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
             return;
         }
 
+        // Short-circuit before any binder call: this receiver is exported, so
+        // any app can broadcast to it. Reject unknown actions before touching
+        // DevicePolicyManager to reduce unnecessary IPC overhead.
+        String action = intent.getAction();
+        if (!ACTION_HARD_KEY_PRESS.equals(action) && !ACTION_HARD_KEY_REPORT.equals(action)) {
+            return;
+        }
+
+        String packageName = context.getPackageName();
+        DevicePolicyManager dpm = context.getSystemService(DevicePolicyManager.class);
+
         String hardwareAction = resolveManagedHardwareAction(
             intent,
-            context.getPackageName(),
-            isDeviceOwner(context),
-            isProfileOwner(context)
+            packageName,
+            dpm != null && dpm.isDeviceOwnerApp(packageName),
+            dpm != null && dpm.isProfileOwnerApp(packageName)
         );
 
         if (hardwareAction == null) {
@@ -85,19 +96,5 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         return !EnterpriseManagedState.MODE_NONE.equals(
             EnterprisePolicyController.resolveManagedMode(deviceOwner, profileOwner)
         );
-    }
-
-    private static boolean isDeviceOwner(Context context) {
-        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
-
-        return devicePolicyManager != null
-            && devicePolicyManager.isDeviceOwnerApp(context.getPackageName());
-    }
-
-    private static boolean isProfileOwner(Context context) {
-        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
-
-        return devicePolicyManager != null
-            && devicePolicyManager.isProfileOwnerApp(context.getPackageName());
     }
 }
