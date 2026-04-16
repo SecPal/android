@@ -166,11 +166,17 @@ describe("Android native hardening", () => {
     );
 
     expect(manifest).toContain("SamsungHardKeyReceiver");
+    expect(manifest).toMatch(
+      /<receiver\b[^>]*android:name="\.SamsungHardKeyReceiver"[^>]*android:exported="true"/
+    );
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
     );
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
+    );
+    expect(manifest).toContain(
+      "Knox hard-key broadcasts come from outside the app UID"
     );
     expect(manifest).toMatch(
       /<meta-data\b[^>]*android:name="com\.samsung\.android\.knox\.intent\.action\.HARD_KEY_PRESS"[^>]*android:value="true"[^>]*\/?>/

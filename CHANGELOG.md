@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Samsung Knox hard-key receiver broadcasts are now explicitly left exported in the manifest, with an inline rationale that the broadcast origin is outside SecPal's UID and no verifiable public sender permission is currently documented; this removes the `exported="false"` delivery blocker for Samsung `HARD_KEY_PRESS` and `HARD_KEY_REPORT` routing on managed devices.
 - Samsung managed-device hard-key setup now wires optional partner `app_key_ptt_data` and `app_key_sos_data` manifest metadata through Android build placeholders, so Knox-distributed SecPal builds can inject Samsung app-key values without forking the committed manifest while local and non-Samsung builds keep working with empty defaults.
 - Samsung XCover hard-key routing now also declares and interprets Knox `HARD_KEY_REPORT` broadcasts, including Samsung key-code and report-type extras for XCover and SOS hardware buttons, so the Android wrapper can forward Samsung-origin launch events instead of relying only on the older `HARD_KEY_PRESS` path.
 - Restored focused Android Java unit-test compilation after the bootstrap state API rename by aligning `ProvisioningBootstrapStoreTest` with `ProvisioningBootstrapState.getApiBaseUrl()`, so `testDebugUnitTest --tests ...` no longer fails before the requested class is compiled.
