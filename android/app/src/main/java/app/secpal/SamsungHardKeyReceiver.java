@@ -5,6 +5,7 @@
 
 package app.secpal;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -35,7 +36,12 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
             return;
         }
 
-        String hardwareAction = resolveHardwareAction(intent, context.getPackageName());
+        String hardwareAction = resolveManagedHardwareAction(
+            intent,
+            context.getPackageName(),
+            isDeviceOwner(context),
+            isProfileOwner(context)
+        );
 
         if (hardwareAction == null) {
             return;
@@ -50,6 +56,19 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         );
     }
 
+    static String resolveManagedHardwareAction(
+        Intent intent,
+        String packageName,
+        boolean deviceOwner,
+        boolean profileOwner
+    ) {
+        if (intent == null || packageName == null || !isManagedOwner(deviceOwner, profileOwner)) {
+            return null;
+        }
+
+        return resolveHardwareAction(intent, packageName);
+    }
+
     private static String resolveHardwareAction(Intent intent, String packageName) {
         if (ACTION_HARD_KEY_PRESS.equals(intent.getAction())) {
             return SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
@@ -60,5 +79,25 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         }
 
         return SamsungHardwareButtonLaunch.resolveLaunchAction(intent, packageName);
+    }
+
+    private static boolean isManagedOwner(boolean deviceOwner, boolean profileOwner) {
+        return !EnterpriseManagedState.MODE_NONE.equals(
+            EnterprisePolicyController.resolveManagedMode(deviceOwner, profileOwner)
+        );
+    }
+
+    private static boolean isDeviceOwner(Context context) {
+        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
+
+        return devicePolicyManager != null
+            && devicePolicyManager.isDeviceOwnerApp(context.getPackageName());
+    }
+
+    private static boolean isProfileOwner(Context context) {
+        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
+
+        return devicePolicyManager != null
+            && devicePolicyManager.isProfileOwnerApp(context.getPackageName());
     }
 }
