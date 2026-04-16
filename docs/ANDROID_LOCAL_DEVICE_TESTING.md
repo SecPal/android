@@ -202,6 +202,14 @@ Enable the strict kiosk case where only SecPal stays visible:
 ./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
 ```
 
+On the current Samsung XCover 7 test device, that launcher start is not yet the final kiosk proof by itself. After the broadcast, press HOME once or run:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell input keyevent KEYCODE_HOME'
+```
+
+Expected result: `DedicatedDeviceHomeActivity` becomes the top activity and `dumpsys activity activities` reports `mLockTaskModeState=LOCKED`.
+
 Allow SecPal plus Phone and SMS:
 
 ```bash
@@ -221,6 +229,25 @@ Clear the debug kiosk policy again without removing device owner:
 ```bash
 ./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal'
 ```
+
+## Samsung XCover Hard-Key Validation Notes
+
+For the current XCover 7 validation path, seed the Samsung secure settings explicitly after the device-owner and kiosk steps:
+
+```bash
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure short_press_app app.secpal/app.secpal.SamsungEmergencyShortPressAlias'
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure long_press_app app.secpal/app.secpal.SamsungEmergencyLongPressAlias'
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure dedicated_app_xcover app.secpal'
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure dedicated_app_xcover_switch 1'
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure active_key_on_lockscreen 1'
+```
+
+Known limits from real-device validation on `SM-G556B` / Android 16:
+
+- `adb shell input keyevent 1015` and `adb shell input keyevent 1079` do not reproduce the OEM Samsung hardware-button route. Even in device-owner kiosk mode with the secure settings above, the device stays on `DedicatedDeviceHomeActivity` with `mLockTaskModeState=LOCKED`.
+- `adb shell am start -n app.secpal/.SamsungEmergencyShortPressAlias` is expected to fail with `Permission Denial` because the Samsung alias activities are not exported. That means plain ADB cannot simulate the external alias launch path either.
+- The final proof for issue `#123` still requires a real physical XCover or SOS button press on the managed device.
+- Local builds keep `app_key_ptt_data` and `app_key_sos_data` empty unless `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA` and `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA` are provided before the build. If your Samsung distribution path depends on partner-issued app-key metadata, validate with those values present instead of repeating the empty-token local build.
 
 Important notes:
 
