@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android hardware back handling in the Capacitor shell now first replays in-WebView history before delegating to the system dispatcher, so moving back through previously visited SecPal screens matches the PWA instead of closing the app immediately.
 - `SamsungHardKeyReceiver.onReceive` now short-circuits on unknown broadcast actions before making any `DevicePolicyManager` binder call, reducing DoS surface for arbitrary broadcasts sent to the exported receiver; the `DevicePolicyManager` system service is now fetched once per receive and reused for both `isDeviceOwnerApp` and `isProfileOwnerApp` instead of twice in separate private helpers.
 - `FakeIntent` test stub extracted into a shared package-private class (`app.secpal.FakeIntent`) so `SamsungHardKeyReceiverTest` and `SamsungHardwareButtonLaunchTest` no longer duplicate the intent stub; a new `ignoresUnknownActionBroadcastsEvenInManagedMode` test case documents the filtering invariant explicitly.
 - Samsung Knox hard-key broadcasts now require SecPal to be running as a real Android device owner or profile owner before `SamsungHardKeyReceiver` forwards them into `MainActivity`, reducing spoofable third-party foreground launches on unmanaged devices while preserving the managed-device hard-key flow.
