@@ -15,12 +15,16 @@ import android.os.Build;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.WindowManager;
+import android.webkit.WebView;
+
+import androidx.activity.OnBackPressedCallback;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -36,6 +40,22 @@ public class MainActivity extends BridgeActivity {
     };
     private final ExecutorService provisioningBootstrapExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean provisioningBootstrapSyncInFlight = new AtomicBoolean(false);
+    private final OnBackPressedCallback webViewBackPressedCallback = new OnBackPressedCallback(true) {
+        @Override
+        public void handleOnBackPressed() {
+            if (WebViewBackNavigationController.goBackIfPossible(resolveBackNavigationTarget())) {
+                return;
+            }
+
+            setEnabled(false);
+
+            try {
+                getOnBackPressedDispatcher().onBackPressed();
+            } finally {
+                setEnabled(true);
+            }
+        }
+    };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -43,6 +63,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
         handleSamsungHardwareButtonLaunch(getIntent());
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
@@ -221,6 +242,18 @@ public class MainActivity extends BridgeActivity {
                 provisioningBootstrapSyncInFlight.set(false);
             }
         });
+    }
+
+    private WebViewBackNavigationController.BackNavigationTarget resolveBackNavigationTarget() {
+        Bridge bridge = getBridge();
+
+        if (bridge == null) {
+            return null;
+        }
+
+        WebView webView = bridge.getWebView();
+
+        return WebViewBackNavigationController.forWebView(webView);
     }
 
     private boolean deleteRecursively(File target) {
