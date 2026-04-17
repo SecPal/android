@@ -76,6 +76,7 @@ At minimum verify:
 - Before merge, prove the defect with a failing test, a reproducible defect, or a stated invariant and why the current code violates it.
 - Green CI alone is not enough for AI-generated changes, especially test, lifecycle, shell, regex, or refactor diffs; review the semantic risk explicitly.
 - Reject AI-generated bridge or auth cleanups that do not prove listener-handle behavior, teardown ordering, or managed-state semantics with focused tests.
+- Reject AI-generated bridge changes that alter listener handles or teardown ordering, and reject back-navigation or managed-mode refactors that do not prove WebView history and owner-state invariants with focused tests.
 
 ## Repository Conventions
 
