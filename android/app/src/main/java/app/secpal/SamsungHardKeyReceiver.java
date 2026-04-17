@@ -5,6 +5,7 @@
 
 package app.secpal;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -35,7 +36,23 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
             return;
         }
 
-        String hardwareAction = resolveHardwareAction(intent, context.getPackageName());
+        // Short-circuit before any binder call: this receiver is exported, so
+        // any app can broadcast to it. Reject unknown actions before touching
+        // DevicePolicyManager to reduce unnecessary IPC overhead.
+        String action = intent.getAction();
+        if (!ACTION_HARD_KEY_PRESS.equals(action) && !ACTION_HARD_KEY_REPORT.equals(action)) {
+            return;
+        }
+
+        String packageName = context.getPackageName();
+        DevicePolicyManager dpm = context.getSystemService(DevicePolicyManager.class);
+
+        String hardwareAction = resolveManagedHardwareAction(
+            intent,
+            packageName,
+            dpm != null && dpm.isDeviceOwnerApp(packageName),
+            dpm != null && dpm.isProfileOwnerApp(packageName)
+        );
 
         if (hardwareAction == null) {
             return;
@@ -50,6 +67,19 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         );
     }
 
+    static String resolveManagedHardwareAction(
+        Intent intent,
+        String packageName,
+        boolean deviceOwner,
+        boolean profileOwner
+    ) {
+        if (intent == null || packageName == null || !isManagedOwner(deviceOwner, profileOwner)) {
+            return null;
+        }
+
+        return resolveHardwareAction(intent, packageName);
+    }
+
     private static String resolveHardwareAction(Intent intent, String packageName) {
         if (ACTION_HARD_KEY_PRESS.equals(intent.getAction())) {
             return SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
@@ -60,5 +90,11 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         }
 
         return SamsungHardwareButtonLaunch.resolveLaunchAction(intent, packageName);
+    }
+
+    private static boolean isManagedOwner(boolean deviceOwner, boolean profileOwner) {
+        return !EnterpriseManagedState.MODE_NONE.equals(
+            EnterprisePolicyController.resolveManagedMode(deviceOwner, profileOwner)
+        );
     }
 }
