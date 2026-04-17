@@ -202,7 +202,7 @@ Enable the strict kiosk case where only SecPal stays visible:
 ./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
 ```
 
-On the current Samsung XCover 7 test device, that launcher start is not yet the final kiosk proof by itself. After the broadcast, press HOME once or run:
+On the current Samsung XCover 7 test device, that launcher start is not yet the final kiosk proof by itself. After running both commands above, and specifically after the launcher start command, press HOME once or run:
 
 ```bash
 ./scripts/with-android-env.sh bash -lc 'adb shell input keyevent KEYCODE_HOME'
