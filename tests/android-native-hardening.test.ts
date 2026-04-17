@@ -115,9 +115,14 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
-    const networkSecurityConfig = readFileSync(
-      networkSecurityConfigPath,
-      "utf8"
+    const networkSecurityConfig = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "xml",
+      "network_security_config.xml"
     );
 
     expect(manifest).toContain('android:usesCleartextTraffic="false"');
