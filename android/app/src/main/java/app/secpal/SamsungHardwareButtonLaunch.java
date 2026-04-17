@@ -47,6 +47,12 @@ final class SamsungHardwareButtonLaunch {
     }
 
     static String resolveLaunchAction(Intent intent, String packageName) {
+        return resolveLaunchAction(intent, packageName, hardKeyReportTimeMs);
+    }
+
+    static String resolveLaunchAction(Intent intent, String packageName, LongSupplier timeMs) {
+        LongSupplier effectiveTimeMs = timeMs == null ? hardKeyReportTimeMs : timeMs;
+
         if (intent == null || intent.getBooleanExtra(EXTRA_HARDWARE_TRIGGER_HANDLED, false)) {
             return null;
         }
@@ -58,7 +64,7 @@ final class SamsungHardwareButtonLaunch {
             return syntheticAction;
         }
 
-        String reportAction = resolveHardKeyReportAction(intent);
+        String reportAction = resolveHardKeyReportAction(intent, effectiveTimeMs);
 
         if (reportAction != null) {
             return reportAction;
@@ -113,7 +119,7 @@ final class SamsungHardwareButtonLaunch {
         }
     }
 
-    private static String resolveHardKeyReportAction(Intent intent) {
+    private static String resolveHardKeyReportAction(Intent intent, LongSupplier timeMs) {
         if (intent == null || !SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT.equals(intent.getAction())) {
             return null;
         }
@@ -135,11 +141,11 @@ final class SamsungHardwareButtonLaunch {
             case SamsungHardKeyReceiver.REPORT_TYPE_DOWN:
                 activeHardKeyReportStartedAt.put(
                     Integer.valueOf(keyCode),
-                    Long.valueOf(currentHardKeyReportTimeMs())
+                    Long.valueOf(timeMs.getAsLong())
                 );
                 return null;
             case SamsungHardKeyReceiver.REPORT_TYPE_UP:
-                return resolveUpAction(keyCode);
+                return resolveUpAction(keyCode, timeMs);
             case SamsungHardKeyReceiver.REPORT_TYPE_DOWN_UP:
                 activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
                 return HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
@@ -151,14 +157,14 @@ final class SamsungHardwareButtonLaunch {
         }
     }
 
-    private static String resolveUpAction(int keyCode) {
+    private static String resolveUpAction(int keyCode, LongSupplier timeMs) {
         Long pressedAt = activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
 
         if (pressedAt == null) {
             return HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
         }
 
-        long holdDurationMs = Math.max(0L, currentHardKeyReportTimeMs() - pressedAt.longValue());
+        long holdDurationMs = Math.max(0L, timeMs.getAsLong() - pressedAt.longValue());
 
         if (holdDurationMs >= SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS) {
             return HARDWARE_TRIGGER_ACTION_LONG_PRESS;
@@ -205,9 +211,5 @@ final class SamsungHardwareButtonLaunch {
     static void resetHardKeyReportState() {
         activeHardKeyReportStartedAt.clear();
         hardKeyReportTimeMs = () -> System.nanoTime() / 1_000_000L;
-    }
-
-    private static long currentHardKeyReportTimeMs() {
-        return hardKeyReportTimeMs.getAsLong();
     }
 }

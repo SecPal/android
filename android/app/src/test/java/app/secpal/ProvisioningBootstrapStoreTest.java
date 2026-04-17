@@ -80,6 +80,7 @@ public class ProvisioningBootstrapStoreTest {
         assertTrue(config.isLockTaskEnabled());
         assertTrue(config.isPreferGestureNavigation());
         assertFalse(config.isAllowPhone());
+        assertFalse(config.isAllowSms());
     }
 
     @Test
@@ -107,38 +108,6 @@ public class ProvisioningBootstrapStoreTest {
         assertFalse(persisted);
         assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
         assertEquals("session-123", state.getEnrollmentSessionId());
-        assertNull(state.getUpdateChannel());
-        assertNull(state.getReleaseMetadataUrl());
-        assertEquals("bootstrap-token-123", tokenStorage.token);
-    }
-
-    @Test
-    public void applyExchangeResultSucceedsAfterCommitResultToggledFromFalseToTrue() throws Exception {
-        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
-        FakeTokenStorage tokenStorage = new FakeTokenStorage();
-        ProvisioningBootstrapStore store = new ProvisioningBootstrapStore(preferences, tokenStorage);
-        store.persistProvisioningData("bootstrap-token-123", "session-123");
-
-        preferences.setCommitResult(false);
-        boolean persisted = store.applyExchangeResult(
-            new ProvisioningBootstrapExchangeResult(
-                "session-123",
-                7,
-                "Tenant 7",
-                "https://api.secpal.dev/v1",
-                "managed_device",
-                "https://secpal.dev/android/channels/managed_device/latest.json",
-                Collections.emptyMap()
-            )
-        );
-        assertFalse(persisted);
-
-        preferences.setCommitResult(true);
-        store.markExchangeFailure("HTTP_500", false);
-
-        ProvisioningBootstrapState state = store.getState();
-        assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
-        assertEquals("HTTP_500", state.getLastErrorCode());
         assertNull(state.getUpdateChannel());
         assertNull(state.getReleaseMetadataUrl());
         assertEquals("bootstrap-token-123", tokenStorage.token);

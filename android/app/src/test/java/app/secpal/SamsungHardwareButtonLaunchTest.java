@@ -70,6 +70,46 @@ public class SamsungHardwareButtonLaunchTest {
     }
 
     @Test
+    public void resetHardKeyReportStateClearsAccumulatedState() {
+        long threshold = SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS;
+
+        FakeIntent downIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
+        );
+        downIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_DOWN
+        );
+
+        FakeIntent upIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_KEY_CODE,
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
+        );
+        upIntent.putExtra(
+            SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+            SamsungHardKeyReceiver.REPORT_TYPE_UP
+        );
+
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(downIntent, "app.secpal", () -> 0L)
+        );
+
+        SamsungHardwareButtonLaunch.resetHardKeyReportState();
+
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(upIntent, "app.secpal", () -> threshold)
+        );
+        assertEquals(
+            SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+            SamsungHardwareButtonLaunch.resolveLaunchKeyCode(upIntent)
+        );
+    }
+
+    @Test
     public void ignoresSamsungHardKeyReportWithoutSupportedKeyCodeOrAction() {
         FakeIntent unsupportedKeyIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
         unsupportedKeyIntent.putExtra(SamsungHardKeyReceiver.EXTRA_KEY_CODE, 9999);
@@ -225,10 +265,13 @@ public class SamsungHardwareButtonLaunchTest {
             SamsungHardKeyReceiver.REPORT_TYPE_DOWN
         );
 
-        SamsungHardwareButtonLaunch.hardKeyReportTimeMs = () -> 0L;
-        assertNull(SamsungHardwareButtonLaunch.resolveLaunchAction(downIntent, "app.secpal"));
-
-        SamsungHardwareButtonLaunch.hardKeyReportTimeMs = () -> threshold;
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                downIntent,
+                "app.secpal",
+                () -> 0L
+            )
+        );
 
         FakeIntent upIntent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT);
 
@@ -243,7 +286,11 @@ public class SamsungHardwareButtonLaunchTest {
 
         assertEquals(
             SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS,
-            SamsungHardwareButtonLaunch.resolveLaunchAction(upIntent, "app.secpal")
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                upIntent,
+                "app.secpal",
+                () -> threshold
+            )
         );
     }
 }

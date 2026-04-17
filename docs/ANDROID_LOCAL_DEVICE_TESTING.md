@@ -250,7 +250,7 @@ Known limits from real-device validation on `SM-G556B` / Android 16:
 - SecPal treats long presses only at `>= 5000 ms`. If you try to validate the long-press event path in `MainActivity`, hold the special key for at least five full seconds; shorter holds still resolve to the short-press event.
 - `adb shell input keyevent 1015` and `adb shell input keyevent 1079` do not reproduce the OEM Samsung hardware-button route. Even in device-owner kiosk mode with the secure settings above, the device stays on `DedicatedDeviceHomeActivity` with `mLockTaskModeState=LOCKED`.
 - `adb shell am start -n app.secpal/.SamsungEmergencyShortPressAlias` is expected to fail with `Permission Denial` because the Samsung alias activities are not exported. That means plain ADB cannot simulate the external alias launch path either.
-- The final proof for issue `#123` still requires a real physical XCover or SOS button press on the managed device.
+- Final proof for this investigation still requires a real physical XCover or SOS button press on the managed device.
 - Local builds keep `app_key_ptt_data` and `app_key_sos_data` empty unless `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA` and `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA` are provided before the build. If your Samsung distribution path depends on partner-issued app-key metadata, validate with those values present instead of repeating the empty-token local build.
 
 Important notes:
