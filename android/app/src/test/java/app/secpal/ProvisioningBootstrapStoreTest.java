@@ -135,7 +135,7 @@ public class ProvisioningBootstrapStoreTest {
         assertFalse(persisted);
 
         preferences.setCommitResult(true);
-        boolean retriedPersisted = store.applyExchangeResult(
+        boolean secondPersisted = store.applyExchangeResult(
             new ProvisioningBootstrapExchangeResult(
                 "session-123",
                 7,
@@ -146,7 +146,7 @@ public class ProvisioningBootstrapStoreTest {
                 Collections.emptyMap()
             )
         );
-        assertTrue(retriedPersisted);
+        assertTrue(secondPersisted);
 
         ProvisioningBootstrapState state = store.getState();
         assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());

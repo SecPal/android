@@ -26,9 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The retry-scenario test in `ProvisioningBootstrapStoreTest` now calls `applyExchangeResult` after toggling the commit flag to true and asserts the full completed state, replacing the previous stub that only verified a `markExchangeFailure` call and left the retry path untested.
 - A new `resetHardKeyReportStateClearsAccumulatedState` test confirms that `resetHardKeyReportState()` clears previously accumulated DOWN timing so a subsequent UP event no longer resolves to a long press, proving the reset is effective.
 - Removed placeholder issue reference `#123` from `docs/ANDROID_LOCAL_DEVICE_TESTING.md`; the note now reads as a general investigation finding rather than an anchored issue link.
-
-### Fixed
-
 - `SamsungHardKeyReceiver.onReceive` now short-circuits on unknown broadcast actions before making any `DevicePolicyManager` binder call, reducing DoS surface for arbitrary broadcasts sent to the exported receiver; the `DevicePolicyManager` system service is now fetched once per receive and reused for both `isDeviceOwnerApp` and `isProfileOwnerApp` instead of twice in separate private helpers.
 - `FakeIntent` test stub extracted into a shared package-private class (`app.secpal.FakeIntent`) so `SamsungHardKeyReceiverTest` and `SamsungHardwareButtonLaunchTest` no longer duplicate the intent stub; a new `ignoresUnknownActionBroadcastsEvenInManagedMode` test case documents the filtering invariant explicitly.
 - Samsung Knox hard-key broadcasts now require SecPal to be running as a real Android device owner or profile owner before `SamsungHardKeyReceiver` forwards them into `MainActivity`, reducing spoofable third-party foreground launches on unmanaged devices while preserving the managed-device hard-key flow.
