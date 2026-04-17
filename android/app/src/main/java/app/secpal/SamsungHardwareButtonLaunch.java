@@ -51,6 +51,8 @@ final class SamsungHardwareButtonLaunch {
     }
 
     static String resolveLaunchAction(Intent intent, String packageName, LongSupplier timeMs) {
+        LongSupplier effectiveTimeMs = timeMs == null ? hardKeyReportTimeMs : timeMs;
+
         if (intent == null || intent.getBooleanExtra(EXTRA_HARDWARE_TRIGGER_HANDLED, false)) {
             return null;
         }
@@ -62,7 +64,7 @@ final class SamsungHardwareButtonLaunch {
             return syntheticAction;
         }
 
-        String reportAction = resolveHardKeyReportAction(intent, timeMs);
+        String reportAction = resolveHardKeyReportAction(intent, effectiveTimeMs);
 
         if (reportAction != null) {
             return reportAction;
