@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
 - strengthened repo-local Copilot governance for AI findings: Android work now requires proof of defect before merging AI-generated fix PRs, treats green CI alone as insufficient evidence for bridge or auth cleanups, and documents focused verification of listener handles and teardown ordering
 - Android domain-policy validation now composes its approved-host allowlist from named regex fragments and bounds raw `secpal.*` discovery matches, making the check easier to review while preserving the existing host policy.
+- `SamsungHardwareButtonLaunch.resolveLaunchAction` now accepts an optional `LongSupplier` time-provider overload so tests can inject controlled timestamps without mutating package-private static state, removing timing brittleness and eliminating cross-test pollution from the long-press threshold test.
+- `android-native-hardening` TypeScript test now validates that the Capacitor config module and its `cordova.accessOrigins` array are present and well-formed before asserting on individual entries, and extracts certificate-pin hashes and vendor-neutrality regex into named constants to improve test readability and maintainability.
+
+### Fixed
+
+- `ProvisioningBootstrapStoreTest` now asserts `isAllowSms()` is false when `secpal_allow_sms` is set to false in the exchange-result policy profile, closing the coverage gap alongside the existing `isAllowPhone()` check.
+- The retry-scenario test in `ProvisioningBootstrapStoreTest` now calls `applyExchangeResult` after toggling the commit flag to true and asserts the full completed state, replacing the previous stub that only verified a `markExchangeFailure` call and left the retry path untested.
+- A new `resetHardKeyReportStateClearsAccumulatedState` test confirms that `resetHardKeyReportState()` clears previously accumulated DOWN timing so a subsequent UP event no longer resolves to a long press, proving the reset is effective.
+- Removed placeholder issue reference `#123` from `docs/ANDROID_LOCAL_DEVICE_TESTING.md`; the note now reads as a general investigation finding rather than an anchored issue link.
 
 ### Fixed
 

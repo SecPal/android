@@ -10,8 +10,15 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
+// SHA-256 base64-encoded SubjectPublicKeyInfo (SPKI) hashes used for
+// api.secpal.dev certificate pinning (primary and backup pins).
+const API_CERT_PRIMARY_PIN = "3BJmezOWc04OlOrJ501K2t07GXxrHS5qQC7T7OnnO7k=";
+const API_CERT_BACKUP_PIN = "iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU=";
+
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
+
+const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
 
 describe("Android native hardening", () => {
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
@@ -45,8 +52,18 @@ describe("Android native hardening", () => {
   });
 
   it("defines the Cordova access allowlist in Capacitor source config", async () => {
-    const { default: config } = await import("../capacitor.config");
+    const configModule = await import("../capacitor.config");
+    expect(configModule).toBeDefined();
+    expect(configModule.default).toBeDefined();
 
+    const config = configModule.default as {
+      cordova?: { accessOrigins?: string[] };
+    };
+
+    expect(config).toBeTypeOf("object");
+    expect(config.cordova).toBeDefined();
+    expect(config.cordova?.accessOrigins).toBeDefined();
+    expect(Array.isArray(config.cordova?.accessOrigins)).toBe(true);
     expect(config.cordova?.accessOrigins).toEqual([
       "https://api.secpal.dev",
       "https://app.secpal.dev",
@@ -117,12 +134,8 @@ describe("Android native hardening", () => {
     expect(networkSecurityConfig).toContain(
       '<domain includeSubdomains="false">api.secpal.dev</domain>'
     );
-    expect(networkSecurityConfig).toContain(
-      "3BJmezOWc04OlOrJ501K2t07GXxrHS5qQC7T7OnnO7k="
-    );
-    expect(networkSecurityConfig).toContain(
-      "iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU="
-    );
+    expect(networkSecurityConfig).toContain(API_CERT_PRIMARY_PIN);
+    expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
   });
 
   it("declares a device-admin receiver for dedicated-device provisioning", () => {
@@ -329,9 +342,9 @@ describe("Android native hardening", () => {
       "DedicatedDeviceHomeActivity.java"
     );
 
-    expect(policyController).not.toMatch(/Samsung|samsung|com\.sec\./);
-    expect(managedState).not.toMatch(/Samsung|samsung|com\.sec\./);
-    expect(dedicatedHomeActivity).not.toMatch(/Samsung|samsung|com\.sec\./);
+    expect(policyController).not.toMatch(VENDOR_SPECIFIC_PATTERN);
+    expect(managedState).not.toMatch(VENDOR_SPECIFIC_PATTERN);
+    expect(dedicatedHomeActivity).not.toMatch(VENDOR_SPECIFIC_PATTERN);
   });
 
   it("only shows Phone and SMS tiles when Android can resolve real handlers", () => {

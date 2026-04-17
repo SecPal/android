@@ -80,6 +80,7 @@ public class ProvisioningBootstrapStoreTest {
         assertTrue(config.isLockTaskEnabled());
         assertTrue(config.isPreferGestureNavigation());
         assertFalse(config.isAllowPhone());
+        assertFalse(config.isAllowSms());
     }
 
     @Test
@@ -134,14 +135,28 @@ public class ProvisioningBootstrapStoreTest {
         assertFalse(persisted);
 
         preferences.setCommitResult(true);
-        store.markExchangeFailure("HTTP_500", false);
+        boolean retriedPersisted = store.applyExchangeResult(
+            new ProvisioningBootstrapExchangeResult(
+                "session-123",
+                7,
+                "Tenant 7",
+                "https://api.secpal.dev/v1",
+                "managed_device",
+                "https://secpal.dev/android/channels/managed_device/latest.json",
+                Collections.emptyMap()
+            )
+        );
+        assertTrue(retriedPersisted);
 
         ProvisioningBootstrapState state = store.getState();
-        assertEquals(ProvisioningBootstrapState.STATUS_PENDING, state.getStatus());
-        assertEquals("HTTP_500", state.getLastErrorCode());
-        assertNull(state.getUpdateChannel());
-        assertNull(state.getReleaseMetadataUrl());
-        assertEquals("bootstrap-token-123", tokenStorage.token);
+        assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());
+        assertEquals(7, state.getTenantId());
+        assertEquals("Tenant 7", state.getTenantName());
+        assertEquals("https://api.secpal.dev/v1", state.getApiBaseUrl());
+        assertEquals("managed_device", state.getUpdateChannel());
+        assertEquals("https://secpal.dev/android/channels/managed_device/latest.json", state.getReleaseMetadataUrl());
+        assertNull(state.getLastErrorCode());
+        assertNull(tokenStorage.token);
     }
 
     @Test
