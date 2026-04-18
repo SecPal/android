@@ -115,6 +115,16 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
+
+    expect(manifest).toContain('android:usesCleartextTraffic="false"');
+    expect(manifest).toContain(
+      'android:networkSecurityConfig="@xml/network_security_config"'
+    );
+    expect(filePaths).not.toContain('path="."');
+    expect(filePaths).toContain('name="shared_files" path="shared/"');
+    expect(filePaths).toContain('name="shared_cache" path="shared/"');
+    expect(existsSync(networkSecurityConfigPath)).toBe(true);
+
     const networkSecurityConfig = readRepoFile(
       "android",
       "app",
@@ -125,14 +135,6 @@ describe("Android native hardening", () => {
       "network_security_config.xml"
     );
 
-    expect(manifest).toContain('android:usesCleartextTraffic="false"');
-    expect(manifest).toContain(
-      'android:networkSecurityConfig="@xml/network_security_config"'
-    );
-    expect(filePaths).not.toContain('path="."');
-    expect(filePaths).toContain('name="shared_files" path="shared/"');
-    expect(filePaths).toContain('name="shared_cache" path="shared/"');
-    expect(existsSync(networkSecurityConfigPath)).toBe(true);
     expect(networkSecurityConfig).toContain(
       '<base-config cleartextTrafficPermitted="false" />'
     );
