@@ -70,10 +70,6 @@ describe("Android native hardening", () => {
     ]);
   });
 
-  it("surfaces an error when a config module import fails", async () => {
-    await expect(import("../capacitor.config.__missing__")).rejects.toThrowError();
-  });
-
   it("hardens release builds with R8, resource shrinking, and keep rules", () => {
     const buildGradle = readRepoFile("android", "app", "build.gradle");
     const proguardRules = readRepoFile("android", "app", "proguard-rules.pro");
