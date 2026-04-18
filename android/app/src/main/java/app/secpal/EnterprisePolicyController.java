@@ -33,6 +33,7 @@ public final class EnterprisePolicyController {
     private static final String LOG_TAG = "SecPalEnterprise";
     static final String ENTERPRISE_PREFS = "secpal_enterprise_policy";
     private static final String PREF_MANAGED_MODE = "managed_mode";
+    private static final String PREF_APPLIED_SCREEN_CAPTURE_POLICY = "applied_screen_capture_policy";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
     private static final int KIOSK_LOCK_TASK_FEATURES = DevicePolicyManager.LOCK_TASK_FEATURE_HOME;
@@ -77,6 +78,22 @@ public final class EnterprisePolicyController {
         preferences.edit().putString(PREF_MANAGED_MODE, managedMode).apply();
 
         EnterpriseManagedState managedState = new EnterpriseManagedState(managedMode, policyConfig);
+        String screenCapturePolicySignature = buildScreenCapturePolicySignature(managedState);
+        String previousScreenCapturePolicySignature = preferences.getString(
+            PREF_APPLIED_SCREEN_CAPTURE_POLICY,
+            null
+        );
+
+        if (managedState.isManaged()) {
+            if (!screenCapturePolicySignature.equals(previousScreenCapturePolicySignature)) {
+                applyManagedScreenCapturePolicy(context, managedState);
+                preferences.edit()
+                    .putString(PREF_APPLIED_SCREEN_CAPTURE_POLICY, screenCapturePolicySignature)
+                    .apply();
+            }
+        } else {
+            preferences.edit().remove(PREF_APPLIED_SCREEN_CAPTURE_POLICY).apply();
+        }
 
         if (managedState.isDeviceOwner()) {
             String appliedPolicySignature = buildAppliedPolicySignature(context, managedState);
@@ -361,6 +378,10 @@ public final class EnterprisePolicyController {
         );
     }
 
+    static boolean shouldDisableScreenCapture(EnterpriseManagedState managedState) {
+        return managedState != null && managedState.isManaged();
+    }
+
     private static void applyDeviceOwnerPolicy(Context context, EnterpriseManagedState managedState) {
         DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
 
@@ -435,6 +456,23 @@ public final class EnterprisePolicyController {
         persistManagedHiddenPackages(context, Collections.emptySet());
     }
 
+    private static void applyManagedScreenCapturePolicy(
+        Context context,
+        EnterpriseManagedState managedState
+    ) {
+        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
+
+        if (devicePolicyManager == null) {
+            return;
+        }
+
+        applyScreenCapturePolicy(
+            devicePolicyManager,
+            new ComponentName(context, SecPalDeviceAdminReceiver.class),
+            shouldDisableScreenCapture(managedState)
+        );
+    }
+
     private static void configureDedicatedHome(
         Context context,
         DevicePolicyManager devicePolicyManager,
@@ -482,6 +520,14 @@ public final class EnterprisePolicyController {
         return filters;
     }
 
+    private static String buildScreenCapturePolicySignature(EnterpriseManagedState managedState) {
+        return String.join(
+            "|",
+            managedState.getMode(),
+            String.valueOf(shouldDisableScreenCapture(managedState))
+        );
+    }
+
     static final class KioskSettingsRedirectFilterSpec {
         private final String action;
         private final boolean defaultCategory;
@@ -511,6 +557,18 @@ public final class EnterprisePolicyController {
             } else {
                 devicePolicyManager.clearUserRestriction(adminComponent, restriction);
             }
+        }
+    }
+
+    private static void applyScreenCapturePolicy(
+        DevicePolicyManager devicePolicyManager,
+        ComponentName adminComponent,
+        boolean disabled
+    ) {
+        try {
+            devicePolicyManager.setScreenCaptureDisabled(adminComponent, disabled);
+        } catch (RuntimeException exception) {
+            Log.w(LOG_TAG, "Failed to update screen-capture policy", exception);
         }
     }
 

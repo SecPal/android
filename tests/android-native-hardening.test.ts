@@ -145,6 +145,44 @@ describe("Android native hardening", () => {
     expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
   });
 
+  it("blocks screenshots for SecPal activities and kiosk mode", () => {
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const dedicatedHomeActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "DedicatedDeviceHomeActivity.java"
+    );
+    const policyController = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "EnterprisePolicyController.java"
+    );
+
+    expect(mainActivity).toContain("FLAG_SECURE");
+    expect(dedicatedHomeActivity).toContain("FLAG_SECURE");
+    expect(policyController).toContain("setScreenCaptureDisabled");
+    expect(policyController).toContain("shouldDisableScreenCapture");
+  });
+
   it("declares a device-admin receiver for dedicated-device provisioning", () => {
     const manifest = readRepoFile(
       "android",

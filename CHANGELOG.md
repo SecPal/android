@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SecPal now marks both native Android activities as secure windows and disables screen capture through the managed device-owner/profile-owner policy, blocking screenshots, screen recording, and Recents thumbnails on both the visible SecPal surfaces and globally on managed devices.
 - `ProvisioningBootstrapStoreTest` now asserts `isAllowSms()` is false when `secpal_allow_sms` is set to false in the exchange-result policy profile, closing the coverage gap alongside the existing `isAllowPhone()` check.
 - The retry-scenario test in `ProvisioningBootstrapStoreTest` now calls `applyExchangeResult` after toggling the commit flag to true and asserts the full completed state, replacing the previous stub that only verified a `markExchangeFailure` call and left the retry path untested.
 - A new `resetHardKeyReportStateClearsAccumulatedState` test confirms that `resetHardKeyReportState()` clears previously accumulated DOWN timing so a subsequent UP event no longer resolves to a long press, proving the reset is effective.
