@@ -62,6 +62,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalNativeAuthPlugin.class);
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        );
         super.onCreate(savedInstanceState);
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
         handleSamsungHardwareButtonLaunch(getIntent());

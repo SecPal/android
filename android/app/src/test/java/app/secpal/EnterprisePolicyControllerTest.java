@@ -17,6 +17,35 @@ import org.junit.Test;
 public class EnterprisePolicyControllerTest {
 
     @Test
+    public void screenCapturePolicyAppliesToAllManagedModes() {
+        assertTrue(
+            EnterprisePolicyController.shouldDisableScreenCapture(
+                new EnterpriseManagedState(
+                    EnterpriseManagedState.MODE_DEVICE_OWNER,
+                    EnterprisePolicyConfig.disabled()
+                )
+            )
+        );
+        assertTrue(
+            EnterprisePolicyController.shouldDisableScreenCapture(
+                new EnterpriseManagedState(
+                    EnterpriseManagedState.MODE_PROFILE_OWNER,
+                    EnterprisePolicyConfig.disabled()
+                )
+            )
+        );
+        assertEquals(
+            false,
+            EnterprisePolicyController.shouldDisableScreenCapture(
+                new EnterpriseManagedState(
+                    EnterpriseManagedState.MODE_NONE,
+                    EnterprisePolicyConfig.disabled()
+                )
+            )
+        );
+    }
+
+    @Test
     public void deviceOwnerModeWinsOverProfileOwnerMode() {
         assertEquals(
             EnterpriseManagedState.MODE_DEVICE_OWNER,
