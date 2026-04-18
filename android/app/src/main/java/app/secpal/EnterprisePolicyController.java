@@ -86,10 +86,11 @@ public final class EnterprisePolicyController {
 
         if (managedState.isManaged()) {
             if (!screenCapturePolicySignature.equals(previousScreenCapturePolicySignature)) {
-                applyManagedScreenCapturePolicy(context, managedState);
-                preferences.edit()
-                    .putString(PREF_APPLIED_SCREEN_CAPTURE_POLICY, screenCapturePolicySignature)
-                    .apply();
+                if (applyManagedScreenCapturePolicy(context, managedState)) {
+                    preferences.edit()
+                        .putString(PREF_APPLIED_SCREEN_CAPTURE_POLICY, screenCapturePolicySignature)
+                        .apply();
+                }
             }
         } else {
             preferences.edit().remove(PREF_APPLIED_SCREEN_CAPTURE_POLICY).apply();
@@ -456,17 +457,17 @@ public final class EnterprisePolicyController {
         persistManagedHiddenPackages(context, Collections.emptySet());
     }
 
-    private static void applyManagedScreenCapturePolicy(
+    private static boolean applyManagedScreenCapturePolicy(
         Context context,
         EnterpriseManagedState managedState
     ) {
         DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
 
         if (devicePolicyManager == null) {
-            return;
+            return false;
         }
 
-        applyScreenCapturePolicy(
+        return applyScreenCapturePolicy(
             devicePolicyManager,
             new ComponentName(context, SecPalDeviceAdminReceiver.class),
             shouldDisableScreenCapture(managedState)
@@ -560,15 +561,17 @@ public final class EnterprisePolicyController {
         }
     }
 
-    private static void applyScreenCapturePolicy(
+    private static boolean applyScreenCapturePolicy(
         DevicePolicyManager devicePolicyManager,
         ComponentName adminComponent,
         boolean disabled
     ) {
         try {
             devicePolicyManager.setScreenCaptureDisabled(adminComponent, disabled);
+            return true;
         } catch (RuntimeException exception) {
             Log.w(LOG_TAG, "Failed to update screen-capture policy", exception);
+            return false;
         }
     }
 

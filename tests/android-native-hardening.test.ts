@@ -145,7 +145,7 @@ describe("Android native hardening", () => {
     expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
   });
 
-  it("blocks screenshots for SecPal activities and kiosk mode", () => {
+  it("blocks screenshots for SecPal activities and managed device modes", () => {
     const mainActivity = readRepoFile(
       "android",
       "app",
