@@ -145,6 +145,32 @@ describe("Android native hardening", () => {
     expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
   });
 
+  it("declares digital asset links in the app manifest for app.secpal.dev", () => {
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const stringsXml = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "strings.xml"
+    );
+
+    expect(manifest).toContain('android:name="asset_statements"');
+    expect(manifest).toContain('android:resource="@string/asset_statements"');
+    expect(stringsXml).toContain('<string name="asset_statements"');
+    expect(stringsXml).toContain(
+      "https://app.secpal.dev/.well-known/assetlinks.json"
+    );
+  });
+
   it("blocks screenshots for SecPal activities and managed device modes", () => {
     const mainActivity = readRepoFile(
       "android",
@@ -176,11 +202,33 @@ describe("Android native hardening", () => {
       "secpal",
       "EnterprisePolicyController.java"
     );
+    const buildGradle = readRepoFile("android", "app", "build.gradle");
 
     expect(mainActivity).toContain("FLAG_SECURE");
+    expect(mainActivity).toContain("BuildConfig.SCREENSHOT_PROTECTION_ENABLED");
+    expect(mainActivity).toContain("setWebAuthenticationSupport");
+    expect(mainActivity).toContain("WEB_AUTHENTICATION_SUPPORT_FOR_APP");
+    expect(mainActivity).toContain("WEB_AUTHENTICATION");
     expect(dedicatedHomeActivity).toContain("FLAG_SECURE");
+    expect(dedicatedHomeActivity).toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
     expect(policyController).toContain("setScreenCaptureDisabled");
     expect(policyController).toContain("shouldDisableScreenCapture");
+    expect(policyController).toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
+    expect(buildGradle).toContain(
+      "SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION"
+    );
+    expect(buildGradle).toContain("SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING");
+    expect(buildGradle).toContain(
+      'implementation "androidx.webkit:webkit:$androidxWebkitVersion"'
+    );
+    expect(buildGradle).toContain("SCREENSHOT_PROTECTION_ENABLED");
+    expect(buildGradle).toContain("WEBVIEW_DEBUGGING_ENABLED");
+    expect(mainActivity).toContain("WebView.setWebContentsDebuggingEnabled");
+    expect(mainActivity).toContain("BuildConfig.WEBVIEW_DEBUGGING_ENABLED");
   });
 
   it("declares a device-admin receiver for dedicated-device provisioning", () => {

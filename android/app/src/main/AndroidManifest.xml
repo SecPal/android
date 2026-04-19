@@ -44,6 +44,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
 
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
