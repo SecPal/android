@@ -46,6 +46,16 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void resolveErrorCodePreservesPasskeyErrorCodes() {
+        assertEquals(
+            "PASSKEY_CANCELLED",
+            SecPalNativeAuthPlugin.resolveErrorCode(
+                new PasskeyAuthenticationException("Passkey sign-in was cancelled.", "PASSKEY_CANCELLED")
+            )
+        );
+    }
+
+    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",

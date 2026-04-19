@@ -179,6 +179,16 @@ describe("native auth bridge bootstrap injection", () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      loginWithPasskey: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      createPasskeyAttestation: vi.fn().mockResolvedValue({
+        id: "credential-id",
+        raw_id: "cmF3LWlk",
+        type: "public-key",
+        response: {
+          client_data_json: "Y2xpZW50LWRhdGE",
+          attestation_object: "YXR0ZXN0YXRpb24tb2JqZWN0",
+        },
+      }),
       logout: vi.fn().mockResolvedValue(undefined),
       getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
@@ -217,9 +227,27 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalNativeAuthBridge as {
       login(credentials: { email: string; password: string }): Promise<unknown>;
+      loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+      createPasskeyAttestation?(options: {
+        challenge: string;
+        rp: { id: string; name: string };
+        user: { id: string; name: string; display_name: string };
+        pub_key_cred_params: Array<{ type: "public-key"; alg: number }>;
+      }): Promise<unknown>;
     };
 
     await bridge.login({ email: "worker@secpal.dev", password: "password123" });
+    await bridge.loginWithPasskey?.({ email: "worker@secpal.dev" });
+    await bridge.createPasskeyAttestation?.({
+      challenge: "Zm9vYmFy",
+      rp: { id: "app.secpal.dev", name: "SecPal" },
+      user: {
+        id: "dXNlci1pZA",
+        name: "worker@secpal.dev",
+        display_name: "Worker",
+      },
+      pub_key_cred_params: [{ type: "public-key", alg: -7 }],
+    });
 
     const response = await (sandbox.fetch as typeof fetch)(
       "https://api.secpal.dev/v1/customers",
@@ -236,6 +264,21 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.login).toHaveBeenCalledWith({
       email: "worker@secpal.dev",
       password: "password123",
+    });
+    expect(plugin.loginWithPasskey).toHaveBeenCalledWith({
+      email: "worker@secpal.dev",
+    });
+    expect(plugin.createPasskeyAttestation).toHaveBeenCalledWith({
+      publicKey: {
+        challenge: "Zm9vYmFy",
+        rp: { id: "app.secpal.dev", name: "SecPal" },
+        user: {
+          id: "dXNlci1pZA",
+          name: "worker@secpal.dev",
+          display_name: "Worker",
+        },
+        pub_key_cred_params: [{ type: "public-key", alg: -7 }],
+      },
     });
     expect(plugin.request).toHaveBeenCalledWith({
       method: "POST",

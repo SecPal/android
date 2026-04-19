@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- native Android passkey registration in the auth bridge: the wrapper now maps the API registration challenge into a Credential Manager create request, returns the resulting attestation payload through the injected WebView bridge, and gives the shared frontend settings flow a native enrollment path inside the Android shell
+- native Android passkey sign-in in the auth bridge: the wrapper now starts token-mode passkey challenges against the API, completes the Credential Manager authentication ceremony, verifies the returned assertion for a bearer token, and exposes `loginWithPasskey` through the injected WebView bridge used by the shared frontend login screen
 - Samsung Knox hardware-button launch wiring in the Android wrapper: protected hard-key broadcasts now bring `MainActivity` to the foreground, Samsung emergency launch aliases can map short- and long-press surfaces into retained enterprise-bridge events, and hardware-trigger launches request wake/keyguard dismissal so the injected bridge can still route emergency entry points while the WebView is starting or the app was backgrounded
 - Regression coverage for bootstrap-store retry persistence after a failed exchange commit and for native enterprise-bridge delegation of phone, SMS, and gesture-navigation calls.
 - generic Android hardware-button bridge events in the enterprise wrapper: foreground `dispatchKeyEvent` input now reaches `SecPalEnterpriseBridge` as typed pressed, short-press, and long-press callbacks so the Android shell can wire emergency navigation without Samsung-specific launch plumbing in the same PR
