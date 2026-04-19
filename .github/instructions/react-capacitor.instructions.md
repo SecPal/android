@@ -17,3 +17,5 @@ applyTo: "src/**/*.ts,src/**/*.tsx,tests/**/*.ts,tests/**/*.tsx,vite.config.ts,v
   `remove()`.
 - For async auth or bridge teardown, prove ordering with tests and prefer `finally` when cleanup must run after the
   awaited call settles.
+- While SecPal is pre-`1.0.0`, prefer removing obsolete web, bridge, or
+  wrapper compatibility shims unless a proven live caller still requires them.
