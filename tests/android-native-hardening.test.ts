@@ -167,7 +167,7 @@ describe("Android native hardening", () => {
     expect(manifest).toContain('android:resource="@string/asset_statements"');
     expect(stringsXml).toContain('<string name="asset_statements"');
     expect(stringsXml).toContain(
-      'https://app.secpal.dev/.well-known/assetlinks.json'
+      "https://app.secpal.dev/.well-known/assetlinks.json"
     );
   });
 
