@@ -11,10 +11,14 @@ import androidx.core.content.ContextCompat;
 import androidx.credentials.Credential;
 import androidx.credentials.CredentialManager;
 import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CreateCredentialResponse;
+import androidx.credentials.CreatePublicKeyCredentialRequest;
+import androidx.credentials.CreatePublicKeyCredentialResponse;
 import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.GetPublicKeyCredentialOption;
 import androidx.credentials.PublicKeyCredential;
+import androidx.credentials.exceptions.CreateCredentialException;
 import androidx.credentials.exceptions.GetCredentialException;
 
 import java.util.concurrent.CompletableFuture;
@@ -26,7 +30,6 @@ class NativePasskeyAuthenticator {
     private static final long PASSKEY_TIMEOUT_SECONDS = 90;
 
     String authenticate(Activity activity, String requestJson) throws PasskeyAuthenticationException {
-        CompletableFuture<String> responseFuture = new CompletableFuture<>();
         CredentialManager credentialManager = CredentialManager.create(activity);
         GetCredentialRequest request;
 
@@ -41,6 +44,67 @@ class NativePasskeyAuthenticator {
                 exception
             );
         }
+
+        return awaitAuthenticationResponse(activity, credentialManager, request);
+    }
+
+    String register(Activity activity, String requestJson) throws PasskeyAuthenticationException {
+        CredentialManager credentialManager = CredentialManager.create(activity);
+        CreatePublicKeyCredentialRequest request;
+
+        try {
+            request = new CreatePublicKeyCredentialRequest(requestJson);
+        } catch (RuntimeException exception) {
+            throw new PasskeyAuthenticationException(
+                "Passkey registration request is invalid.",
+                "INVALID_INPUT",
+                exception
+            );
+        }
+
+        CompletableFuture<String> responseFuture = new CompletableFuture<>();
+
+        activity.runOnUiThread(() -> credentialManager.createCredentialAsync(
+            activity,
+            request,
+            null,
+            ContextCompat.getMainExecutor(activity),
+            new CredentialManagerCallback<CreateCredentialResponse, CreateCredentialException>() {
+                @Override
+                public void onResult(CreateCredentialResponse result) {
+                    if (!(result instanceof CreatePublicKeyCredentialResponse)) {
+                        responseFuture.completeExceptionally(new PasskeyAuthenticationException(
+                            "This device did not return a passkey credential.",
+                            "PASSKEY_UNAVAILABLE"
+                        ));
+                        return;
+                    }
+
+                    responseFuture.complete(
+                        ((CreatePublicKeyCredentialResponse) result).getRegistrationResponseJson()
+                    );
+                }
+
+                @Override
+                public void onError(CreateCredentialException exception) {
+                    responseFuture.completeExceptionally(mapCreateCredentialException(exception));
+                }
+            }
+        ));
+
+        return awaitPasskeyResponse(
+            responseFuture,
+            "Passkey registration",
+            "PASSKEY_ERROR"
+        );
+    }
+
+    private String awaitAuthenticationResponse(
+        Activity activity,
+        CredentialManager credentialManager,
+        GetCredentialRequest request
+    ) throws PasskeyAuthenticationException {
+        CompletableFuture<String> responseFuture = new CompletableFuture<>();
 
         activity.runOnUiThread(() -> credentialManager.getCredentialAsync(
             activity,
@@ -70,18 +134,30 @@ class NativePasskeyAuthenticator {
             }
         ));
 
+        return awaitPasskeyResponse(
+            responseFuture,
+            "Passkey sign-in",
+            "PASSKEY_ERROR"
+        );
+    }
+
+    private String awaitPasskeyResponse(
+        CompletableFuture<String> responseFuture,
+        String operationLabel,
+        String fallbackErrorCode
+    ) throws PasskeyAuthenticationException {
         try {
             return responseFuture.get(PASSKEY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new PasskeyAuthenticationException(
-                "Passkey sign-in was interrupted.",
+                operationLabel + " was interrupted.",
                 "PASSKEY_INTERRUPTED",
                 exception
             );
         } catch (TimeoutException exception) {
             throw new PasskeyAuthenticationException(
-                "Passkey sign-in timed out.",
+                operationLabel + " timed out.",
                 "PASSKEY_TIMEOUT",
                 exception
             );
@@ -93,8 +169,8 @@ class NativePasskeyAuthenticator {
             }
 
             throw new PasskeyAuthenticationException(
-                "Passkey sign-in failed. Please try again.",
-                "PASSKEY_ERROR",
+                operationLabel + " failed. Please try again.",
+                fallbackErrorCode,
                 cause
             );
         }
@@ -137,6 +213,40 @@ class NativePasskeyAuthenticator {
 
         return new PasskeyAuthenticationException(
             "Passkey sign-in failed. Please try again.",
+            "PASSKEY_ERROR",
+            exception
+        );
+    }
+
+    private PasskeyAuthenticationException mapCreateCredentialException(CreateCredentialException exception) {
+        String className = exception.getClass().getSimpleName();
+
+        if (className.contains("Cancellation") || className.contains("Canceled")) {
+            return new PasskeyAuthenticationException(
+                "Passkey registration was cancelled.",
+                "PASSKEY_CANCELLED",
+                exception
+            );
+        }
+
+        if (className.contains("ProviderConfiguration")) {
+            return new PasskeyAuthenticationException(
+                "No credential provider is available on this device.",
+                "PASSKEY_PROVIDER_UNAVAILABLE",
+                exception
+            );
+        }
+
+        if (className.contains("Interrupted")) {
+            return new PasskeyAuthenticationException(
+                "Passkey registration was interrupted.",
+                "PASSKEY_INTERRUPTED",
+                exception
+            );
+        }
+
+        return new PasskeyAuthenticationException(
+            "Passkey registration failed. Please try again.",
             "PASSKEY_ERROR",
             exception
         );

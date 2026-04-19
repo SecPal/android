@@ -5,6 +5,45 @@
 
 import { registerPlugin } from "@capacitor/core";
 
+export interface NativePasskeyCredentialParameter {
+  type: "public-key";
+  alg: number;
+}
+
+export interface NativePasskeyCredentialDescriptor {
+  type: "public-key";
+  id: string;
+  transports?: string[];
+}
+
+export interface NativePasskeyRegistrationPublicKeyOptions {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; display_name: string };
+  pub_key_cred_params: NativePasskeyCredentialParameter[];
+  timeout?: number;
+  exclude_credentials?: NativePasskeyCredentialDescriptor[];
+  authenticator_selection?: {
+    authenticator_attachment?: "cross-platform" | "platform";
+    resident_key?: "discouraged" | "preferred" | "required";
+    require_resident_key?: boolean;
+    user_verification?: "discouraged" | "preferred" | "required";
+  };
+  attestation?: "direct" | "enterprise" | "indirect" | "none" | string;
+}
+
+export interface NativePasskeyRegistrationCredential {
+  id: string;
+  raw_id: string;
+  type: "public-key";
+  response: {
+    client_data_json: string;
+    attestation_object: string;
+    transports?: string[];
+  };
+  client_extension_results?: Record<string, unknown>;
+}
+
 export interface AuthCredentials {
   email: string;
   password: string;
@@ -13,6 +52,9 @@ export interface AuthCredentials {
 export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
   loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+  createPasskeyAttestation?(
+    options: NativePasskeyRegistrationPublicKeyOptions
+  ): Promise<NativePasskeyRegistrationCredential>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<boolean>;
@@ -38,6 +80,9 @@ export interface NativeAuthenticatedResponse {
 interface SecPalNativeAuthPlugin {
   login(options: { email: string; password: string }): Promise<unknown>;
   loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+  createPasskeyAttestation?(options: {
+    publicKey: NativePasskeyRegistrationPublicKeyOptions;
+  }): Promise<{ credential: NativePasskeyRegistrationCredential }>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<{ available?: boolean }>;
@@ -86,6 +131,17 @@ export function createNativeAuthBridge(): NativeAuthBridge {
     const loginWithPasskey = secPalNativeAuthPlugin.loginWithPasskey;
 
     bridge.loginWithPasskey = (options) => loginWithPasskey(options ?? {});
+  }
+
+  if (typeof secPalNativeAuthPlugin.createPasskeyAttestation === "function") {
+    const createPasskeyAttestation =
+      secPalNativeAuthPlugin.createPasskeyAttestation;
+
+    bridge.createPasskeyAttestation = async (options) => {
+      const result = await createPasskeyAttestation({ publicKey: options });
+
+      return result.credential;
+    };
   }
 
   return bridge;

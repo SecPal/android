@@ -123,6 +123,42 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void createPasskeyAttestation(PluginCall call) {
+        JSObject publicKey = call.getObject("publicKey");
+
+        if (publicKey == null) {
+            call.reject("Missing required value: publicKey", "INVALID_INPUT");
+            return;
+        }
+
+        runAsync(call, () -> {
+            try {
+                Activity activity = getActivity();
+
+                if (activity == null) {
+                    call.reject(
+                        "Android passkey registration is unavailable because no activity is attached.",
+                        "PASSKEY_UNAVAILABLE"
+                    );
+                    return;
+                }
+
+                String requestJson = PasskeyAuthenticationJson.buildRegistrationRequestJson(publicKey);
+                String registrationResponseJson = passkeyAuthenticator.register(activity, requestJson);
+                JSObject credential = PasskeyAuthenticationJson.buildRegistrationVerificationCredential(
+                    registrationResponseJson
+                );
+
+                JSObject payload = new JSObject();
+                payload.put("credential", credential);
+                call.resolve(payload);
+            } catch (JSONException | NativeAuthHttpException | PasskeyAuthenticationException exception) {
+                rejectCall(call, exception);
+            }
+        });
+    }
+
+    @PluginMethod
     public void getCurrentUser(PluginCall call) {
         runAsync(call, () -> {
             try {
