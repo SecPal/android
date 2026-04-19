@@ -70,8 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SecPalNativeAuthPluginTest` covering HTTP error-code resolution and the non-HTTP fallback path
 - `tests/native-auth-bridge-bootstrap.test.ts` covering the injected Android bootstrap script, bridge installation, native `/v1/` request routing, and the browser-session fallback for non-native/public traffic
 - `values-night/ic_launcher_background.xml` for dark-mode adaptive icon background, ensuring proper contrast and visibility in system dark theme mode
+- Initial `android` repository scaffold with SecPal governance baseline files, hooks, and workflows
 
-### Fixed
+#### Additional fixes
 
 - Added provisioning-bootstrap store coverage for commit-result toggling so persistence paths are validated when `InMemorySharedPreferences` switches from failed `commit()` back to success
 - Expanded native enterprise bridge tests to cover `launchPhone`/`launchSms`, rejected plugin calls, and alternate managed-state payloads for stronger bridge delegation/error coverage
@@ -132,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Align `MainActivity.java` indentation to 4-space style consistent with all other Java sources in the package
 - Set the Capacitor Android wrapper hostname to `app.secpal.dev` so the native WebView origin matches the API CORS allowlist and the login health check no longer fails with a false "System not ready" state while still keeping the Android package ID at `app.secpal`
 
-### Added
+### Documentation
 
 - `docs/ANDROID_AUTH_ARCHITECTURE.md` and README guidance that make the long-term Android auth boundary explicit: the shared WebView UI stays, but Android authentication must use native bearer tokens from `/v1/auth/token` with Keystore-backed storage and no JavaScript-visible token persistence.
 - `docs/ANDROID_LOCAL_DEVICE_TESTING.md` plus README links that document the full Fedora/Linux path for testing on a physical Android device, including toolchain checks, `adb` verification, APK installation, and common USB troubleshooting.
@@ -158,9 +159,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `package-lock.json` to resolve transitive `flatted` to `3.4.2`, removing the current high-severity `npm audit` finding without changing declared package ranges
 - Scoped the transitive `yauzl` override to `native-run` and pinned it to `3.2.1` so Capacitor CLI tooling no longer resolves the vulnerable ZIP parser version reported by `npm audit`
 
-### Added
-
-- Initial `android` repository scaffold with SecPal governance baseline files, hooks, and workflows
 - Capacitor + React + TypeScript bootstrap with Android platform preparation scripts
 - Repository-local Copilot instruction baseline and overlays for Android/Capacitor scope
 - `docs/ANDROID_ENTERPRISE_ROADMAP.md` for staged DPC/profile-owner/device-owner implementation planning
