@@ -12,6 +12,7 @@ export interface AuthCredentials {
 
 export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
+  loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<boolean>;
@@ -36,6 +37,7 @@ export interface NativeAuthenticatedResponse {
 
 interface SecPalNativeAuthPlugin {
   login(options: { email: string; password: string }): Promise<unknown>;
+  loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<{ available?: boolean }>;
@@ -51,7 +53,7 @@ interface SecPalNativeAuthPlugin {
 const secPalNativeAuthPlugin =
   registerPlugin<SecPalNativeAuthPlugin>("SecPalNativeAuth");
 export function createNativeAuthBridge(): NativeAuthBridge {
-  return {
+  const bridge: NativeAuthBridge = {
     login(credentials) {
       return secPalNativeAuthPlugin.login({
         email: credentials.email,
@@ -79,6 +81,14 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       });
     },
   };
+
+  if (typeof secPalNativeAuthPlugin.loginWithPasskey === "function") {
+    const loginWithPasskey = secPalNativeAuthPlugin.loginWithPasskey;
+
+    bridge.loginWithPasskey = (options) => loginWithPasskey(options ?? {});
+  }
+
+  return bridge;
 }
 
 export function installNativeAuthBridge(

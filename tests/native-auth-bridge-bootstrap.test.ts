@@ -179,6 +179,7 @@ describe("native auth bridge bootstrap injection", () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      loginWithPasskey: vi.fn().mockResolvedValue({ user: { id: 7 } }),
       logout: vi.fn().mockResolvedValue(undefined),
       getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
@@ -217,9 +218,11 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalNativeAuthBridge as {
       login(credentials: { email: string; password: string }): Promise<unknown>;
+      loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
     };
 
     await bridge.login({ email: "worker@secpal.dev", password: "password123" });
+    await bridge.loginWithPasskey?.({ email: "worker@secpal.dev" });
 
     const response = await (sandbox.fetch as typeof fetch)(
       "https://api.secpal.dev/v1/customers",
@@ -236,6 +239,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.login).toHaveBeenCalledWith({
       email: "worker@secpal.dev",
       password: "password123",
+    });
+    expect(plugin.loginWithPasskey).toHaveBeenCalledWith({
+      email: "worker@secpal.dev",
     });
     expect(plugin.request).toHaveBeenCalledWith({
       method: "POST",

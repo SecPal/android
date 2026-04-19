@@ -47,7 +47,42 @@ class NativeAuthHttpClient {
 
         JSONObject response = sendJsonRequest(baseUrl, "/v1/auth/token", "POST", requestBody, null);
 
-        return new LoginResponse(response.getString("token"), JSObject.fromJSONObject(response.getJSONObject("user")));
+        return parseLoginResponse(response);
+    }
+
+    PasskeyChallenge startTokenPasskeyAuthenticationChallenge(String baseUrl, String deviceName, String email)
+        throws IOException, JSONException, NativeAuthHttpException {
+        JSONObject requestBody = new JSONObject()
+            .put("device_name", deviceName);
+
+        if (email != null && !email.trim().isEmpty()) {
+            requestBody.put("email", email.trim());
+        }
+
+        JSONObject response = sendJsonRequest(
+            baseUrl,
+            "/v1/auth/token/passkeys/challenges",
+            "POST",
+            requestBody,
+            null
+        );
+
+        return parsePasskeyChallengeResponse(response);
+    }
+
+    LoginResponse verifyTokenPasskeyAuthenticationChallenge(String baseUrl, String challengeId, JSObject credential)
+        throws IOException, JSONException, NativeAuthHttpException {
+        String normalizedChallengeId = normalizeChallengeId(challengeId);
+        JSONObject requestBody = new JSONObject().put("credential", credential);
+        JSONObject response = sendJsonRequest(
+            baseUrl,
+            "/v1/auth/token/passkeys/challenges/" + normalizedChallengeId + "/verify",
+            "POST",
+            requestBody,
+            null
+        );
+
+        return parseLoginResponse(response);
     }
 
     ProvisioningBootstrapExchangeResult exchangeBootstrapToken(
@@ -408,6 +443,20 @@ class NativeAuthHttpClient {
         return parseBootstrapExchangePayload(toJavaMap(response.getJSONObject("data")));
     }
 
+    static LoginResponse parseLoginResponse(JSONObject response) throws JSONException {
+        return new LoginResponse(response.getString("token"), JSObject.fromJSONObject(response.getJSONObject("user")));
+    }
+
+    static PasskeyChallenge parsePasskeyChallengeResponse(JSONObject response)
+        throws JSONException {
+        JSONObject data = response.getJSONObject("data");
+
+        return new PasskeyChallenge(
+            data.getString("challenge_id"),
+            data.getJSONObject("public_key")
+        );
+    }
+
     static ProvisioningBootstrapExchangeResult parseBootstrapExchangePayload(Map<String, Object> data) {
         return new ProvisioningBootstrapExchangeResult(
             stringValue(data.get("enrollment_session_id")),
@@ -474,6 +523,14 @@ class NativeAuthHttpClient {
         } catch (NumberFormatException ignored) {
             return 0;
         }
+    }
+
+    private static String normalizeChallengeId(String challengeId) throws NativeAuthHttpException {
+        if (challengeId == null || challengeId.trim().isEmpty()) {
+            throw new NativeAuthHttpException("Android auth bridge requires a passkey challenge id", 0);
+        }
+
+        return challengeId.trim();
     }
 
     @SuppressWarnings("unchecked")
@@ -549,6 +606,24 @@ class NativeAuthHttpClient {
 
         JSObject getUser() {
             return user;
+        }
+    }
+
+    static final class PasskeyChallenge {
+        private final String challengeId;
+        private final JSONObject publicKey;
+
+        PasskeyChallenge(String challengeId, JSONObject publicKey) {
+            this.challengeId = challengeId;
+            this.publicKey = publicKey;
+        }
+
+        String getChallengeId() {
+            return challengeId;
+        }
+
+        JSONObject getPublicKey() {
+            return publicKey;
         }
     }
 

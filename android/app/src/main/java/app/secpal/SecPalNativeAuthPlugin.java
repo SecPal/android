@@ -5,6 +5,9 @@
 
 package app.secpal;
 
+import android.app.Activity;
+import android.os.Build;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,6 +23,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private TokenStorage tokenStorage;
     private NativeAuthHttpClient httpClient;
     private NetworkState networkState;
+    private NativePasskeyAuthenticator passkeyAuthenticator;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private String apiBaseUrl;
 
@@ -30,6 +34,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         tokenStorage = new KeystoreTokenStorage(getContext());
         httpClient = new NativeAuthHttpClient();
         networkState = new NetworkState();
+        passkeyAuthenticator = new NativePasskeyAuthenticator();
     }
 
     @Override
@@ -57,6 +62,59 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 payload.put("user", response.getUser());
                 call.resolve(payload);
             } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
+                rejectCall(call, exception);
+            } catch (TokenStorageException exception) {
+                call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void loginWithPasskey(PluginCall call) {
+        String email = optionalValue(call, "email");
+
+        runAsync(call, () -> {
+            try {
+                Activity activity = getActivity();
+
+                if (activity == null) {
+                    call.reject(
+                        "Android passkey sign-in is unavailable because no activity is attached.",
+                        "PASSKEY_UNAVAILABLE"
+                    );
+                    return;
+                }
+
+                requireNetworkConnection();
+
+                NativeAuthHttpClient.PasskeyChallenge challenge = httpClient.startTokenPasskeyAuthenticationChallenge(
+                    apiBaseUrl,
+                    NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL),
+                    email
+                );
+                String requestJson = PasskeyAuthenticationJson.buildAuthenticationRequestJson(challenge.getPublicKey());
+                String authenticationResponseJson = passkeyAuthenticator.authenticate(activity, requestJson);
+                JSObject credential = PasskeyAuthenticationJson.buildAuthenticationVerificationCredential(
+                    authenticationResponseJson
+                );
+                NativeAuthHttpClient.LoginResponse response = httpClient.verifyTokenPasskeyAuthenticationChallenge(
+                    apiBaseUrl,
+                    challenge.getChallengeId(),
+                    credential
+                );
+
+                tokenStorage.saveToken(response.getToken());
+
+                JSObject payload = new JSObject();
+                payload.put("user", response.getUser());
+                call.resolve(payload);
+            } catch (
+                IOException
+                | JSONException
+                | NativeAuthHttpException
+                | NetworkUnavailableException
+                | PasskeyAuthenticationException exception
+            ) {
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
@@ -178,6 +236,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return value.trim();
     }
 
+    private String optionalValue(PluginCall call, String key) {
+        String value = call.getString(key);
+
+        if (value == null) {
+            return null;
+        }
+
+        String trimmedValue = value.trim();
+
+        return trimmedValue.isEmpty() ? null : trimmedValue;
+    }
+
     private void rejectCall(PluginCall call, Exception exception) {
         String errorCode = resolveErrorCode(exception);
 
@@ -192,6 +262,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static String resolveErrorCode(Exception exception) {
         if (exception instanceof NetworkUnavailableException) {
             return "NETWORK_OFFLINE";
+        }
+
+        if (exception instanceof PasskeyAuthenticationException) {
+            return ((PasskeyAuthenticationException) exception).getErrorCode();
         }
 
         if (!(exception instanceof NativeAuthHttpException)) {
