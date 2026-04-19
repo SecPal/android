@@ -5,6 +5,8 @@ SPDX-License-Identifier: CC0-1.0
 
 # Changelog
 
+- Android wrapper builds now allow temporarily disabling screenshot protection through `SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION=false` and opting into release WebView inspection through `SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING=true` for local live-device debugging while preserving secure-by-default behavior.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Android wrapper now declares `asset_statements` for `https://app.secpal.dev/.well-known/assetlinks.json` in its manifest resources, aligning the installed app with Android Credential Manager's Digital Asset Links prerequisite for passkey RP-ID validation.
+- The Android Capacitor shell now enables `WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP` on its `WebView`, so Credential Manager can validate `app.secpal.dev` passkey RP IDs inside the native wrapper instead of failing after the system passkey creation dialog.
 - SecPal now marks both native Android activities as secure windows and disables screen capture through the managed device-owner/profile-owner policy, blocking screenshots, screen recording, and Recents thumbnails on the visible SecPal surfaces, across the managed device in device-owner deployments, and within the managed profile in profile-owner deployments.
 - `ProvisioningBootstrapStoreTest` now asserts `isAllowSms()` is false when `secpal_allow_sms` is set to false in the exchange-result policy profile, closing the coverage gap alongside the existing `isAllowPhone()` check.
 - The retry-scenario test in `ProvisioningBootstrapStoreTest` now calls `applyExchangeResult` after toggling the commit flag to true and asserts the full completed state, replacing the previous stub that only verified a `markExchangeFailure` call and left the retry path untested.
@@ -41,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- native Android passkey registration in the auth bridge: the wrapper now maps the API registration challenge into a Credential Manager create request, returns the resulting attestation payload through the injected WebView bridge, and gives the shared frontend settings flow a native enrollment path inside the Android shell
+- native Android passkey sign-in in the auth bridge: the wrapper now starts token-mode passkey challenges against the API, completes the Credential Manager authentication ceremony, verifies the returned assertion for a bearer token, and exposes `loginWithPasskey` through the injected WebView bridge used by the shared frontend login screen
 - Samsung Knox hardware-button launch wiring in the Android wrapper: protected hard-key broadcasts now bring `MainActivity` to the foreground, Samsung emergency launch aliases can map short- and long-press surfaces into retained enterprise-bridge events, and hardware-trigger launches request wake/keyguard dismissal so the injected bridge can still route emergency entry points while the WebView is starting or the app was backgrounded
 - Regression coverage for bootstrap-store retry persistence after a failed exchange commit and for native enterprise-bridge delegation of phone, SMS, and gesture-navigation calls.
 - generic Android hardware-button bridge events in the enterprise wrapper: foreground `dispatchKeyEvent` input now reaches `SecPalEnterpriseBridge` as typed pressed, short-press, and long-press callbacks so the Android shell can wire emergency navigation without Samsung-specific launch plumbing in the same PR

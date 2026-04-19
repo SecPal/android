@@ -18,6 +18,8 @@ import android.view.WindowManager;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -62,11 +64,17 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalNativeAuthPlugin.class);
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
-        getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        );
+        if (BuildConfig.WEBVIEW_DEBUGGING_ENABLED) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+        if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
+            getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            );
+        }
         super.onCreate(savedInstanceState);
+        enableWebViewPasskeySupport();
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
         handleSamsungHardwareButtonLaunch(getIntent());
         scheduleProvisioningBootstrapSync();
@@ -246,6 +254,32 @@ public class MainActivity extends BridgeActivity {
                 provisioningBootstrapSyncInFlight.set(false);
             }
         });
+    }
+
+    private void enableWebViewPasskeySupport() {
+        Bridge bridge = getBridge();
+
+        if (bridge == null) {
+            Log.w(LOG_TAG, "Capacitor bridge unavailable; skipping WebView passkey support");
+            return;
+        }
+
+        WebView webView = bridge.getWebView();
+
+        if (webView == null) {
+            Log.w(LOG_TAG, "Capacitor WebView unavailable; skipping WebView passkey support");
+            return;
+        }
+
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+            Log.w(LOG_TAG, "Android WebView does not support Web Authentication");
+            return;
+        }
+
+        WebSettingsCompat.setWebAuthenticationSupport(
+            webView.getSettings(),
+            WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+        );
     }
 
     private WebViewBackNavigationController.BackNavigationTarget resolveBackNavigationTarget() {
