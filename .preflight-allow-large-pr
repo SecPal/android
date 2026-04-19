@@ -1,0 +1,5 @@
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: CC0-1.0
+
+Existing in-flight feature branch continued for Android native passkey support.
+This override is required because the pre-push size check measures total branch diff against main, not only the incremental registration slice in this follow-up commit.
