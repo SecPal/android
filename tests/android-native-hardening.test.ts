@@ -56,8 +56,7 @@ describe("Android native hardening", () => {
     try {
       configModule = await import("../capacitor.config");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       throw new Error(
         `Failed to import ../capacitor.config for Cordova access allowlist test: ${message}`,
         { cause: error }
