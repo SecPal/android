@@ -76,6 +76,11 @@ At minimum verify:
 - Before merge, prove the defect with a failing test, a reproducible defect, or a stated invariant and why the current code violates it.
 - Green CI alone is not enough for AI-generated changes, especially test, lifecycle, shell, regex, or refactor diffs; review the semantic risk explicitly.
 - Reject AI-generated bridge or auth cleanups, including back-navigation or managed-mode refactors, that do not prove listener-handle behavior, teardown ordering, WebView history, or device-owner/profile-owner state semantics with focused tests.
+- Reject AI-generated compatibility keep-alives that preserve obsolete
+  Android-side shims, deprecated bridge payloads, or legacy wrapper behavior
+  without a proven live caller. Because the SecPal project is still under
+  `1.x`, prefer removing unnecessary compatibility paths over carrying them
+  forward when they weaken security, correctness, or contract clarity.
 
 ## Repository Conventions
 
@@ -88,3 +93,7 @@ At minimum verify:
 ## Scope Notes
 
 - Do not add dependencies or create documentation files unless the task requires them.
+- Because the SecPal project is still under `1.x`, breaking changes are
+  acceptable when they remove insecure or obsolete compatibility layers. When
+  taking that route, update tests and `CHANGELOG.md` in the same change set
+  instead of keeping a legacy path alive by default.
