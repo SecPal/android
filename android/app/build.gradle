@@ -18,11 +18,16 @@ def releaseKeyAlias = System.getenv('SECPAL_ANDROID_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
 def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim()
 def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
+def screenshotProtectionEnabled = ((System.getenv('SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION') ?: 'true').trim()).toBoolean()
+def webViewDebuggingEnabled = ((System.getenv('SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING') ?: 'false').trim()).toBoolean()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
     namespace "app.secpal"
     compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
         applicationId "app.secpal"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -33,6 +38,8 @@ android {
             secpalSamsungAppKeyPttData: samsungAppKeyPttData,
             secpalSamsungAppKeySosData: samsungAppKeySosData,
         ]
+        buildConfigField "boolean", "SCREENSHOT_PROTECTION_ENABLED", screenshotProtectionEnabled ? "true" : "false"
+        buildConfigField "boolean", "WEBVIEW_DEBUGGING_ENABLED", webViewDebuggingEnabled ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -70,6 +77,7 @@ dependencies {
     implementation "androidx.credentials:credentials:$androidxCredentialsVersion"
     implementation "androidx.credentials:credentials-play-services-auth:$androidxCredentialsVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.json:json:20240303"

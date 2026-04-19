@@ -5,6 +5,8 @@ SPDX-License-Identifier: CC0-1.0
 
 # Changelog
 
+- Android wrapper builds now allow temporarily disabling screenshot protection through `SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION=false` and opting into release WebView inspection through `SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING=true` for local live-device debugging while preserving secure-by-default behavior.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Android wrapper now declares `asset_statements` for `https://app.secpal.dev/.well-known/assetlinks.json` in its manifest resources, aligning the installed app with Android Credential Manager's Digital Asset Links prerequisite for passkey RP-ID validation.
+- The Android Capacitor shell now enables `WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP` on its `WebView`, so Credential Manager can validate `app.secpal.dev` passkey RP IDs inside the native wrapper instead of failing after the system passkey creation dialog.
 - SecPal now marks both native Android activities as secure windows and disables screen capture through the managed device-owner/profile-owner policy, blocking screenshots, screen recording, and Recents thumbnails on the visible SecPal surfaces, across the managed device in device-owner deployments, and within the managed profile in profile-owner deployments.
 - `ProvisioningBootstrapStoreTest` now asserts `isAllowSms()` is false when `secpal_allow_sms` is set to false in the exchange-result policy profile, closing the coverage gap alongside the existing `isAllowPhone()` check.
 - The retry-scenario test in `ProvisioningBootstrapStoreTest` now calls `applyExchangeResult` after toggling the commit flag to true and asserts the full completed state, replacing the previous stub that only verified a `markExchangeFailure` call and left the retry path untested.

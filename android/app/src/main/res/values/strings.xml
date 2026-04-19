@@ -5,6 +5,7 @@
     <string name="package_name">app.secpal</string>
     <string name="custom_url_scheme">app.secpal</string>
     <string name="api_base_url">https://api.secpal.dev</string>
+    <string name="asset_statements" translatable="false">[{\"include\": \"https://app.secpal.dev/.well-known/assetlinks.json\"}]</string>
     <string name="enterprise_device_admin_description">Allows SecPal to manage dedicated Android devices when provisioned as the device policy controller.</string>
     <string name="enterprise_disable_warning">Disabling SecPal device management removes kiosk restrictions and dedicated-device enforcement.</string>
     <string name="enterprise_profile_name">SecPal Work</string>
