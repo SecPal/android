@@ -9,6 +9,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 import androidx.credentials.exceptions.CreateCredentialCancellationException;
+import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException;
 import androidx.credentials.exceptions.CreateCredentialUnsupportedException;
 import androidx.credentials.exceptions.GetCredentialCancellationException;
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException;
@@ -92,6 +93,22 @@ public class NativePasskeyAuthenticatorTest {
     @Test
     public void mapCreateCredentialExceptionTreatsUnsupportedDevicesAsProviderUnavailable() {
         CreateCredentialUnsupportedException exception = new CreateCredentialUnsupportedException();
+
+        PasskeyAuthenticationException mappedException =
+            NativePasskeyAuthenticator.mapCreateCredentialException(exception);
+
+        assertEquals("PASSKEY_PROVIDER_UNAVAILABLE", mappedException.getErrorCode());
+        assertEquals(
+            "No credential provider is available on this device.",
+            mappedException.getMessage()
+        );
+        assertSame(exception, mappedException.getCause());
+    }
+
+    @Test
+    public void mapCreateCredentialExceptionUsesProviderUnavailableForProviderConfigurationErrors() {
+        CreateCredentialProviderConfigurationException exception =
+            new CreateCredentialProviderConfigurationException();
 
         PasskeyAuthenticationException mappedException =
             NativePasskeyAuthenticator.mapCreateCredentialException(exception);
