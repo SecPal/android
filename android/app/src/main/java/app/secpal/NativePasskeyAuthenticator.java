@@ -18,8 +18,17 @@ import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.GetPublicKeyCredentialOption;
 import androidx.credentials.PublicKeyCredential;
+import androidx.credentials.exceptions.CreateCredentialCancellationException;
 import androidx.credentials.exceptions.CreateCredentialException;
+import androidx.credentials.exceptions.CreateCredentialInterruptedException;
+import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException;
+import androidx.credentials.exceptions.CreateCredentialUnsupportedException;
+import androidx.credentials.exceptions.GetCredentialCancellationException;
 import androidx.credentials.exceptions.GetCredentialException;
+import androidx.credentials.exceptions.GetCredentialInterruptedException;
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException;
+import androidx.credentials.exceptions.GetCredentialUnsupportedException;
+import androidx.credentials.exceptions.NoCredentialException;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -129,7 +138,7 @@ class NativePasskeyAuthenticator {
 
                 @Override
                 public void onError(GetCredentialException exception) {
-                    responseFuture.completeExceptionally(mapCredentialException(exception));
+                    responseFuture.completeExceptionally(mapGetCredentialException(exception));
                 }
             }
         ));
@@ -176,10 +185,8 @@ class NativePasskeyAuthenticator {
         }
     }
 
-    private PasskeyAuthenticationException mapCredentialException(GetCredentialException exception) {
-        String className = exception.getClass().getSimpleName();
-
-        if (className.contains("Cancellation") || className.contains("Canceled")) {
+    static PasskeyAuthenticationException mapGetCredentialException(GetCredentialException exception) {
+        if (exception instanceof GetCredentialCancellationException) {
             return new PasskeyAuthenticationException(
                 "Passkey sign-in was cancelled.",
                 "PASSKEY_CANCELLED",
@@ -187,7 +194,7 @@ class NativePasskeyAuthenticator {
             );
         }
 
-        if (className.contains("NoCredential")) {
+        if (exception instanceof NoCredentialException) {
             return new PasskeyAuthenticationException(
                 "No passkey is available on this device for the selected account.",
                 "PASSKEY_UNAVAILABLE",
@@ -195,7 +202,10 @@ class NativePasskeyAuthenticator {
             );
         }
 
-        if (className.contains("ProviderConfiguration")) {
+        if (
+            exception instanceof GetCredentialProviderConfigurationException
+                || exception instanceof GetCredentialUnsupportedException
+        ) {
             return new PasskeyAuthenticationException(
                 "No credential provider is available on this device.",
                 "PASSKEY_PROVIDER_UNAVAILABLE",
@@ -203,7 +213,7 @@ class NativePasskeyAuthenticator {
             );
         }
 
-        if (className.contains("Interrupted")) {
+        if (exception instanceof GetCredentialInterruptedException) {
             return new PasskeyAuthenticationException(
                 "Passkey sign-in was interrupted.",
                 "PASSKEY_INTERRUPTED",
@@ -218,10 +228,8 @@ class NativePasskeyAuthenticator {
         );
     }
 
-    private PasskeyAuthenticationException mapCreateCredentialException(CreateCredentialException exception) {
-        String className = exception.getClass().getSimpleName();
-
-        if (className.contains("Cancellation") || className.contains("Canceled")) {
+    static PasskeyAuthenticationException mapCreateCredentialException(CreateCredentialException exception) {
+        if (exception instanceof CreateCredentialCancellationException) {
             return new PasskeyAuthenticationException(
                 "Passkey registration was cancelled.",
                 "PASSKEY_CANCELLED",
@@ -229,7 +237,10 @@ class NativePasskeyAuthenticator {
             );
         }
 
-        if (className.contains("ProviderConfiguration")) {
+        if (
+            exception instanceof CreateCredentialProviderConfigurationException
+                || exception instanceof CreateCredentialUnsupportedException
+        ) {
             return new PasskeyAuthenticationException(
                 "No credential provider is available on this device.",
                 "PASSKEY_PROVIDER_UNAVAILABLE",
@@ -237,7 +248,7 @@ class NativePasskeyAuthenticator {
             );
         }
 
-        if (className.contains("Interrupted")) {
+        if (exception instanceof CreateCredentialInterruptedException) {
             return new PasskeyAuthenticationException(
                 "Passkey registration was interrupted.",
                 "PASSKEY_INTERRUPTED",
