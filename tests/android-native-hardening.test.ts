@@ -45,9 +45,9 @@ describe("Android native hardening", () => {
       packages?: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe("0.8.12");
+    expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe("0.8.13");
     expect(packageLock.packages?.["node_modules/@xmldom/xmldom"]?.version).toBe(
-      "0.8.12"
+      "0.8.13"
     );
   });
 
