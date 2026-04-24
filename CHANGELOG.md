@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- bumped the repo-local `@xmldom/xmldom` npm override to `0.8.13`, clearing the high-severity processing-instruction XML injection advisory and the related xmldom audit findings from the Android Capacitor CLI dependency chain
 - Android passkey auth now maps Credential Manager unsupported/provider failures via explicit AndroidX exception types instead of class-name heuristics, so unsupported-device/provider states consistently surface the native `PASSKEY_PROVIDER_UNAVAILABLE` path used by the shared login UI.
 - The Android wrapper now declares `asset_statements` for `https://app.secpal.dev/.well-known/assetlinks.json` in its manifest resources, aligning the installed app with Android Credential Manager's Digital Asset Links prerequisite for passkey RP-ID validation.
 - The Android Capacitor shell now enables `WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP` on its `WebView`, so Credential Manager can validate `app.secpal.dev` passkey RP IDs inside the native wrapper instead of failing after the system passkey creation dialog.
