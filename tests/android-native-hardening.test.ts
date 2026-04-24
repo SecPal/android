@@ -19,6 +19,24 @@ const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
 const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
+const MIN_ANDROIDX_WEBKIT_VERSION = "1.9.0";
+
+const parseSemver = (version: string): [number, number, number] => {
+  const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    throw new Error(`Invalid semantic version: ${version}`);
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+};
+
+const isVersionAtLeast = (actual: string, minimum: string): boolean => {
+  const [aMajor, aMinor, aPatch] = parseSemver(actual);
+  const [mMajor, mMinor, mPatch] = parseSemver(minimum);
+
+  if (aMajor !== mMajor) return aMajor > mMajor;
+  if (aMinor !== mMinor) return aMinor > mMinor;
+  return aPatch >= mPatch;
+};
 
 describe("Android native hardening", () => {
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
@@ -235,6 +253,17 @@ describe("Android native hardening", () => {
     expect(buildGradle).toContain(
       'implementation "androidx.webkit:webkit:$androidxWebkitVersion"'
     );
+
+    const webkitVersionMatch = buildGradle.match(
+      /androidxWebkitVersion\s*=\s*["'](\d+\.\d+\.\d+)["']/
+    );
+    expect(webkitVersionMatch).not.toBeNull();
+
+    const androidxWebkitVersion = webkitVersionMatch?.[1] ?? "";
+    expect(
+      isVersionAtLeast(androidxWebkitVersion, MIN_ANDROIDX_WEBKIT_VERSION)
+    ).toBe(true);
+
     expect(buildGradle).toContain("SCREENSHOT_PROTECTION_ENABLED");
     expect(buildGradle).toContain("WEBVIEW_DEBUGGING_ENABLED");
     expect(mainActivity).toContain("WebView.setWebContentsDebuggingEnabled");
