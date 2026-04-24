@@ -20,6 +20,12 @@ import org.junit.Test;
 
 public class NativePasskeyAuthenticatorTest {
 
+    private static final class UnknownGetCredentialException extends androidx.credentials.exceptions.GetCredentialException {
+        UnknownGetCredentialException() {
+            super("UNKNOWN_GET_CREDENTIAL_EXCEPTION");
+        }
+    }
+
     @Test
     public void mapGetCredentialExceptionUsesCancelledCodeForUserCancellation() {
         GetCredentialCancellationException exception = new GetCredentialCancellationException();
@@ -75,6 +81,18 @@ public class NativePasskeyAuthenticatorTest {
             "No credential provider is available on this device.",
             mappedException.getMessage()
         );
+        assertSame(exception, mappedException.getCause());
+    }
+
+    @Test
+    public void mapGetCredentialExceptionUsesGenericErrorForUnknownExceptionTypes() {
+        UnknownGetCredentialException exception = new UnknownGetCredentialException();
+
+        PasskeyAuthenticationException mappedException =
+            NativePasskeyAuthenticator.mapGetCredentialException(exception);
+
+        assertEquals("PASSKEY_ERROR", mappedException.getErrorCode());
+        assertEquals("Passkey sign-in failed. Please try again.", mappedException.getMessage());
         assertSame(exception, mappedException.getCause());
     }
 
