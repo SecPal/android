@@ -12,6 +12,7 @@ import androidx.credentials.exceptions.CreateCredentialCancellationException;
 import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException;
 import androidx.credentials.exceptions.CreateCredentialUnsupportedException;
 import androidx.credentials.exceptions.GetCredentialCancellationException;
+import androidx.credentials.exceptions.GetCredentialException;
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException;
 import androidx.credentials.exceptions.GetCredentialUnsupportedException;
 import androidx.credentials.exceptions.NoCredentialException;
@@ -20,8 +21,8 @@ import org.junit.Test;
 
 public class NativePasskeyAuthenticatorTest {
 
-    private static final class UnknownGetCredentialException extends androidx.credentials.exceptions.GetCredentialException {
-        UnknownGetCredentialException() {
+    private static final class UnknownGetCredentialException extends GetCredentialException {
+        private UnknownGetCredentialException() {
             super("UNKNOWN_GET_CREDENTIAL_EXCEPTION");
         }
     }
