@@ -27,6 +27,12 @@ public class NativePasskeyAuthenticatorTest {
         }
     }
 
+    private static final class UnknownCreateCredentialException extends CreateCredentialCancellationException {
+        private UnknownCreateCredentialException() {
+            super("UNKNOWN_CREATE_CREDENTIAL_EXCEPTION");
+        }
+    }
+
     @Test
     public void mapGetCredentialExceptionUsesCancelledCodeForUserCancellation() {
         GetCredentialCancellationException exception = new GetCredentialCancellationException();
@@ -135,6 +141,21 @@ public class NativePasskeyAuthenticatorTest {
         assertEquals("PASSKEY_PROVIDER_UNAVAILABLE", mappedException.getErrorCode());
         assertEquals(
             "No credential provider is available on this device.",
+            mappedException.getMessage()
+        );
+        assertSame(exception, mappedException.getCause());
+    }
+
+    @Test
+    public void mapCreateCredentialExceptionUsesGenericErrorForUnknownExceptionTypes() {
+        UnknownCreateCredentialException exception = new UnknownCreateCredentialException();
+
+        PasskeyAuthenticationException mappedException =
+            NativePasskeyAuthenticator.mapCreateCredentialException(exception);
+
+        assertEquals("PASSKEY_ERROR", mappedException.getErrorCode());
+        assertEquals(
+            "Passkey registration failed. Please try again.",
             mappedException.getMessage()
         );
         assertSame(exception, mappedException.getCause());
