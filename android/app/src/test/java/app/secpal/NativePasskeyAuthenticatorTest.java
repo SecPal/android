@@ -8,6 +8,7 @@ package app.secpal;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
+import androidx.credentials.exceptions.CreateCredentialException;
 import androidx.credentials.exceptions.CreateCredentialCancellationException;
 import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException;
 import androidx.credentials.exceptions.CreateCredentialUnsupportedException;
@@ -24,6 +25,12 @@ public class NativePasskeyAuthenticatorTest {
     private static final class UnknownGetCredentialException extends GetCredentialException {
         private UnknownGetCredentialException() {
             super("UNKNOWN_GET_CREDENTIAL_EXCEPTION");
+        }
+    }
+
+    private static final class UnknownCreateCredentialException extends CreateCredentialException {
+        private UnknownCreateCredentialException() {
+            super("UNKNOWN_CREATE_CREDENTIAL_EXCEPTION");
         }
     }
 
@@ -135,6 +142,21 @@ public class NativePasskeyAuthenticatorTest {
         assertEquals("PASSKEY_PROVIDER_UNAVAILABLE", mappedException.getErrorCode());
         assertEquals(
             "No credential provider is available on this device.",
+            mappedException.getMessage()
+        );
+        assertSame(exception, mappedException.getCause());
+    }
+
+    @Test
+    public void mapCreateCredentialExceptionUsesGenericErrorForUnknownExceptionTypes() {
+        UnknownCreateCredentialException exception = new UnknownCreateCredentialException();
+
+        PasskeyAuthenticationException mappedException =
+            NativePasskeyAuthenticator.mapCreateCredentialException(exception);
+
+        assertEquals("PASSKEY_ERROR", mappedException.getErrorCode());
+        assertEquals(
+            "Passkey registration failed. Please try again.",
             mappedException.getMessage()
         );
         assertSame(exception, mappedException.getCause());
