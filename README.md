@@ -97,6 +97,8 @@ npm run native:assemble:release
 npm run native:bundle:release
 ```
 
+Release builds always keep screenshot protection enabled on the visible SecPal activities and do not enable WebView debugging. Use debug builds when you need local WebView inspection during device testing.
+
 Signed release artifacts with a local upload key:
 
 ```bash
