@@ -380,8 +380,7 @@ public final class EnterprisePolicyController {
     }
 
     static boolean shouldDisableScreenCapture(EnterpriseManagedState managedState) {
-        return BuildConfig.SCREENSHOT_PROTECTION_ENABLED
-            && managedState != null
+        return managedState != null
             && managedState.isManaged();
     }
 

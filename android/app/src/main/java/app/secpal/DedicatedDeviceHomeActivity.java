@@ -32,12 +32,10 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
-            getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-            );
-        }
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        );
         setContentView(R.layout.activity_dedicated_device_home);
 
         appGrid = findViewById(R.id.enterprise_home_app_grid);

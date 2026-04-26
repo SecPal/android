@@ -229,30 +229,35 @@ describe("Android native hardening", () => {
     const buildGradle = readRepoFile("android", "app", "build.gradle");
 
     expect(mainActivity).toContain("FLAG_SECURE");
-    expect(mainActivity).toContain("BuildConfig.SCREENSHOT_PROTECTION_ENABLED");
     expect(mainActivity).toContain("setWebAuthenticationSupport");
     expect(mainActivity).toContain("WEB_AUTHENTICATION_SUPPORT_FOR_APP");
     expect(mainActivity).toContain("WEB_AUTHENTICATION");
     expect(dedicatedHomeActivity).toContain("FLAG_SECURE");
-    expect(dedicatedHomeActivity).toContain(
-      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
-    );
     expect(policyController).toContain("setScreenCaptureDisabled");
     expect(policyController).toContain("shouldDisableScreenCapture");
-    expect(policyController).toContain(
-      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
-    );
-    expect(buildGradle).toContain(
-      "SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION"
-    );
-    expect(buildGradle).toContain("SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING");
     expect(buildGradle).toContain(
       'implementation "androidx.webkit:webkit:$androidxWebkitVersion"'
     );
-    expect(buildGradle).toContain("SCREENSHOT_PROTECTION_ENABLED");
-    expect(buildGradle).toContain("WEBVIEW_DEBUGGING_ENABLED");
     expect(mainActivity).toContain("WebView.setWebContentsDebuggingEnabled");
-    expect(mainActivity).toContain("BuildConfig.WEBVIEW_DEBUGGING_ENABLED");
+    expect(mainActivity).toContain("BuildConfig.DEBUG");
+    expect(mainActivity).not.toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
+    expect(dedicatedHomeActivity).not.toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
+    expect(policyController).not.toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
+    expect(buildGradle).not.toContain(
+      "SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION"
+    );
+    expect(buildGradle).not.toContain(
+      "SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING"
+    );
+    expect(buildGradle).not.toContain("SCREENSHOT_PROTECTION_ENABLED");
+    expect(buildGradle).not.toContain("WEBVIEW_DEBUGGING_ENABLED");
+    expect(mainActivity).not.toContain("BuildConfig.WEBVIEW_DEBUGGING_ENABLED");
   });
 
   it("declares a device-admin receiver for dedicated-device provisioning", () => {
