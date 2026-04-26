@@ -103,6 +103,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        maybeOpenHardwareButtonRoute(EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(event));
         SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
         return super.dispatchKeyEvent(event);
     }
@@ -208,7 +209,37 @@ public class MainActivity extends BridgeActivity {
             hardwareAction,
             SamsungHardwareButtonLaunch.resolveLaunchKeyCode(intent)
         );
+        maybeOpenHardwareButtonRoute(
+            EnterpriseHardwareButtonRoute.resolveRouteForHardwareAction(hardwareAction)
+        );
         SamsungHardwareButtonLaunch.markHandled(intent);
+    }
+
+    private void maybeOpenHardwareButtonRoute(String pathname) {
+        if (pathname == null || pathname.isEmpty()) {
+            return;
+        }
+
+        Bridge bridge = getBridge();
+
+        if (bridge == null) {
+            Log.w(LOG_TAG, "Capacitor bridge unavailable; skipping hardware-button route fallback");
+            return;
+        }
+
+        WebView webView = bridge.getWebView();
+
+        if (webView == null) {
+            Log.w(LOG_TAG, "Capacitor WebView unavailable; skipping hardware-button route fallback");
+            return;
+        }
+
+        webView.post(
+            () -> webView.evaluateJavascript(
+                EnterpriseHardwareButtonRoute.buildNavigationJavascript(pathname),
+                null
+            )
+        );
     }
 
     private void requestHardwareTriggerWakeState() {

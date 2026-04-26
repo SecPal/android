@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Added a native Android hardware-button route fallback for managed-device Samsung/XCover key events so short presses can still open `/profile` and long presses `/about` even when the injected Web listener is unavailable at runtime, resolving the remaining real-device validation gap in issue #123.
+
 ### Changed
 
 - clarified the repo-local under-`1.x` policy in Copilot governance so Android work explicitly prefers removing obsolete compatibility shims over preserving them without a proven live caller
