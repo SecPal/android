@@ -293,4 +293,86 @@ public class SamsungHardwareButtonLaunchTest {
             )
         );
     }
+
+    @Test
+    public void resolvesDedicatedHomePhysicalKeyDownThenUpToShortPress() {
+        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER));
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_DOWN,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                0,
+                false,
+                () -> 0L
+            )
+        );
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_UP,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                0,
+                false,
+                () -> 250L
+            )
+        );
+    }
+
+    @Test
+    public void resolvesDedicatedHomePhysicalKeyDownThenLongUpToLongPress() {
+        long threshold = SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS;
+
+        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS));
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_DOWN,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
+                0,
+                false,
+                () -> 0L
+            )
+        );
+        assertEquals(
+            SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS,
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_UP,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
+                0,
+                false,
+                () -> threshold
+            )
+        );
+    }
+
+    @Test
+    public void ignoresUnsupportedOrCanceledDedicatedHomePhysicalKeyEvents() {
+        assertFalse(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(9999));
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_UP,
+                9999,
+                0,
+                false,
+                () -> 0L
+            )
+        );
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_DOWN,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                0,
+                false,
+                () -> 0L
+            )
+        );
+        assertNull(
+            SamsungHardwareButtonLaunch.resolveLaunchAction(
+                android.view.KeyEvent.ACTION_UP,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                0,
+                true,
+                () -> 100L
+            )
+        );
+    }
 }

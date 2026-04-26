@@ -10,6 +10,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.GridLayout;
@@ -63,6 +64,27 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
         }
 
         renderLauncher(managedState);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null && EnterpriseHardwareButtonLaunch.isSupportedLaunchKeyCode(event.getKeyCode())) {
+            String hardwareAction = EnterpriseHardwareButtonLaunch.resolveLaunchAction(event);
+
+            if (hardwareAction != null) {
+                startActivity(
+                    EnterpriseHardwareButtonLaunch.createForegroundLaunchIntent(
+                        this,
+                        hardwareAction,
+                        event.getKeyCode()
+                    )
+                );
+            }
+
+            return true;
+        }
+
+        return super.dispatchKeyEvent(event);
     }
 
     private void renderLauncher(EnterpriseManagedState managedState) {
