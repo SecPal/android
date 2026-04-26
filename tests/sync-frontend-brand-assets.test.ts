@@ -44,9 +44,9 @@ describe("frontend brand asset sync", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "brand-sync-missing-assets-"));
     const isolatedRepoRoot = resolve(tempRoot, "android");
 
-    mkdirSync(isolatedRepoRoot, { recursive: true });
-
     try {
+      mkdirSync(isolatedRepoRoot, { recursive: true });
+
       expect(() =>
         assertFrontendBrandAssetSourcesExist(
           buildFrontendBrandAssetPlan(isolatedRepoRoot)
