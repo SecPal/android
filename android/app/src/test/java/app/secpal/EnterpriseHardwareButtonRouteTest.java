@@ -80,6 +80,7 @@ public class EnterpriseHardwareButtonRouteTest {
         );
         assertNull(EnterpriseHardwareButtonRoute.resolveRouteForHardwareAction(null));
         assertNull(EnterpriseHardwareButtonRoute.resolveRouteForHardwareAction("unsupported"));
+        assertNull(EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent((android.view.KeyEvent) null));
     }
 
     @Test

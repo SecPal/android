@@ -29,7 +29,11 @@ final class EnterpriseHardwareButtonRoute {
     }
 
     static String resolveRouteForKeyEvent(KeyEvent event) {
-        return resolveRouteForKeyEvent(event, null);
+        if (event == null) {
+            return null;
+        }
+
+        return resolveRouteForKeyEvent(event, event::getEventTime);
     }
 
     static String resolveRouteForKeyEvent(KeyEvent event, LongSupplier timeMs) {
