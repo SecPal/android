@@ -25,8 +25,10 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public final class EnterprisePolicyController {
@@ -77,7 +79,11 @@ public final class EnterprisePolicyController {
 
         preferences.edit().putString(PREF_MANAGED_MODE, managedMode).apply();
 
-        EnterpriseManagedState managedState = new EnterpriseManagedState(managedMode, policyConfig);
+        EnterpriseManagedState managedState = new EnterpriseManagedState(
+            managedMode,
+            policyConfig,
+            shouldEnableDebugKioskHome(managedMode, policyConfig)
+        );
         String screenCapturePolicySignature = buildScreenCapturePolicySignature(managedState);
         String previousScreenCapturePolicySignature = preferences.getString(
             PREF_APPLIED_SCREEN_CAPTURE_POLICY,
@@ -141,14 +147,29 @@ public final class EnterprisePolicyController {
     }
 
     public static void persistDebugPolicy(Context context, Bundle extras) {
+        Map<String, Object> values = new LinkedHashMap<>();
+
+        if (extras != null && !extras.isEmpty()) {
+            for (String key : extras.keySet()) {
+                values.put(key, extras.get(key));
+            }
+        }
+
+        persistDebugPolicy(context, values);
+    }
+
+    static void persistDebugPolicy(Context context, Map<String, ?> values) {
         SharedPreferences preferences = context.getSharedPreferences(
             ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
         SharedPreferences.Editor editor = preferences.edit();
 
-        EnterprisePolicyConfig.fromBundle(extras).writeToPreferences(editor);
-        editor.apply();
+        EnterprisePolicyConfig.fromMap(values).writeToPreferences(editor);
+
+        if (!editor.commit()) {
+            Log.e(LOG_TAG, "Failed to persist debug policy synchronously");
+        }
     }
 
     public static void clearDebugPolicy(Context context) {
@@ -163,7 +184,10 @@ public final class EnterprisePolicyController {
         editor.remove("allow_sms");
         editor.remove("allowed_packages");
         editor.remove("prefer_gesture_navigation");
-        editor.apply();
+
+        if (!editor.commit()) {
+            Log.e(LOG_TAG, "Failed to clear debug policy synchronously");
+        }
     }
 
     public static void maybeEnterLockTask(Activity activity) {
@@ -339,6 +363,39 @@ public final class EnterprisePolicyController {
         return EnterpriseManagedState.MODE_NONE;
     }
 
+    static boolean shouldOpenDedicatedHomeOnLaunch(
+        Intent intent,
+        EnterpriseManagedState managedState
+    ) {
+        if (intent == null) {
+            return false;
+        }
+
+        return shouldOpenDedicatedHomeOnLaunch(
+            intent.getAction(),
+            intent.hasCategory(Intent.CATEGORY_LAUNCHER),
+            intent.hasCategory(Intent.CATEGORY_HOME),
+            managedState
+        );
+    }
+
+    static boolean shouldOpenDedicatedHomeOnLaunch(
+        String action,
+        boolean hasLauncherCategory,
+        boolean hasHomeCategory,
+        EnterpriseManagedState managedState
+    ) {
+        if (managedState == null || !managedState.usesDebugKioskHome()) {
+            return false;
+        }
+
+        if (!Intent.ACTION_MAIN.equals(action)) {
+            return false;
+        }
+
+        return hasLauncherCategory || hasHomeCategory;
+    }
+
     private static EnterprisePolicyConfig resolveCurrentPolicyConfig(
         Context context,
         SharedPreferences preferences
@@ -377,6 +434,15 @@ public final class EnterprisePolicyController {
             devicePolicyManager.isDeviceOwnerApp(context.getPackageName()),
             devicePolicyManager.isProfileOwnerApp(context.getPackageName())
         );
+    }
+
+    private static boolean shouldEnableDebugKioskHome(
+        String managedMode,
+        EnterprisePolicyConfig policyConfig
+    ) {
+        return BuildConfig.DEBUG
+            && EnterpriseManagedState.MODE_NONE.equals(managedMode)
+            && policyConfig.isKioskModeEnabled();
     }
 
     static boolean shouldDisableScreenCapture(EnterpriseManagedState managedState) {

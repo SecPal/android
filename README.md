@@ -199,6 +199,8 @@ adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
     app.secpal
 ```
 
+On an unmanaged debug device, relaunching the app after that broadcast opens the dedicated-device home activity and exposes the configured kiosk tiles inside SecPal, but it does not grant real Android device-owner lock task or persistent HOME routing.
+
 Example to clear the debug policy again:
 
 ```bash
