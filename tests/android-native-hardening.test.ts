@@ -51,6 +51,20 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("pins a patched postcss version for the Vite toolchain", () => {
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      overrides?: Record<string, unknown>;
+    };
+    const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
+      packages?: Record<string, { version?: string }>;
+    };
+
+    expect(packageJson.overrides?.postcss).toBe("8.5.10");
+    expect(packageLock.packages?.["node_modules/postcss"]?.version).toBe(
+      "8.5.10"
+    );
+  });
+
   it("defines the Cordova access allowlist in Capacitor source config", async () => {
     let configModule: { default?: unknown };
     try {
