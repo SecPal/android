@@ -18,8 +18,6 @@ def releaseKeyAlias = System.getenv('SECPAL_ANDROID_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
 def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim()
 def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
-def screenshotProtectionEnabled = ((System.getenv('SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION') ?: 'true').trim()).toBoolean()
-def webViewDebuggingEnabled = ((System.getenv('SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING') ?: 'false').trim()).toBoolean()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
@@ -38,8 +36,6 @@ android {
             secpalSamsungAppKeyPttData: samsungAppKeyPttData,
             secpalSamsungAppKeySosData: samsungAppKeySosData,
         ]
-        buildConfigField "boolean", "SCREENSHOT_PROTECTION_ENABLED", screenshotProtectionEnabled ? "true" : "false"
-        buildConfigField "boolean", "WEBVIEW_DEBUGGING_ENABLED", webViewDebuggingEnabled ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

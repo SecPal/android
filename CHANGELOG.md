@@ -5,8 +5,6 @@ SPDX-License-Identifier: CC0-1.0
 
 # Changelog
 
-- Android wrapper builds now allow temporarily disabling screenshot protection through `SECPAL_ANDROID_ENABLE_SCREENSHOT_PROTECTION=false` and opting into release WebView inspection through `SECPAL_ANDROID_ENABLE_WEBVIEW_DEBUGGING=true` for local live-device debugging while preserving secure-by-default behavior.
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -26,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android release builds now keep `FLAG_SECURE` enforced on the visible SecPal activities and restrict WebView debugging to `BuildConfig.DEBUG`, removing the broad environment toggles that could previously weaken production hardening.
 - bumped the repo-local `@xmldom/xmldom` npm override to `0.8.13`, clearing the high-severity processing-instruction XML injection advisory and the related xmldom audit findings from the Android Capacitor CLI dependency chain
 - Android passkey auth now maps Credential Manager unsupported/provider failures via explicit AndroidX exception types instead of class-name heuristics, so unsupported-device/provider states consistently surface the native `PASSKEY_PROVIDER_UNAVAILABLE` path used by the shared login UI.
 - The Android wrapper now declares `asset_statements` for `https://app.secpal.dev/.well-known/assetlinks.json` in its manifest resources, aligning the installed app with Android Credential Manager's Digital Asset Links prerequisite for passkey RP-ID validation.

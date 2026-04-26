@@ -64,15 +64,13 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecPalNativeAuthPlugin.class);
         registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
-        if (BuildConfig.WEBVIEW_DEBUGGING_ENABLED) {
+        if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
-        if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
-            getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-            );
-        }
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        );
         super.onCreate(savedInstanceState);
         enableWebViewPasskeySupport();
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
