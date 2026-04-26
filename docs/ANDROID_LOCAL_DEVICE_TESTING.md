@@ -202,13 +202,13 @@ Enable the strict kiosk case where only SecPal stays visible:
 ./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
 ```
 
-On the current Samsung XCover 7 test device, that launcher start is not yet the final kiosk proof by itself. After running both commands above, and specifically after the launcher start command, press HOME once or run:
+Expected result on an unmanaged debug device: the relaunch goes into `DedicatedDeviceHomeActivity`, the app shows the dedicated-device launcher tiles, and `SecPalEnterprisePlugin.getManagedState()` reports `kioskActive=true` plus the configured Phone/SMS/app allowlist flags.
 
-```bash
-./scripts/with-android-env.sh bash -lc 'adb shell input keyevent KEYCODE_HOME'
-```
+Important limit: this debug-only local override does not make the package a real Android device owner. On an unmanaged device, `dumpsys activity activities` will therefore still report `mLockTaskModeState=NONE`, and HOME will keep returning to the stock launcher instead of becoming a persistent managed home surface.
 
-Expected result: `DedicatedDeviceHomeActivity` becomes the top activity and `dumpsys activity activities` reports `mLockTaskModeState=LOCKED`.
+If you recently ran `adb shell am force-stop app.secpal`, relaunch the app once before sending the debug broadcast again. Android may suppress broadcasts to a stopped package even when the command still returns `result=0`.
+
+Expected result on a real device-owner build: `DedicatedDeviceHomeActivity` becomes the top activity and `dumpsys activity activities` reports `mLockTaskModeState=LOCKED`.
 
 Allow SecPal plus Phone and SMS:
 
@@ -222,7 +222,7 @@ Allow normal navigation between SecPal and a curated app set while still keeping
 ./scripts/with-android-env.sh bash -lc "adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings' app.secpal"
 ```
 
-With that policy, the dedicated-device home screen shows only the approved apps and HOME keeps returning to that managed launcher instead of the stock launcher.
+With that policy, the dedicated-device home screen shows only the approved apps. On real device-owner runs, HOME also returns to that managed launcher instead of the stock launcher.
 
 Clear the debug kiosk policy again without removing device owner:
 

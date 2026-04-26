@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The debug-only `DEBUG_SET_ENTERPRISE_POLICY` path now keeps unmanaged local validation devices in the dedicated-device home experience when `secpal_kiosk_mode_enabled=true`, so relaunching the app opens `DedicatedDeviceHomeActivity` and `getManagedState()` reports `kioskActive=true` for debug kiosk validation without pretending the app is a real device owner.
 - `tests/sync-frontend-brand-assets.test.ts` now uses an isolated temporary repo root for its missing-asset assertion, so the Android suite no longer depends on unrelated `/tmp/frontend` leftovers on the host machine
 - Android release builds now keep `FLAG_SECURE` enforced on the visible SecPal activities and restrict WebView debugging to `BuildConfig.DEBUG`, removing the broad environment toggles that could previously weaken production hardening.
 - pinned transitive `postcss` to `8.5.10` through npm overrides so the Android Vite/Vitest toolchain no longer depends on the older release tracked in issue `#175`

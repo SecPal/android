@@ -179,8 +179,21 @@ public class MainActivity extends BridgeActivity {
     private void refreshManagedPolicyState() {
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
 
+        if (EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(getIntent(), managedState)) {
+            openDedicatedHome();
+            return;
+        }
+
         EnterprisePolicyController.maybeEnterLockTask(this);
         SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
+    }
+
+    private void openDedicatedHome() {
+        Intent dedicatedHomeIntent = new Intent(this, DedicatedDeviceHomeActivity.class);
+
+        dedicatedHomeIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(dedicatedHomeIntent);
+        finish();
     }
 
     private void handleSamsungHardwareButtonLaunch(Intent intent) {
