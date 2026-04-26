@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 async function loadBrandSyncModule(): Promise<{
@@ -38,14 +41,25 @@ describe("frontend brand asset sync", () => {
       assertFrontendBrandAssetSourcesExist,
       buildFrontendBrandAssetPlan,
     } = await loadBrandSyncModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "brand-sync-missing-assets-"));
+    const isolatedRepoRoot = resolve(tempRoot, "android");
 
-    expect(() =>
-      assertFrontendBrandAssetSourcesExist(
-        buildFrontendBrandAssetPlan("/tmp/brand-sync-missing-assets")
-      )
-    ).toThrowError(
-      "Missing canonical frontend brand asset: /tmp/frontend/public/logo-source.png"
-    );
+    mkdirSync(isolatedRepoRoot, { recursive: true });
+
+    try {
+      expect(() =>
+        assertFrontendBrandAssetSourcesExist(
+          buildFrontendBrandAssetPlan(isolatedRepoRoot)
+        )
+      ).toThrowError(
+        `Missing canonical frontend brand asset: ${resolve(
+          tempRoot,
+          "frontend/public/logo-source.png"
+        )}`
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("maps canonical frontend logos to Android launcher and splash outputs", async () => {
