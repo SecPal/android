@@ -226,7 +226,9 @@ describe("Android native hardening", () => {
     );
     expect(mainActivity).toContain("WebView.setWebContentsDebuggingEnabled");
     expect(mainActivity).toContain("BuildConfig.DEBUG");
-    expect(mainActivity).not.toContain("BuildConfig.SCREENSHOT_PROTECTION_ENABLED");
+    expect(mainActivity).not.toContain(
+      "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
+    );
     expect(dedicatedHomeActivity).not.toContain(
       "BuildConfig.SCREENSHOT_PROTECTION_ENABLED"
     );
