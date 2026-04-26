@@ -81,6 +81,64 @@ final class SamsungHardwareButtonLaunch {
         return resolveAliasLaunchAction(className, packageName);
     }
 
+    static String resolveLaunchAction(KeyEvent event) {
+        if (event == null) {
+            return null;
+        }
+
+        return resolveLaunchAction(
+            event.getAction(),
+            event.getKeyCode(),
+            event.getRepeatCount(),
+            event.isCanceled(),
+            hardKeyReportTimeMs
+        );
+    }
+
+    static String resolveLaunchAction(KeyEvent event, LongSupplier timeMs) {
+        if (event == null) {
+            return null;
+        }
+
+        return resolveLaunchAction(
+            event.getAction(),
+            event.getKeyCode(),
+            event.getRepeatCount(),
+            event.isCanceled(),
+            timeMs
+        );
+    }
+
+    static String resolveLaunchAction(
+        int action,
+        int keyCode,
+        int repeatCount,
+        boolean canceled,
+        LongSupplier timeMs
+    ) {
+        LongSupplier effectiveTimeMs = timeMs == null ? hardKeyReportTimeMs : timeMs;
+
+        if (!isSupportedLaunchKeyCode(keyCode) || canceled) {
+            activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
+            return null;
+        }
+
+        switch (action) {
+            case KeyEvent.ACTION_DOWN:
+                if (repeatCount == 0) {
+                    activeHardKeyReportStartedAt.put(
+                        Integer.valueOf(keyCode),
+                        Long.valueOf(effectiveTimeMs.getAsLong())
+                    );
+                }
+                return null;
+            case KeyEvent.ACTION_UP:
+                return resolveUpAction(keyCode, effectiveTimeMs);
+            default:
+                return null;
+        }
+    }
+
     static String resolveAliasLaunchAction(String className, String packageName) {
         if (className == null || packageName == null) {
             return null;
@@ -126,7 +184,7 @@ final class SamsungHardwareButtonLaunch {
 
         int keyCode = resolveLaunchKeyCode(intent);
 
-        if (!isSupportedSamsungHardKeyCode(keyCode)) {
+        if (!isSupportedLaunchKeyCode(keyCode)) {
             activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
             return null;
         }
@@ -203,7 +261,7 @@ final class SamsungHardwareButtonLaunch {
         return null;
     }
 
-    private static boolean isSupportedSamsungHardKeyCode(int keyCode) {
+    static boolean isSupportedLaunchKeyCode(int keyCode) {
         return keyCode == SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
             || keyCode == SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS;
     }
