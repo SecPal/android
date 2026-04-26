@@ -166,7 +166,10 @@ public final class EnterprisePolicyController {
         SharedPreferences.Editor editor = preferences.edit();
 
         EnterprisePolicyConfig.fromMap(values).writeToPreferences(editor);
-        editor.commit();
+
+        if (!editor.commit()) {
+            Log.e(LOG_TAG, "Failed to persist debug policy synchronously");
+        }
     }
 
     public static void clearDebugPolicy(Context context) {
@@ -181,7 +184,10 @@ public final class EnterprisePolicyController {
         editor.remove("allow_sms");
         editor.remove("allowed_packages");
         editor.remove("prefer_gesture_navigation");
-        editor.commit();
+
+        if (!editor.commit()) {
+            Log.e(LOG_TAG, "Failed to clear debug policy synchronously");
+        }
     }
 
     public static void maybeEnterLockTask(Activity activity) {
