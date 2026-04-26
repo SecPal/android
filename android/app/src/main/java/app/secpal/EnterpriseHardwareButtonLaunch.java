@@ -24,4 +24,8 @@ final class EnterpriseHardwareButtonLaunch {
     static Intent createLaunchIntent(Context context, String hardwareAction, int keyCode) {
         return SamsungHardwareButtonLaunch.createLaunchIntent(context, hardwareAction, keyCode);
     }
+
+    static Intent createForegroundLaunchIntent(Context context, String hardwareAction, int keyCode) {
+        return SamsungHardwareButtonLaunch.createForegroundLaunchIntent(context, hardwareAction, keyCode);
+    }
 }

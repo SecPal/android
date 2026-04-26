@@ -73,7 +73,7 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
 
             if (hardwareAction != null) {
                 startActivity(
-                    EnterpriseHardwareButtonLaunch.createLaunchIntent(
+                    EnterpriseHardwareButtonLaunch.createForegroundLaunchIntent(
                         this,
                         hardwareAction,
                         event.getKeyCode()

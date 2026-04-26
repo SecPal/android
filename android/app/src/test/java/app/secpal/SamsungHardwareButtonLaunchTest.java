@@ -296,11 +296,11 @@ public class SamsungHardwareButtonLaunchTest {
 
     @Test
     public void resolvesDedicatedHomePhysicalKeyDownThenUpToShortPress() {
-        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(1015));
+        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER));
         assertNull(
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_DOWN,
-                1015,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 false,
                 () -> 0L
@@ -310,7 +310,7 @@ public class SamsungHardwareButtonLaunchTest {
             SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_UP,
-                1015,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 false,
                 () -> 250L
@@ -322,11 +322,11 @@ public class SamsungHardwareButtonLaunchTest {
     public void resolvesDedicatedHomePhysicalKeyDownThenLongUpToLongPress() {
         long threshold = SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS;
 
-        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(1079));
+        assertTrue(SamsungHardwareButtonLaunch.isSupportedLaunchKeyCode(SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS));
         assertNull(
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_DOWN,
-                1079,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
                 0,
                 false,
                 () -> 0L
@@ -336,7 +336,7 @@ public class SamsungHardwareButtonLaunchTest {
             SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_LONG_PRESS,
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_UP,
-                1079,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
                 0,
                 false,
                 () -> threshold
@@ -359,7 +359,7 @@ public class SamsungHardwareButtonLaunchTest {
         assertNull(
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_DOWN,
-                1015,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 false,
                 () -> 0L
@@ -368,7 +368,7 @@ public class SamsungHardwareButtonLaunchTest {
         assertNull(
             SamsungHardwareButtonLaunch.resolveLaunchAction(
                 android.view.KeyEvent.ACTION_UP,
-                1015,
+                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 true,
                 () -> 100L

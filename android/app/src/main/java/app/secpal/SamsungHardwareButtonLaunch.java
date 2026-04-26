@@ -46,6 +46,16 @@ final class SamsungHardwareButtonLaunch {
         return launchIntent;
     }
 
+    static Intent createForegroundLaunchIntent(Context context, String hardwareAction, int keyCode) {
+        Intent launchIntent = new Intent(context, MainActivity.class);
+
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        launchIntent.putExtra(EXTRA_HARDWARE_TRIGGER_ACTION, hardwareAction);
+        launchIntent.putExtra(EXTRA_HARDWARE_TRIGGER_KEY_CODE, keyCode);
+
+        return launchIntent;
+    }
+
     static String resolveLaunchAction(Intent intent, String packageName) {
         return resolveLaunchAction(intent, packageName, hardKeyReportTimeMs);
     }
@@ -91,7 +101,7 @@ final class SamsungHardwareButtonLaunch {
             event.getKeyCode(),
             event.getRepeatCount(),
             event.isCanceled(),
-            hardKeyReportTimeMs
+            event::getEventTime
         );
     }
 
