@@ -129,9 +129,9 @@ describe("capacitor Android wrapper configuration", () => {
       await import("../src/secpal/native-auth-bridge");
     const bridge = createNativeAuthBridge();
 
-    await expect(
-      bridge.isVaultDeviceBoundWrapperAvailable?.()
-    ).resolves.toBe(true);
+    await expect(bridge.isVaultDeviceBoundWrapperAvailable?.()).resolves.toBe(
+      true
+    );
     await expect(
       bridge.wrapVaultRootKey?.({
         rootKeyBase64: "cm9vdC1rZXk=",
@@ -149,7 +149,9 @@ describe("capacitor Android wrapper configuration", () => {
       rootKeyBase64: "cm9vdC1rZXk=",
     });
 
-    expect(pluginMocks.isVaultDeviceBoundWrapperAvailable).toHaveBeenCalledOnce();
+    expect(
+      pluginMocks.isVaultDeviceBoundWrapperAvailable
+    ).toHaveBeenCalledOnce();
     expect(pluginMocks.wrapVaultRootKey).toHaveBeenCalledWith({
       rootKeyBase64: "cm9vdC1rZXk=",
       subjectHash: "subject-hash",

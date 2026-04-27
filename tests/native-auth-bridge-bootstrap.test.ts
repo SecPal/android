@@ -267,9 +267,9 @@ describe("native auth bridge bootstrap injection", () => {
       },
       pub_key_cred_params: [{ type: "public-key", alg: -7 }],
     });
-    await expect(
-      bridge.isVaultDeviceBoundWrapperAvailable?.()
-    ).resolves.toBe(true);
+    await expect(bridge.isVaultDeviceBoundWrapperAvailable?.()).resolves.toBe(
+      true
+    );
     await expect(
       bridge.wrapVaultRootKey?.({
         rootKeyBase64: "cm9vdC1rZXk=",
