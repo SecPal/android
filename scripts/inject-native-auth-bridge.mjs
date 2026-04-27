@@ -123,7 +123,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     "      return result && typeof result === 'object' ? result.available === true : result === true;",
     "    };",
     "    bridge.wrapVaultRootKey = (options) => getPlugin().wrapVaultRootKey(options);",
-    "    bridge.unwrapVaultRootKey = (options) => getPlugin().unwrapVaultRootKey(options);",
+    "    bridge.unwrapVaultRootKey = (options) => getPlugin().unwrapVaultRootKey({ wrappedRootKey: options.wrappedRootKey, subjectHash: options.subjectHash, metadata: options.metadata });",
     "  }",
     "  const enterpriseBridge = {",
     "    getManagedState() {",

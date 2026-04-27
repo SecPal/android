@@ -5,29 +5,65 @@
 
 package app.secpal;
 
+import android.util.Base64;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
 final class KeystoreVaultRootKeyWrapper {
+
+    interface Base64Codec {
+        String encode(byte[] bytes);
+        byte[] decode(String encoded);
+    }
+
     private static final String KEY_ALIAS = "secpal_offline_vault_root_key";
     private static final String VALUE_LABEL = "Android offline vault root key";
     private static final int WRAPPED_ROOT_KEY_VERSION = 1;
 
     private final TokenCipher tokenCipher;
+    private final Base64Codec base64Codec;
 
     KeystoreVaultRootKeyWrapper() {
-        this(new KeystoreTokenCipher(KEY_ALIAS, VALUE_LABEL));
+        this(new KeystoreTokenCipher(KEY_ALIAS, VALUE_LABEL), androidBase64Codec());
     }
 
     KeystoreVaultRootKeyWrapper(TokenCipher tokenCipher) {
+        this(tokenCipher, androidBase64Codec());
+    }
+
+    KeystoreVaultRootKeyWrapper(TokenCipher tokenCipher, Base64Codec base64Codec) {
         this.tokenCipher = tokenCipher;
+        this.base64Codec = base64Codec;
+    }
+
+    private static Base64Codec androidBase64Codec() {
+        return new Base64Codec() {
+            @Override
+            public String encode(byte[] bytes) {
+                return Base64.encodeToString(bytes, Base64.NO_WRAP | Base64.NO_PADDING);
+            }
+
+            @Override
+            public byte[] decode(String encoded) {
+                return Base64.decode(encoded, Base64.NO_WRAP);
+            }
+        };
     }
 
     boolean isAvailable() {
-        return true;
+        try {
+            EncryptedTokenPayload probePayload = tokenCipher.encrypt("availability-check");
+            return probePayload != null
+                && probePayload.getCiphertext() != null
+                && !probePayload.getCiphertext().trim().isEmpty()
+                && probePayload.getInitializationVector() != null
+                && !probePayload.getInitializationVector().trim().isEmpty();
+        } catch (Exception exception) {
+            return false;
+        }
     }
 
     String wrap(String rootKeyBase64, String subjectHash) throws TokenStorageException {
@@ -47,9 +83,7 @@ final class KeystoreVaultRootKeyWrapper {
             envelope.put("ciphertext", encryptedPayload.getCiphertext());
             envelope.put("initializationVector", encryptedPayload.getInitializationVector());
 
-            return Base64.getEncoder().withoutPadding().encodeToString(
-                envelope.toString().getBytes(StandardCharsets.UTF_8)
-            );
+            return base64Codec.encode(envelope.toString().getBytes(StandardCharsets.UTF_8));
         } catch (JSONException exception) {
             throw new TokenStorageException("Failed to wrap Android offline vault root key", exception);
         }
@@ -61,7 +95,7 @@ final class KeystoreVaultRootKeyWrapper {
 
         try {
             JSONObject envelope = new JSONObject(
-                new String(Base64.getDecoder().decode(normalizedWrappedRootKey), StandardCharsets.UTF_8)
+                new String(base64Codec.decode(normalizedWrappedRootKey), StandardCharsets.UTF_8)
             );
             int version = envelope.optInt("version", -1);
             String ciphertext = envelope.optString("ciphertext", null);

@@ -195,7 +195,12 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       return result.available === true;
     };
     bridge.wrapVaultRootKey = (options) => wrapVaultRootKey(options);
-    bridge.unwrapVaultRootKey = (options) => unwrapVaultRootKey(options);
+    bridge.unwrapVaultRootKey = (options) =>
+      unwrapVaultRootKey({
+        wrappedRootKey: options.wrappedRootKey,
+        subjectHash: options.subjectHash,
+        metadata: options.metadata,
+      });
   }
 
   return bridge;
