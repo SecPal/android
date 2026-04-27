@@ -6,16 +6,35 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import config from "../capacitor.config";
 
-const pluginMocks = vi.hoisted(() => ({
-  login: vi.fn(),
-  logout: vi.fn(),
-  getCurrentUser: vi.fn(),
-  isNetworkAvailable: vi.fn(),
-  request: vi.fn(),
-}));
+const pluginMocks = vi.hoisted(
+  () =>
+    ({
+      login: vi.fn(),
+      loginWithPasskey: undefined,
+      createPasskeyAttestation: undefined,
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn(),
+      request: vi.fn(),
+      isVaultDeviceBoundWrapperAvailable: undefined,
+      wrapVaultRootKey: undefined,
+      unwrapVaultRootKey: undefined,
+    }) as {
+      login: Mock;
+      loginWithPasskey: Mock | undefined;
+      createPasskeyAttestation: Mock | undefined;
+      logout: Mock;
+      getCurrentUser: Mock;
+      isNetworkAvailable: Mock;
+      request: Mock;
+      isVaultDeviceBoundWrapperAvailable: Mock | undefined;
+      wrapVaultRootKey: Mock | undefined;
+      unwrapVaultRootKey: Mock | undefined;
+    }
+);
 
 vi.mock("@capacitor/core", () => ({
   registerPlugin: vi.fn(() => pluginMocks),
@@ -93,5 +112,66 @@ describe("capacitor Android wrapper configuration", () => {
       contentType: undefined,
       accept: undefined,
     });
+  });
+
+  it("exposes the optional vault wrapper bridge methods when the native plugin supports them", async () => {
+    pluginMocks.isVaultDeviceBoundWrapperAvailable = vi
+      .fn()
+      .mockResolvedValue({ available: true });
+    pluginMocks.wrapVaultRootKey = vi.fn().mockResolvedValue({
+      wrappedRootKey: "wrapped-root-key",
+    });
+    pluginMocks.unwrapVaultRootKey = vi.fn().mockResolvedValue({
+      rootKeyBase64: "cm9vdC1rZXk=",
+    });
+
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+
+    await expect(
+      bridge.isVaultDeviceBoundWrapperAvailable?.()
+    ).resolves.toBe(true);
+    await expect(
+      bridge.wrapVaultRootKey?.({
+        rootKeyBase64: "cm9vdC1rZXk=",
+        subjectHash: "subject-hash",
+      })
+    ).resolves.toEqual({
+      wrappedRootKey: "wrapped-root-key",
+    });
+    await expect(
+      bridge.unwrapVaultRootKey?.({
+        wrappedRootKey: "wrapped-root-key",
+        subjectHash: "subject-hash",
+      })
+    ).resolves.toEqual({
+      rootKeyBase64: "cm9vdC1rZXk=",
+    });
+
+    expect(pluginMocks.isVaultDeviceBoundWrapperAvailable).toHaveBeenCalledOnce();
+    expect(pluginMocks.wrapVaultRootKey).toHaveBeenCalledWith({
+      rootKeyBase64: "cm9vdC1rZXk=",
+      subjectHash: "subject-hash",
+    });
+    expect(pluginMocks.unwrapVaultRootKey).toHaveBeenCalledWith({
+      wrappedRootKey: "wrapped-root-key",
+      subjectHash: "subject-hash",
+      metadata: undefined,
+    });
+  });
+
+  it("keeps the optional vault wrapper bridge methods undefined when the native plugin does not support them", async () => {
+    pluginMocks.isVaultDeviceBoundWrapperAvailable = undefined;
+    pluginMocks.wrapVaultRootKey = undefined;
+    pluginMocks.unwrapVaultRootKey = undefined;
+
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+
+    expect(bridge.isVaultDeviceBoundWrapperAvailable).toBeUndefined();
+    expect(bridge.wrapVaultRootKey).toBeUndefined();
+    expect(bridge.unwrapVaultRootKey).toBeUndefined();
   });
 });
