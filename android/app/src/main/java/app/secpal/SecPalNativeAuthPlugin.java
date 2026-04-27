@@ -21,6 +21,7 @@ import java.io.IOException;
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
     private TokenStorage tokenStorage;
+    private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
     private NetworkState networkState;
     private NativePasskeyAuthenticator passkeyAuthenticator;
@@ -32,6 +33,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         super.load();
         apiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
         tokenStorage = new KeystoreTokenStorage(getContext());
+        vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
         networkState = new NetworkState();
         passkeyAuthenticator = new NativePasskeyAuthenticator();
@@ -186,6 +188,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void isVaultDeviceBoundWrapperAvailable(PluginCall call) {
+        JSObject payload = new JSObject();
+        payload.put("available", vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable());
+        call.resolve(payload);
+    }
+
+    @PluginMethod
     public void logout(PluginCall call) {
         runAsync(call, () -> {
             try {
@@ -240,6 +249,46 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 rejectCall(call, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void wrapVaultRootKey(PluginCall call) {
+        String rootKeyBase64 = requireValue(call, "rootKeyBase64");
+        String subjectHash = requireValue(call, "subjectHash");
+
+        if (rootKeyBase64 == null || subjectHash == null) {
+            return;
+        }
+
+        runAsync(call, () -> {
+            try {
+                JSObject payload = new JSObject();
+                payload.put("wrappedRootKey", vaultRootKeyWrapper.wrap(rootKeyBase64, subjectHash));
+                call.resolve(payload);
+            } catch (TokenStorageException exception) {
+                call.reject("Failed to wrap Android offline vault root key", "TOKEN_STORAGE_ERROR", exception);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void unwrapVaultRootKey(PluginCall call) {
+        String wrappedRootKey = requireValue(call, "wrappedRootKey");
+        String subjectHash = requireValue(call, "subjectHash");
+
+        if (wrappedRootKey == null || subjectHash == null) {
+            return;
+        }
+
+        runAsync(call, () -> {
+            try {
+                JSObject payload = new JSObject();
+                payload.put("rootKeyBase64", vaultRootKeyWrapper.unwrap(wrappedRootKey, subjectHash));
+                call.resolve(payload);
+            } catch (TokenStorageException exception) {
+                call.reject("Failed to unwrap Android offline vault root key", "TOKEN_STORAGE_ERROR", exception);
             }
         });
     }

@@ -20,8 +20,19 @@ import javax.crypto.spec.GCMParameterSpec;
 
 final class KeystoreTokenCipher implements TokenCipher {
     private static final String KEYSTORE_TYPE = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "secpal_native_auth_token";
     private static final int GCM_TAG_LENGTH = 128;
+
+    private final String keyAlias;
+    private final String valueLabel;
+
+    KeystoreTokenCipher() {
+        this("secpal_native_auth_token", "Android auth token");
+    }
+
+    KeystoreTokenCipher(String keyAlias, String valueLabel) {
+        this.keyAlias = keyAlias;
+        this.valueLabel = valueLabel;
+    }
 
     @Override
     public EncryptedTokenPayload encrypt(String token) throws TokenStorageException {
@@ -37,7 +48,7 @@ final class KeystoreTokenCipher implements TokenCipher {
                 Base64.encodeToString(initializationVector, Base64.NO_WRAP)
             );
         } catch (GeneralSecurityException exception) {
-            throw new TokenStorageException("Failed to encrypt Android auth token", exception);
+            throw new TokenStorageException("Failed to encrypt " + valueLabel, exception);
         }
     }
 
@@ -55,7 +66,7 @@ final class KeystoreTokenCipher implements TokenCipher {
 
             return new String(plaintext, StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException exception) {
-            throw new TokenStorageException("Failed to decrypt Android auth token", exception);
+            throw new TokenStorageException("Failed to decrypt " + valueLabel, exception);
         }
     }
 
@@ -67,7 +78,7 @@ final class KeystoreTokenCipher implements TokenCipher {
             throw new GeneralSecurityException("Failed to load Android keystore", exception);
         }
 
-        SecretKey existingKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+        SecretKey existingKey = (SecretKey) keyStore.getKey(keyAlias, null);
 
         if (existingKey != null) {
             return existingKey;
@@ -79,7 +90,7 @@ final class KeystoreTokenCipher implements TokenCipher {
         );
         keyGenerator.init(
             new KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
+                keyAlias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
