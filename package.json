@@ -47,7 +47,7 @@
     "native:bundle:release:signed": "bash ./scripts/load-android-release-env.sh bash -lc 'cd android && ./gradlew bundleRelease'"
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.2",
+    "@capacitor/android": "^8.3.3",
     "@capacitor/core": "^8.3.3"
   },
   "devDependencies": {
