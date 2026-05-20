@@ -73,8 +73,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void loginWithPasskey(PluginCall call) {
-        String email = optionalValue(call, "email");
-
         runAsync(call, () -> {
             try {
                 Activity activity = getActivity();
@@ -91,8 +89,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
                 NativeAuthHttpClient.PasskeyChallenge challenge = httpClient.startTokenPasskeyAuthenticationChallenge(
                     apiBaseUrl,
-                    NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL),
-                    email
+                    NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL)
                 );
                 String requestJson = PasskeyAuthenticationJson.buildAuthenticationRequestJson(challenge.getPublicKey());
                 String authenticationResponseJson = passkeyAuthenticator.authenticate(activity, requestJson);
@@ -319,18 +316,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         return value.trim();
-    }
-
-    private String optionalValue(PluginCall call, String key) {
-        String value = call.getString(key);
-
-        if (value == null) {
-            return null;
-        }
-
-        String trimmedValue = value.trim();
-
-        return trimmedValue.isEmpty() ? null : trimmedValue;
     }
 
     private void rejectCall(PluginCall call, Exception exception) {

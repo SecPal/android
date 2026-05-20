@@ -6,11 +6,13 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.HashMap;
 import java.util.Map;
 
+import org.json.JSONObject;
 import org.junit.Test;
 
 public class NativeAuthHttpClientTest {
@@ -127,6 +129,26 @@ public class NativeAuthHttpClientTest {
         assertDecodeErrorMessage(
             "Android auth bridge received an invalid Base64 request body",
             "!!!"
+        );
+    }
+
+    @Test
+    public void buildTokenPasskeyAuthenticationChallengeRequestBodyOnlyCarriesDeviceName() throws Exception {
+        JSONObject body = NativeAuthHttpClient
+            .buildTokenPasskeyAuthenticationChallengeRequestBody("Pixel 9");
+
+        assertEquals("Pixel 9", body.getString("device_name"));
+        assertEquals(1, body.length());
+    }
+
+    @Test
+    public void buildTokenPasskeyAuthenticationChallengeRequestBodyNeverIncludesEmail() throws Exception {
+        JSONObject body = NativeAuthHttpClient
+            .buildTokenPasskeyAuthenticationChallengeRequestBody("Pixel 9");
+
+        assertFalse(
+            "Public passkey challenges must remain discoverable-only without an email field",
+            body.has("email")
         );
     }
 
