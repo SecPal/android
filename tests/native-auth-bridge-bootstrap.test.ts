@@ -236,7 +236,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalNativeAuthBridge as {
       login(credentials: { email: string; password: string }): Promise<unknown>;
-      loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+      loginWithPasskey?(): Promise<unknown>;
       createPasskeyAttestation?(options: {
         challenge: string;
         rp: { id: string; name: string };
@@ -256,7 +256,7 @@ describe("native auth bridge bootstrap injection", () => {
     };
 
     await bridge.login({ email: "worker@secpal.dev", password: "password123" });
-    await bridge.loginWithPasskey?.({ email: "worker@secpal.dev" });
+    await bridge.loginWithPasskey?.();
     await bridge.createPasskeyAttestation?.({
       challenge: "Zm9vYmFy",
       rp: { id: "app.secpal.dev", name: "SecPal" },
@@ -299,9 +299,7 @@ describe("native auth bridge bootstrap injection", () => {
       email: "worker@secpal.dev",
       password: "password123",
     });
-    expect(plugin.loginWithPasskey).toHaveBeenCalledWith({
-      email: "worker@secpal.dev",
-    });
+    expect(plugin.loginWithPasskey).toHaveBeenCalledWith();
     expect(plugin.createPasskeyAttestation).toHaveBeenCalledWith({
       publicKey: {
         challenge: "Zm9vYmFy",

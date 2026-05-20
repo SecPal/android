@@ -71,7 +71,7 @@ export interface NativeVaultRootKeyUnwrapResult {
 
 export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
-  loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+  loginWithPasskey?(): Promise<unknown>;
   createPasskeyAttestation?(
     options: NativePasskeyRegistrationPublicKeyOptions
   ): Promise<NativePasskeyRegistrationCredential>;
@@ -106,7 +106,7 @@ export interface NativeAuthenticatedResponse {
 
 interface SecPalNativeAuthPlugin {
   login(options: { email: string; password: string }): Promise<unknown>;
-  loginWithPasskey?(options?: { email?: string }): Promise<unknown>;
+  loginWithPasskey?(): Promise<unknown>;
   createPasskeyAttestation?(options: {
     publicKey: NativePasskeyRegistrationPublicKeyOptions;
   }): Promise<{ credential: NativePasskeyRegistrationCredential }>;
@@ -164,7 +164,7 @@ export function createNativeAuthBridge(): NativeAuthBridge {
   if (typeof secPalNativeAuthPlugin.loginWithPasskey === "function") {
     const loginWithPasskey = secPalNativeAuthPlugin.loginWithPasskey;
 
-    bridge.loginWithPasskey = (options) => loginWithPasskey(options ?? {});
+    bridge.loginWithPasskey = () => loginWithPasskey();
   }
 
   if (typeof secPalNativeAuthPlugin.createPasskeyAttestation === "function") {

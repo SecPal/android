@@ -50,24 +50,30 @@ class NativeAuthHttpClient {
         return parseLoginResponse(response);
     }
 
-    PasskeyChallenge startTokenPasskeyAuthenticationChallenge(String baseUrl, String deviceName, String email)
+    PasskeyChallenge startTokenPasskeyAuthenticationChallenge(String baseUrl, String deviceName)
         throws IOException, JSONException, NativeAuthHttpException {
-        JSONObject requestBody = new JSONObject()
-            .put("device_name", deviceName);
-
-        if (email != null && !email.trim().isEmpty()) {
-            requestBody.put("email", email.trim());
-        }
-
         JSONObject response = sendJsonRequest(
             baseUrl,
             "/v1/auth/token/passkeys/challenges",
             "POST",
-            requestBody,
+            buildTokenPasskeyAuthenticationChallengeRequestBody(deviceName),
             null
         );
 
         return parsePasskeyChallengeResponse(response);
+    }
+
+    /**
+     * Builds the request payload for the public, token-mode passkey challenge endpoint.
+     *
+     * <p>The native bridge only issues discoverable-only public passkey challenges; the API
+     * prohibits an {@code email} field on this surface (see SecPal/api#1101). Keeping the body
+     * builder in a single place makes the discoverable-only contract trivially testable and
+     * prevents accidental email reintroduction through additional call sites.</p>
+     */
+    static JSONObject buildTokenPasskeyAuthenticationChallengeRequestBody(String deviceName)
+        throws JSONException {
+        return new JSONObject().put("device_name", deviceName);
     }
 
     LoginResponse verifyTokenPasskeyAuthenticationChallenge(String baseUrl, String challengeId, JSObject credential)
