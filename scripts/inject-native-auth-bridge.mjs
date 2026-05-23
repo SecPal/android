@@ -992,17 +992,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   localeChevron.className = "secpal-discovery-select-chevron";
   localeChevron.setAttribute("aria-hidden", "true");
 
-  const localeChevronSvg = globalThis.document.createElement("svg");
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  const localeChevronSvg = globalThis.document.createElementNS(svgNamespace, "svg");
   localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
   localeChevronSvg.setAttribute("fill", "none");
 
-  const localeChevronPathDown = globalThis.document.createElement("path");
+  const localeChevronPathDown = globalThis.document.createElementNS(svgNamespace, "path");
   localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
   localeChevronPathDown.setAttribute("stroke-width", "1.5");
   localeChevronPathDown.setAttribute("stroke-linecap", "round");
   localeChevronPathDown.setAttribute("stroke-linejoin", "round");
 
-  const localeChevronPathUp = globalThis.document.createElement("path");
+  const localeChevronPathUp = globalThis.document.createElementNS(svgNamespace, "path");
   localeChevronPathUp.setAttribute("d", "M10.25 5.25L8 3L5.75 5.25");
   localeChevronPathUp.setAttribute("stroke-width", "1.5");
   localeChevronPathUp.setAttribute("stroke-linecap", "round");
