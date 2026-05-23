@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+/// <reference types="node" />
+/// <reference lib="dom" />
+
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
@@ -803,6 +806,70 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("reopens discovery when the native plugin only returns a legacy api origin", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        apiOrigin: "https://api.secpal.dev",
+      }),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+      nativeConfigPromise: Promise<void>;
+    };
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      login(credentials: { email: string; password: string }): Promise<unknown>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+    await expect(
+      bridge.login({ email: "worker@secpal.dev", password: "password123" })
+    ).rejects.toThrow(/not configured/i);
+    expect(plugin.login).not.toHaveBeenCalled();
+  });
+
   it("shows the configured instance action below the passkey button and clears the instance after confirmation", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -1366,7 +1433,7 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toBeNull();
   });
 
-  it("restores a legacy configured API origin from the native plugin on startup", async () => {
+  it("does not restore a legacy configured API origin from the native plugin on startup", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn(),
@@ -1424,12 +1491,12 @@ describe("native auth bridge bootstrap injection", () => {
 
     await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
     expect(plugin.getRuntimeBootstrap).toHaveBeenCalledOnce();
-    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.configured).toBe(false);
     expect(runtimeState.bootstrap).toBeNull();
-    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(runtimeState.apiOrigin).toBeNull();
     expect(
       document.getElementById("secpal-instance-discovery-gate")
-    ).toBeNull();
+    ).not.toBeNull();
 
     const response = await (sandbox.fetch as typeof fetch)(
       `${runtimeBootstrapPlaceholderOrigin}/health/ready`
@@ -1437,10 +1504,10 @@ describe("native auth bridge bootstrap injection", () => {
 
     const rewrittenRequest = browserFetch.mock.calls.at(-1)?.[0] as Request;
     expect(rewrittenRequest.url).toBe(
-      "https://customer-api.example/health/ready"
+      `${runtimeBootstrapPlaceholderOrigin}/health/ready`
     );
     await expect(response.text()).resolves.toBe(
-      "https://customer-api.example/health/ready"
+      `${runtimeBootstrapPlaceholderOrigin}/health/ready`
     );
   });
 

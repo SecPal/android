@@ -7,6 +7,7 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -96,24 +97,6 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void resolveInitialApiBaseUrlUsesPersistedRuntimeOriginWhenAvailable() {
-        assertEquals(
-            "https://tenant-a.example",
-            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(" https://tenant-a.example/ ")
-        );
-    }
-
-    @Test
-    public void resolveInitialApiBaseUrlReturnsNullWithoutPersistedRuntimeOrigin() {
-        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(null));
-    }
-
-    @Test
-    public void resolveInitialApiBaseUrlReturnsNullForInvalidPersistedRuntimeOrigin() {
-        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl("https://tenant-a.example/v1"));
-    }
-
-    @Test
     public void normalizeRuntimeBootstrapDerivesCanonicalApiOriginFromRawApiBaseUrl() throws Exception {
         JSObject normalized = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
@@ -143,10 +126,7 @@ public class SecPalNativeAuthPluginTest {
                 .put("minimumSupportedAppBuild", 1)
         );
 
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            bootstrap,
-            "https://tenant-b.example"
-        );
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(bootstrap);
 
         assertTrue(payload.getBoolean("configured"));
         assertEquals(
@@ -157,27 +137,60 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void buildRuntimeBootstrapPayloadFallsBackToLegacyApiOrigin() throws Exception {
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            null,
-            " https://tenant-a.example/ "
-        );
-
-        assertTrue(payload.getBoolean("configured"));
-        assertEquals("https://tenant-a.example", payload.getString("apiOrigin"));
-        assertNull(payload.opt("bootstrap"));
-    }
-
-    @Test
-    public void buildRuntimeBootstrapPayloadIgnoresInvalidLegacyApiOrigin() throws Exception {
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            null,
-            "https://tenant-a.example/v1"
-        );
+    public void buildRuntimeBootstrapPayloadLeavesRuntimeUnconfiguredWithoutPersistedBootstrap()
+        throws Exception {
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(null);
 
         assertFalse(payload.getBoolean("configured"));
         assertNull(payload.opt("apiOrigin"));
         assertNull(payload.opt("bootstrap"));
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapReturnsNullWhenOnlyLegacyApiBaseUrlKeyExists() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        preferences.edit()
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNull(result);
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapRestoresStructuredBootstrapFromPreferences()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNotNull(result);
+        assertEquals("https://tenant-a.example", result.getString("apiOrigin"));
+        assertEquals("Tenant A", result.getString("instanceDisplayName"));
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapSelfHealsCorruptBootstrapJson() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        preferences.edit()
+            .putString("runtime_bootstrap", "{not valid json}")
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNull(result);
+        assertNull(preferences.getString("runtime_bootstrap", null));
     }
 
     @Test
@@ -195,6 +208,40 @@ public class SecPalNativeAuthPluginTest {
             )
         );
         assertFalse(SecPalNativeAuthPlugin.shouldClearStoredToken(null, "https://tenant-a.example"));
+    }
+
+    @Test
+    public void clearRejectedLegacyRuntimeStateClearsLegacyOriginAndToken() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+
+        preferences.edit()
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        SecPalNativeAuthPlugin.clearRejectedLegacyRuntimeState(preferences, tokenStorage);
+
+        assertNull(preferences.getString("api_base_url", null));
+        assertNull(tokenStorage.token);
+        assertEquals(
+            "Legacy cleanup should use apply() because load() cannot surface persistence failures.",
+            1,
+            preferences.applyCallCount
+        );
+    }
+
+    @Test
+    public void clearRejectedLegacyRuntimeStateIsNoOpWithoutLegacyOrigin() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        tokenStorage.token = "tenant-a-token";
+
+        SecPalNativeAuthPlugin.clearRejectedLegacyRuntimeState(preferences, tokenStorage);
+
+        assertNull(preferences.getString("api_base_url", null));
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertEquals(0, preferences.applyCallCount);
     }
 
     @Test

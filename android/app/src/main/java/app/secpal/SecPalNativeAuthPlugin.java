@@ -40,11 +40,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
+        tokenStorage = new KeystoreTokenStorage(getContext());
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
+        if (persistedRuntimeBootstrap == null) {
+            clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
+        }
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
-            : resolveInitialApiBaseUrl(getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null));
-        tokenStorage = new KeystoreTokenStorage(getContext());
+            : null;
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
         networkState = new NetworkState();
@@ -335,10 +338,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
         runAsync(call, () -> {
-            JSObject payload = buildRuntimeBootstrapPayload(
-                getPersistedRuntimeBootstrap(),
-                getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
-            );
+            JSObject payload = buildRuntimeBootstrapPayload(getPersistedRuntimeBootstrap());
             call.resolve(payload);
         });
     }
@@ -601,20 +601,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return resolveRuntimeApiBaseUrl(origin.toString());
     }
 
-    static String resolveInitialApiBaseUrl(String persistedApiBaseUrl) {
-        if (persistedApiBaseUrl == null || persistedApiBaseUrl.trim().isEmpty()) {
-            return null;
-        }
-
-        try {
-            return resolveRuntimeApiBaseUrl(persistedApiBaseUrl);
-        } catch (ConfiguredApiBaseUrlException exception) {
-            return null;
-        }
-    }
-
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    static void clearRejectedLegacyRuntimeState(SharedPreferences preferences, TokenStorage tokenStorage) {
+        String legacyApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
+
+        if (legacyApiBaseUrl == null || legacyApiBaseUrl.trim().isEmpty()) {
+            return;
+        }
+
+        preferences.edit().remove(API_BASE_URL_PREFERENCE_KEY).apply();
+        tokenStorage.clearToken();
     }
 
     static boolean clearRuntimeBootstrapState(
@@ -648,26 +647,25 @@ public class SecPalNativeAuthPlugin extends Plugin {
             .commit();
     }
 
-    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap, String legacyApiBaseUrl) {
+    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap) {
         JSObject payload = new JSObject();
 
-        if (bootstrap != null) {
-            payload.put("configured", true);
-            payload.put("bootstrap", bootstrap);
+        if (bootstrap == null) {
+            payload.put("configured", false);
             return payload;
         }
 
-        String legacyApiOrigin = resolveInitialApiBaseUrl(legacyApiBaseUrl);
-        payload.put("configured", legacyApiOrigin != null);
-        if (legacyApiOrigin != null) {
-            payload.put("apiOrigin", legacyApiOrigin);
-        }
+        payload.put("configured", true);
+        payload.put("bootstrap", bootstrap);
 
         return payload;
     }
 
     private JSObject getPersistedRuntimeBootstrap() {
-        SharedPreferences preferences = getNativeAuthPreferences();
+        return loadPersistedRuntimeBootstrap(getNativeAuthPreferences());
+    }
+
+    static JSObject loadPersistedRuntimeBootstrap(SharedPreferences preferences) {
         String rawBootstrap = preferences.getString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, null);
 
         if (rawBootstrap == null || rawBootstrap.trim().isEmpty()) {
