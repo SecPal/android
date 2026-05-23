@@ -622,16 +622,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
         TokenStorage tokenStorage,
         Runnable provisioningStateClearer
     ) {
+        boolean persisted = preferences.edit()
+            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+            .remove(API_BASE_URL_PREFERENCE_KEY)
+            .commit();
+
+        if (!persisted) {
+            return false;
+        }
+
         tokenStorage.clearToken();
 
         if (provisioningStateClearer != null) {
             provisioningStateClearer.run();
         }
 
-        return preferences.edit()
-            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-            .remove(API_BASE_URL_PREFERENCE_KEY)
-            .commit();
+        return true;
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {

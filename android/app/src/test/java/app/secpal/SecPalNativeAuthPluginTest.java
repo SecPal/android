@@ -226,7 +226,7 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void clearRuntimeBootstrapStateReportsFailureWithoutAsyncFallbackWhenCommitFails() {
+    public void clearRuntimeBootstrapStatePreservesRuntimeDataWhenCommitFails() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
         final boolean[] provisioningStateCleared = { false };
@@ -246,8 +246,13 @@ public class SecPalNativeAuthPluginTest {
             )
         );
 
-        assertNull(tokenStorage.token);
-        assertTrue(provisioningStateCleared[0]);
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertFalse(provisioningStateCleared[0]);
         assertEquals(
             "Async apply() must not silently retry after a failed commit() that already rejected the caller.",
             0,
