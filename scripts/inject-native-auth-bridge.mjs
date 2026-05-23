@@ -89,8 +89,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirmBusy: "Preparing login...",
       summaryTemplate: "Instance: {instanceDisplayName}",
       resetSummaryTemplate: "Instance: {instanceDisplayName} · {apiOrigin}",
-      reset: "Log out and switch instance",
-      resetBusy: "Signing out...",
       resetConfirm:
         "Switch away from {instanceDisplayName}? This clears local sign-in, offline, and cached instance data on this device.",
       resetUnavailable:
@@ -144,8 +142,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirmBusy: "Anmeldung wird vorbereitet...",
       summaryTemplate: "Instanz: {instanceDisplayName}",
       resetSummaryTemplate: "Instanz: {instanceDisplayName} · {apiOrigin}",
-      reset: "Abmelden und Instanz wechseln",
-      resetBusy: "Abmeldung läuft...",
       resetConfirm:
         "Von {instanceDisplayName} wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht.",
       resetUnavailable:
