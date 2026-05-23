@@ -95,6 +95,10 @@ class MockDocument {
     return element;
   }
 
+  createElementNS(_namespace: string, tagName: string) {
+    return this.createElement(tagName);
+  }
+
   getElementById(id: string) {
     return this.elementsById.get(id) ?? null;
   }
