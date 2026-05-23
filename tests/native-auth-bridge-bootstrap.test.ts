@@ -13,6 +13,7 @@ class MockElement {
   textContent = "";
   value = "";
   disabled = false;
+  parentElement: MockElement | null = null;
   style: Record<string, string> = {};
   attributes: Record<string, string> = {};
   children: MockElement[] = [];
@@ -30,7 +31,26 @@ class MockElement {
 
   appendChild(child: MockElement) {
     child.ownerDocument = this.ownerDocument;
+    child.parentElement = this;
     this.children.push(child);
+    this.ownerDocument?.register(child);
+    return child;
+  }
+
+  insertBefore(child: MockElement, referenceChild: MockElement | null) {
+    if (referenceChild == null) {
+      return this.appendChild(child);
+    }
+
+    const referenceIndex = this.children.indexOf(referenceChild);
+
+    if (referenceIndex === -1) {
+      return this.appendChild(child);
+    }
+
+    child.ownerDocument = this.ownerDocument;
+    child.parentElement = this;
+    this.children.splice(referenceIndex, 0, child);
     this.ownerDocument?.register(child);
     return child;
   }
@@ -72,6 +92,13 @@ class MockElement {
   }
 
   remove() {
+    if (this.parentElement) {
+      this.parentElement.children = this.parentElement.children.filter(
+        (child) => child !== this
+      );
+      this.parentElement = null;
+    }
+
     this.ownerDocument?.unregister(this.id);
   }
 }
@@ -118,6 +145,51 @@ class MockDocument {
       this.elementsById.delete(id);
     }
   }
+}
+
+function appendMockLoginFooter(document: MockDocument) {
+  const layout = document.createElement("div");
+  const form = document.createElement("form");
+  const submitButton = document.createElement("button");
+  const passkeyButton = document.createElement("button");
+  const footerWrapper = document.createElement("div");
+  const footer = document.createElement("footer");
+  const container = document.createElement("div");
+  const sloganRow = document.createElement("div");
+  const sloganLink = document.createElement("a");
+  const metaRow = document.createElement("div");
+
+  submitButton.setAttribute("type", "submit");
+  submitButton.textContent = "Einloggen";
+  passkeyButton.setAttribute("type", "button");
+  passkeyButton.textContent = "Mit Passkey anmelden";
+
+  sloganLink.setAttribute("href", "https://secpal.app");
+  sloganLink.textContent = "Powered by SecPal – A guard's best friend";
+
+  form.appendChild(submitButton);
+  form.appendChild(passkeyButton);
+  sloganRow.appendChild(sloganLink);
+  container.appendChild(sloganRow);
+  container.appendChild(metaRow);
+  footer.appendChild(container);
+  layout.appendChild(form);
+  footerWrapper.appendChild(footer);
+  layout.appendChild(footerWrapper);
+  document.body.appendChild(layout);
+
+  return {
+    layout,
+    form,
+    submitButton,
+    passkeyButton,
+    footerWrapper,
+    footer,
+    container,
+    sloganRow,
+    sloganLink,
+    metaRow,
+  };
 }
 
 async function loadInjectorModule(): Promise<{
@@ -401,7 +473,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(lightLogo?.attributes.src).toBe("/logo-light-48.png");
     expect(darkLogo?.attributes.src).toBe("/logo-dark-48.png");
     expect(footerPoweredLink?.textContent).toBe(
-      "Powered by SecPal – Der beste Freund jeder Wache"
+      "Powered by SecPal – A guard's best friend"
     );
 
     expect(localeSelect).not.toBeNull();
@@ -731,7 +803,7 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
-  it("offers a destructive instance-switch reset on the login page and clears tenant-scoped browser state", async () => {
+  it("shows the configured instance action below the passkey button and clears the instance after confirmation", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn(),
@@ -774,17 +846,19 @@ describe("native auth bridge bootstrap injection", () => {
       }),
     };
     const document = new MockDocument();
+    const { form, passkeyButton, sloganLink } = appendMockLoginFooter(document);
     const localStorage = createMockStorage({
       "secpal-locale": "de",
       auth_vault_state: "encrypted-user-state",
-      auth_vault_lock: "1",
-      "tenant-cache": "customer-a",
+      auth_vault_lock: "locked",
+      "tenant-cache": "customer-a-cache",
     });
     const sessionStorage = createMockStorage({
       [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
       "tenant-session": "customer-a-session",
     });
     const confirm = vi.fn().mockReturnValue(true);
+    const reload = vi.fn();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
@@ -792,6 +866,7 @@ describe("native auth bridge bootstrap injection", () => {
       sessionStorage,
       caches: cacheStorage,
       indexedDB,
+      confirm,
       fetch,
       Request,
       Response,
@@ -806,8 +881,7 @@ describe("native auth bridge bootstrap injection", () => {
       btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
       atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
       console,
-      confirm,
-      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+      location: { href: "https://app.secpal.dev/login", reload },
     } as Record<string, unknown>;
     sandbox.globalThis = sandbox;
 
@@ -818,27 +892,36 @@ describe("native auth bridge bootstrap injection", () => {
 
     await flushMicrotasks();
 
-    const runtimeResetSummary = document.getElementById(
-      "secpal-instance-reset-summary"
+    const runtimeInfoEntry = document.getElementById(
+      "secpal-instance-runtime-info"
     ) as MockElement | null;
-    const runtimeResetButton = document.getElementById(
-      "secpal-instance-reset-button"
+    const runtimeInfoSummary = document.getElementById(
+      "secpal-instance-runtime-summary"
     ) as MockElement | null;
 
-    expect(runtimeResetSummary?.textContent).toContain("Configured Example");
-    expect(runtimeResetButton).not.toBeNull();
+    expect(sloganLink.textContent).toBe(
+      "Powered by SecPal – A guard's best friend"
+    );
+    expect(runtimeInfoSummary?.textContent).toBe(
+      "Instanz: Configured Example · https://api.secpal.dev"
+    );
+    expect(runtimeInfoEntry).not.toBeNull();
+    expect(form.children[1]).toBe(passkeyButton);
+    expect(form.children[2]).toBe(runtimeInfoEntry);
 
-    runtimeResetButton!.click();
+    runtimeInfoSummary!.click();
+
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledWith(
+      "Von Configured Example wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht."
+    );
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(localStorage.getItem("auth_vault_state")).toBeNull();
     expect(localStorage.getItem("auth_vault_lock")).toBeNull();
     expect(localStorage.getItem("tenant-cache")).toBeNull();
-    expect(localStorage.getItem("secpal-locale")).toBe("de");
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
     expect(cacheStorage.keys).toHaveBeenCalledOnce();
@@ -849,12 +932,11 @@ describe("native auth bridge bootstrap injection", () => {
       "secpal-offline-vault",
       "tenant-cache-db",
     ]);
-    expect(
-      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
-    ).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(reload).toHaveBeenCalledOnce();
   });
 
-  it("does not clear the configured runtime when the destructive instance-switch reset is cancelled", async () => {
+  it("keeps the configured instance when the login reset confirmation is cancelled", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn(),
@@ -869,8 +951,9 @@ describe("native auth bridge bootstrap injection", () => {
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
+    appendMockLoginFooter(document);
     const localStorage = createMockStorage({
-      "secpal-locale": "en",
+      "secpal-locale": "de",
       auth_vault_state: "encrypted-user-state",
     });
     const sessionStorage = createMockStorage({
@@ -878,11 +961,13 @@ describe("native auth bridge bootstrap injection", () => {
       "tenant-session": "customer-a-session",
     });
     const confirm = vi.fn().mockReturnValue(false);
+    const reload = vi.fn();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
       localStorage,
       sessionStorage,
+      confirm,
       fetch,
       Request,
       Response,
@@ -897,8 +982,7 @@ describe("native auth bridge bootstrap injection", () => {
       btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
       atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
       console,
-      confirm,
-      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+      location: { href: "https://app.secpal.dev/login", reload },
     } as Record<string, unknown>;
     sandbox.globalThis = sandbox;
 
@@ -909,13 +993,12 @@ describe("native auth bridge bootstrap injection", () => {
 
     await flushMicrotasks();
 
-    const runtimeResetButton = document.getElementById(
-      "secpal-instance-reset-button"
+    const runtimeInfoSummary = document.getElementById(
+      "secpal-instance-runtime-summary"
     ) as MockElement | null;
 
-    expect(runtimeResetButton).not.toBeNull();
+    runtimeInfoSummary!.click();
 
-    runtimeResetButton!.click();
     await flushMicrotasks();
 
     expect(confirm).toHaveBeenCalledOnce();
@@ -924,10 +1007,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(localStorage.getItem("auth_vault_state")).toBe(
       "encrypted-user-state"
     );
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
-    expect(
-      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
-    ).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("disables the destructive instance-switch reset when confirm prompts are unavailable", async () => {
@@ -945,6 +1027,7 @@ describe("native auth bridge bootstrap injection", () => {
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
+    appendMockLoginFooter(document);
     const localStorage = createMockStorage({
       "secpal-locale": "en",
       auth_vault_state: "encrypted-user-state",
@@ -983,19 +1066,16 @@ describe("native auth bridge bootstrap injection", () => {
 
     await flushMicrotasks();
 
-    const runtimeResetSummary = document.getElementById(
-      "secpal-instance-reset-summary"
-    ) as MockElement | null;
-    const runtimeResetButton = document.getElementById(
-      "secpal-instance-reset-button"
+    const runtimeInfoSummary = document.getElementById(
+      "secpal-instance-runtime-summary"
     ) as MockElement | null;
 
-    expect(runtimeResetSummary?.textContent).toContain(
+    expect(runtimeInfoSummary?.textContent).toContain(
       "Instance switching is unavailable because this device cannot show confirmation prompts."
     );
-    expect(runtimeResetButton?.disabled).toBe(true);
+    expect(runtimeInfoSummary?.disabled).toBe(true);
 
-    runtimeResetButton!.click();
+    runtimeInfoSummary!.click();
     await flushMicrotasks();
 
     expect(plugin.logout).not.toHaveBeenCalled();
@@ -1026,6 +1106,7 @@ describe("native auth bridge bootstrap injection", () => {
       }),
     };
     const document = new MockDocument();
+    appendMockLoginFooter(document);
     const localStorage = createMockStorage({
       "secpal-locale": "en",
       auth_vault_state: "encrypted-user-state",
@@ -1069,15 +1150,15 @@ describe("native auth bridge bootstrap injection", () => {
 
       await flushMicrotasks();
 
-      const runtimeResetButton = document.getElementById(
-        "secpal-instance-reset-button"
+      const runtimeInfoSummary = document.getElementById(
+        "secpal-instance-runtime-summary"
       ) as MockElement | null;
       const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
 
-      expect(runtimeResetButton).not.toBeNull();
+      expect(runtimeInfoSummary).not.toBeNull();
       authState.active = true;
 
-      runtimeResetButton!.click();
+      runtimeInfoSummary!.click();
       await flushMicrotasks();
       await flushMicrotasks();
 
@@ -1096,11 +1177,11 @@ describe("native auth bridge bootstrap injection", () => {
         (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
       ).not.toHaveBeenCalled();
       expect(
-        document.getElementById("secpal-instance-reset-button")
+        document.getElementById("secpal-instance-runtime-summary")
       ).not.toBeNull();
       expect(authState.active).toBe(false);
       expect(warn).toHaveBeenCalledWith(
-        "Failed to reset the configured SecPal runtime.",
+        "Failed to clear the current SecPal instance.",
         expect.objectContaining({
           code: "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED",
         })
@@ -1125,6 +1206,7 @@ describe("native auth bridge bootstrap injection", () => {
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
+    const { form, passkeyButton } = appendMockLoginFooter(document);
     const navigation = createMockNavigation("https://app.secpal.dev/");
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
@@ -1159,26 +1241,33 @@ describe("native auth bridge bootstrap injection", () => {
 
     await flushMicrotasks();
 
-    expect(document.getElementById("secpal-instance-reset-entry")).toBeNull();
+    expect(document.getElementById("secpal-instance-runtime-info")).toBeNull();
 
     navigation.history.pushState({}, "", "/login");
     await flushMicrotasks();
+    await flushMicrotasks();
 
     expect(
-      document.getElementById("secpal-instance-reset-entry")
+      document.getElementById("secpal-instance-runtime-info")
     ).not.toBeNull();
+    expect(form.children[1]).toBe(passkeyButton);
+    expect(form.children[2]).toBe(
+      document.getElementById("secpal-instance-runtime-info")
+    );
 
     navigation.history.replaceState({}, "", "/");
     await flushMicrotasks();
+    await flushMicrotasks();
 
-    expect(document.getElementById("secpal-instance-reset-entry")).toBeNull();
+    expect(document.getElementById("secpal-instance-runtime-info")).toBeNull();
 
     navigation.location.href = "https://app.secpal.dev/login";
     navigation.dispatchEvent("popstate");
     await flushMicrotasks();
+    await flushMicrotasks();
 
     expect(
-      document.getElementById("secpal-instance-reset-entry")
+      document.getElementById("secpal-instance-runtime-info")
     ).not.toBeNull();
   });
 

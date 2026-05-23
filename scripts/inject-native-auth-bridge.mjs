@@ -51,9 +51,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
   const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
-  const runtimeResetEntryId = "secpal-instance-reset-entry";
-  const runtimeResetSummaryId = "secpal-instance-reset-summary";
-  const runtimeResetButtonId = "secpal-instance-reset-button";
+  const runtimeResetEntryId = "secpal-instance-runtime-info";
+  const runtimeResetSummaryId = "secpal-instance-runtime-summary";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -67,8 +66,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
-  runtimeState.resetBusy = runtimeState.resetBusy ?? false;
-
   const discoveryLocales = {
     en: "English",
     de: "Deutsch",
@@ -91,9 +88,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Continue to login",
       confirmBusy: "Preparing login...",
       summaryTemplate: "Instance: {instanceDisplayName}",
-      resetSummaryTemplate: "Configured instance: {instanceDisplayName}",
-      reset: "Switch instance",
-      resetBusy: "Resetting instance...",
+      resetSummaryTemplate: "Instance: {instanceDisplayName} · {apiOrigin}",
+      reset: "Log out and switch instance",
+      resetBusy: "Signing out...",
       resetConfirm:
         "Switch away from {instanceDisplayName}? This clears local sign-in, offline, and cached instance data on this device.",
       resetUnavailable:
@@ -146,14 +143,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Weiter zur Anmeldung",
       confirmBusy: "Anmeldung wird vorbereitet...",
       summaryTemplate: "Instanz: {instanceDisplayName}",
-      resetSummaryTemplate: "Konfigurierte Instanz: {instanceDisplayName}",
-      reset: "Instanz wechseln",
-      resetBusy: "Instanz wird zurückgesetzt...",
+      resetSummaryTemplate: "Instanz: {instanceDisplayName} · {apiOrigin}",
+      reset: "Abmelden und Instanz wechseln",
+      resetBusy: "Abmeldung läuft...",
       resetConfirm:
         "Von {instanceDisplayName} wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht.",
       resetUnavailable:
         "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
-      footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
+      footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Quellcode",
       errorBootstrapResponse:
@@ -365,16 +362,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       "#" + discoveryGateId + " .secpal-discovery-footer-link{display:inline-flex;align-items:center;justify-content:center;color:var(--secpal-discovery-subtle);text-decoration:none;}",
       "#" + discoveryGateId + " .secpal-discovery-footer-link:hover{color:var(--secpal-discovery-fg);}",
       "#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(113,113,122,0.45);}",
-      "#" + runtimeResetEntryId + "{position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:2147483646;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;pointer-events:none;}",
+      "#" + runtimeResetEntryId + "{padding-top:0.5rem;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;}",
       "#" + runtimeResetEntryId + ",#" + runtimeResetEntryId + " *{box-sizing:border-box;}",
-      "#" + runtimeResetEntryId + " .secpal-runtime-reset-card{pointer-events:auto;display:flex;flex-direction:column;gap:0.75rem;width:min(100%,30rem);border:1px solid rgba(9,9,11,0.08);background:#ffffff;color:#09090b;border-radius:0.75rem;box-shadow:0 1px 2px rgba(15,23,42,0.04),0 18px 36px rgba(15,23,42,0.12);padding:1rem 1rem 1.125rem;}",
-      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{margin:0;color:#52525b;font-size:0.95rem;line-height:1.5;}",
-      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button{display:inline-flex;align-items:center;justify-content:center;width:100%;border-radius:0.5rem;border:1px solid rgba(9,9,11,0.12);background:#ffffff;color:#09090b;padding:0.6875rem 0.875rem;font:inherit;font-weight:600;line-height:1.5;box-shadow:0 1px 2px rgba(15,23,42,0.06);}",
-      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button:not(:disabled):hover{background:rgba(9,9,11,0.04);}",
-      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button:disabled{opacity:0.55;cursor:not-allowed;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{appearance:none;margin:0;border:0;background:transparent;padding:0;color:#71717a;font-size:11px;line-height:1.5;text-align:center;word-break:break-word;cursor:pointer;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{text-decoration:underline;color:#52525b;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:disabled{cursor:wait;opacity:0.7;}",
       "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
       "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
-      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-card{border-color:rgba(255,255,255,0.1);background:#18181b;color:#f4f4f5;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 18px 36px rgba(0,0,0,0.4);}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{color:#d4d4d8;}#" + runtimeResetEntryId + " .secpal-runtime-reset-button{border-color:rgba(255,255,255,0.12);background:#18181b;color:#f4f4f5;box-shadow:none;}#" + runtimeResetEntryId + " .secpal-runtime-reset-button:not(:disabled):hover{background:rgba(255,255,255,0.06);}}",
+      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{color:#d4d4d8;}}",
     ].join("\\n");
 
     const parent = globalThis.document.head ?? globalThis.document.body;
@@ -1115,6 +1110,76 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return getActiveApiHost();
   };
 
+  const getConfiguredRuntimeUrl = () => {
+    if (
+      runtimeState.bootstrap &&
+      typeof runtimeState.bootstrap.apiOrigin === "string" &&
+      runtimeState.bootstrap.apiOrigin.trim().length > 0
+    ) {
+      return runtimeState.bootstrap.apiOrigin.trim();
+    }
+
+    if (runtimeState.apiOrigin && typeof runtimeState.apiOrigin === "string") {
+      return runtimeState.apiOrigin;
+    }
+
+    return getActiveApiOrigin();
+  };
+
+  const getElementChildren = (element) => {
+    if (!element || element.children == null) {
+      return [];
+    }
+
+    try {
+      return Array.from(element.children);
+    } catch {
+      return [];
+    }
+  };
+
+  const getElementTagName = (element) => {
+    return element && typeof element.tagName === "string"
+      ? element.tagName.toLowerCase()
+      : "";
+  };
+
+  const getElementAttribute = (element, name) => {
+    if (element && typeof element.getAttribute === "function") {
+      const value = element.getAttribute(name);
+      return typeof value === "string" ? value : null;
+    }
+
+    if (element && element.attributes && typeof element.attributes === "object") {
+      const value = element.attributes[name];
+      return typeof value === "string" ? value : null;
+    }
+
+    return null;
+  };
+
+  const findElementPath = (root, predicate, ancestors = []) => {
+    if (!root) {
+      return null;
+    }
+
+    for (const child of getElementChildren(root)) {
+      const path = [...ancestors, child];
+
+      if (predicate(child)) {
+        return path;
+      }
+
+      const descendantPath = findElementPath(child, predicate, path);
+
+      if (descendantPath) {
+        return descendantPath;
+      }
+    }
+
+    return null;
+  };
+
   const isApiPath = (pathname) => {
     return (
       pathname === "/v1" ||
@@ -1151,6 +1216,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   let discoveryUi = null;
   let runtimeResetUi = null;
+  let runtimeResetObserver = null;
+  let runtimeResetSyncTimeout = null;
+  let runtimeResetBusy = false;
 
   const syncDiscoveryGateCopy = () => {
     if (!discoveryUi) {
@@ -1252,7 +1320,49 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const getLoginPasskeyButtonContext = () => {
+    if (!globalThis.document?.body || !isLoginRoute()) {
+      return null;
+    }
+
+    const passkeyButtonPath = findElementPath(globalThis.document.body, (element) => {
+      return (
+        getElementTagName(element) === "button" &&
+        getElementAttribute(element, "type") === "button"
+      );
+    });
+
+    if (!passkeyButtonPath || passkeyButtonPath.length < 2) {
+      return;
+    }
+
+    return {
+      passkeyButton: passkeyButtonPath[passkeyButtonPath.length - 1],
+      passkeyButtonParent: passkeyButtonPath[passkeyButtonPath.length - 2],
+    };
+  };
+
+  const clearRuntimeResetSyncTimeout = () => {
+    if (runtimeResetSyncTimeout == null || typeof globalThis.clearTimeout !== "function") {
+      runtimeResetSyncTimeout = null;
+      return;
+    }
+
+    globalThis.clearTimeout(runtimeResetSyncTimeout);
+    runtimeResetSyncTimeout = null;
+  };
+
+  const disconnectRuntimeResetObserver = () => {
+    if (runtimeResetObserver && typeof runtimeResetObserver.disconnect === "function") {
+      runtimeResetObserver.disconnect();
+    }
+
+    runtimeResetObserver = null;
+  };
+
   const removeRuntimeResetEntry = () => {
+    clearRuntimeResetSyncTimeout();
+
     const existing = globalThis.document?.getElementById?.(runtimeResetEntryId);
 
     if (existing && typeof existing.remove === "function") {
@@ -1268,20 +1378,96 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     const canConfirmReset = typeof globalThis.confirm === "function";
-    const summaryText = translateDiscovery("resetSummaryTemplate", {
-      instanceDisplayName: getConfiguredRuntimeLabel(),
-    });
+    const nextText = translateDiscovery(
+      "resetSummaryTemplate",
+      {
+        instanceDisplayName: getConfiguredRuntimeLabel(),
+        apiOrigin: getConfiguredRuntimeUrl(),
+      }
+    );
 
-    runtimeResetUi.summary.textContent = canConfirmReset
-      ? summaryText
-      : summaryText + " " + translateDiscovery("resetUnavailable");
-    runtimeResetUi.button.textContent = runtimeState.resetBusy
-      ? translateDiscovery("resetBusy")
-      : translateDiscovery("reset");
-    runtimeResetUi.button.disabled = runtimeState.resetBusy || !canConfirmReset;
+    const summaryText = canConfirmReset
+      ? nextText
+      : nextText + " " + translateDiscovery("resetUnavailable");
+
+    if (runtimeResetUi.summary.textContent !== summaryText) {
+      runtimeResetUi.summary.textContent = summaryText;
+    }
+
+    runtimeResetUi.summary.disabled = runtimeResetBusy || !canConfirmReset;
   };
 
-  const renderRuntimeResetEntry = () => {
+  const resetConfiguredRuntime = async () => {
+    if (runtimeResetBusy || !runtimeState.configured) {
+      return;
+    }
+
+    if (typeof globalThis.confirm !== "function") {
+      syncRuntimeResetEntryCopy();
+      return;
+    }
+
+    const confirmed = globalThis.confirm(
+      translateDiscovery("resetConfirm", {
+        instanceDisplayName: getConfiguredRuntimeLabel(),
+      })
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    runtimeResetBusy = true;
+    syncRuntimeResetEntryCopy();
+
+    try {
+      if (typeof getPlugin().logout === "function") {
+        try {
+          await getPlugin().logout();
+          authState.active = false;
+        } catch (error) {
+          const code = error && typeof error === "object" ? error.code : undefined;
+
+          if (code === "NO_STORED_TOKEN" || code === "HTTP_401") {
+            authState.active = false;
+          } else {
+            console.warn(
+              "Failed to logout before resetting the configured SecPal runtime.",
+              error
+            );
+          }
+        }
+      }
+
+      await clearPersistedBootstrap();
+      await clearTenantScopedBrowserState();
+    } catch (error) {
+      console.warn("Failed to clear the current SecPal instance.", error);
+      runtimeResetBusy = false;
+      syncRuntimeResetEntryCopy();
+      return;
+    }
+
+    authState.active = false;
+    runtimeState.configured = false;
+    runtimeState.bootstrap = null;
+    runtimeState.apiOrigin = null;
+    runtimeState.pendingBootstrap = null;
+    runtimeState.discoveryBusyAction = null;
+    runtimeState.discoveryErrorMessage = "";
+    runtimeState.nativeConfigPromise = Promise.resolve();
+    disconnectRuntimeResetObserver();
+    removeRuntimeResetEntry();
+    runtimeResetBusy = false;
+
+    if (globalThis.location && typeof globalThis.location.reload === "function") {
+      globalThis.location.reload();
+    } else {
+      mountDiscoveryGate();
+    }
+  };
+
+  const renderRuntimeResetEntry = (passkeyButtonParent, passkeyButton) => {
     if (
       !globalThis.document ||
       !globalThis.document.body ||
@@ -1289,6 +1475,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       !isLoginRoute()
     ) {
       removeRuntimeResetEntry();
+      return null;
+    }
+
+    if (
+      !passkeyButtonParent ||
+      !passkeyButton ||
+      typeof passkeyButtonParent.insertBefore !== "function"
+    ) {
       return null;
     }
 
@@ -1300,53 +1494,101 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return runtimeResetUi;
     }
 
-    const root = globalThis.document.createElement("section");
+    const root = globalThis.document.createElement("div");
     root.id = runtimeResetEntryId;
 
-    const card = globalThis.document.createElement("div");
-    card.className = "secpal-runtime-reset-card";
-
-    const summary = globalThis.document.createElement("p");
+    const summary = globalThis.document.createElement("button");
     summary.id = runtimeResetSummaryId;
     summary.className = "secpal-runtime-reset-summary";
+    summary.setAttribute("type", "button");
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+      void resetConfiguredRuntime();
+    });
 
-    const button = globalThis.document.createElement("button");
-    button.id = runtimeResetButtonId;
-    button.className = "secpal-runtime-reset-button";
-    button.setAttribute("type", "button");
+    root.appendChild(summary);
 
-    card.appendChild(summary);
-    card.appendChild(button);
-    root.appendChild(card);
-    globalThis.document.body.appendChild(root);
+    const siblings = getElementChildren(passkeyButtonParent);
+    const passkeyButtonIndex = siblings.indexOf(passkeyButton);
+
+    if (passkeyButtonIndex === -1) {
+      return null;
+    }
+
+    passkeyButtonParent.insertBefore(root, siblings[passkeyButtonIndex + 1] ?? null);
 
     runtimeResetUi = {
       root,
       summary,
-      button,
     };
-
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      void resetConfiguredRuntime();
-    });
 
     syncRuntimeResetEntryCopy();
 
     return runtimeResetUi;
   };
 
-  const syncRouteBoundRuntimeResetEntry = () => {
-    if (!runtimeState.configured) {
+  const syncLoginRuntimeResetState = () => {
+    if (!runtimeState.configured || !isLoginRoute()) {
+      disconnectRuntimeResetObserver();
       removeRuntimeResetEntry();
+      return true;
+    }
+
+    applyDiscoveryLocale(detectDiscoveryLocale());
+
+    const passkeyButtonContext = getLoginPasskeyButtonContext();
+
+    if (!passkeyButtonContext) {
+      return false;
+    }
+
+    renderRuntimeResetEntry(
+      passkeyButtonContext.passkeyButtonParent,
+      passkeyButtonContext.passkeyButton
+    );
+    return true;
+  };
+
+  const scheduleLoginRuntimeResetSync = () => {
+    clearRuntimeResetSyncTimeout();
+
+    if (syncLoginRuntimeResetState()) {
       return;
     }
 
-    renderRuntimeResetEntry();
+    if (typeof globalThis.setTimeout !== "function") {
+      return;
+    }
+
+    runtimeResetSyncTimeout = globalThis.setTimeout(() => {
+      runtimeResetSyncTimeout = null;
+      scheduleLoginRuntimeResetSync();
+    }, 50);
+  };
+
+  const observeLoginRuntimeReset = () => {
+    if (
+      runtimeResetObserver ||
+      typeof globalThis.MutationObserver !== "function" ||
+      !globalThis.document?.body
+    ) {
+      return;
+    }
+
+    runtimeResetObserver = new globalThis.MutationObserver(() => {
+      syncLoginRuntimeResetState();
+    });
+
+    runtimeResetObserver.observe(globalThis.document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
   };
 
   const installRuntimeResetRouteListener = () => {
     let syncScheduled = false;
+
     const scheduleSync = () => {
       if (syncScheduled) {
         return;
@@ -1355,7 +1597,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       syncScheduled = true;
       Promise.resolve().then(() => {
         syncScheduled = false;
-        syncRouteBoundRuntimeResetEntry();
+        scheduleLoginRuntimeResetSync();
       });
     };
 
@@ -1366,6 +1608,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const wrapHistoryMethod = (methodName) => {
       const history = globalThis.history;
       const originalMethod = history?.[methodName];
+
       if (typeof originalMethod !== "function") {
         return;
       }
@@ -1491,18 +1734,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     localeSelect.value = applyDiscoveryLocale(runtimeState.discoveryLocale);
 
-  const localeChevron = globalThis.document.createElement("span");
-  localeChevron.className = "secpal-discovery-select-chevron";
-  localeChevron.setAttribute("aria-hidden", "true");
+    const localeChevron = globalThis.document.createElement("span");
+    localeChevron.className = "secpal-discovery-select-chevron";
+    localeChevron.setAttribute("aria-hidden", "true");
 
-  const svgNamespace = "http://www.w3.org/2000/svg";
-  const localeChevronSvg = globalThis.document.createElementNS(svgNamespace, "svg");
-  localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
-  localeChevronSvg.setAttribute("fill", "none");
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const localeChevronSvg = globalThis.document.createElementNS(svgNamespace, "svg");
+    localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
+    localeChevronSvg.setAttribute("fill", "none");
 
-  const localeChevronPathDown = globalThis.document.createElementNS(svgNamespace, "path");
-  localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
-  localeChevronPathDown.setAttribute("stroke-width", "1.5");
+    const localeChevronPathDown = globalThis.document.createElementNS(svgNamespace, "path");
+    localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
+    localeChevronPathDown.setAttribute("stroke-width", "1.5");
   localeChevronPathDown.setAttribute("stroke-linecap", "round");
   localeChevronPathDown.setAttribute("stroke-linejoin", "round");
 
@@ -1845,84 +2088,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
-  const resetConfiguredRuntime = async () => {
-    const ui = renderRuntimeResetEntry();
-
-    if (!ui || !runtimeState.configured) {
-      return;
-    }
-
-    if (typeof globalThis.confirm !== "function") {
-      syncRuntimeResetEntryCopy();
-      return;
-    }
-
-    const shouldReset =
-      globalThis.confirm(
-        translateDiscovery("resetConfirm", {
-          instanceDisplayName: getConfiguredRuntimeLabel(),
-        })
-      ) === true;
-
-    if (!shouldReset) {
-      return;
-    }
-
-    runtimeState.resetBusy = true;
-    syncRuntimeResetEntryCopy();
-
-    try {
-      if (typeof getPlugin().logout === "function") {
-        try {
-          await getPlugin().logout();
-          authState.active = false;
-        } catch (error) {
-          const code = error && typeof error === "object" ? error.code : undefined;
-
-          if (code === "NO_STORED_TOKEN" || code === "HTTP_401") {
-            authState.active = false;
-          } else {
-            console.warn(
-              "Failed to logout before resetting the configured SecPal runtime.",
-              error
-            );
-          }
-        }
-      }
-
-      await clearPersistedBootstrap();
-      await clearTenantScopedBrowserState();
-
-      authState.active = false;
-      runtimeState.configured = false;
-      runtimeState.bootstrap = null;
-      runtimeState.apiOrigin = null;
-      runtimeState.pendingBootstrap = null;
-      runtimeState.discoveryBusyAction = null;
-      runtimeState.discoveryErrorMessage = "";
-      runtimeState.nativeConfigPromise = Promise.resolve();
-      runtimeState.resetBusy = false;
-
-      removeRuntimeResetEntry();
-      mountDiscoveryGate();
-
-      if (globalThis.location && typeof globalThis.location.reload === "function") {
-        globalThis.location.reload();
-      }
-    } catch (error) {
-      runtimeState.resetBusy = false;
-      syncRuntimeResetEntryCopy();
-      console.warn("Failed to reset the configured SecPal runtime.", error);
-    }
-  };
-
   const mountDiscoveryGate = () => {
     if (runtimeState.configured) {
       removeDiscoveryGate();
-      syncRouteBoundRuntimeResetEntry();
+      observeLoginRuntimeReset();
+      scheduleLoginRuntimeResetSync();
       return;
     }
 
+    disconnectRuntimeResetObserver();
     removeRuntimeResetEntry();
 
     const ui = renderDiscoveryGate();
