@@ -628,20 +628,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
             provisioningStateClearer.run();
         }
 
-        SharedPreferences.Editor editor = preferences.edit()
-            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-            .remove(API_BASE_URL_PREFERENCE_KEY);
-
-        if (editor.commit()) {
-            return true;
-        }
-
-        preferences.edit()
+        return preferences.edit()
             .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
             .remove(API_BASE_URL_PREFERENCE_KEY)
-            .apply();
-
-        return false;
+            .commit();
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {

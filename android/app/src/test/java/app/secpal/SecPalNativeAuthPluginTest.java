@@ -225,6 +225,36 @@ public class SecPalNativeAuthPluginTest {
         assertTrue(provisioningStateCleared[0]);
     }
 
+    @Test
+    public void clearRuntimeBootstrapStateReportsFailureWithoutAsyncFallbackWhenCommitFails() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        final boolean[] provisioningStateCleared = { false };
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+        preferences.failNextCommit = true;
+
+        assertFalse(
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapState(
+                preferences,
+                tokenStorage,
+                () -> provisioningStateCleared[0] = true
+            )
+        );
+
+        assertNull(tokenStorage.token);
+        assertTrue(provisioningStateCleared[0]);
+        assertEquals(
+            "Async apply() must not silently retry after a failed commit() that already rejected the caller.",
+            0,
+            preferences.applyCallCount
+        );
+    }
+
     private static final class FakeTokenStorage implements TokenStorage {
         private String token;
 
@@ -246,6 +276,8 @@ public class SecPalNativeAuthPluginTest {
 
     private static final class InMemorySharedPreferences implements SharedPreferences {
         private final Map<String, String> values = new HashMap<>();
+        private boolean failNextCommit;
+        private int applyCallCount;
 
         @Override
         public Map<String, ?> getAll() { return values; }
@@ -273,21 +305,41 @@ public class SecPalNativeAuthPluginTest {
 
         @Override
         public Editor edit() {
+            final Map<String, String> pending = new HashMap<>(values);
+            final boolean[] cleared = { false };
             return new Editor() {
                 @Override
-                public Editor putString(String key, String value) { values.put(key, value); return this; }
+                public Editor putString(String key, String value) { pending.put(key, value); return this; }
 
                 @Override
-                public Editor remove(String key) { values.remove(key); return this; }
+                public Editor remove(String key) { pending.remove(key); return this; }
 
                 @Override
-                public Editor clear() { values.clear(); return this; }
+                public Editor clear() { pending.clear(); cleared[0] = true; return this; }
 
                 @Override
-                public void apply() {}
+                public void apply() {
+                    applyCallCount += 1;
+                    flush();
+                }
 
                 @Override
-                public boolean commit() { return true; }
+                public boolean commit() {
+                    if (failNextCommit) {
+                        failNextCommit = false;
+                        return false;
+                    }
+                    flush();
+                    return true;
+                }
+
+                private void flush() {
+                    if (cleared[0]) {
+                        values.clear();
+                    }
+                    values.keySet().retainAll(pending.keySet());
+                    values.putAll(pending);
+                }
 
                 @Override
                 public Editor putStringSet(String key, Set<String> values) { throw new UnsupportedOperationException(); }
