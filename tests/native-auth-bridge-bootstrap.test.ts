@@ -993,8 +993,10 @@ describe("native auth bridge bootstrap injection", () => {
       const runtimeResetButton = document.getElementById(
         "secpal-instance-reset-button"
       ) as MockElement | null;
+      const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
 
       expect(runtimeResetButton).not.toBeNull();
+      authState.active = true;
 
       runtimeResetButton!.click();
       await flushMicrotasks();
@@ -1017,6 +1019,7 @@ describe("native auth bridge bootstrap injection", () => {
       expect(
         document.getElementById("secpal-instance-reset-button")
       ).not.toBeNull();
+      expect(authState.active).toBe(false);
       expect(warn).toHaveBeenCalledWith(
         "Failed to reset the configured SecPal runtime.",
         expect.objectContaining({

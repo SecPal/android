@@ -1865,10 +1865,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       if (typeof getPlugin().logout === "function") {
         try {
           await getPlugin().logout();
+          authState.active = false;
         } catch (error) {
           const code = error && typeof error === "object" ? error.code : undefined;
 
-          if (code !== "NO_STORED_TOKEN" && code !== "HTTP_401") {
+          if (code === "NO_STORED_TOKEN" || code === "HTTP_401") {
+            authState.active = false;
+          } else {
             console.warn(
               "Failed to logout before resetting the configured SecPal runtime.",
               error
