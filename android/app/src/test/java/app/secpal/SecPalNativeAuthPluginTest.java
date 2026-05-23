@@ -87,6 +87,17 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void resolveInitialApiBaseUrlUsesPersistedRuntimeOriginWhenAvailable() {
+        assertEquals(
+            "https://tenant-a.example",
+            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(
+                "https://runtime-bootstrap-required.secpal.dev",
+                " https://tenant-a.example/ "
+            )
+        );
+    }
+
+    @Test
     public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(
