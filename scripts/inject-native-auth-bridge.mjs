@@ -604,15 +604,17 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const applyRuntimeBootstrap = async (bootstrap) => {
     const plugin = getPlugin();
 
-    runtimeState.configured = true;
-    runtimeState.bootstrap = bootstrap;
-    runtimeState.apiOrigin = bootstrap.apiOrigin;
     runtimeState.pendingBootstrap = null;
-    persistBootstrap(bootstrap);
 
     if (typeof plugin.setApiBaseUrl === "function") {
       runtimeState.nativeConfigPromise = plugin
         .setApiBaseUrl({ apiBaseUrl: bootstrap.apiOrigin })
+        .then(() => {
+          runtimeState.configured = true;
+          runtimeState.bootstrap = bootstrap;
+          runtimeState.apiOrigin = bootstrap.apiOrigin;
+          persistBootstrap(bootstrap);
+        })
         .catch((error) => {
           clearPersistedBootstrap();
           runtimeState.configured = false;
@@ -621,6 +623,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           throw error;
         });
     } else {
+      runtimeState.configured = true;
+      runtimeState.bootstrap = bootstrap;
+      runtimeState.apiOrigin = bootstrap.apiOrigin;
+      persistBootstrap(bootstrap);
       runtimeState.nativeConfigPromise = Promise.resolve();
     }
 
@@ -693,9 +699,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         throw createIncompatibleBootstrapError();
       }
 
-      runtimeState.configured = true;
-      runtimeState.bootstrap = restored;
-      runtimeState.apiOrigin = restored.apiOrigin;
       runtimeState.pendingBootstrap = null;
 
       try {
@@ -703,6 +706,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         if (typeof plugin.setApiBaseUrl === "function") {
           runtimeState.nativeConfigPromise = plugin
             .setApiBaseUrl({ apiBaseUrl: restored.apiOrigin })
+            .then(() => {
+              runtimeState.configured = true;
+              runtimeState.bootstrap = restored;
+              runtimeState.apiOrigin = restored.apiOrigin;
+            })
             .catch((error) => {
               clearPersistedBootstrap();
               runtimeState.configured = false;
@@ -714,6 +722,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
               console.warn("Failed to restore persisted SecPal bootstrap.", error);
             });
         } else {
+          runtimeState.configured = true;
+          runtimeState.bootstrap = restored;
+          runtimeState.apiOrigin = restored.apiOrigin;
           runtimeState.nativeConfigPromise = Promise.resolve();
         }
       } catch {
@@ -813,7 +824,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const isNativeApiRequest = (url) => {
-    return url.pathname.startsWith("/v1/") && url.hostname === getActiveApiHost();
+    return (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) && url.hostname === getActiveApiHost();
   };
 
   let discoveryUi = null;

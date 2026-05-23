@@ -214,25 +214,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
 
-        try {
-            String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
+        runAsync(call, () -> {
+            try {
+                String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
 
-            if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
-                tokenStorage.clearToken();
+                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                    tokenStorage.clearToken();
+                }
+
+                apiBaseUrl = nextApiBaseUrl;
+
+                JSObject payload = new JSObject();
+                payload.put("apiBaseUrl", apiBaseUrl);
+                call.resolve(payload);
+            } catch (ConfiguredApiBaseUrlException exception) {
+                call.reject(
+                    exception.getMessage(),
+                    exception.getErrorCode(),
+                    exception
+                );
             }
-
-            apiBaseUrl = nextApiBaseUrl;
-
-            JSObject payload = new JSObject();
-            payload.put("apiBaseUrl", apiBaseUrl);
-            call.resolve(payload);
-        } catch (ConfiguredApiBaseUrlException exception) {
-            call.reject(
-                exception.getMessage(),
-                exception.getErrorCode(),
-                exception
-            );
-        }
+        });
     }
 
     @PluginMethod
