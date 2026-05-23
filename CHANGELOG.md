@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- refined the Android runtime discovery gate to match the Catalyst-based login shell much more closely, including SecPal logo/footer branding, Catalyst-aligned control and button presentation, persistent EN/DE locale switching, locale-aware bootstrap validation requests, and verified light/dark rendering on the live device for issue `#229`
 - clarified the repo-local under-`1.x` policy in Copilot governance so Android work explicitly prefers removing obsolete compatibility shims over preserving them without a proven live caller
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
 - strengthened repo-local Copilot governance for AI findings: Android work now requires proof of defect before merging AI-generated fix PRs, treats green CI alone as insufficient evidence for bridge or auth cleanups, and documents focused verification of listener handles and teardown ordering
@@ -58,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- the generic Android app now starts behind a pre-login deployment-discovery gate that accepts secure customer instance URLs or link-supplied bootstrap targets, validates the public `GET /v1/bootstrap` contract against the running app version, confirms the resolved instance before authentication proceeds, and rebinds the native/web runtime only after a deployment has been explicitly approved, removing the old baked-in live-origin assumption from issue `#229`
 - native Android offline-vault root-key wrapping bridge support: `SecPalNativeAuthPlugin`, the injected `SecPalNativeAuthBridge`, and the typed Capacitor wrapper now expose `isVaultDeviceBoundWrapperAvailable`, `wrapVaultRootKey`, and `unwrapVaultRootKey`, backed by a dedicated Android Keystore wrapper that only handles the vault root-key boundary and keeps decrypted vault record contents out of the bridge, resolving Android issue #191.
 - native Android passkey registration in the auth bridge: the wrapper now maps the API registration challenge into a Credential Manager create request, returns the resulting attestation payload through the injected WebView bridge, and gives the shared frontend settings flow a native enrollment path inside the Android shell
 - native Android passkey sign-in in the auth bridge: the wrapper now starts token-mode passkey challenges against the API, completes the Credential Manager authentication ceremony, verifies the returned assertion for a bearer token, and exposes `loginWithPasskey` through the injected WebView bridge used by the shared frontend login screen

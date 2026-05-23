@@ -9,7 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 
 class MockElement {
   id = "";
+  className = "";
   textContent = "";
+  value = "";
+  disabled = false;
   style: Record<string, string> = {};
   attributes: Record<string, string> = {};
   children: MockElement[] = [];
@@ -42,14 +45,30 @@ class MockElement {
     this.listeners.set(eventName, listeners);
   }
 
-  click() {
-    for (const listener of this.listeners.get("click") ?? []) {
+  dispatch(eventName: string) {
+    for (const listener of this.listeners.get(eventName) ?? []) {
       listener({
         preventDefault() {
           // no-op
         },
       });
     }
+  }
+
+  click() {
+    if (this.disabled) {
+      return;
+    }
+
+    this.dispatch("click");
+  }
+
+  change() {
+    if (this.disabled) {
+      return;
+    }
+
+    this.dispatch("change");
   }
 
   remove() {
@@ -59,11 +78,14 @@ class MockElement {
 
 class MockDocument {
   readonly body = new MockElement("body");
+  readonly head = new MockElement("head");
   readyState = "complete";
+  readonly documentElement = { lang: "en" };
   private readonly elementsById = new Map<string, MockElement>();
 
   constructor() {
     this.body.ownerDocument = this;
+    this.head.ownerDocument = this;
   }
 
   createElement(tagName: string) {
@@ -71,6 +93,10 @@ class MockDocument {
 
     element.ownerDocument = this;
     return element;
+  }
+
+  createElementNS(_namespace: string, tagName: string) {
+    return this.createElement(tagName);
   }
 
   getElementById(id: string) {
@@ -107,6 +133,68 @@ function encodeBase64(value: string): string {
   return Buffer.from(value, "utf8").toString("base64");
 }
 
+function createMockStorage(initialValues?: Record<string, string>) {
+  const values = new Map<string, string>(
+    initialValues ? Object.entries(initialValues) : []
+  );
+
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    },
+    clear() {
+      values.clear();
+    },
+  };
+}
+
+const runtimeBootstrapPlaceholderOrigin =
+  "https://runtime-bootstrap-required.secpal.dev";
+const runtimeBootstrapStorageKey = "runtimeBootstrapState";
+
+function buildStoredRuntimeBootstrap(
+  overrides: Partial<{
+    instanceDisplayName: string;
+    apiOrigin: string;
+    rawApiBaseUrl: string;
+    minimumSupportedAppVersion: string;
+    minimumSupportedAppBuild: number;
+    features: {
+      passwordLoginEnabled: boolean;
+      passkeyLoginEnabled: boolean;
+      managedAndroidEnrollment: boolean;
+    };
+  }> = {}
+) {
+  return JSON.stringify({
+    instanceDisplayName: "Configured Example",
+    apiOrigin: "https://api.secpal.dev",
+    rawApiBaseUrl: "https://api.secpal.dev/v1",
+    minimumSupportedAppVersion: "0.0.1",
+    minimumSupportedAppBuild: 1,
+    features: {
+      passwordLoginEnabled: true,
+      passkeyLoginEnabled: true,
+      managedAndroidEnrollment: false,
+    },
+    ...overrides,
+  });
+}
+
+async function flushMicrotasks(turns = 8) {
+  for (let index = 0; index < turns; index += 1) {
+    await Promise.resolve();
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("native auth bridge bootstrap injection", () => {
   it("reads the configured API base URL from Android strings.xml", () => {
     const injectorModulePromise = loadInjectorModule();
@@ -119,7 +207,7 @@ describe("native auth bridge bootstrap injection", () => {
       injectorModulePromise.then(({ readApiBaseUrlFromStringsXml }) =>
         readApiBaseUrlFromStringsXml(stringsXml)
       )
-    ).resolves.toBe("https://api.secpal.dev");
+    ).resolves.toBe(runtimeBootstrapPlaceholderOrigin);
   });
 
   it("injects the bootstrap script before the first module script and stays idempotent", async () => {
@@ -175,6 +263,632 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveLength(1);
   });
 
+  it("renders a theme-aware translated discovery gate and persists locale changes", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const document = new MockDocument();
+    const localStorage = createMockStorage({ "secpal-locale": "de" });
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      navigator: { language: "de-DE" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const title = document.getElementById(
+      "secpal-instance-discovery-title"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const localeSelect = document.getElementById(
+      "secpal-instance-discovery-locale"
+    ) as MockElement | null;
+    const lightLogo = document.getElementById(
+      "secpal-instance-discovery-logo-light"
+    ) as MockElement | null;
+    const darkLogo = document.getElementById(
+      "secpal-instance-discovery-logo-dark"
+    ) as MockElement | null;
+    const footerPoweredLink = document.getElementById(
+      "secpal-instance-discovery-footer-powered"
+    ) as MockElement | null;
+    const styles = document.getElementById(
+      "secpal-instance-discovery-styles"
+    ) as MockElement | null;
+    const noteTitle = document.getElementById(
+      "secpal-instance-discovery-note-title"
+    ) as MockElement | null;
+    const noteDescription = document.getElementById(
+      "secpal-instance-discovery-note-description"
+    ) as MockElement | null;
+
+    expect(title?.textContent).toBe("Instanz-URL eingeben");
+    expect(validateButton?.textContent).toBe("Instanz prüfen");
+    expect(
+      document.getElementById("secpal-instance-discovery-description")
+        ?.textContent
+    ).toBe(
+      "Geben Sie die Instanz-URL ein, die Sie von Ihrem Vorgesetzten erhalten haben."
+    );
+    expect(noteTitle?.textContent).toBe("Noch keine Instanz-URL?");
+    expect(noteDescription?.textContent).toBe(
+      "Bitte wenden Sie sich an Ihren Vorgesetzten, um die Instanz-URL zu erhalten."
+    );
+    expect(document.documentElement.lang).toBe("de");
+    expect(styles?.textContent).toContain(
+      "@media (prefers-color-scheme: dark)"
+    );
+    expect(styles?.textContent).toContain("color-scheme: dark");
+    expect(lightLogo?.attributes.src).toBe("/logo-light-48.png");
+    expect(darkLogo?.attributes.src).toBe("/logo-dark-48.png");
+    expect(footerPoweredLink?.textContent).toBe(
+      "Powered by SecPal – Der beste Freund jeder Wache"
+    );
+
+    expect(localeSelect).not.toBeNull();
+    localeSelect!.value = "en";
+    localeSelect!.change();
+
+    expect(title?.textContent).toBe("Enter your instance URL");
+    expect(validateButton?.textContent).toBe("Check instance");
+    expect(
+      document.getElementById("secpal-instance-discovery-description")
+        ?.textContent
+    ).toBe("Enter the instance URL you received from your supervisor.");
+    expect(document.documentElement.lang).toBe("en");
+    expect(localStorage.getItem("secpal-locale")).toBe("en");
+    expect(footerPoweredLink?.textContent).toBe(
+      "Powered by SecPal – A guard's best friend"
+    );
+  });
+
+  it("keeps bootstrap initialization alive when locale persistence fails", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const document = new MockDocument();
+    const localStorage = {
+      getItem() {
+        return "de";
+      },
+      setItem() {
+        throw new Error("storage blocked");
+      },
+      removeItem() {
+        // no-op
+      },
+      clear() {
+        // no-op
+      },
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      navigator: { language: "de-DE" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(() =>
+      vm.runInNewContext(
+        buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+        sandbox
+      )
+    ).not.toThrow();
+
+    expect(document.documentElement.lang).toBe("de");
+    expect(
+      document.getElementById("secpal-instance-discovery-validate")?.textContent
+    ).toBe("Instanz prüfen");
+  });
+
+  it("blocks native login until discovery validates a deployment and confirms the runtime bootstrap", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        bodyBase64: encodeBase64('{"status":"ready"}'),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "0.0.1",
+        appBuild: 1,
+      }),
+      setApiBaseUrl: vi.fn().mockResolvedValue({
+        apiBaseUrl: "https://customer-api.example",
+      }),
+    };
+    const browserFetch = vi.fn(async (input: Request | string | URL) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+
+      if (
+        url.origin === "https://customer.example" &&
+        url.pathname === "/v1/bootstrap"
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              client_platform: "android",
+              api_base_url: "https://customer-api.example/v1",
+              instance: {
+                display_name: "Customer Example",
+              },
+              compatibility: {
+                bootstrap_version: "v1",
+                schema_version: 1,
+                minimum_supported_app_version: "0.0.1",
+                minimum_supported_app_build: 1,
+              },
+              features: {
+                password_login: true,
+                passkey_login: true,
+                managed_android_enrollment: false,
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return new Response('{"status":"ready"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: {
+        href: "https://app.secpal.dev/login",
+        reload: vi.fn(),
+      },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      login(credentials: { email: string; password: string }): Promise<unknown>;
+    };
+
+    await expect(
+      bridge.login({ email: "worker@secpal.dev", password: "password123" })
+    ).rejects.toThrow(/not configured/i);
+    expect(plugin.login).not.toHaveBeenCalled();
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const confirmButton = document.getElementById(
+      "secpal-instance-discovery-confirm"
+    ) as MockElement | null;
+    const summary = document.getElementById(
+      "secpal-instance-discovery-summary"
+    ) as MockElement | null;
+
+    expect(input).not.toBeNull();
+    expect(validateButton).not.toBeNull();
+    expect(confirmButton).not.toBeNull();
+    expect(summary).not.toBeNull();
+
+    input!.value = "https://customer.example";
+    validateButton!.click();
+    await flushMicrotasks();
+
+    expect(plugin.getRuntimeInfo).toHaveBeenCalledOnce();
+    expect(browserFetch).toHaveBeenCalledOnce();
+    expect(
+      (browserFetch.mock.calls[0]?.[0] as Request).headers.get(
+        "Accept-Language"
+      )
+    ).toBe("en");
+    expect(summary?.children[1]?.textContent).toBe(
+      "Instance: Customer Example"
+    );
+    expect(confirmButton?.disabled).toBe(false);
+
+    confirmButton!.click();
+    await flushMicrotasks();
+
+    expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
+      apiBaseUrl: "https://customer-api.example",
+    });
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toContain(
+      "Customer Example"
+    );
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+
+    await (sandbox.fetch as typeof fetch)(
+      `${runtimeBootstrapPlaceholderOrigin}/health/ready`
+    );
+
+    const rewrittenRequest = browserFetch.mock.calls.at(-1)?.[0] as Request;
+    expect(rewrittenRequest.url).toBe(
+      "https://customer-api.example/health/ready"
+    );
+  });
+
+  it("shows a hard failure for insecure instance URLs before any bootstrap fetch", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const browserFetch = vi.fn();
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+            getRuntimeInfo: vi.fn().mockResolvedValue({
+              clientPlatform: "android",
+              appVersion: "0.0.1",
+              appBuild: 1,
+            }),
+          },
+        },
+      },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement;
+    const error = document.getElementById(
+      "secpal-instance-discovery-error"
+    ) as MockElement;
+
+    input.value = "http://customer.example";
+    validateButton.click();
+    await flushMicrotasks();
+
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(error.textContent).toMatch(/https/i);
+    expect(error.textContent).toMatch(/secure/i);
+  });
+
+  it("rejects discovery URLs that smuggle userinfo or extra URL parts", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const browserFetch = vi.fn();
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+            getRuntimeInfo: vi.fn().mockResolvedValue({
+              clientPlatform: "android",
+              appVersion: "0.0.1",
+              appBuild: 1,
+            }),
+          },
+        },
+      },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement;
+    const error = document.getElementById(
+      "secpal-instance-discovery-error"
+    ) as MockElement;
+
+    input.value = "https://customer.example@evil.example/path?tenant=1#frag";
+    validateButton.click();
+    await flushMicrotasks();
+
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(error.textContent).toMatch(/valid/i);
+    expect(error.textContent).toMatch(/https/i);
+  });
+
+  it("surfaces unreachable bootstrap targets as actionable discovery errors", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const browserFetch = vi
+      .fn()
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+            getRuntimeInfo: vi.fn().mockResolvedValue({
+              clientPlatform: "android",
+              appVersion: "0.0.1",
+              appBuild: 1,
+            }),
+          },
+        },
+      },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement;
+    const error = document.getElementById(
+      "secpal-instance-discovery-error"
+    ) as MockElement;
+
+    input.value = "https://customer.example";
+    validateButton.click();
+    await flushMicrotasks();
+
+    expect(error.textContent).toMatch(/reach/i);
+    expect(error.textContent).toMatch(/url|supervisor/i);
+  });
+
+  it("rejects incompatible bootstrap payloads before confirming the deployment", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const browserFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            client_platform: "android",
+            api_base_url: "https://customer-api.example/v1",
+            instance: {
+              display_name: "Customer Example",
+            },
+            compatibility: {
+              bootstrap_version: "v2",
+              schema_version: 2,
+              minimum_supported_app_version: "0.0.1",
+              minimum_supported_app_build: 1,
+            },
+            features: {
+              password_login: true,
+              passkey_login: true,
+              managed_android_enrollment: false,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+            getRuntimeInfo: vi.fn().mockResolvedValue({
+              clientPlatform: "android",
+              appVersion: "0.0.1",
+              appBuild: 1,
+            }),
+          },
+        },
+      },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement;
+    const confirmButton = document.getElementById(
+      "secpal-instance-discovery-confirm"
+    ) as MockElement;
+    const error = document.getElementById(
+      "secpal-instance-discovery-error"
+    ) as MockElement;
+
+    input.value = "https://customer.example";
+    validateButton.click();
+    await flushMicrotasks();
+
+    expect(error.textContent).toMatch(/verified|administrator/i);
+    expect(confirmButton.disabled).toBe(true);
+  });
+
   it("installs the native bridge and routes authenticated /v1/ fetch traffic through the native plugin", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -213,6 +927,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      }),
       fetch: browserFetch,
       Request,
       Response,
@@ -520,13 +1237,16 @@ describe("native auth bridge bootstrap injection", () => {
       hardwareButtonShortPressed: [],
       hardwareButtonLongPressed: [],
     };
+    const handles: { remove: () => void }[] = [];
     const enterprisePlugin = {
       addListener: vi.fn((eventName: string, listener: () => void) => {
         if (eventName in listeners) {
           listeners[eventName].push(listener);
         }
 
-        return { remove: vi.fn() };
+        const handle = { remove: vi.fn() };
+        handles.push(handle);
+        return handle;
       }),
     };
     const location = { href: "https://app.secpal.dev/dashboard" };
@@ -572,6 +1292,79 @@ describe("native auth bridge bootstrap injection", () => {
 
     listeners.hardwareButtonLongPressed[0]?.();
     expect(location.href).toBe("https://app.secpal.dev/about");
+
+    // Each auto-registered listener returns a handle with a callable remove() function.
+    expect(handles.length).toBeGreaterThanOrEqual(2);
+    for (const handle of handles) {
+      expect(typeof handle.remove).toBe("function");
+      handle.remove();
+      expect(handle.remove).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("returns a handle with remove() from addHardwareButtonShortPressListener and addHardwareButtonLongPressListener on the enterprise bridge", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      addListener: vi.fn(() => ({ remove: vi.fn() })),
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalEnterpriseBridge as {
+      addHardwareButtonShortPressListener: (cb: () => void) => {
+        remove: () => void;
+      };
+      addHardwareButtonLongPressListener: (cb: () => void) => {
+        remove: () => void;
+      };
+    };
+
+    const shortHandle = bridge.addHardwareButtonShortPressListener(() => {});
+    expect(typeof shortHandle.remove).toBe("function");
+    shortHandle.remove();
+    expect(enterprisePlugin.addListener).toHaveBeenCalledWith(
+      "hardwareButtonShortPressed",
+      expect.any(Function)
+    );
+
+    const longHandle = bridge.addHardwareButtonLongPressListener(() => {});
+    expect(typeof longHandle.remove).toBe("function");
+    longHandle.remove();
+    expect(enterprisePlugin.addListener).toHaveBeenCalledWith(
+      "hardwareButtonLongPressed",
+      expect.any(Function)
+    );
   });
 
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {
@@ -623,6 +1416,189 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(response.text()).resolves.toBe('{"status":"ready"}');
   });
 
+  it("reopens discovery when restoring a persisted bootstrap fails in the native runtime", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi
+        .fn()
+        .mockRejectedValue(new Error("native bridge unavailable")),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(runtimeState.configured).toBe(false);
+    expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
+      apiBaseUrl: "https://api.secpal.dev",
+    });
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+  });
+
+  it("removes the discovery gate after restoring a persisted bootstrap", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let resolveSetApiBaseUrl!: (value: unknown) => void;
+    const setApiBaseUrlPromise = new Promise((resolve) => {
+      resolveSetApiBaseUrl = resolve;
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi.fn().mockReturnValue(setApiBaseUrlPromise),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    expect(runtimeState.configured).toBe(false);
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+
+    resolveSetApiBaseUrl({ apiBaseUrl: "https://api.secpal.dev" });
+    await flushMicrotasks();
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(runtimeState.configured).toBe(true);
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).toBeNull();
+  });
+
+  it("blocks logout when the runtime bootstrap restore failed", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi
+        .fn()
+        .mockRejectedValue(new Error("native bridge unavailable")),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      logout(): Promise<void>;
+    };
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+
+    authState.active = true;
+
+    await expect(bridge.logout()).rejects.toThrow(/not configured/i);
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(authState.active).toBe(true);
+  });
+
   it("does not render the removed in-app dedicated-device launcher", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const enterprisePlugin = {
@@ -655,6 +1631,9 @@ describe("native auth bridge bootstrap injection", () => {
         },
       },
       document,
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      }),
       fetch,
       Request,
       Response,
@@ -977,5 +1956,182 @@ describe("native auth bridge bootstrap injection", () => {
       },
       allowedApps: [],
     });
+  });
+
+  it("routes authenticated fetch to exact /v1 path through the native bridge", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 1 } }),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        bodyBase64: encodeBase64('{"ok":true}'),
+        contentType: "application/json",
+      }),
+    };
+    const browserFetch = vi
+      .fn()
+      .mockResolvedValue(new Response("browser", { status: 200 }));
+
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      }),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      login(credentials: { email: string; password: string }): Promise<unknown>;
+    };
+
+    await bridge.login({ email: "worker@secpal.dev", password: "pass" });
+
+    const response = await (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1",
+      { method: "GET" }
+    );
+
+    expect(plugin.request).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/v1" })
+    );
+    expect(browserFetch).not.toHaveBeenCalled();
+    await expect(response.text()).resolves.toBe('{"ok":true}');
+  });
+
+  it("does not mark runtime as configured until setApiBaseUrl resolves during bootstrap confirmation", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let resolveSetApiBaseUrl!: (value: unknown) => void;
+    const setApiBaseUrlPromise = new Promise((resolve) => {
+      resolveSetApiBaseUrl = resolve;
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "0.0.1",
+        appBuild: 1,
+      }),
+      setApiBaseUrl: vi.fn().mockReturnValue(setApiBaseUrlPromise),
+    };
+    const browserFetch = vi.fn(async (input: Request | string | URL) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+      if (url.pathname === "/v1/bootstrap") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              client_platform: "android",
+              api_base_url: "https://customer-api.example/v1",
+              instance: { display_name: "Customer Example" },
+              compatibility: {
+                bootstrap_version: "v1",
+                schema_version: 1,
+                minimum_supported_app_version: "0.0.1",
+                minimum_supported_app_build: 1,
+              },
+              features: {
+                password_login: true,
+                passkey_login: false,
+                managed_android_enrollment: false,
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("browser", { status: 200 });
+    });
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const confirmButton = document.getElementById(
+      "secpal-instance-discovery-confirm"
+    ) as MockElement | null;
+
+    input!.value = "https://customer.example";
+    validateButton!.click();
+    await flushMicrotasks();
+
+    confirmButton!.click();
+    await flushMicrotasks(2);
+
+    expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
+      apiBaseUrl: "https://customer-api.example",
+    });
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+
+    resolveSetApiBaseUrl({ apiBaseUrl: "https://customer-api.example" });
+    await flushMicrotasks();
+
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toContain(
+      "Customer Example"
+    );
   });
 });

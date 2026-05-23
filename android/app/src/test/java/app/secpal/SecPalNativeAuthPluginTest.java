@@ -6,6 +6,7 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -72,5 +73,44 @@ public class SecPalNativeAuthPluginTest {
             assertEquals("Invalid Android auth API origin configuration", exception.getMessage());
             assertTrue(exception.getCause() instanceof NativeAuthHttpException);
         }
+    }
+
+    @Test
+    public void resolveRuntimeApiBaseUrlRejectsInsecureHttpOrigin() {
+        try {
+            SecPalNativeAuthPlugin.resolveRuntimeApiBaseUrl("http://api.secpal.dev");
+            fail("Expected ConfiguredApiBaseUrlException");
+        } catch (SecPalNativeAuthPlugin.ConfiguredApiBaseUrlException exception) {
+            assertEquals("Android auth API origin must use HTTPS", exception.getMessage());
+            assertEquals("INSECURE_API_BASE_URL", exception.getErrorCode());
+        }
+    }
+
+    @Test
+    public void resolveInitialApiBaseUrlUsesPersistedRuntimeOriginWhenAvailable() {
+        assertEquals(
+            "https://tenant-a.example",
+            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(
+                "https://runtime-bootstrap-required.secpal.dev",
+                " https://tenant-a.example/ "
+            )
+        );
+    }
+
+    @Test
+    public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
+        assertTrue(
+            SecPalNativeAuthPlugin.shouldClearStoredToken(
+                "https://tenant-a.example",
+                "https://tenant-b.example"
+            )
+        );
+        assertFalse(
+            SecPalNativeAuthPlugin.shouldClearStoredToken(
+                "https://tenant-a.example",
+                "https://tenant-a.example"
+            )
+        );
+        assertFalse(SecPalNativeAuthPlugin.shouldClearStoredToken(null, "https://tenant-a.example"));
     }
 }

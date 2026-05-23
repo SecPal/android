@@ -6,6 +6,8 @@
 package app.secpal;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 
 import com.getcapacitor.JSObject;
@@ -20,6 +22,9 @@ import java.io.IOException;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
+    private static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
+    private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
+
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
@@ -31,7 +36,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
-        apiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
+        String configuredApiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
+        apiBaseUrl = resolveInitialApiBaseUrl(
+            configuredApiBaseUrl,
+            getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
+        );
         tokenStorage = new KeystoreTokenStorage(getContext());
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
@@ -182,6 +191,60 @@ public class SecPalNativeAuthPlugin extends Plugin {
         JSObject payload = new JSObject();
         payload.put("available", networkState.isNetworkAvailable(getContext()));
         call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void getRuntimeInfo(PluginCall call) {
+        ProvisioningBootstrapRuntimeInfo runtimeInfo =
+            ProvisioningBootstrapRuntimeInfo.fromContext(getContext());
+        String appVersion = runtimeInfo.getPackageVersionName();
+        int appBuild = runtimeInfo.getPackageVersionCode();
+
+        if (appVersion == null || appVersion.trim().isEmpty() || appBuild <= 0) {
+            call.reject(
+                "Android runtime version metadata is unavailable",
+                "RUNTIME_INFO_UNAVAILABLE"
+            );
+            return;
+        }
+
+        JSObject payload = new JSObject();
+        payload.put("clientPlatform", "android");
+        payload.put("appVersion", appVersion);
+        payload.put("appBuild", appBuild);
+        call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void setApiBaseUrl(PluginCall call) {
+        String value = requireValue(call, "apiBaseUrl");
+
+        if (value == null) {
+            return;
+        }
+
+        runAsync(call, () -> {
+            try {
+                String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
+
+                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                    tokenStorage.clearToken();
+                }
+
+                apiBaseUrl = nextApiBaseUrl;
+                getNativeAuthPreferences().edit().putString(API_BASE_URL_PREFERENCE_KEY, apiBaseUrl).apply();
+
+                JSObject payload = new JSObject();
+                payload.put("apiBaseUrl", apiBaseUrl);
+                call.resolve(payload);
+            } catch (ConfiguredApiBaseUrlException exception) {
+                call.reject(
+                    exception.getMessage(),
+                    exception.getErrorCode(),
+                    exception
+                );
+            }
+        });
     }
 
     @PluginMethod
@@ -351,8 +414,45 @@ public class SecPalNativeAuthPlugin extends Plugin {
         try {
             return NativeAuthHttpClient.normalizeBaseUrl(configuredValue);
         } catch (NativeAuthHttpException exception) {
-            throw new IllegalStateException("Invalid Android auth API origin configuration", exception);
+            throw new ConfiguredApiBaseUrlException(
+                "Invalid Android auth API origin configuration",
+                "INVALID_API_BASE_URL",
+                exception
+            );
         }
+    }
+
+    static String resolveRuntimeApiBaseUrl(String configuredValue) {
+        String normalizedApiBaseUrl = resolveConfiguredApiBaseUrl(configuredValue);
+
+        if (!normalizedApiBaseUrl.startsWith("https://")) {
+            throw new ConfiguredApiBaseUrlException(
+                "Android auth API origin must use HTTPS",
+                "INSECURE_API_BASE_URL"
+            );
+        }
+
+        return normalizedApiBaseUrl;
+    }
+
+    static String resolveInitialApiBaseUrl(String configuredApiBaseUrl, String persistedApiBaseUrl) {
+        if (persistedApiBaseUrl == null || persistedApiBaseUrl.trim().isEmpty()) {
+            return configuredApiBaseUrl;
+        }
+
+        try {
+            return resolveRuntimeApiBaseUrl(persistedApiBaseUrl);
+        } catch (ConfiguredApiBaseUrlException exception) {
+            return configuredApiBaseUrl;
+        }
+    }
+
+    static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
+        return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    private SharedPreferences getNativeAuthPreferences() {
+        return getContext().getSharedPreferences(NATIVE_AUTH_PREFERENCES_NAME, Context.MODE_PRIVATE);
     }
 
     private void maybeClearToken(Exception exception) {
@@ -370,6 +470,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
             throw new NetworkUnavailableException(
                 "Android auth requires an active internet connection"
             );
+        }
+    }
+
+    static final class ConfiguredApiBaseUrlException extends IllegalStateException {
+        private final String errorCode;
+
+        ConfiguredApiBaseUrlException(String message, String errorCode, Throwable cause) {
+            super(message, cause);
+            this.errorCode = errorCode;
+        }
+
+        ConfiguredApiBaseUrlException(String message, String errorCode) {
+            super(message);
+            this.errorCode = errorCode;
+        }
+
+        String getErrorCode() {
+            return errorCode;
         }
     }
 }
