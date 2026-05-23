@@ -1750,13 +1750,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    runtimeState.nativeConfigPromise
-      .catch(() => {
-        // Restore failures already reset the runtime state and remount the gate.
-      })
-      .then(() => {
+    runtimeState.nativeConfigPromise.then(
+      () => {
         mountDiscoveryGate();
-      });
+      },
+      () => {
+        // Restore failures already reset the runtime state and remount the gate
+        // inside the async IIFE catch block; do not mount a second time here.
+      }
+    );
   };
 
   if (globalThis.document && globalThis.document.body) {

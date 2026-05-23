@@ -334,11 +334,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
-        JSObject payload = buildRuntimeBootstrapPayload(
-            getPersistedRuntimeBootstrap(),
-            getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
-        );
-        call.resolve(payload);
+        runAsync(call, () -> {
+            JSObject payload = buildRuntimeBootstrapPayload(
+                getPersistedRuntimeBootstrap(),
+                getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
+            );
+            call.resolve(payload);
+        });
     }
 
     @PluginMethod
