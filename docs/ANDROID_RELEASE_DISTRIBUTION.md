@@ -88,6 +88,8 @@ Keep in mind that direct distribution still needs:
 
 The generic Android app no longer ships with a baked-in production runtime API origin. Every customer-hosted deployment that should work with the generic app must expose a public unauthenticated `GET /v1/bootstrap` endpoint on the HTTPS instance URL users receive.
 
+In the current SecPal live split, `https://api.secpal.dev` is the bootstrap/API host and `https://app.secpal.dev` remains the browser frontend host.
+
 The bootstrap response is the binding contract for Android login and must provide at least:
 
 - the canonical `api_base_url` for runtime API calls, as a bare HTTPS origin or its `/v1` endpoint

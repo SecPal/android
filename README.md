@@ -57,6 +57,8 @@ The app stores the canonical API origin returned by bootstrap only after this co
 
 Use the customer-facing instance URL that the user received, not a copied API path such as `/v1/...`. If onboarding links are distributed centrally, the Android discovery gate can also consume `instance_url`, `server_url`, or `bootstrap_url` query parameters, but the same bootstrap validation and confirmation still happens before login.
 
+For the current SecPal live deployment, the bootstrap/input host is `https://api.secpal.dev`. `https://app.secpal.dev` remains the browser frontend host and does not currently expose `GET /v1/bootstrap` for Android runtime binding.
+
 ## Local Setup
 
 ```bash
