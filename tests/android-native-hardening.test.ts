@@ -222,7 +222,9 @@ describe("Android native hardening", () => {
     expect(stringsXml).toContain(
       '<string name="provisioning_bootstrap_api_base_url">https://api.secpal.dev</string>'
     );
-    expect(coordinator).toContain("R.string.provisioning_bootstrap_api_base_url");
+    expect(coordinator).toContain(
+      "R.string.provisioning_bootstrap_api_base_url"
+    );
     expect(coordinator).not.toContain("R.string.api_base_url");
   });
 
