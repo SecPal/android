@@ -327,7 +327,9 @@ describe("native auth bridge bootstrap injection", () => {
     );
     expect(validateButton?.textContent).toBe("Instanz prüfen");
     expect(document.documentElement.lang).toBe("de");
-    expect(styles?.textContent).toContain("@media (prefers-color-scheme: dark)");
+    expect(styles?.textContent).toContain(
+      "@media (prefers-color-scheme: dark)"
+    );
     expect(styles?.textContent).toContain("color-scheme: dark");
     expect(lightLogo?.attributes.src).toBe("/logo-light-48.png");
     expect(darkLogo?.attributes.src).toBe("/logo-dark-48.png");
@@ -339,7 +341,9 @@ describe("native auth bridge bootstrap injection", () => {
     localeSelect!.value = "en";
     localeSelect!.change();
 
-    expect(title?.textContent).toBe("Connect this SecPal app to your deployment");
+    expect(title?.textContent).toBe(
+      "Connect this SecPal app to your deployment"
+    );
     expect(validateButton?.textContent).toBe("Validate deployment");
     expect(document.documentElement.lang).toBe("en");
     expect(localStorage.getItem("secpal-locale")).toBe("en");
@@ -478,9 +482,11 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.getRuntimeInfo).toHaveBeenCalledOnce();
     expect(browserFetch).toHaveBeenCalledOnce();
-    expect((browserFetch.mock.calls[0]?.[0] as Request).headers.get("Accept-Language")).toBe(
-      "en"
-    );
+    expect(
+      (browserFetch.mock.calls[0]?.[0] as Request).headers.get(
+        "Accept-Language"
+      )
+    ).toBe("en");
     expect(summary?.children[1]?.textContent).toContain("Customer Example");
     expect(summary?.children[1]?.textContent).toContain(
       "https://customer-api.example"
