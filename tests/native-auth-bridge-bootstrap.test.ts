@@ -1208,6 +1208,7 @@ describe("native auth bridge bootstrap injection", () => {
         .mockRejectedValue(new Error("unexpected plugin error")),
     };
     const document = new MockDocument();
+    appendMockLoginFooter(document);
     const localStorage = createMockStorage({
       "secpal-locale": "en",
       auth_vault_state: "encrypted-user-state",
