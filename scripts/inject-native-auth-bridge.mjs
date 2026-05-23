@@ -20,7 +20,7 @@ export function readApiBaseUrlFromStringsXml(stringsXml) {
 }
 
 export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
-  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl);
+  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl).replace(/<\/script>/gi, "<\\/script>");
 
   return `
 (function () {
@@ -567,8 +567,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         ? payload.message
         : "";
 
-    if (response.status === 426 && message) {
-      return message;
+    if (response.status === 426) {
+      return message || translateDiscovery("errorBootstrapIncompatibleApi");
     }
 
     if (code === "BOOTSTRAP_CONFIG_UNAVAILABLE") {
@@ -1292,7 +1292,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           method: "GET",
           headers: new Headers({
             Accept: "application/json",
-            "Accept-Language": runtimeState.discoveryLocale,
+            "Accept-Language": runtimeState.discoveryLocale ?? "en",
           }),
         })
       );
@@ -1357,7 +1357,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const discoveryLink = getDiscoveryLinkCandidate();
     if (discoveryLink && !ui.input.value) {
       ui.input.value = discoveryLink;
-      void validateDiscoverySelection();
     }
   };
 

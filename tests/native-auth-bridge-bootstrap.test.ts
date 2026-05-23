@@ -1108,13 +1108,16 @@ describe("native auth bridge bootstrap injection", () => {
       hardwareButtonShortPressed: [],
       hardwareButtonLongPressed: [],
     };
+    const handles: { remove: ReturnType<typeof vi.fn> }[] = [];
     const enterprisePlugin = {
       addListener: vi.fn((eventName: string, listener: () => void) => {
         if (eventName in listeners) {
           listeners[eventName].push(listener);
         }
 
-        return { remove: vi.fn() };
+        const handle = { remove: vi.fn() };
+        handles.push(handle);
+        return handle;
       }),
     };
     const location = { href: "https://app.secpal.dev/dashboard" };
@@ -1160,6 +1163,75 @@ describe("native auth bridge bootstrap injection", () => {
 
     listeners.hardwareButtonLongPressed[0]?.();
     expect(location.href).toBe("https://app.secpal.dev/about");
+
+    // Each auto-registered listener returns a handle with a callable remove() function.
+    expect(handles.length).toBeGreaterThanOrEqual(2);
+    for (const handle of handles) {
+      expect(typeof handle.remove).toBe("function");
+      handle.remove();
+      expect(handle.remove).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("returns a handle with remove() from addHardwareButtonShortPressListener and addHardwareButtonLongPressListener on the enterprise bridge", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const enterprisePlugin = {
+      addListener: vi.fn(() => ({ remove: vi.fn() })),
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+          SecPalEnterprise: enterprisePlugin,
+        },
+      },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalEnterpriseBridge as {
+      addHardwareButtonShortPressListener: (cb: () => void) => { remove: () => void };
+      addHardwareButtonLongPressListener: (cb: () => void) => { remove: () => void };
+    };
+
+    const shortHandle = bridge.addHardwareButtonShortPressListener(() => {});
+    expect(typeof shortHandle.remove).toBe("function");
+    shortHandle.remove();
+    expect(enterprisePlugin.addListener).toHaveBeenCalledWith(
+      "hardwareButtonShortPressed",
+      expect.any(Function)
+    );
+
+    const longHandle = bridge.addHardwareButtonLongPressListener(() => {});
+    expect(typeof longHandle.remove).toBe("function");
+    longHandle.remove();
+    expect(enterprisePlugin.addListener).toHaveBeenCalledWith(
+      "hardwareButtonLongPressed",
+      expect.any(Function)
+    );
   });
 
   it("keeps public and non-authenticated requests on the browser fetch path", async () => {
