@@ -618,16 +618,14 @@ describe("native auth bridge bootstrap injection", () => {
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
-      getRuntimeBootstrap: vi.fn().mockResolvedValue(
-        {
-          configured: true,
-          bootstrap: buildRuntimeBootstrapValue({
-            instanceDisplayName: "Customer Example",
-            apiOrigin: "https://customer-api.example",
-            rawApiBaseUrl: "https://customer-api.example/v1",
-          }),
-        }
-      ),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue({
+          instanceDisplayName: "Customer Example",
+          apiOrigin: "https://customer-api.example",
+          rawApiBaseUrl: "https://customer-api.example/v1",
+        }),
+      }),
     };
     const document = new MockDocument();
     const browserFetch = vi.fn(async (input: Request | string | URL) => {
