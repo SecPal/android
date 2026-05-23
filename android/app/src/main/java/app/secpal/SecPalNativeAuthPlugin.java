@@ -17,13 +17,17 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
     private static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
+    private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
 
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
@@ -36,11 +40,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
-        String configuredApiBaseUrl = resolveConfiguredApiBaseUrl(getContext().getString(R.string.api_base_url));
-        apiBaseUrl = resolveInitialApiBaseUrl(
-            configuredApiBaseUrl,
-            getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
-        );
+        JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
+        apiBaseUrl = persistedRuntimeBootstrap != null
+            ? persistedRuntimeBootstrap.optString("apiOrigin", null)
+            : resolveInitialApiBaseUrl(getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null));
         tokenStorage = new KeystoreTokenStorage(getContext());
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
@@ -227,12 +230,23 @@ public class SecPalNativeAuthPlugin extends Plugin {
             try {
                 String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
 
+                if (!getNativeAuthPreferences()
+                    .edit()
+                    .putString(API_BASE_URL_PREFERENCE_KEY, nextApiBaseUrl)
+                    .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+                    .commit()) {
+                    call.reject(
+                        "Failed to persist Android runtime API origin",
+                        "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                    );
+                    return;
+                }
+
                 if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
                     tokenStorage.clearToken();
                 }
 
                 apiBaseUrl = nextApiBaseUrl;
-                getNativeAuthPreferences().edit().putString(API_BASE_URL_PREFERENCE_KEY, apiBaseUrl).apply();
 
                 JSObject payload = new JSObject();
                 payload.put("apiBaseUrl", apiBaseUrl);
@@ -244,6 +258,102 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     exception
                 );
             }
+        });
+    }
+
+    @PluginMethod
+    public void setRuntimeBootstrap(PluginCall call) {
+        String instanceDisplayName = requireValue(call, "instanceDisplayName");
+        String apiOrigin = requireValue(call, "apiOrigin");
+        String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
+        String minimumSupportedAppVersion = requireValue(call, "minimumSupportedAppVersion");
+        Integer minimumSupportedAppBuild = call.getInt("minimumSupportedAppBuild");
+        JSObject features = call.getObject("features");
+
+        if (instanceDisplayName == null
+            || apiOrigin == null
+            || rawApiBaseUrl == null
+            || minimumSupportedAppVersion == null) {
+            return;
+        }
+
+        if (minimumSupportedAppBuild == null || minimumSupportedAppBuild <= 0) {
+            call.reject(
+                "Missing required value: minimumSupportedAppBuild",
+                "INVALID_INPUT"
+            );
+            return;
+        }
+
+        runAsync(call, () -> {
+            try {
+                JSObject bootstrap = buildRuntimeBootstrap(
+                    instanceDisplayName,
+                    apiOrigin,
+                    rawApiBaseUrl,
+                    minimumSupportedAppVersion,
+                    minimumSupportedAppBuild,
+                    features
+                );
+                String nextApiBaseUrl = bootstrap.getString("apiOrigin");
+
+                if (!persistRuntimeBootstrap(bootstrap)) {
+                    call.reject(
+                        "Failed to persist Android runtime bootstrap",
+                        "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                    );
+                    return;
+                }
+
+                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                    tokenStorage.clearToken();
+                }
+
+                apiBaseUrl = nextApiBaseUrl;
+
+                JSObject payload = new JSObject();
+                payload.put("bootstrap", bootstrap);
+                call.resolve(payload);
+            } catch (ConfiguredApiBaseUrlException | InvalidRuntimeBootstrapException exception) {
+                call.reject(
+                    exception.getMessage(),
+                    exception instanceof ConfiguredApiBaseUrlException
+                        ? ((ConfiguredApiBaseUrlException) exception).getErrorCode()
+                        : ((InvalidRuntimeBootstrapException) exception).getErrorCode(),
+                    exception
+                );
+            } catch (JSONException exception) {
+                call.reject(
+                    "Failed to serialize Android runtime bootstrap",
+                    "RUNTIME_BOOTSTRAP_INVALID",
+                    exception
+                );
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getRuntimeBootstrap(PluginCall call) {
+        runAsync(call, () -> {
+            JSObject payload = buildRuntimeBootstrapPayload(
+                getPersistedRuntimeBootstrap(),
+                getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
+            );
+            call.resolve(payload);
+        });
+    }
+
+    @PluginMethod
+    public void clearRuntimeBootstrap(PluginCall call) {
+        runAsync(call, () -> {
+            apiBaseUrl = null;
+            tokenStorage.clearToken();
+            getNativeAuthPreferences()
+                .edit()
+                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+                .remove(API_BASE_URL_PREFERENCE_KEY)
+                .apply();
+            call.resolve();
         });
     }
 
@@ -435,20 +545,209 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return normalizedApiBaseUrl;
     }
 
-    static String resolveInitialApiBaseUrl(String configuredApiBaseUrl, String persistedApiBaseUrl) {
+    static String resolveCanonicalBootstrapApiOrigin(String configuredValue) {
+        if (configuredValue == null || configuredValue.trim().isEmpty()) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap requires a raw API base URL",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        URL parsedUrl;
+
+        try {
+            parsedUrl = new URL(configuredValue.trim());
+        } catch (MalformedURLException exception) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap requires a valid API base URL",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        if ((parsedUrl.getUserInfo() != null && !parsedUrl.getUserInfo().isEmpty())
+            || parsedUrl.getQuery() != null
+            || parsedUrl.getRef() != null) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap requires a bare API base URL or its /v1 endpoint",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        String path = parsedUrl.getPath() == null ? "" : parsedUrl.getPath().replaceAll("/+$", "");
+
+        if (!path.isEmpty() && !"/v1".equals(path)) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap requires a bare API base URL or its /v1 endpoint",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        StringBuilder origin = new StringBuilder(parsedUrl.getProtocol())
+            .append("://")
+            .append(parsedUrl.getHost());
+
+        if (parsedUrl.getPort() != -1 && parsedUrl.getPort() != parsedUrl.getDefaultPort()) {
+            origin.append(":").append(parsedUrl.getPort());
+        }
+
+        return resolveRuntimeApiBaseUrl(origin.toString());
+    }
+
+    static String resolveInitialApiBaseUrl(String persistedApiBaseUrl) {
         if (persistedApiBaseUrl == null || persistedApiBaseUrl.trim().isEmpty()) {
-            return configuredApiBaseUrl;
+            return null;
         }
 
         try {
             return resolveRuntimeApiBaseUrl(persistedApiBaseUrl);
         } catch (ConfiguredApiBaseUrlException exception) {
-            return configuredApiBaseUrl;
+            return null;
         }
     }
 
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    private boolean persistRuntimeBootstrap(JSObject bootstrap) {
+        return getNativeAuthPreferences()
+            .edit()
+            .putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, bootstrap.toString())
+            .remove(API_BASE_URL_PREFERENCE_KEY)
+            .commit();
+    }
+
+    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap, String legacyApiBaseUrl) {
+        JSObject payload = new JSObject();
+
+        if (bootstrap != null) {
+            payload.put("configured", true);
+            payload.put("bootstrap", bootstrap);
+            return payload;
+        }
+
+        String legacyApiOrigin = resolveInitialApiBaseUrl(legacyApiBaseUrl);
+        payload.put("configured", legacyApiOrigin != null);
+        if (legacyApiOrigin != null) {
+            payload.put("apiOrigin", legacyApiOrigin);
+        }
+
+        return payload;
+    }
+
+    private JSObject getPersistedRuntimeBootstrap() {
+        SharedPreferences preferences = getNativeAuthPreferences();
+        String rawBootstrap = preferences.getString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, null);
+
+        if (rawBootstrap == null || rawBootstrap.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            return normalizeRuntimeBootstrap(new JSONObject(rawBootstrap));
+        } catch (JSONException | ConfiguredApiBaseUrlException | InvalidRuntimeBootstrapException exception) {
+            preferences.edit().remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY).apply();
+            return null;
+        }
+    }
+
+    static JSObject buildRuntimeBootstrap(
+        String instanceDisplayName,
+        String apiOrigin,
+        String rawApiBaseUrl,
+        String minimumSupportedAppVersion,
+        int minimumSupportedAppBuild,
+        JSONObject features
+    ) throws JSONException {
+        JSObject bootstrap = new JSObject();
+        bootstrap.put("instanceDisplayName", instanceDisplayName);
+        bootstrap.put("apiOrigin", apiOrigin);
+        bootstrap.put("rawApiBaseUrl", rawApiBaseUrl);
+        bootstrap.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
+        bootstrap.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
+
+        if (features != null) {
+            bootstrap.put("features", features);
+        }
+
+        return normalizeRuntimeBootstrap(bootstrap);
+    }
+
+    static JSObject normalizeRuntimeBootstrap(JSONObject bootstrap)
+        throws JSONException, ConfiguredApiBaseUrlException, InvalidRuntimeBootstrapException {
+        if (bootstrap == null) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap is missing",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        String instanceDisplayName = normalizeRequiredString(
+            bootstrap.optString("instanceDisplayName", null),
+            "Android runtime bootstrap requires an instance display name"
+        );
+        String rawApiBaseUrl = normalizeRequiredString(
+            firstNonBlank(bootstrap.optString("rawApiBaseUrl", null), bootstrap.optString("apiOrigin", null)),
+            "Android runtime bootstrap requires a raw API base URL"
+        );
+        String minimumSupportedAppVersion = normalizeRequiredString(
+            bootstrap.optString("minimumSupportedAppVersion", null),
+            "Android runtime bootstrap requires a minimum supported app version"
+        );
+        int minimumSupportedAppBuild = bootstrap.optInt("minimumSupportedAppBuild", 0);
+
+        if (minimumSupportedAppBuild <= 0) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap requires a minimum supported app build",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
+
+        String canonicalApiOrigin = resolveCanonicalBootstrapApiOrigin(
+            firstNonBlank(bootstrap.optString("apiOrigin", null), rawApiBaseUrl)
+        );
+
+        JSONObject features = bootstrap.optJSONObject("features");
+        JSObject normalized = new JSObject();
+        normalized.put("instanceDisplayName", instanceDisplayName);
+        normalized.put("apiOrigin", canonicalApiOrigin);
+        normalized.put("rawApiBaseUrl", rawApiBaseUrl.trim());
+        normalized.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
+        normalized.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
+
+        JSObject normalizedFeatures = new JSObject();
+        normalizedFeatures.put(
+            "passwordLoginEnabled",
+            features != null && features.optBoolean("passwordLoginEnabled", false)
+        );
+        normalizedFeatures.put(
+            "passkeyLoginEnabled",
+            features != null && features.optBoolean("passkeyLoginEnabled", false)
+        );
+        normalizedFeatures.put(
+            "managedAndroidEnrollment",
+            features != null && features.optBoolean("managedAndroidEnrollment", false)
+        );
+        normalized.put("features", normalizedFeatures);
+
+        return normalized;
+    }
+
+    private static String normalizeRequiredString(String value, String message)
+        throws InvalidRuntimeBootstrapException {
+        if (value == null || value.trim().isEmpty()) {
+            throw new InvalidRuntimeBootstrapException(message, "RUNTIME_BOOTSTRAP_INVALID");
+        }
+
+        return value.trim();
+    }
+
+    private static String firstNonBlank(String preferred, String fallback) {
+        if (preferred != null && !preferred.trim().isEmpty()) {
+            return preferred;
+        }
+
+        return fallback;
     }
 
     private SharedPreferences getNativeAuthPreferences() {
@@ -482,6 +781,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         ConfiguredApiBaseUrlException(String message, String errorCode) {
+            super(message);
+            this.errorCode = errorCode;
+        }
+
+        String getErrorCode() {
+            return errorCode;
+        }
+    }
+
+    static final class InvalidRuntimeBootstrapException extends IllegalStateException {
+        private final String errorCode;
+
+        InvalidRuntimeBootstrapException(String message, String errorCode) {
             super(message);
             this.errorCode = errorCode;
         }
