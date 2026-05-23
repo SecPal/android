@@ -746,7 +746,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     await flushMicrotasks();
 
-    expect(document.getElementById("secpal-instance-discovery-gate")).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
     expect(sandbox.__SecPalNativeAuthBootstrapInstalled).toBe(true);
   });
 
