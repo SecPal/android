@@ -1477,6 +1477,71 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toBeNull();
   });
 
+  it("removes the discovery gate after restoring a persisted bootstrap", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let resolveSetApiBaseUrl!: (value: unknown) => void;
+    const setApiBaseUrlPromise = new Promise((resolve) => {
+      resolveSetApiBaseUrl = resolve;
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi.fn().mockReturnValue(setApiBaseUrlPromise),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    expect(runtimeState.configured).toBe(false);
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+
+    resolveSetApiBaseUrl({ apiBaseUrl: "https://api.secpal.dev" });
+    await flushMicrotasks();
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(runtimeState.configured).toBe(true);
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).toBeNull();
+  });
+
   it("blocks logout when the runtime bootstrap restore failed", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

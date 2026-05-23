@@ -710,6 +710,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
               runtimeState.configured = true;
               runtimeState.bootstrap = restored;
               runtimeState.apiOrigin = restored.apiOrigin;
+              removeDiscoveryGate();
             })
             .catch((error) => {
               clearPersistedBootstrap();
