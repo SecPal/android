@@ -1333,7 +1333,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     });
 
     if (!passkeyButtonPath || passkeyButtonPath.length < 2) {
-      return;
+      return null;
     }
 
     return {
