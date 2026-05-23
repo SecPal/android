@@ -930,6 +930,85 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("disables the destructive instance-switch reset when confirm prompts are unavailable", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage({
+      "secpal-locale": "en",
+      auth_vault_state: "encrypted-user-state",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeResetSummary = document.getElementById(
+      "secpal-instance-reset-summary"
+    ) as MockElement | null;
+    const runtimeResetButton = document.getElementById(
+      "secpal-instance-reset-button"
+    ) as MockElement | null;
+
+    expect(runtimeResetSummary?.textContent).toContain(
+      "Instance switching is unavailable because this device cannot show confirmation prompts."
+    );
+    expect(runtimeResetButton?.disabled).toBe(true);
+
+    runtimeResetButton!.click();
+    await flushMicrotasks();
+
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(plugin.clearRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(localStorage.getItem("auth_vault_state")).toBe(
+      "encrypted-user-state"
+    );
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).not.toHaveBeenCalled();
+  });
+
   it("keeps the configured runtime when native reset persistence fails", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

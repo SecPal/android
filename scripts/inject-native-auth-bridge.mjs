@@ -96,6 +96,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetBusy: "Resetting instance...",
       resetConfirm:
         "Switch away from {instanceDisplayName}? This clears local sign-in, offline, and cached instance data on this device.",
+      resetUnavailable:
+        "Instance switching is unavailable because this device cannot show confirmation prompts.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Source Code",
@@ -149,6 +151,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetBusy: "Instanz wird zurückgesetzt...",
       resetConfirm:
         "Von {instanceDisplayName} wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht.",
+      resetUnavailable:
+        "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
       footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
       footerLicense: "AGPL v3+",
       footerSource: "Quellcode",
@@ -1263,16 +1267,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    runtimeResetUi.summary.textContent = translateDiscovery(
-      "resetSummaryTemplate",
-      {
-        instanceDisplayName: getConfiguredRuntimeLabel(),
-      }
-    );
+    const canConfirmReset = typeof globalThis.confirm === "function";
+    const summaryText = translateDiscovery("resetSummaryTemplate", {
+      instanceDisplayName: getConfiguredRuntimeLabel(),
+    });
+
+    runtimeResetUi.summary.textContent = canConfirmReset
+      ? summaryText
+      : summaryText + " " + translateDiscovery("resetUnavailable");
     runtimeResetUi.button.textContent = runtimeState.resetBusy
       ? translateDiscovery("resetBusy")
       : translateDiscovery("reset");
-    runtimeResetUi.button.disabled = runtimeState.resetBusy;
+    runtimeResetUi.button.disabled = runtimeState.resetBusy || !canConfirmReset;
   };
 
   const renderRuntimeResetEntry = () => {
@@ -1846,8 +1852,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
+    if (typeof globalThis.confirm !== "function") {
+      syncRuntimeResetEntryCopy();
+      return;
+    }
+
     const shouldReset =
-      typeof globalThis.confirm === "function" &&
       globalThis.confirm(
         translateDiscovery("resetConfirm", {
           instanceDisplayName: getConfiguredRuntimeLabel(),
