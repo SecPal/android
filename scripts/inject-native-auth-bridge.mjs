@@ -406,8 +406,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
               runtimeState.configured = false;
               runtimeState.bootstrap = null;
               runtimeState.apiOrigin = null;
-              throw error;
+              runtimeState.pendingBootstrap = null;
+              runtimeState.nativeConfigPromise = Promise.resolve();
+              mountDiscoveryGate();
+              console.warn("Failed to restore persisted SecPal bootstrap.", error);
             });
+        } else {
+          runtimeState.nativeConfigPromise = Promise.resolve();
         }
       } catch {
         runtimeState.nativeConfigPromise = Promise.resolve();
