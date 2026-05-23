@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 class MockElement {
   id = "";
+  className = "";
   textContent = "";
   value = "";
   disabled = false;
@@ -44,18 +45,30 @@ class MockElement {
     this.listeners.set(eventName, listeners);
   }
 
-  click() {
-    if (this.disabled) {
-      return;
-    }
-
-    for (const listener of this.listeners.get("click") ?? []) {
+  dispatch(eventName: string) {
+    for (const listener of this.listeners.get(eventName) ?? []) {
       listener({
         preventDefault() {
           // no-op
         },
       });
     }
+  }
+
+  click() {
+    if (this.disabled) {
+      return;
+    }
+
+    this.dispatch("click");
+  }
+
+  change() {
+    if (this.disabled) {
+      return;
+    }
+
+    this.dispatch("change");
   }
 
   remove() {
@@ -65,11 +78,14 @@ class MockElement {
 
 class MockDocument {
   readonly body = new MockElement("body");
+  readonly head = new MockElement("head");
   readyState = "complete";
+  readonly documentElement = { lang: "en" };
   private readonly elementsById = new Map<string, MockElement>();
 
   constructor() {
     this.body.ownerDocument = this;
+    this.head.ownerDocument = this;
   }
 
   createElement(tagName: string) {
@@ -239,6 +255,99 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveLength(1);
   });
 
+  it("renders a theme-aware translated discovery gate and persists locale changes", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const document = new MockDocument();
+    const localStorage = createMockStorage({ "secpal-locale": "de" });
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      navigator: { language: "de-DE" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(
+        "https://runtime-bootstrap-required.secpal.invalid"
+      ),
+      sandbox
+    );
+
+    const title = document.getElementById(
+      "secpal-instance-discovery-title"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const localeSelect = document.getElementById(
+      "secpal-instance-discovery-locale"
+    ) as MockElement | null;
+    const lightLogo = document.getElementById(
+      "secpal-instance-discovery-logo-light"
+    ) as MockElement | null;
+    const darkLogo = document.getElementById(
+      "secpal-instance-discovery-logo-dark"
+    ) as MockElement | null;
+    const footerPoweredLink = document.getElementById(
+      "secpal-instance-discovery-footer-powered"
+    ) as MockElement | null;
+    const styles = document.getElementById(
+      "secpal-instance-discovery-styles"
+    ) as MockElement | null;
+
+    expect(title?.textContent).toBe(
+      "Diese SecPal-App mit Ihrer Instanz verbinden"
+    );
+    expect(validateButton?.textContent).toBe("Instanz prüfen");
+    expect(document.documentElement.lang).toBe("de");
+    expect(styles?.textContent).toContain("@media (prefers-color-scheme: dark)");
+    expect(styles?.textContent).toContain("color-scheme: dark");
+    expect(lightLogo?.attributes.src).toBe("/logo-light-48.png");
+    expect(darkLogo?.attributes.src).toBe("/logo-dark-48.png");
+    expect(footerPoweredLink?.textContent).toBe(
+      "Powered by SecPal – Der beste Freund jeder Wache"
+    );
+
+    expect(localeSelect).not.toBeNull();
+    localeSelect!.value = "en";
+    localeSelect!.change();
+
+    expect(title?.textContent).toBe("Connect this SecPal app to your deployment");
+    expect(validateButton?.textContent).toBe("Validate deployment");
+    expect(document.documentElement.lang).toBe("en");
+    expect(localStorage.getItem("secpal-locale")).toBe("en");
+    expect(footerPoweredLink?.textContent).toBe(
+      "Powered by SecPal – A guard's best friend"
+    );
+  });
+
   it("blocks native login until discovery validates a deployment and confirms the runtime bootstrap", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -369,8 +478,13 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.getRuntimeInfo).toHaveBeenCalledOnce();
     expect(browserFetch).toHaveBeenCalledOnce();
-    expect(summary?.textContent).toContain("Customer Example");
-    expect(summary?.textContent).toContain("https://customer-api.example");
+    expect((browserFetch.mock.calls[0]?.[0] as Request).headers.get("Accept-Language")).toBe(
+      "en"
+    );
+    expect(summary?.children[1]?.textContent).toContain("Customer Example");
+    expect(summary?.children[1]?.textContent).toContain(
+      "https://customer-api.example"
+    );
     expect(confirmButton?.disabled).toBe(false);
 
     confirmButton!.click();

@@ -29,13 +29,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "secpal.runtime.bootstrap";
   const discoveryGateId = "secpal-instance-discovery-gate";
+  const discoveryStylesId = "secpal-instance-discovery-styles";
+  const discoveryTitleId = "secpal-instance-discovery-title";
+  const discoveryDescriptionId = "secpal-instance-discovery-description";
+  const discoveryLocaleId = "secpal-instance-discovery-locale";
+  const discoveryLogoLightId = "secpal-instance-discovery-logo-light";
+  const discoveryLogoDarkId = "secpal-instance-discovery-logo-dark";
   const discoveryInputId = "secpal-instance-discovery-url";
   const discoveryValidateId = "secpal-instance-discovery-validate";
   const discoveryConfirmId = "secpal-instance-discovery-confirm";
   const discoverySummaryId = "secpal-instance-discovery-summary";
   const discoveryErrorId = "secpal-instance-discovery-error";
+  const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
+  const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
+  const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -46,6 +56,113 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     nativeConfigPromise: Promise.resolve(),
   };
   globalThis.__SecPalRuntimeDiscoveryState = runtimeState;
+  runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
+  runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
+  runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
+
+  const discoveryLocales = {
+    en: "English",
+    de: "Deutsch",
+  };
+
+  const discoveryTranslations = {
+    en: {
+      title: "Connect this SecPal app to your deployment",
+      description:
+        "Enter the secure https:// address of your customer-hosted SecPal deployment before login continues.",
+      languageLabel: "Select language",
+      inputLabel: "Deployment URL",
+      inputPlaceholder: "customer.example or https://customer.example",
+      noteTitle: "Secure customer deployment",
+      noteDescription:
+        "Only secure https:// addresses are supported. SecPal validates the public bootstrap before login continues.",
+      summaryTitle: "Validated deployment",
+      validate: "Validate deployment",
+      validateBusy: "Validating deployment...",
+      confirm: "Use this deployment",
+      confirmBusy: "Configuring deployment...",
+      summaryTemplate: "Instance: {instanceDisplayName}\\nAPI: {apiOrigin}",
+      footerPoweredBy: "Powered by SecPal – A guard's best friend",
+      footerLicense: "AGPL v3+",
+      footerSource: "Source Code",
+      errorBootstrapResponse:
+        "This SecPal deployment returned an incompatible bootstrap response.",
+      errorBootstrapInvalidApi:
+        "This SecPal deployment returned an invalid API base URL.",
+      errorBootstrapInsecureApi:
+        "This SecPal deployment returned an insecure API base URL.",
+      errorBootstrapIncompatibleApi:
+        "This SecPal deployment returned an incompatible API base URL.",
+      errorEnterSecureUrl:
+        "Enter the secure https:// address of your SecPal deployment.",
+      errorEnterValidSecureUrl:
+        "Enter a valid secure https:// address for your SecPal deployment.",
+      errorInsecureUrl:
+        "Enter a secure https:// address. Insecure http:// deployments are not supported.",
+      errorRuntimeInfoUnavailable:
+        "This SecPal app cannot read its version information yet.",
+      errorAndroidCompatibility:
+        "This SecPal deployment is not compatible with the Android app.",
+      errorContactSelectedDeployment:
+        "This SecPal app cannot contact the selected deployment yet.",
+      errorReachDeployment:
+        "We could not reach that SecPal deployment. Check the URL and your network connection.",
+      errorBootstrapUnavailable:
+        "Public bootstrap is temporarily unavailable on this deployment. Try again later or contact your administrator.",
+      errorBootstrapStateInvalid:
+        "This deployment has an invalid public bootstrap configuration. Contact your administrator.",
+      errorConfigureRuntime:
+        "Failed to configure this SecPal deployment in the Android runtime.",
+    },
+    de: {
+      title: "Diese SecPal-App mit Ihrer Instanz verbinden",
+      description:
+        "Bevor die Anmeldung fortgesetzt wird, geben Sie die sichere https://-Adresse Ihrer gehosteten SecPal-Instanz ein.",
+      languageLabel: "Sprache auswählen",
+      inputLabel: "Instanz-URL",
+      inputPlaceholder: "kunde.example oder https://kunde.example",
+      noteTitle: "Sichere Kundeninstanz",
+      noteDescription:
+        "Es werden nur sichere https://-Adressen unterstützt. SecPal prüft die öffentliche Bootstrap-Konfiguration, bevor die Anmeldung fortgesetzt wird.",
+      summaryTitle: "Geprüfte Instanz",
+      validate: "Instanz prüfen",
+      validateBusy: "Instanz wird geprüft...",
+      confirm: "Diese Instanz verwenden",
+      confirmBusy: "Instanz wird verbunden...",
+      summaryTemplate: "Instanz: {instanceDisplayName}\\nAPI: {apiOrigin}",
+      footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
+      footerLicense: "AGPL v3+",
+      footerSource: "Quellcode",
+      errorBootstrapResponse:
+        "Diese SecPal-Instanz hat eine inkompatible Bootstrap-Antwort zurückgegeben.",
+      errorBootstrapInvalidApi:
+        "Diese SecPal-Instanz hat eine ungültige API-Basis-URL zurückgegeben.",
+      errorBootstrapInsecureApi:
+        "Diese SecPal-Instanz hat eine unsichere API-Basis-URL zurückgegeben.",
+      errorBootstrapIncompatibleApi:
+        "Diese SecPal-Instanz hat eine inkompatible API-Basis-URL zurückgegeben.",
+      errorEnterSecureUrl:
+        "Geben Sie die sichere https://-Adresse Ihrer SecPal-Instanz ein.",
+      errorEnterValidSecureUrl:
+        "Geben Sie eine gültige sichere https://-Adresse für Ihre SecPal-Instanz ein.",
+      errorInsecureUrl:
+        "Geben Sie eine sichere https://-Adresse ein. Unsichere http://-Instanzen werden nicht unterstützt.",
+      errorRuntimeInfoUnavailable:
+        "Diese SecPal-App kann ihre Versionsinformationen noch nicht lesen.",
+      errorAndroidCompatibility:
+        "Diese SecPal-Instanz ist mit der Android-App nicht kompatibel.",
+      errorContactSelectedDeployment:
+        "Diese SecPal-App kann die ausgewählte Instanz noch nicht erreichen.",
+      errorReachDeployment:
+        "Diese SecPal-Instanz konnte nicht erreicht werden. Prüfen Sie die URL und Ihre Netzwerkverbindung.",
+      errorBootstrapUnavailable:
+        "Die öffentliche Bootstrap-Konfiguration dieser Instanz ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut oder wenden Sie sich an Ihre Administration.",
+      errorBootstrapStateInvalid:
+        "Die öffentliche Bootstrap-Konfiguration dieser Instanz ist ungültig. Wenden Sie sich an Ihre Administration.",
+      errorConfigureRuntime:
+        "Diese SecPal-Instanz konnte in der Android-Laufzeit nicht konfiguriert werden.",
+    },
+  };
 
   const getPlugin = () => {
     const plugin = globalThis.Capacitor?.Plugins?.SecPalNativeAuth;
@@ -62,6 +179,176 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
     return plugin;
   };
+
+  const getLocalStorage = () => {
+    try {
+      return globalThis.localStorage ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizeDiscoveryLocale = (value) => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return null;
+    }
+
+    const normalized = value.trim().toLowerCase().split("-")[0];
+
+    return normalized in discoveryLocales ? normalized : null;
+  };
+
+  const detectDiscoveryLocale = () => {
+    const storage = getLocalStorage();
+    const storedLocale = normalizeDiscoveryLocale(storage?.getItem(localeStorageKey));
+
+    if (storedLocale) {
+      return storedLocale;
+    }
+
+    const documentLocale = normalizeDiscoveryLocale(globalThis.document?.documentElement?.lang);
+
+    if (documentLocale) {
+      return documentLocale;
+    }
+
+    const navigatorLocale = normalizeDiscoveryLocale(
+      typeof globalThis.navigator === "object" && globalThis.navigator
+        ? globalThis.navigator.language
+        : null
+    );
+
+    return navigatorLocale ?? "en";
+  };
+
+  const applyDiscoveryLocale = (value) => {
+    const locale = normalizeDiscoveryLocale(value) ?? "en";
+    runtimeState.discoveryLocale = locale;
+
+    const storage = getLocalStorage();
+
+    if (storage) {
+      storage.setItem(localeStorageKey, locale);
+    }
+
+    if (globalThis.document?.documentElement) {
+      globalThis.document.documentElement.lang = locale;
+    }
+
+    return locale;
+  };
+
+  const formatDiscoveryMessage = (template, values) => {
+    if (!values || typeof values !== "object") {
+      return template;
+    }
+
+    return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
+      if (!(key in values)) {
+        return match;
+      }
+
+      const replacement = values[key];
+
+      return replacement == null ? "" : String(replacement);
+    });
+  };
+
+  const translateDiscovery = (key, values) => {
+    const locale = normalizeDiscoveryLocale(runtimeState.discoveryLocale) ?? "en";
+    const messages = discoveryTranslations[locale] ?? discoveryTranslations.en;
+    const fallbackMessages = discoveryTranslations.en;
+    const template = messages[key] ?? fallbackMessages[key] ?? key;
+
+    return formatDiscoveryMessage(template, values);
+  };
+
+  const ensureDiscoveryStyles = () => {
+    if (!globalThis.document) {
+      return;
+    }
+
+    const existing = globalThis.document.getElementById(discoveryStylesId);
+
+    if (existing) {
+      return existing;
+    }
+
+    const style = globalThis.document.createElement("style");
+    style.id = discoveryStylesId;
+    style.textContent = [
+      "#" + discoveryGateId + "{position:fixed;inset:0;z-index:2147483647;overflow-y:auto;font-family:Inter,system-ui,sans-serif;color-scheme:light;background:#ffffff;color:#09090b;--secpal-discovery-bg:#ffffff;--secpal-discovery-bg-lg:#fafafa;--secpal-discovery-panel-bg:#ffffff;--secpal-discovery-panel-border:rgba(9,9,11,0.05);--secpal-discovery-panel-shadow:0 1px 2px rgba(15,23,42,0.04),0 24px 48px rgba(15,23,42,0.08);--secpal-discovery-fg:#09090b;--secpal-discovery-muted:#52525b;--secpal-discovery-subtle:#71717a;--secpal-discovery-control-bg:#ffffff;--secpal-discovery-control-border:rgba(9,9,11,0.1);--secpal-discovery-control-border-hover:rgba(9,9,11,0.18);--secpal-discovery-control-shadow:0 1px 2px rgba(15,23,42,0.06);--secpal-discovery-control-ring:#2563eb;--secpal-discovery-note-bg:#fafafa;--secpal-discovery-note-border:rgba(9,9,11,0.08);--secpal-discovery-summary-bg:#f0fdf4;--secpal-discovery-summary-border:#bbf7d0;--secpal-discovery-summary-fg:#166534;--secpal-discovery-error-bg:#fef2f2;--secpal-discovery-error-border:rgba(248,113,113,0.3);--secpal-discovery-error-fg:#991b1b;--secpal-discovery-primary-bg:#18181b;--secpal-discovery-primary-border:rgba(9,9,11,0.92);--secpal-discovery-primary-fg:#fafafa;--secpal-discovery-primary-hover:rgba(255,255,255,0.08);--secpal-discovery-secondary-border:rgba(9,9,11,0.1);--secpal-discovery-secondary-hover:rgba(9,9,11,0.04);}",
+      "#" + discoveryGateId + ",#" + discoveryGateId + " *{box-sizing:border-box;}",
+      "#" + discoveryGateId + " a{color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-shell{min-height:100dvh;display:flex;flex-direction:column;background:var(--secpal-discovery-bg);padding:1rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-frame{display:flex;flex:1 1 auto;flex-direction:column;width:min(100%,42rem);margin:0 auto;}",
+      "#" + discoveryGateId + " .secpal-discovery-panel{display:flex;flex:1 1 auto;flex-direction:column;padding:2rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-spacer{flex:1 1 auto;min-height:2rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-spacer--top{display:block;}",
+      "#" + discoveryGateId + " .secpal-discovery-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-brand{display:flex;align-items:center;gap:0.75rem;min-width:0;}",
+      "#" + discoveryGateId + " .secpal-discovery-logo{position:relative;display:flex;align-items:center;justify-content:center;width:3rem;height:3rem;flex:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-logo-image{display:block;width:3rem;height:3rem;object-fit:contain;}",
+      "#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-brand-copy{min-width:0;}",
+      "#" + discoveryGateId + " .secpal-discovery-brand-name{margin:0;font-size:1.875rem;line-height:1;font-weight:700;letter-spacing:-0.03em;color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-locale{min-width:8rem;max-width:10rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
+      "#" + discoveryGateId + " .secpal-discovery-control{position:relative;display:block;width:100%;}",
+      "#" + discoveryGateId + " .secpal-discovery-control::before{content:'';position:absolute;inset:1px;border-radius:calc(0.5rem - 1px);background:var(--secpal-discovery-control-bg);box-shadow:var(--secpal-discovery-control-shadow);pointer-events:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-control::after{content:'';position:absolute;inset:0;border-radius:0.5rem;box-shadow:0 0 0 0 var(--secpal-discovery-control-ring);opacity:0;pointer-events:none;transition:opacity 0.15s ease;}",
+      "#" + discoveryGateId + " .secpal-discovery-control:focus-within::after{opacity:1;box-shadow:0 0 0 2px var(--secpal-discovery-control-ring);}",
+      "#" + discoveryGateId + " .secpal-discovery-select,#" + discoveryGateId + " .secpal-discovery-input{position:relative;display:block;width:100%;appearance:none;border-radius:0.5rem;border:1px solid var(--secpal-discovery-control-border);background:transparent;color:var(--secpal-discovery-fg);padding:0.6875rem 0.875rem;font:inherit;line-height:1.5;transition:border-color 0.15s ease,opacity 0.15s ease;}",
+      "#" + discoveryGateId + " .secpal-discovery-select{padding-right:2.75rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-select:hover,#" + discoveryGateId + " .secpal-discovery-input:hover{border-color:var(--secpal-discovery-control-border-hover);}",
+      "#" + discoveryGateId + " .secpal-discovery-select:focus,#" + discoveryGateId + " .secpal-discovery-input:focus{outline:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-input::placeholder{color:var(--secpal-discovery-subtle);}",
+      "#" + discoveryGateId + " .secpal-discovery-input[aria-invalid='true']{border-color:#dc2626;}",
+      "#" + discoveryGateId + " .secpal-discovery-select-chevron{pointer-events:none;position:absolute;inset-block:0;right:0;display:flex;align-items:center;padding-right:0.75rem;color:var(--secpal-discovery-subtle);}",
+      "#" + discoveryGateId + " .secpal-discovery-select-chevron svg{display:block;width:1rem;height:1rem;stroke:currentColor;}",
+      "#" + discoveryGateId + " .secpal-discovery-title{margin:2rem 0 0;font-size:1.5rem;line-height:1.2;font-weight:600;letter-spacing:-0.02em;color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-description{margin:0.75rem 0 0;color:var(--secpal-discovery-muted);font-size:1rem;line-height:1.6;}",
+      "#" + discoveryGateId + " .secpal-discovery-form{margin:2.5rem 0 0;display:flex;flex-direction:column;gap:2rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-note,#" + discoveryGateId + " .secpal-discovery-summary,#" + discoveryGateId + " .secpal-discovery-error{border-radius:0.5rem;padding:1rem;white-space:pre-wrap;}",
+      "#" + discoveryGateId + " .secpal-discovery-note{border:1px solid var(--secpal-discovery-note-border);background:var(--secpal-discovery-note-bg);}",
+      "#" + discoveryGateId + " .secpal-discovery-note-title,#" + discoveryGateId + " .secpal-discovery-summary-title{margin:0;font-size:0.95rem;line-height:1.5;font-weight:600;color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-note-description,#" + discoveryGateId + " .secpal-discovery-summary-body{margin:0.35rem 0 0;color:var(--secpal-discovery-muted);font-size:0.95rem;line-height:1.6;}",
+      "#" + discoveryGateId + " .secpal-discovery-summary-body{color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-field{display:flex;flex-direction:column;}",
+      "#" + discoveryGateId + " .secpal-discovery-label{display:block;font-size:1rem;line-height:1.5;font-weight:500;color:inherit;}",
+      "#" + discoveryGateId + " .secpal-discovery-control-wrap{margin-top:0.75rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-actions{display:flex;flex-direction:column;gap:0.75rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-button{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;width:100%;gap:0.5rem;border-radius:0.5rem;border:1px solid transparent;padding:0.6875rem 0.875rem;font:inherit;font-weight:600;line-height:1.5;transition:border-color 0.15s ease,color 0.15s ease,opacity 0.15s ease;}",
+      "#" + discoveryGateId + " .secpal-discovery-button::before{content:'';position:absolute;inset:0;z-index:-2;border-radius:calc(0.5rem - 1px);pointer-events:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-button::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:calc(0.5rem - 1px);pointer-events:none;transition:background-color 0.15s ease;}",
+      "#" + discoveryGateId + " .secpal-discovery-button:disabled{opacity:0.55;cursor:not-allowed;}",
+      "#" + discoveryGateId + " .secpal-discovery-button--primary{background:var(--secpal-discovery-primary-border);color:var(--secpal-discovery-primary-fg);}",
+      "#" + discoveryGateId + " .secpal-discovery-button--primary::before{background:var(--secpal-discovery-primary-bg);box-shadow:0 1px 2px rgba(15,23,42,0.08);}",
+      "#" + discoveryGateId + " .secpal-discovery-button--primary:not(:disabled):hover::after{background:var(--secpal-discovery-primary-hover);}",
+      "#" + discoveryGateId + " .secpal-discovery-button--secondary{border-color:var(--secpal-discovery-secondary-border);color:var(--secpal-discovery-fg);}",
+      "#" + discoveryGateId + " .secpal-discovery-button--secondary::before{background:transparent;box-shadow:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-button--secondary:not(:disabled):hover::after{background:var(--secpal-discovery-secondary-hover);}",
+      "#" + discoveryGateId + " .secpal-discovery-summary{display:none;border:1px solid var(--secpal-discovery-summary-border);background:var(--secpal-discovery-summary-bg);color:var(--secpal-discovery-summary-fg);}",
+      "#" + discoveryGateId + " .secpal-discovery-error{display:none;border:1px solid var(--secpal-discovery-error-border);background:var(--secpal-discovery-error-bg);color:var(--secpal-discovery-error-fg);font-size:0.95rem;line-height:1.6;}",
+      "#" + discoveryGateId + " .secpal-discovery-error p{margin:0;}",
+      "#" + discoveryGateId + " .secpal-discovery-footer{padding-top:2rem;text-align:center;font-size:11px;line-height:1.5;}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-powered{display:inline-flex;align-items:center;justify-content:center;font-weight:600;color:var(--secpal-discovery-muted);text-decoration:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-powered:hover{color:var(--secpal-discovery-fg);}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-meta{display:flex;align-items:center;justify-content:center;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-link{display:inline-flex;align-items:center;justify-content:center;color:var(--secpal-discovery-subtle);text-decoration:none;}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-link:hover{color:var(--secpal-discovery-fg);}",
+      "#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(113,113,122,0.45);}",
+      "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
+      "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
+    ].join("\\n");
+
+    const parent = globalThis.document.head ?? globalThis.document.body;
+    parent?.appendChild(style);
+
+    return style;
+  };
+
+  applyDiscoveryLocale(runtimeState.discoveryLocale ?? detectDiscoveryLocale());
 
   const getSessionStorage = () => {
     try {
@@ -104,7 +391,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const createIncompatibleBootstrapError = () =>
-    new Error("This SecPal deployment returned an incompatible bootstrap response.");
+    new Error(translateDiscovery("errorBootstrapResponse"));
 
   const normalizeBootstrapApiBaseUrl = (value) => {
     let url;
@@ -112,11 +399,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     try {
       url = new URL(value);
     } catch {
-      throw new Error("This SecPal deployment returned an invalid API base URL.");
+      throw new Error(translateDiscovery("errorBootstrapInvalidApi"));
     }
 
     if (url.protocol !== "https:") {
-      throw new Error("This SecPal deployment returned an insecure API base URL.");
+      throw new Error(translateDiscovery("errorBootstrapInsecureApi"));
     }
 
     const pathname = url.pathname.replace(/\\/+$/, "");
@@ -129,14 +416,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return url.origin;
     }
 
-    throw new Error("This SecPal deployment returned an incompatible API base URL.");
+    throw new Error(translateDiscovery("errorBootstrapIncompatibleApi"));
   };
 
   const normalizeDiscoveryOrigin = (value) => {
     let normalized = typeof value === "string" ? value.trim() : "";
 
     if (!normalized) {
-      throw new Error("Enter the secure https:// address of your SecPal deployment.");
+      throw new Error(translateDiscovery("errorEnterSecureUrl"));
     }
 
     if (!/^[a-z][a-z0-9+.-]*:\\/\\//i.test(normalized)) {
@@ -148,11 +435,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     try {
       url = new URL(normalized);
     } catch {
-      throw new Error("Enter a valid secure https:// address for your SecPal deployment.");
+      throw new Error(translateDiscovery("errorEnterValidSecureUrl"));
     }
 
     if (url.protocol !== "https:") {
-      throw new Error("Enter a secure https:// address. Insecure http:// deployments are not supported.");
+      throw new Error(translateDiscovery("errorInsecureUrl"));
     }
 
     return url.origin;
@@ -162,7 +449,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const plugin = getPlugin();
 
     if (typeof plugin.getRuntimeInfo !== "function") {
-      throw new Error("This SecPal app cannot read its version information yet.");
+      throw new Error(translateDiscovery("errorRuntimeInfoUnavailable"));
     }
 
     const result = await plugin.getRuntimeInfo();
@@ -177,7 +464,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const appBuild = result && typeof result === "object" ? Number(result.appBuild) : Number.NaN;
 
     if (!appVersion || !Number.isInteger(appBuild) || appBuild <= 0) {
-      throw new Error("This SecPal app cannot read its version information yet.");
+      throw new Error(translateDiscovery("errorRuntimeInfoUnavailable"));
     }
 
     return {
@@ -211,7 +498,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     if (data.client_platform !== "android") {
-      throw new Error("This SecPal deployment is not compatible with the Android app.");
+      throw new Error(translateDiscovery("errorAndroidCompatibility"));
     }
 
     const instanceDisplayName =
@@ -285,14 +572,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     if (code === "BOOTSTRAP_CONFIG_UNAVAILABLE") {
       return (
         message ||
-        "Public bootstrap is temporarily unavailable on this deployment. Try again later or contact your administrator."
+        translateDiscovery("errorBootstrapUnavailable")
       );
     }
 
     if (code === "BOOTSTRAP_STATE_INVALID") {
       return (
         message ||
-        "This deployment has an invalid public bootstrap configuration. Contact your administrator."
+        translateDiscovery("errorBootstrapStateInvalid")
       );
     }
 
@@ -510,6 +797,70 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   let discoveryUi = null;
 
+  const syncDiscoveryGateCopy = () => {
+    if (!discoveryUi) {
+      return;
+    }
+
+    discoveryUi.localeLabel.textContent = translateDiscovery("languageLabel");
+    discoveryUi.localeSelect.setAttribute(
+      "aria-label",
+      translateDiscovery("languageLabel")
+    );
+    discoveryUi.title.textContent = translateDiscovery("title");
+    discoveryUi.description.textContent = translateDiscovery("description");
+    discoveryUi.noteTitle.textContent = translateDiscovery("noteTitle");
+    discoveryUi.noteDescription.textContent = translateDiscovery("noteDescription");
+    discoveryUi.inputLabel.textContent = translateDiscovery("inputLabel");
+    discoveryUi.input.setAttribute(
+      "placeholder",
+      translateDiscovery("inputPlaceholder")
+    );
+    discoveryUi.footerPoweredLink.textContent = translateDiscovery("footerPoweredBy");
+    discoveryUi.footerLicenseLink.textContent = translateDiscovery("footerLicense");
+    discoveryUi.footerSourceLink.textContent = translateDiscovery("footerSource");
+    discoveryUi.validateButton.textContent =
+      runtimeState.discoveryBusyAction === "validate"
+        ? translateDiscovery("validateBusy")
+        : translateDiscovery("validate");
+    discoveryUi.confirmButton.textContent =
+      runtimeState.discoveryBusyAction === "confirm"
+        ? translateDiscovery("confirmBusy")
+        : translateDiscovery("confirm");
+
+    if (runtimeState.pendingBootstrap) {
+      discoveryUi.summary.style.display = "block";
+      discoveryUi.summaryTitle.textContent = translateDiscovery("summaryTitle");
+      discoveryUi.summaryBody.textContent = translateDiscovery("summaryTemplate", {
+        instanceDisplayName: runtimeState.pendingBootstrap.instanceDisplayName,
+        apiOrigin: runtimeState.pendingBootstrap.apiOrigin,
+      });
+    } else {
+      discoveryUi.summary.style.display = "none";
+      discoveryUi.summaryTitle.textContent = "";
+      discoveryUi.summaryBody.textContent = "";
+    }
+
+    if (runtimeState.discoveryErrorMessage) {
+      discoveryUi.error.style.display = "block";
+      discoveryUi.error.textContent = runtimeState.discoveryErrorMessage;
+    } else {
+      discoveryUi.error.style.display = "none";
+      discoveryUi.error.textContent = "";
+    }
+
+    discoveryUi.input.setAttribute(
+      "aria-invalid",
+      runtimeState.discoveryErrorMessage ? "true" : "false"
+    );
+    discoveryUi.validateButton.disabled = runtimeState.discoveryBusyAction !== null;
+    discoveryUi.confirmButton.disabled =
+      runtimeState.discoveryBusyAction !== null || !runtimeState.pendingBootstrap;
+    discoveryUi.confirmButton.style.display = runtimeState.pendingBootstrap
+      ? "inline-flex"
+      : "none";
+  };
+
   const getDiscoveryLinkCandidate = () => {
     try {
       const locationHref =
@@ -544,93 +895,307 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return null;
     }
 
+    ensureDiscoveryStyles();
+
     const existing = globalThis.document.getElementById(discoveryGateId);
     if (existing && discoveryUi) {
+      syncDiscoveryGateCopy();
       return discoveryUi;
     }
 
     const root = globalThis.document.createElement("section");
     root.id = discoveryGateId;
-    root.style.position = "fixed";
-    root.style.inset = "0";
-    root.style.zIndex = "2147483647";
-    root.style.padding = "24px";
-    root.style.background = "rgba(244, 241, 232, 0.98)";
-    root.style.color = "#1f2937";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", discoveryTitleId);
+    root.setAttribute("aria-describedby", discoveryDescriptionId);
+
+    const shell = globalThis.document.createElement("main");
+    shell.className = "secpal-discovery-shell";
+
+    const frame = globalThis.document.createElement("div");
+    frame.className = "secpal-discovery-frame";
 
     const panel = globalThis.document.createElement("div");
-    panel.style.maxWidth = "32rem";
-    panel.style.margin = "10vh auto";
-    panel.style.padding = "24px";
-    panel.style.borderRadius = "20px";
-    panel.style.border = "1px solid #d6d3d1";
-    panel.style.background = "#ffffff";
-    panel.style.boxShadow = "0 24px 60px rgba(15, 23, 42, 0.12)";
+    panel.className = "secpal-discovery-panel";
+
+    const topSpacer = globalThis.document.createElement("div");
+    topSpacer.className = "secpal-discovery-spacer secpal-discovery-spacer--top";
+
+    const bottomSpacer = globalThis.document.createElement("div");
+    bottomSpacer.className = "secpal-discovery-spacer secpal-discovery-spacer--bottom";
+
+    const header = globalThis.document.createElement("div");
+    header.className = "secpal-discovery-header";
+
+    const brand = globalThis.document.createElement("div");
+    brand.className = "secpal-discovery-brand";
+
+    const brandLogo = globalThis.document.createElement("div");
+    brandLogo.className = "secpal-discovery-logo";
+    brandLogo.setAttribute("role", "img");
+    brandLogo.setAttribute("aria-label", "SecPal");
+
+    const brandLogoLight = globalThis.document.createElement("img");
+    brandLogoLight.id = discoveryLogoLightId;
+    brandLogoLight.className =
+      "secpal-discovery-logo-image secpal-discovery-logo-image--light";
+    brandLogoLight.setAttribute("src", "/logo-light-48.png");
+    brandLogoLight.setAttribute("alt", "");
+    brandLogoLight.setAttribute("aria-hidden", "true");
+    brandLogoLight.setAttribute("width", "48");
+    brandLogoLight.setAttribute("height", "48");
+
+    const brandLogoDark = globalThis.document.createElement("img");
+    brandLogoDark.id = discoveryLogoDarkId;
+    brandLogoDark.className =
+      "secpal-discovery-logo-image secpal-discovery-logo-image--dark";
+    brandLogoDark.setAttribute("src", "/logo-dark-48.png");
+    brandLogoDark.setAttribute("alt", "");
+    brandLogoDark.setAttribute("aria-hidden", "true");
+    brandLogoDark.setAttribute("width", "48");
+    brandLogoDark.setAttribute("height", "48");
+
+    const brandCopy = globalThis.document.createElement("div");
+    brandCopy.className = "secpal-discovery-brand-copy";
+
+    const brandName = globalThis.document.createElement("p");
+    brandName.className = "secpal-discovery-brand-name";
+    brandName.textContent = "SecPal";
+
+    const localeWrap = globalThis.document.createElement("div");
+    localeWrap.className = "secpal-discovery-locale";
+
+    const localeLabel = globalThis.document.createElement("label");
+    localeLabel.className = "secpal-discovery-sr-only";
+    localeLabel.setAttribute("for", discoveryLocaleId);
+
+    const localeControl = globalThis.document.createElement("div");
+    localeControl.className = "secpal-discovery-control";
+
+    const localeSelect = globalThis.document.createElement("select");
+    localeSelect.id = discoveryLocaleId;
+    localeSelect.className = "secpal-discovery-select";
+
+    for (const [localeCode, localeName] of Object.entries(discoveryLocales)) {
+      const option = globalThis.document.createElement("option");
+      option.value = localeCode;
+      option.textContent = localeName;
+      localeSelect.appendChild(option);
+    }
+
+    localeSelect.value = applyDiscoveryLocale(runtimeState.discoveryLocale);
+
+  const localeChevron = globalThis.document.createElement("span");
+  localeChevron.className = "secpal-discovery-select-chevron";
+  localeChevron.setAttribute("aria-hidden", "true");
+
+  const localeChevronSvg = globalThis.document.createElement("svg");
+  localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
+  localeChevronSvg.setAttribute("fill", "none");
+
+  const localeChevronPathDown = globalThis.document.createElement("path");
+  localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
+  localeChevronPathDown.setAttribute("stroke-width", "1.5");
+  localeChevronPathDown.setAttribute("stroke-linecap", "round");
+  localeChevronPathDown.setAttribute("stroke-linejoin", "round");
+
+  const localeChevronPathUp = globalThis.document.createElement("path");
+  localeChevronPathUp.setAttribute("d", "M10.25 5.25L8 3L5.75 5.25");
+  localeChevronPathUp.setAttribute("stroke-width", "1.5");
+  localeChevronPathUp.setAttribute("stroke-linecap", "round");
+  localeChevronPathUp.setAttribute("stroke-linejoin", "round");
+
+  localeChevronSvg.appendChild(localeChevronPathDown);
+  localeChevronSvg.appendChild(localeChevronPathUp);
+  localeChevron.appendChild(localeChevronSvg);
 
     const title = globalThis.document.createElement("h1");
-    title.textContent = "Connect this SecPal app to your deployment";
+    title.id = discoveryTitleId;
+    title.className = "secpal-discovery-title";
 
     const description = globalThis.document.createElement("p");
-    description.textContent =
-      "Enter the secure https:// address of your customer-hosted SecPal deployment before login continues.";
+    description.id = discoveryDescriptionId;
+    description.className = "secpal-discovery-description";
+
+  const form = globalThis.document.createElement("div");
+  form.className = "secpal-discovery-form";
+
+    const note = globalThis.document.createElement("div");
+    note.className = "secpal-discovery-note";
+
+    const noteTitle = globalThis.document.createElement("p");
+    noteTitle.className = "secpal-discovery-note-title";
+
+    const noteDescription = globalThis.document.createElement("p");
+    noteDescription.className = "secpal-discovery-note-description";
+
+    const field = globalThis.document.createElement("div");
+    field.className = "secpal-discovery-field";
+
+    const inputLabel = globalThis.document.createElement("label");
+    inputLabel.className = "secpal-discovery-label";
+    inputLabel.setAttribute("for", discoveryInputId);
+
+    const inputControl = globalThis.document.createElement("div");
+    inputControl.className = "secpal-discovery-control secpal-discovery-control-wrap";
 
     const input = globalThis.document.createElement("input");
     input.id = discoveryInputId;
+    input.className = "secpal-discovery-input";
     input.setAttribute("type", "url");
     input.setAttribute("inputmode", "url");
-    input.setAttribute("placeholder", "customer.example or https://customer.example");
-    input.style.display = "block";
-    input.style.width = "100%";
-    input.style.marginTop = "16px";
-    input.style.padding = "12px 14px";
-    input.style.border = "1px solid #cbd5e1";
-    input.style.borderRadius = "12px";
+    input.setAttribute("autocomplete", "url");
+    input.setAttribute("enterkeyhint", "go");
+    input.setAttribute("spellcheck", "false");
 
     const validateButton = globalThis.document.createElement("button");
     validateButton.id = discoveryValidateId;
-    validateButton.textContent = "Validate deployment";
-    validateButton.style.marginTop = "16px";
-    validateButton.style.padding = "12px 16px";
+    validateButton.className =
+      "secpal-discovery-button secpal-discovery-button--primary";
+    validateButton.setAttribute("type", "button");
 
-    const summary = globalThis.document.createElement("p");
+    const summary = globalThis.document.createElement("div");
     summary.id = discoverySummaryId;
-    summary.style.whiteSpace = "pre-wrap";
-    summary.style.marginTop = "16px";
+    summary.className = "secpal-discovery-summary";
+    summary.setAttribute("aria-live", "polite");
 
-    const error = globalThis.document.createElement("p");
+    const summaryTitle = globalThis.document.createElement("p");
+    summaryTitle.className = "secpal-discovery-summary-title";
+
+    const summaryBody = globalThis.document.createElement("p");
+    summaryBody.className = "secpal-discovery-summary-body";
+
+    const error = globalThis.document.createElement("div");
     error.id = discoveryErrorId;
-    error.style.marginTop = "16px";
-    error.style.color = "#b91c1c";
+    error.className = "secpal-discovery-error";
+    error.setAttribute("role", "alert");
+    error.setAttribute("aria-live", "assertive");
 
     const confirmButton = globalThis.document.createElement("button");
     confirmButton.id = discoveryConfirmId;
-    confirmButton.textContent = "Use this deployment";
+    confirmButton.className =
+      "secpal-discovery-button secpal-discovery-button--secondary";
+    confirmButton.setAttribute("type", "button");
     confirmButton.disabled = true;
-    confirmButton.style.marginTop = "16px";
-    confirmButton.style.padding = "12px 16px";
+    confirmButton.style.display = "none";
 
+    const actions = globalThis.document.createElement("div");
+    actions.className = "secpal-discovery-actions";
+
+    const footer = globalThis.document.createElement("footer");
+    footer.className = "secpal-discovery-footer";
+
+    const footerPoweredLink = globalThis.document.createElement("a");
+    footerPoweredLink.id = discoveryFooterPoweredId;
+    footerPoweredLink.className = "secpal-discovery-footer-powered";
+    footerPoweredLink.setAttribute("href", "https://secpal.app");
+    footerPoweredLink.setAttribute("target", "_blank");
+    footerPoweredLink.setAttribute("rel", "noopener noreferrer");
+
+    const footerMeta = globalThis.document.createElement("div");
+    footerMeta.className = "secpal-discovery-footer-meta";
+
+    const footerLicenseLink = globalThis.document.createElement("a");
+    footerLicenseLink.id = discoveryFooterLicenseId;
+    footerLicenseLink.className = "secpal-discovery-footer-link";
+    footerLicenseLink.setAttribute(
+      "href",
+      "https://www.gnu.org/licenses/agpl-3.0.html"
+    );
+    footerLicenseLink.setAttribute("target", "_blank");
+    footerLicenseLink.setAttribute("rel", "noopener noreferrer");
+
+    const footerSeparator = globalThis.document.createElement("span");
+    footerSeparator.className = "secpal-discovery-footer-separator";
+    footerSeparator.setAttribute("aria-hidden", "true");
+    footerSeparator.textContent = "|";
+
+    const footerSourceLink = globalThis.document.createElement("a");
+    footerSourceLink.id = discoveryFooterSourceId;
+    footerSourceLink.className = "secpal-discovery-footer-link";
+    footerSourceLink.setAttribute("href", "https://github.com/SecPal");
+    footerSourceLink.setAttribute("target", "_blank");
+    footerSourceLink.setAttribute("rel", "noopener noreferrer");
+
+    brandLogo.appendChild(brandLogoLight);
+    brandLogo.appendChild(brandLogoDark);
+    brandCopy.appendChild(brandName);
+    brand.appendChild(brandLogo);
+    brand.appendChild(brandCopy);
+    localeControl.appendChild(localeSelect);
+    localeControl.appendChild(localeChevron);
+    localeWrap.appendChild(localeLabel);
+    localeWrap.appendChild(localeControl);
+    header.appendChild(brand);
+    header.appendChild(localeWrap);
+    note.appendChild(noteTitle);
+    note.appendChild(noteDescription);
+    field.appendChild(inputLabel);
+    inputControl.appendChild(input);
+    field.appendChild(inputControl);
+    summary.appendChild(summaryTitle);
+    summary.appendChild(summaryBody);
+    actions.appendChild(validateButton);
+    actions.appendChild(summary);
+    actions.appendChild(error);
+    actions.appendChild(confirmButton);
+    form.appendChild(note);
+    form.appendChild(field);
+    form.appendChild(actions);
+    footerMeta.appendChild(footerLicenseLink);
+    footerMeta.appendChild(footerSeparator);
+    footerMeta.appendChild(footerSourceLink);
+    footer.appendChild(footerPoweredLink);
+    footer.appendChild(footerMeta);
+    panel.appendChild(topSpacer);
+    panel.appendChild(header);
     panel.appendChild(title);
     panel.appendChild(description);
-    panel.appendChild(input);
-    panel.appendChild(validateButton);
-    panel.appendChild(summary);
-    panel.appendChild(error);
-    panel.appendChild(confirmButton);
-    root.appendChild(panel);
+    panel.appendChild(form);
+    panel.appendChild(bottomSpacer);
+    panel.appendChild(footer);
+    frame.appendChild(panel);
+    shell.appendChild(frame);
+    root.appendChild(shell);
     globalThis.document.body.appendChild(root);
 
     discoveryUi = {
       root,
+      localeLabel,
+      localeSelect,
+      title,
+      description,
+      noteTitle,
+      noteDescription,
+      inputLabel,
       input,
       validateButton,
       summary,
+      summaryTitle,
+      summaryBody,
       error,
       confirmButton,
+      footerPoweredLink,
+      footerLicenseLink,
+      footerSourceLink,
     };
+
+    localeSelect.addEventListener("change", () => {
+      applyDiscoveryLocale(localeSelect.value);
+      syncDiscoveryGateCopy();
+    });
 
     validateButton.addEventListener("click", (event) => {
       event.preventDefault();
       void validateDiscoverySelection();
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event && event.key === "Enter") {
+        event.preventDefault();
+        void validateDiscoverySelection();
+      }
     });
 
     confirmButton.addEventListener("click", (event) => {
@@ -638,19 +1203,21 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       void confirmDiscoverySelection();
     });
 
+    syncDiscoveryGateCopy();
+
     return discoveryUi;
   };
 
-  const setDiscoveryBusy = (busy) => {
+  const setDiscoveryBusy = (busy, action) => {
     const ui = renderDiscoveryGate();
 
     if (!ui) {
       return;
     }
 
+    runtimeState.discoveryBusyAction = busy ? action ?? "validate" : null;
     ui.input.disabled = busy;
-    ui.validateButton.disabled = busy;
-    ui.confirmButton.disabled = busy || !runtimeState.pendingBootstrap;
+    syncDiscoveryGateCopy();
   };
 
   const setDiscoveryError = (message) => {
@@ -661,9 +1228,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     runtimeState.pendingBootstrap = null;
-    ui.summary.textContent = "";
-    ui.error.textContent = message;
-    ui.confirmButton.disabled = true;
+    runtimeState.discoveryErrorMessage = message;
+    syncDiscoveryGateCopy();
   };
 
   const setDiscoverySummary = (bootstrap) => {
@@ -674,10 +1240,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     runtimeState.pendingBootstrap = bootstrap;
-    ui.error.textContent = "";
-    ui.summary.textContent =
-      "Instance: " + bootstrap.instanceDisplayName + "\\nAPI: " + bootstrap.apiOrigin;
-    ui.confirmButton.disabled = false;
+    runtimeState.discoveryErrorMessage = "";
+    syncDiscoveryGateCopy();
   };
 
   const validateDiscoverySelection = async () => {
@@ -687,19 +1251,17 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    setDiscoveryBusy(true);
-    ui.error.textContent = "";
-    ui.summary.textContent = "";
+    setDiscoveryBusy(true, "validate");
+    runtimeState.discoveryErrorMessage = "";
     runtimeState.pendingBootstrap = null;
+    syncDiscoveryGateCopy();
 
     let discoveryOrigin;
     try {
       discoveryOrigin = normalizeDiscoveryOrigin(ui.input.value);
     } catch (error) {
       setDiscoveryBusy(false);
-      setDiscoveryError(
-        toErrorMessage(error, "Enter a valid secure https:// address for your SecPal deployment.")
-      );
+      setDiscoveryError(toErrorMessage(error, translateDiscovery("errorEnterValidSecureUrl")));
       return;
     }
 
@@ -708,15 +1270,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       runtimeInfo = await getRuntimeInfo();
     } catch (error) {
       setDiscoveryBusy(false);
-      setDiscoveryError(
-        toErrorMessage(error, "This SecPal app cannot read its version information yet.")
-      );
+      setDiscoveryError(toErrorMessage(error, translateDiscovery("errorRuntimeInfoUnavailable")));
       return;
     }
 
     if (!originalFetch) {
       setDiscoveryBusy(false);
-      setDiscoveryError("This SecPal app cannot contact the selected deployment yet.");
+      setDiscoveryError(translateDiscovery("errorContactSelectedDeployment"));
       return;
     }
 
@@ -725,14 +1285,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       response = await originalFetch(
         new Request(buildBootstrapUrl(discoveryOrigin, runtimeInfo).toString(), {
           method: "GET",
-          headers: new Headers({ Accept: "application/json" }),
+          headers: new Headers({
+            Accept: "application/json",
+            "Accept-Language": runtimeState.discoveryLocale,
+          }),
         })
       );
     } catch {
       setDiscoveryBusy(false);
-      setDiscoveryError(
-        "We could not reach that SecPal deployment. Check the URL and your network connection."
-      );
+      setDiscoveryError(translateDiscovery("errorReachDeployment"));
       return;
     }
 
@@ -747,9 +1308,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     try {
       setDiscoverySummary(validateBootstrapPayload(payload));
     } catch (error) {
-      setDiscoveryError(
-        toErrorMessage(error, "This SecPal deployment returned an incompatible bootstrap response.")
-      );
+      setDiscoveryError(toErrorMessage(error, translateDiscovery("errorBootstrapResponse")));
     } finally {
       setDiscoveryBusy(false);
     }
@@ -762,8 +1321,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    setDiscoveryBusy(true);
-    ui.error.textContent = "";
+    setDiscoveryBusy(true, "confirm");
+    runtimeState.discoveryErrorMessage = "";
+    syncDiscoveryGateCopy();
 
     try {
       await applyRuntimeBootstrap(runtimeState.pendingBootstrap);
@@ -773,7 +1333,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       }
     } catch {
       setDiscoveryBusy(false);
-      setDiscoveryError("Failed to configure this SecPal deployment in the Android runtime.");
+      setDiscoveryError(translateDiscovery("errorConfigureRuntime"));
     }
   };
 

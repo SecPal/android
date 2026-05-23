@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- refined the Android runtime discovery gate to match the Catalyst-based login shell much more closely, including SecPal logo/footer branding, Catalyst-aligned control and button presentation, persistent EN/DE locale switching, locale-aware bootstrap validation requests, and verified light/dark rendering on the live device for issue `#229`
 - clarified the repo-local under-`1.x` policy in Copilot governance so Android work explicitly prefers removing obsolete compatibility shims over preserving them without a proven live caller
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
 - strengthened repo-local Copilot governance for AI findings: Android work now requires proof of defect before merging AI-generated fix PRs, treats green CI alone as insufficient evidence for bridge or auth cleanups, and documents focused verification of listener handles and teardown ordering
