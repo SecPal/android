@@ -40,11 +40,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
+        tokenStorage = new KeystoreTokenStorage(getContext());
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
+        if (persistedRuntimeBootstrap == null) {
+            clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
+        }
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
             : null;
-        tokenStorage = new KeystoreTokenStorage(getContext());
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
         networkState = new NetworkState();
@@ -600,6 +603,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    static void clearRejectedLegacyRuntimeState(SharedPreferences preferences, TokenStorage tokenStorage) {
+        String legacyApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
+
+        if (legacyApiBaseUrl == null || legacyApiBaseUrl.trim().isEmpty()) {
+            return;
+        }
+
+        preferences.edit().remove(API_BASE_URL_PREFERENCE_KEY).apply();
+        tokenStorage.clearToken();
     }
 
     static boolean clearRuntimeBootstrapState(

@@ -211,6 +211,40 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void clearRejectedLegacyRuntimeStateClearsLegacyOriginAndToken() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+
+        preferences.edit()
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        SecPalNativeAuthPlugin.clearRejectedLegacyRuntimeState(preferences, tokenStorage);
+
+        assertNull(preferences.getString("api_base_url", null));
+        assertNull(tokenStorage.token);
+        assertEquals(
+            "Legacy cleanup should use apply() because load() cannot surface persistence failures.",
+            1,
+            preferences.applyCallCount
+        );
+    }
+
+    @Test
+    public void clearRejectedLegacyRuntimeStateIsNoOpWithoutLegacyOrigin() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        tokenStorage.token = "tenant-a-token";
+
+        SecPalNativeAuthPlugin.clearRejectedLegacyRuntimeState(preferences, tokenStorage);
+
+        assertNull(preferences.getString("api_base_url", null));
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertEquals(0, preferences.applyCallCount);
+    }
+
+    @Test
     public void clearRuntimeBootstrapStateRemovesTenantScopedRuntimeData() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
