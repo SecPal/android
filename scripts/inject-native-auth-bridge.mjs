@@ -944,7 +944,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         runtimeState.bootstrap = bootstrap;
         runtimeState.apiOrigin = bootstrap.apiOrigin;
       } catch (error) {
-        await clearPersistedBootstrap();
+        await clearPersistedBootstrap().catch(() => {});
         runtimeState.configured = false;
         runtimeState.bootstrap = null;
         runtimeState.apiOrigin = null;
@@ -988,7 +988,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           runtimeState.apiOrigin = restored.apiOrigin;
           removeDiscoveryGate();
         } catch (error) {
-          await clearPersistedBootstrap();
+          await clearPersistedBootstrap().catch(() => {});
           runtimeState.configured = false;
           runtimeState.bootstrap = null;
           runtimeState.apiOrigin = null;
@@ -1032,7 +1032,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             removeDiscoveryGate();
           })
           .catch(async (error) => {
-            await clearPersistedBootstrap();
+            await clearPersistedBootstrap().catch(() => {});
             runtimeState.configured = false;
             runtimeState.bootstrap = null;
             runtimeState.apiOrigin = null;

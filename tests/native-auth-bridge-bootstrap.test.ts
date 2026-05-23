@@ -1224,6 +1224,76 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sandbox.__SecPalNativeAuthBootstrapInstalled).toBe(true);
   });
 
+  it("reopens discovery when native bootstrap restore cleanup fails", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const warn = vi.fn();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi
+        .fn()
+        .mockRejectedValue(new Error("native bridge unavailable")),
+      clearRuntimeBootstrap: vi.fn().mockRejectedValue({
+        code: "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED",
+      }),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn },
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      bootstrap: unknown;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.bootstrap).toBeNull();
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(runtimeState.pendingBootstrap).toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "Failed to restore persisted SecPal bootstrap.",
+      expect.any(Error)
+    );
+  });
+
   it("shows a hard failure for insecure instance URLs before any bootstrap fetch", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const browserFetch = vi.fn();
@@ -2100,6 +2170,81 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).not.toBeNull();
+  });
+
+  it("reopens discovery when native cleanup fails after setApiBaseUrl restore errors", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const warn = vi.fn();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi
+        .fn()
+        .mockRejectedValue(new Error("native bridge unavailable")),
+      clearRuntimeBootstrap: vi.fn().mockRejectedValue({
+        code: "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED",
+      }),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn },
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      bootstrap: unknown;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
+      apiBaseUrl: "https://api.secpal.dev",
+    });
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.bootstrap).toBeNull();
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(runtimeState.pendingBootstrap).toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "Failed to restore persisted SecPal bootstrap.",
+      expect.any(Error)
+    );
   });
 
   it("reopens discovery when persisted bootstrap cleanup hits storage errors", async () => {
