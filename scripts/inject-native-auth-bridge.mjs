@@ -707,7 +707,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           runtimeState.nativeConfigPromise = Promise.resolve();
         }
       } catch {
+        clearPersistedBootstrap();
+        runtimeState.configured = false;
+        runtimeState.bootstrap = null;
+        runtimeState.apiOrigin = null;
+        runtimeState.pendingBootstrap = null;
         runtimeState.nativeConfigPromise = Promise.resolve();
+        mountDiscoveryGate();
       }
     } catch {
       clearPersistedBootstrap();
