@@ -698,9 +698,9 @@ describe("native auth bridge bootstrap injection", () => {
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
-      getRuntimeBootstrap: vi.fn().mockResolvedValue(
-        buildRuntimeBootstrapValue()
-      ),
+      getRuntimeBootstrap: vi
+        .fn()
+        .mockResolvedValue(buildRuntimeBootstrapValue()),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const cacheStorage = {
@@ -709,10 +709,12 @@ describe("native auth bridge bootstrap injection", () => {
     };
     const deletedDatabases: string[] = [];
     const indexedDB = {
-      databases: vi.fn().mockResolvedValue([
-        { name: "secpal-offline-vault" },
-        { name: "tenant-cache-db" },
-      ]),
+      databases: vi
+        .fn()
+        .mockResolvedValue([
+          { name: "secpal-offline-vault" },
+          { name: "tenant-cache-db" },
+        ]),
       deleteDatabase: vi.fn((name: string) => {
         deletedDatabases.push(name);
 
@@ -818,9 +820,9 @@ describe("native auth bridge bootstrap injection", () => {
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
-      getRuntimeBootstrap: vi.fn().mockResolvedValue(
-        buildRuntimeBootstrapValue()
-      ),
+      getRuntimeBootstrap: vi
+        .fn()
+        .mockResolvedValue(buildRuntimeBootstrapValue()),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
@@ -879,9 +881,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(localStorage.getItem("auth_vault_state")).toBe(
       "encrypted-user-state"
     );
-    expect(sessionStorage.getItem("tenant-session")).toBe(
-      "customer-a-session"
-    );
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
     expect(
       (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
     ).not.toHaveBeenCalled();
