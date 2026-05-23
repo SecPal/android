@@ -234,11 +234,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     tokenStorage.clearToken();
                 }
 
-                apiBaseUrl = nextApiBaseUrl;
-
                 if (!getNativeAuthPreferences()
                     .edit()
-                    .putString(API_BASE_URL_PREFERENCE_KEY, apiBaseUrl)
+                    .putString(API_BASE_URL_PREFERENCE_KEY, nextApiBaseUrl)
                     .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
                     .commit()) {
                     call.reject(
@@ -247,6 +245,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     );
                     return;
                 }
+
+                apiBaseUrl = nextApiBaseUrl;
 
                 JSObject payload = new JSObject();
                 payload.put("apiBaseUrl", apiBaseUrl);
@@ -647,20 +647,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
         bootstrap.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
         bootstrap.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
 
-        JSObject normalizedFeatures = new JSObject();
-        normalizedFeatures.put(
-            "passwordLoginEnabled",
-            features != null && features.optBoolean("passwordLoginEnabled", false)
-        );
-        normalizedFeatures.put(
-            "passkeyLoginEnabled",
-            features != null && features.optBoolean("passkeyLoginEnabled", false)
-        );
-        normalizedFeatures.put(
-            "managedAndroidEnrollment",
-            features != null && features.optBoolean("managedAndroidEnrollment", false)
-        );
-        bootstrap.put("features", normalizedFeatures);
+        if (features != null) {
+            bootstrap.put("features", features);
+        }
 
         return normalizeRuntimeBootstrap(bootstrap);
     }
