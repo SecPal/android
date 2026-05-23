@@ -181,12 +181,16 @@ function createMockNavigation(initialHref: string) {
       }
     },
     history: {
-      pushState: vi.fn((_state: unknown, _unused: string, url?: string | URL | null) => {
-        location.href = resolveHref(url);
-      }),
-      replaceState: vi.fn((_state: unknown, _unused: string, url?: string | URL | null) => {
-        location.href = resolveHref(url);
-      }),
+      pushState: vi.fn(
+        (_state: unknown, _unused: string, url?: string | URL | null) => {
+          location.href = resolveHref(url);
+        }
+      ),
+      replaceState: vi.fn(
+        (_state: unknown, _unused: string, url?: string | URL | null) => {
+          location.href = resolveHref(url);
+        }
+      ),
     },
   };
 }
@@ -999,14 +1003,20 @@ describe("native auth bridge bootstrap injection", () => {
       expect(confirm).toHaveBeenCalledOnce();
       expect(plugin.logout).toHaveBeenCalledOnce();
       expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
-      expect(localStorage.getItem("auth_vault_state")).toBe("encrypted-user-state");
+      expect(localStorage.getItem("auth_vault_state")).toBe(
+        "encrypted-user-state"
+      );
       expect(localStorage.getItem("tenant-cache")).toBe("customer-a");
       expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
-      expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
+      expect(sessionStorage.getItem("tenant-session")).toBe(
+        "customer-a-session"
+      );
       expect(
         (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
       ).not.toHaveBeenCalled();
-      expect(document.getElementById("secpal-instance-reset-button")).not.toBeNull();
+      expect(
+        document.getElementById("secpal-instance-reset-button")
+      ).not.toBeNull();
       expect(warn).toHaveBeenCalledWith(
         "Failed to reset the configured SecPal runtime.",
         expect.objectContaining({
@@ -1072,7 +1082,9 @@ describe("native auth bridge bootstrap injection", () => {
     navigation.history.pushState({}, "", "/login");
     await flushMicrotasks();
 
-    expect(document.getElementById("secpal-instance-reset-entry")).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-reset-entry")
+    ).not.toBeNull();
 
     navigation.history.replaceState({}, "", "/");
     await flushMicrotasks();
@@ -1083,7 +1095,9 @@ describe("native auth bridge bootstrap injection", () => {
     navigation.dispatchEvent("popstate");
     await flushMicrotasks();
 
-    expect(document.getElementById("secpal-instance-reset-entry")).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-reset-entry")
+    ).not.toBeNull();
   });
 
   it("restores a legacy configured API origin from the native plugin on startup", async () => {
