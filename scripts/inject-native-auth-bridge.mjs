@@ -380,14 +380,22 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     const storage = getSessionStorage();
     if (storage) {
-      storage.removeItem(runtimeStorageKey);
+      try {
+        storage.removeItem(runtimeStorageKey);
+      } catch {
+        // Cleanup is best-effort when web storage is unavailable.
+      }
     }
   };
 
   const persistBootstrapToSessionStorage = (bootstrap) => {
     const storage = getSessionStorage();
     if (storage) {
-      storage.setItem(runtimeStorageKey, JSON.stringify(bootstrap));
+      try {
+        storage.setItem(runtimeStorageKey, JSON.stringify(bootstrap));
+      } catch {
+        // Native persistence already succeeded, so skip transient web storage failures.
+      }
     }
   };
 
@@ -445,6 +453,33 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return restored;
   };
 
+  const normalizeLoadedBootstrapState = (value) => {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    if (
+      typeof value.instanceDisplayName === "string" ||
+      typeof value.minimumSupportedAppVersion === "string" ||
+      "minimumSupportedAppBuild" in value
+    ) {
+      const bootstrap = normalizeStoredBootstrap(value);
+      return {
+        apiOrigin: bootstrap.apiOrigin,
+        bootstrap,
+      };
+    }
+
+    if (typeof value.apiOrigin !== "string") {
+      return null;
+    }
+
+    return {
+      apiOrigin: normalizeBootstrapApiBaseUrl(value.apiOrigin),
+      bootstrap: null,
+    };
+  };
+
   const unwrapRuntimeBootstrapPayload = (value) => {
     if (!value || typeof value !== "object") {
       return null;
@@ -455,8 +490,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         return null;
       }
 
-      return value.bootstrap && typeof value.bootstrap === "object"
-        ? value.bootstrap
+      if (value.bootstrap && typeof value.bootstrap === "object") {
+        return value.bootstrap;
+      }
+
+      return typeof value.apiOrigin === "string"
+        ? { apiOrigin: value.apiOrigin }
         : null;
     }
 
@@ -470,7 +509,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       const payload = await plugin.getRuntimeBootstrap();
       const bootstrap = unwrapRuntimeBootstrapPayload(payload);
 
-      return bootstrap ? normalizeStoredBootstrap(bootstrap) : null;
+      return bootstrap ? normalizeLoadedBootstrapState(bootstrap) : null;
     }
 
     const storage = getSessionStorage();
@@ -485,7 +524,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return null;
     }
 
-    return normalizeStoredBootstrap(JSON.parse(rawValue));
+    const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
+    return {
+      apiOrigin: bootstrap.apiOrigin,
+      bootstrap,
+    };
   };
 
   const persistBootstrap = async (bootstrap) => {
@@ -773,7 +816,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
           runtimeState.pendingBootstrap = null;
           runtimeState.configured = true;
-          runtimeState.bootstrap = restored;
+          runtimeState.bootstrap = restored.bootstrap;
           runtimeState.apiOrigin = restored.apiOrigin;
           removeDiscoveryGate();
         } catch (error) {
@@ -803,7 +846,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     try {
-      const restored = normalizeStoredBootstrap(JSON.parse(rawValue));
+      const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
+      const restored = {
+        apiOrigin: bootstrap.apiOrigin,
+        bootstrap,
+      };
 
       runtimeState.pendingBootstrap = null;
 
@@ -812,7 +859,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           .setApiBaseUrl({ apiBaseUrl: restored.apiOrigin })
           .then(() => {
             runtimeState.configured = true;
-            runtimeState.bootstrap = restored;
+            runtimeState.bootstrap = restored.bootstrap;
             runtimeState.apiOrigin = restored.apiOrigin;
             removeDiscoveryGate();
           })
@@ -828,7 +875,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           });
       } else {
         runtimeState.configured = true;
-        runtimeState.bootstrap = restored;
+        runtimeState.bootstrap = restored.bootstrap;
         runtimeState.apiOrigin = restored.apiOrigin;
         runtimeState.nativeConfigPromise = Promise.resolve();
       }

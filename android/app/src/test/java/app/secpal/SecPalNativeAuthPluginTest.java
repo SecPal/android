@@ -128,6 +128,53 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void buildRuntimeBootstrapPayloadUsesPersistedBootstrapWhenAvailable() throws Exception {
+        JSObject bootstrap = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+        );
+
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
+            bootstrap,
+            "https://tenant-b.example"
+        );
+
+        assertTrue(payload.getBoolean("configured"));
+        assertEquals(
+            "https://tenant-a.example",
+            payload.getJSONObject("bootstrap").getString("apiOrigin")
+        );
+        assertNull(payload.opt("apiOrigin"));
+    }
+
+    @Test
+    public void buildRuntimeBootstrapPayloadFallsBackToLegacyApiOrigin() {
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
+            null,
+            " https://tenant-a.example/ "
+        );
+
+        assertTrue(payload.getBoolean("configured"));
+        assertEquals("https://tenant-a.example", payload.getString("apiOrigin"));
+        assertNull(payload.opt("bootstrap"));
+    }
+
+    @Test
+    public void buildRuntimeBootstrapPayloadIgnoresInvalidLegacyApiOrigin() {
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
+            null,
+            "https://tenant-a.example/v1"
+        );
+
+        assertFalse(payload.getBoolean("configured"));
+        assertNull(payload.opt("apiOrigin"));
+        assertNull(payload.opt("bootstrap"));
+    }
+
+    @Test
     public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(

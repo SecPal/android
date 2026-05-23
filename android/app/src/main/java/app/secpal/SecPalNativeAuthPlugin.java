@@ -334,14 +334,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
-        JSObject payload = new JSObject();
-        JSObject bootstrap = getPersistedRuntimeBootstrap();
-
-        payload.put("configured", bootstrap != null);
-        if (bootstrap != null) {
-            payload.put("bootstrap", bootstrap);
-        }
-
+        JSObject payload = buildRuntimeBootstrapPayload(
+            getPersistedRuntimeBootstrap(),
+            getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
+        );
         call.resolve(payload);
     }
 
@@ -617,6 +613,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
             .putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, bootstrap.toString())
             .remove(API_BASE_URL_PREFERENCE_KEY)
             .commit();
+    }
+
+    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap, String legacyApiBaseUrl) {
+        JSObject payload = new JSObject();
+
+        if (bootstrap != null) {
+            payload.put("configured", true);
+            payload.put("bootstrap", bootstrap);
+            return payload;
+        }
+
+        String legacyApiOrigin = resolveInitialApiBaseUrl(legacyApiBaseUrl);
+        payload.put("configured", legacyApiOrigin != null);
+        if (legacyApiOrigin != null) {
+            payload.put("apiOrigin", legacyApiOrigin);
+        }
+
+        return payload;
     }
 
     private JSObject getPersistedRuntimeBootstrap() {
