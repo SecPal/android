@@ -367,18 +367,140 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
-  const clearPersistedBootstrap = () => {
+  const clearPersistedBootstrap = async () => {
+    try {
+      const plugin = getPlugin();
+      if (typeof plugin.clearRuntimeBootstrap === "function") {
+        await plugin.clearRuntimeBootstrap();
+        return;
+      }
+    } catch {
+      // Fall through to the legacy storage cleanup.
+    }
+
     const storage = getSessionStorage();
     if (storage) {
       storage.removeItem(runtimeStorageKey);
     }
   };
 
-  const persistBootstrap = (bootstrap) => {
+  const persistBootstrapToSessionStorage = (bootstrap) => {
     const storage = getSessionStorage();
     if (storage) {
       storage.setItem(runtimeStorageKey, JSON.stringify(bootstrap));
     }
+  };
+
+  const normalizeStoredBootstrap = (parsed) => {
+    const instanceDisplayName =
+      parsed && typeof parsed === "object" && typeof parsed.instanceDisplayName === "string"
+        ? parsed.instanceDisplayName.trim()
+        : "";
+    const minimumSupportedAppVersion =
+      parsed && typeof parsed === "object" && typeof parsed.minimumSupportedAppVersion === "string"
+        ? parsed.minimumSupportedAppVersion.trim()
+        : "";
+    const minimumSupportedAppBuild =
+      parsed && typeof parsed === "object"
+        ? Number(parsed.minimumSupportedAppBuild)
+        : Number.NaN;
+
+    if (!instanceDisplayName) {
+      throw createIncompatibleBootstrapError();
+    }
+
+    const restored = {
+      instanceDisplayName,
+      apiOrigin: normalizeBootstrapApiBaseUrl(parsed.apiOrigin ?? parsed.rawApiBaseUrl),
+      rawApiBaseUrl:
+        parsed && typeof parsed === "object" && typeof parsed.rawApiBaseUrl === "string"
+          ? parsed.rawApiBaseUrl
+          : String(parsed.apiOrigin ?? ""),
+      minimumSupportedAppVersion,
+      minimumSupportedAppBuild,
+      features: {
+        passwordLoginEnabled:
+          parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
+            ? parsed.features.passwordLoginEnabled === true
+            : false,
+        passkeyLoginEnabled:
+          parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
+            ? parsed.features.passkeyLoginEnabled === true
+            : false,
+        managedAndroidEnrollment:
+          parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
+            ? parsed.features.managedAndroidEnrollment === true
+            : false,
+      },
+    };
+
+    if (
+      !restored.minimumSupportedAppVersion ||
+      !Number.isInteger(restored.minimumSupportedAppBuild) ||
+      restored.minimumSupportedAppBuild <= 0
+    ) {
+      throw createIncompatibleBootstrapError();
+    }
+
+    return restored;
+  };
+
+  const unwrapRuntimeBootstrapPayload = (value) => {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    if ("configured" in value) {
+      if (value.configured !== true) {
+        return null;
+      }
+
+      return value.bootstrap && typeof value.bootstrap === "object"
+        ? value.bootstrap
+        : null;
+    }
+
+    return value;
+  };
+
+  const loadPersistedBootstrap = async () => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.getRuntimeBootstrap === "function") {
+      const payload = await plugin.getRuntimeBootstrap();
+      const bootstrap = unwrapRuntimeBootstrapPayload(payload);
+
+      return bootstrap ? normalizeStoredBootstrap(bootstrap) : null;
+    }
+
+    const storage = getSessionStorage();
+
+    if (!storage) {
+      return null;
+    }
+
+    const rawValue = storage.getItem(runtimeStorageKey);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    return normalizeStoredBootstrap(JSON.parse(rawValue));
+  };
+
+  const persistBootstrap = async (bootstrap) => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.setRuntimeBootstrap === "function") {
+      await plugin.setRuntimeBootstrap(bootstrap);
+      return;
+    }
+
+    if (typeof plugin.setApiBaseUrl === "function") {
+      await plugin.setApiBaseUrl({ apiBaseUrl: bootstrap.apiOrigin });
+    }
+
+    persistBootstrapToSessionStorage(bootstrap);
   };
 
   const toErrorMessage = (error, fallback) => {
@@ -602,39 +724,58 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const applyRuntimeBootstrap = async (bootstrap) => {
-    const plugin = getPlugin();
-
     runtimeState.pendingBootstrap = null;
 
-    if (typeof plugin.setApiBaseUrl === "function") {
-      runtimeState.nativeConfigPromise = plugin
-        .setApiBaseUrl({ apiBaseUrl: bootstrap.apiOrigin })
-        .then(() => {
-          runtimeState.configured = true;
-          runtimeState.bootstrap = bootstrap;
-          runtimeState.apiOrigin = bootstrap.apiOrigin;
-          persistBootstrap(bootstrap);
-        })
-        .catch((error) => {
-          clearPersistedBootstrap();
-          runtimeState.configured = false;
-          runtimeState.bootstrap = null;
-          runtimeState.apiOrigin = null;
-          throw error;
-        });
-    } else {
-      runtimeState.configured = true;
-      runtimeState.bootstrap = bootstrap;
-      runtimeState.apiOrigin = bootstrap.apiOrigin;
-      persistBootstrap(bootstrap);
-      runtimeState.nativeConfigPromise = Promise.resolve();
-    }
+    runtimeState.nativeConfigPromise = (async () => {
+      try {
+        await persistBootstrap(bootstrap);
+        runtimeState.configured = true;
+        runtimeState.bootstrap = bootstrap;
+        runtimeState.apiOrigin = bootstrap.apiOrigin;
+      } catch (error) {
+        await clearPersistedBootstrap();
+        runtimeState.configured = false;
+        runtimeState.bootstrap = null;
+        runtimeState.apiOrigin = null;
+        throw error;
+      }
+    })();
 
     await runtimeState.nativeConfigPromise;
     return bootstrap.apiOrigin;
   };
 
   const restorePersistedBootstrap = () => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.getRuntimeBootstrap === "function") {
+      runtimeState.nativeConfigPromise = (async () => {
+        try {
+          const restored = await loadPersistedBootstrap();
+
+          if (!restored) {
+            return;
+          }
+
+          runtimeState.pendingBootstrap = null;
+          runtimeState.configured = true;
+          runtimeState.bootstrap = restored;
+          runtimeState.apiOrigin = restored.apiOrigin;
+          removeDiscoveryGate();
+        } catch (error) {
+          await clearPersistedBootstrap();
+          runtimeState.configured = false;
+          runtimeState.bootstrap = null;
+          runtimeState.apiOrigin = null;
+          runtimeState.pendingBootstrap = null;
+          mountDiscoveryGate();
+          console.warn("Failed to restore persisted SecPal bootstrap.", error);
+        }
+      })();
+
+      return;
+    }
+
     const storage = getSessionStorage();
 
     if (!storage) {
@@ -648,94 +789,34 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     try {
-      const parsed = JSON.parse(rawValue);
-      const instanceDisplayName =
-        parsed && typeof parsed === "object" && typeof parsed.instanceDisplayName === "string"
-          ? parsed.instanceDisplayName.trim()
-          : "";
-      const minimumSupportedAppVersion =
-        parsed && typeof parsed === "object" && typeof parsed.minimumSupportedAppVersion === "string"
-          ? parsed.minimumSupportedAppVersion.trim()
-          : "";
-      const minimumSupportedAppBuild =
-        parsed && typeof parsed === "object"
-          ? Number(parsed.minimumSupportedAppBuild)
-          : Number.NaN;
-
-      if (!instanceDisplayName) {
-        throw createIncompatibleBootstrapError();
-      }
-
-      const restored = {
-        instanceDisplayName,
-        apiOrigin: normalizeBootstrapApiBaseUrl(parsed.apiOrigin ?? parsed.rawApiBaseUrl),
-        rawApiBaseUrl:
-          parsed && typeof parsed === "object" && typeof parsed.rawApiBaseUrl === "string"
-            ? parsed.rawApiBaseUrl
-            : String(parsed.apiOrigin ?? ""),
-        minimumSupportedAppVersion,
-        minimumSupportedAppBuild,
-        features: {
-          passwordLoginEnabled:
-            parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
-              ? parsed.features.passwordLoginEnabled === true
-              : false,
-          passkeyLoginEnabled:
-            parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
-              ? parsed.features.passkeyLoginEnabled === true
-              : false,
-          managedAndroidEnrollment:
-            parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
-              ? parsed.features.managedAndroidEnrollment === true
-              : false,
-        },
-      };
-
-      if (
-        !restored.minimumSupportedAppVersion ||
-        !Number.isInteger(restored.minimumSupportedAppBuild) ||
-        restored.minimumSupportedAppBuild <= 0
-      ) {
-        throw createIncompatibleBootstrapError();
-      }
+      const restored = normalizeStoredBootstrap(JSON.parse(rawValue));
 
       runtimeState.pendingBootstrap = null;
 
-      try {
-        const plugin = getPlugin();
-        if (typeof plugin.setApiBaseUrl === "function") {
-          runtimeState.nativeConfigPromise = plugin
-            .setApiBaseUrl({ apiBaseUrl: restored.apiOrigin })
-            .then(() => {
-              runtimeState.configured = true;
-              runtimeState.bootstrap = restored;
-              runtimeState.apiOrigin = restored.apiOrigin;
-              removeDiscoveryGate();
-            })
-            .catch((error) => {
-              clearPersistedBootstrap();
-              runtimeState.configured = false;
-              runtimeState.bootstrap = null;
-              runtimeState.apiOrigin = null;
-              runtimeState.pendingBootstrap = null;
-              runtimeState.nativeConfigPromise = Promise.resolve();
-              mountDiscoveryGate();
-              console.warn("Failed to restore persisted SecPal bootstrap.", error);
-            });
-        } else {
-          runtimeState.configured = true;
-          runtimeState.bootstrap = restored;
-          runtimeState.apiOrigin = restored.apiOrigin;
-          runtimeState.nativeConfigPromise = Promise.resolve();
-        }
-      } catch {
-        clearPersistedBootstrap();
-        runtimeState.configured = false;
-        runtimeState.bootstrap = null;
-        runtimeState.apiOrigin = null;
-        runtimeState.pendingBootstrap = null;
+      if (typeof plugin.setApiBaseUrl === "function") {
+        runtimeState.nativeConfigPromise = plugin
+          .setApiBaseUrl({ apiBaseUrl: restored.apiOrigin })
+          .then(() => {
+            runtimeState.configured = true;
+            runtimeState.bootstrap = restored;
+            runtimeState.apiOrigin = restored.apiOrigin;
+            removeDiscoveryGate();
+          })
+          .catch((error) => {
+            clearPersistedBootstrap();
+            runtimeState.configured = false;
+            runtimeState.bootstrap = null;
+            runtimeState.apiOrigin = null;
+            runtimeState.pendingBootstrap = null;
+            runtimeState.nativeConfigPromise = Promise.resolve();
+            mountDiscoveryGate();
+            console.warn("Failed to restore persisted SecPal bootstrap.", error);
+          });
+      } else {
+        runtimeState.configured = true;
+        runtimeState.bootstrap = restored;
+        runtimeState.apiOrigin = restored.apiOrigin;
         runtimeState.nativeConfigPromise = Promise.resolve();
-        mountDiscoveryGate();
       }
     } catch {
       clearPersistedBootstrap();
@@ -748,10 +829,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const ensureRuntimeConfigured = async () => {
-    if (!runtimeState.configured || !runtimeState.apiOrigin) {
-      throw new Error("This SecPal app is not configured for a deployment yet.");
-    }
-
     await runtimeState.nativeConfigPromise;
 
     if (!runtimeState.configured || !runtimeState.apiOrigin) {
@@ -1551,6 +1628,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         return originalFetch(request);
       }
 
+      if (isApiPath(url.pathname)) {
+        try {
+          await runtimeState.nativeConfigPromise;
+        } catch {
+          // Keep the original request path when runtime bootstrap restore fails.
+        }
+      }
+
       const rewrittenUrl = rewriteApiRequestUrl(url);
 
       if (authState.active && isNativeApiRequest(rewrittenUrl)) {
@@ -1591,10 +1676,33 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     };
   }
 
+  const mountDiscoveryGateAfterRestore = () => {
+    let shouldWaitForNativeRestore = false;
+
+    try {
+      shouldWaitForNativeRestore = typeof getPlugin().getRuntimeBootstrap === "function";
+    } catch {
+      shouldWaitForNativeRestore = false;
+    }
+
+    if (!shouldWaitForNativeRestore) {
+      mountDiscoveryGate();
+      return;
+    }
+
+    runtimeState.nativeConfigPromise
+      .catch(() => {
+        // Restore failures already reset the runtime state and remount the gate.
+      })
+      .then(() => {
+        mountDiscoveryGate();
+      });
+  };
+
   if (globalThis.document && globalThis.document.body) {
-    mountDiscoveryGate();
+    mountDiscoveryGateAfterRestore();
   } else if (globalThis.document && typeof globalThis.document.addEventListener === "function") {
-    globalThis.document.addEventListener("DOMContentLoaded", mountDiscoveryGate);
+    globalThis.document.addEventListener("DOMContentLoaded", mountDiscoveryGateAfterRestore);
   }
 
   globalThis.__SecPalNativeAuthBootstrapInstalled = true;

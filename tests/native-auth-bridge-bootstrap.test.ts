@@ -158,7 +158,7 @@ const runtimeBootstrapPlaceholderOrigin =
   "https://runtime-bootstrap-required.secpal.dev";
 const runtimeBootstrapStorageKey = "runtimeBootstrapState";
 
-function buildStoredRuntimeBootstrap(
+function buildRuntimeBootstrapValue(
   overrides: Partial<{
     instanceDisplayName: string;
     apiOrigin: string;
@@ -172,7 +172,7 @@ function buildStoredRuntimeBootstrap(
     };
   }> = {}
 ) {
-  return JSON.stringify({
+  return {
     instanceDisplayName: "Configured Example",
     apiOrigin: "https://api.secpal.dev",
     rawApiBaseUrl: "https://api.secpal.dev/v1",
@@ -184,7 +184,13 @@ function buildStoredRuntimeBootstrap(
       managedAndroidEnrollment: false,
     },
     ...overrides,
-  });
+  };
+}
+
+function buildStoredRuntimeBootstrap(
+  overrides: Parameters<typeof buildRuntimeBootstrapValue>[0] = {}
+) {
+  return JSON.stringify(buildRuntimeBootstrapValue(overrides));
 }
 
 async function flushMicrotasks(turns = 8) {
@@ -455,9 +461,7 @@ describe("native auth bridge bootstrap injection", () => {
         appVersion: "0.0.1",
         appBuild: 1,
       }),
-      setApiBaseUrl: vi.fn().mockResolvedValue({
-        apiBaseUrl: "https://customer-api.example",
-      }),
+      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const browserFetch = vi.fn(async (input: Request | string | URL) => {
       const request =
@@ -579,12 +583,19 @@ describe("native auth bridge bootstrap injection", () => {
     confirmButton!.click();
     await flushMicrotasks();
 
-    expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
-      apiBaseUrl: "https://customer-api.example",
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith({
+      instanceDisplayName: "Customer Example",
+      apiOrigin: "https://customer-api.example",
+      rawApiBaseUrl: "https://customer-api.example/v1",
+      minimumSupportedAppVersion: "0.0.1",
+      minimumSupportedAppBuild: 1,
+      features: {
+        passwordLoginEnabled: true,
+        passkeyLoginEnabled: true,
+        managedAndroidEnrollment: false,
+      },
     });
-    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toContain(
-      "Customer Example"
-    );
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(
       (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
     ).toHaveBeenCalledOnce();
@@ -595,6 +606,85 @@ describe("native auth bridge bootstrap injection", () => {
 
     const rewrittenRequest = browserFetch.mock.calls.at(-1)?.[0] as Request;
     expect(rewrittenRequest.url).toBe(
+      "https://customer-api.example/health/ready"
+    );
+  });
+
+  it("restores a persisted runtime bootstrap from the native plugin on startup", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue(
+        buildRuntimeBootstrapValue({
+          instanceDisplayName: "Customer Example",
+          apiOrigin: "https://customer-api.example",
+          rawApiBaseUrl: "https://customer-api.example/v1",
+        })
+      ),
+    };
+    const document = new MockDocument();
+    const browserFetch = vi.fn(async (input: Request | string | URL) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input));
+
+      return new Response(request.url, { status: 200 });
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).toBeNull();
+
+    const response = await (sandbox.fetch as typeof fetch)(
+      `${runtimeBootstrapPlaceholderOrigin}/health/ready`
+    );
+
+    const rewrittenRequest = browserFetch.mock.calls.at(-1)?.[0] as Request;
+    expect(rewrittenRequest.url).toBe(
+      "https://customer-api.example/health/ready"
+    );
+    await expect(response.text()).resolves.toBe(
       "https://customer-api.example/health/ready"
     );
   });

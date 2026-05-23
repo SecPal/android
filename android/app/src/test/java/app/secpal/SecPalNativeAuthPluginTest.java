@@ -11,7 +11,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.getcapacitor.JSObject;
+
 import org.junit.Test;
+import org.json.JSONObject;
 
 public class SecPalNativeAuthPluginTest {
 
@@ -90,10 +93,37 @@ public class SecPalNativeAuthPluginTest {
     public void resolveInitialApiBaseUrlUsesPersistedRuntimeOriginWhenAvailable() {
         assertEquals(
             "https://tenant-a.example",
-            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(
-                "https://runtime-bootstrap-required.secpal.dev",
-                " https://tenant-a.example/ "
-            )
+            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(" https://tenant-a.example/ ")
+        );
+    }
+
+    @Test
+    public void resolveInitialApiBaseUrlReturnsNullWithoutPersistedRuntimeOrigin() {
+        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(null));
+    }
+
+    @Test
+    public void resolveInitialApiBaseUrlReturnsNullForInvalidPersistedRuntimeOrigin() {
+        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl("https://tenant-a.example/v1"));
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapDerivesCanonicalApiOriginFromRawApiBaseUrl() throws Exception {
+        JSObject normalized = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+                .put("features", new JSONObject().put("passwordLoginEnabled", true))
+        );
+
+        assertEquals("https://tenant-a.example", normalized.getString("apiOrigin"));
+        assertEquals("https://tenant-a.example/v1", normalized.getString("rawApiBaseUrl"));
+        assertTrue(normalized.getJSONObject("features").getBoolean("passwordLoginEnabled"));
+        assertFalse(normalized.getJSONObject("features").getBoolean("passkeyLoginEnabled"));
+        assertFalse(
+            normalized.getJSONObject("features").getBoolean("managedAndroidEnrollment")
         );
     }
 
