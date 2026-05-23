@@ -43,7 +43,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
-            : resolveInitialApiBaseUrl(getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null));
+            : null;
         tokenStorage = new KeystoreTokenStorage(getContext());
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
@@ -335,10 +335,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
         runAsync(call, () -> {
-            JSObject payload = buildRuntimeBootstrapPayload(
-                getPersistedRuntimeBootstrap(),
-                getNativeAuthPreferences().getString(API_BASE_URL_PREFERENCE_KEY, null)
-            );
+            JSObject payload = buildRuntimeBootstrapPayload(getPersistedRuntimeBootstrap());
             call.resolve(payload);
         });
     }
@@ -601,18 +598,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return resolveRuntimeApiBaseUrl(origin.toString());
     }
 
-    static String resolveInitialApiBaseUrl(String persistedApiBaseUrl) {
-        if (persistedApiBaseUrl == null || persistedApiBaseUrl.trim().isEmpty()) {
-            return null;
-        }
-
-        try {
-            return resolveRuntimeApiBaseUrl(persistedApiBaseUrl);
-        } catch (ConfiguredApiBaseUrlException exception) {
-            return null;
-        }
-    }
-
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
     }
@@ -648,20 +633,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
             .commit();
     }
 
-    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap, String legacyApiBaseUrl) {
+    static JSObject buildRuntimeBootstrapPayload(JSObject bootstrap) {
         JSObject payload = new JSObject();
 
-        if (bootstrap != null) {
-            payload.put("configured", true);
-            payload.put("bootstrap", bootstrap);
+        if (bootstrap == null) {
+            payload.put("configured", false);
             return payload;
         }
 
-        String legacyApiOrigin = resolveInitialApiBaseUrl(legacyApiBaseUrl);
-        payload.put("configured", legacyApiOrigin != null);
-        if (legacyApiOrigin != null) {
-            payload.put("apiOrigin", legacyApiOrigin);
-        }
+        payload.put("configured", true);
+        payload.put("bootstrap", bootstrap);
 
         return payload;
     }

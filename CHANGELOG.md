@@ -18,12 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android runtime bootstrap now rejects legacy `apiOrigin`-only restore state from the native plugin and requires structured persisted bootstrap metadata before rebinding after restart, closing the last hidden old-model restore path with focused Java and bridge regression coverage for issue `#232`.
 - Android login now renders a small clickable instance hint directly below the passkey sign-in button, asks for confirmation before clearing the configured instance plus tenant-local browser state, and keeps the injected footer wording aligned with the existing shared frontend footer text while preserving focused regression coverage for issue `#231`.
 - Android runtime bootstrap now persists the validated customer deployment in the native auth plugin, restores the selected canonical API binding on startup, and removes the hidden fallback back to the baked-in runtime API origin once a deployment was configured, with focused regression coverage for startup rebinding and fallback removal in issue `#230`.
 - Added a native Android hardware-button route fallback for managed-device Samsung/XCover key events so short presses can still open `/profile` and long presses `/about` even when the injected Web listener is unavailable at runtime, resolving the remaining real-device validation gap in issue #123.
 
 ### Changed
 
+- documented the customer-hosted Android binding flow, deployment bootstrap endpoint expectations, and rollout note that the current `0.x` policy allows removal of the old baked-in-origin compatibility shim without preserving a backward-compatibility fallback
 - refined the Android runtime discovery gate to match the Catalyst-based login shell much more closely, including SecPal logo/footer branding, Catalyst-aligned control and button presentation, persistent EN/DE locale switching, locale-aware bootstrap validation requests, and verified light/dark rendering on the live device for issue `#229`
 - clarified the repo-local under-`1.x` policy in Copilot governance so Android work explicitly prefers removing obsolete compatibility shims over preserving them without a proven live caller
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.

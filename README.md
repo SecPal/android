@@ -41,6 +41,22 @@ Android bearer tokens must be stored in Android-native secure storage and must n
 
 See `docs/ANDROID_AUTH_ARCHITECTURE.md` for the mandatory long-term Android auth design and the prohibited shortcuts.
 
+## Binding To A Customer Deployment
+
+The shipped Android app is generic. It does not assume a default SecPal production API origin at login time.
+
+To bind the app to a customer-hosted deployment:
+
+1. Ask your supervisor for the secure HTTPS instance URL.
+2. Open the app. The discovery gate appears before login.
+3. Enter the instance URL and select the preferred language if needed.
+4. Tap `Check instance`. The app calls the public `GET /v1/bootstrap` endpoint, validates compatibility, and shows the resolved instance name.
+5. Tap `Continue to login` only after the shown instance matches the expected customer deployment.
+
+The app stores the canonical API origin returned by bootstrap only after this confirmation step. If the deployment must be changed later, use the instance hint below the passkey button on the login screen. Confirming that reset clears local sign-in state, offline data, and cached tenant state on the device before returning to discovery.
+
+Use the customer-facing instance URL that the user received, not a copied API path such as `/v1/...`. If onboarding links are distributed centrally, the Android discovery gate can also consume `instance_url`, `server_url`, or `bootstrap_url` query parameters, but the same bootstrap validation and confirmation still happens before login.
+
 ## Local Setup
 
 ```bash

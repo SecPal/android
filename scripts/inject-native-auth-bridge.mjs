@@ -633,14 +633,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       };
     }
 
-    if (typeof value.apiOrigin !== "string") {
-      return null;
-    }
-
-    return {
-      apiOrigin: normalizeBootstrapApiBaseUrl(value.apiOrigin),
-      bootstrap: null,
-    };
+    return null;
   };
 
   const unwrapRuntimeBootstrapPayload = (value) => {
@@ -657,9 +650,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         return value.bootstrap;
       }
 
-      return typeof value.apiOrigin === "string"
-        ? { apiOrigin: value.apiOrigin }
-        : null;
+      return null;
     }
 
     return value;

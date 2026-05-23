@@ -84,6 +84,34 @@ Keep in mind that direct distribution still needs:
 - a stable signing key
 - a versioning strategy that never goes backwards
 
+## Customer-Hosted Bootstrap Contract
+
+The generic Android app no longer ships with a baked-in production runtime API origin. Every customer-hosted deployment that should work with the generic app must expose a public unauthenticated `GET /v1/bootstrap` endpoint on the HTTPS instance URL users receive.
+
+The bootstrap response is the binding contract for Android login and must provide at least:
+
+- the canonical `api_base_url` for runtime API calls, as a bare HTTPS origin or its `/v1` endpoint
+- `instance.display_name` so the user can confirm the correct deployment before login
+- compatibility metadata such as `bootstrap_version`, `schema_version`, `minimum_supported_app_version`, and `minimum_supported_app_build`
+- the feature flags required by the login shell
+
+If the customer-facing instance URL and the canonical API host differ, keep `GET /v1/bootstrap` reachable on the customer-facing URL and let `api_base_url` point to the canonical API host. The Android app persists that canonical API origin only after the user confirms the resolved instance.
+
+If bootstrap is missing, incompatible, or unreachable, the Android app stays on the discovery gate and does not fall back to `https://api.secpal.dev` or any other fixed production origin.
+
+## Rollout Notes For Replacing The Baked-In Origin Assumption
+
+SecPal Android is still on the current `0.x` line. Breaking changes are therefore permitted when they remove obsolete or unsafe runtime-bootstrap compatibility paths.
+
+For this rollout, SecPal intentionally preserves no backward-compatibility shim for the old baked-in-origin model. Customer-hosted deployments must expose the bootstrap contract before updated Android builds are distributed.
+
+Before handing the generic Android app to a tenant, operators should verify:
+
+- `GET /v1/bootstrap` is reachable from the exact HTTPS instance URL users receive
+- the bootstrap payload returns the canonical API host and the expected instance display name
+- first-launch discovery binds the app to the correct deployment and reloads into login
+- the login-screen `Log out and switch instance` action clears tenant-local state and returns the app to discovery
+
 ## Play Store Considerations
 
 For Play distribution, plan for:

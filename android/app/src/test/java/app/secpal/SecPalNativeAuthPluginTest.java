@@ -96,24 +96,6 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void resolveInitialApiBaseUrlUsesPersistedRuntimeOriginWhenAvailable() {
-        assertEquals(
-            "https://tenant-a.example",
-            SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(" https://tenant-a.example/ ")
-        );
-    }
-
-    @Test
-    public void resolveInitialApiBaseUrlReturnsNullWithoutPersistedRuntimeOrigin() {
-        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl(null));
-    }
-
-    @Test
-    public void resolveInitialApiBaseUrlReturnsNullForInvalidPersistedRuntimeOrigin() {
-        assertNull(SecPalNativeAuthPlugin.resolveInitialApiBaseUrl("https://tenant-a.example/v1"));
-    }
-
-    @Test
     public void normalizeRuntimeBootstrapDerivesCanonicalApiOriginFromRawApiBaseUrl() throws Exception {
         JSObject normalized = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
@@ -143,10 +125,7 @@ public class SecPalNativeAuthPluginTest {
                 .put("minimumSupportedAppBuild", 1)
         );
 
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            bootstrap,
-            "https://tenant-b.example"
-        );
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(bootstrap);
 
         assertTrue(payload.getBoolean("configured"));
         assertEquals(
@@ -157,23 +136,9 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void buildRuntimeBootstrapPayloadFallsBackToLegacyApiOrigin() throws Exception {
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            null,
-            " https://tenant-a.example/ "
-        );
-
-        assertTrue(payload.getBoolean("configured"));
-        assertEquals("https://tenant-a.example", payload.getString("apiOrigin"));
-        assertNull(payload.opt("bootstrap"));
-    }
-
-    @Test
-    public void buildRuntimeBootstrapPayloadIgnoresInvalidLegacyApiOrigin() throws Exception {
-        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(
-            null,
-            "https://tenant-a.example/v1"
-        );
+    public void buildRuntimeBootstrapPayloadLeavesRuntimeUnconfiguredWithoutPersistedBootstrap()
+        throws Exception {
+        JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(null);
 
         assertFalse(payload.getBoolean("configured"));
         assertNull(payload.opt("apiOrigin"));
