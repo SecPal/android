@@ -323,6 +323,12 @@ describe("native auth bridge bootstrap injection", () => {
     const styles = document.getElementById(
       "secpal-instance-discovery-styles"
     ) as MockElement | null;
+    const noteTitle = document.getElementById(
+      "secpal-instance-discovery-note-title"
+    ) as MockElement | null;
+    const noteDescription = document.getElementById(
+      "secpal-instance-discovery-note-description"
+    ) as MockElement | null;
 
     expect(title?.textContent).toBe("Instanz-URL eingeben");
     expect(validateButton?.textContent).toBe("Instanz prüfen");
@@ -331,6 +337,10 @@ describe("native auth bridge bootstrap injection", () => {
         ?.textContent
     ).toBe(
       "Geben Sie die Instanz-URL ein, die Sie von Ihrem Vorgesetzten erhalten haben."
+    );
+    expect(noteTitle?.textContent).toBe("Noch keine Instanz-URL?");
+    expect(noteDescription?.textContent).toBe(
+      "Bitte wenden Sie sich an Ihren Vorgesetzten, um die Instanz-URL zu erhalten."
     );
     expect(document.documentElement.lang).toBe("de");
     expect(styles?.textContent).toContain(

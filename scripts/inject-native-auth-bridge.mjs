@@ -41,6 +41,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryInputId = "secpal-instance-discovery-url";
   const discoveryValidateId = "secpal-instance-discovery-validate";
   const discoveryConfirmId = "secpal-instance-discovery-confirm";
+  const discoveryNoteTitleId = "secpal-instance-discovery-note-title";
+  const discoveryNoteDescriptionId = "secpal-instance-discovery-note-description";
   const discoverySummaryId = "secpal-instance-discovery-summary";
   const discoveryErrorId = "secpal-instance-discovery-error";
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
@@ -121,9 +123,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       languageLabel: "Sprache auswählen",
       inputLabel: "Instanz-URL",
       inputPlaceholder: "https://instanz.example",
-      noteTitle: "Noch keine URL?",
+      noteTitle: "Noch keine Instanz-URL?",
       noteDescription:
-        "Bitte fragen Sie Ihren Vorgesetzten nach der Instanz-URL.",
+        "Bitte wenden Sie sich an Ihren Vorgesetzten, um die Instanz-URL zu erhalten.",
       summaryTitle: "Instanz gefunden",
       validate: "Instanz prüfen",
       validateBusy: "Instanz wird geprüft...",
@@ -1025,9 +1027,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     note.className = "secpal-discovery-note";
 
     const noteTitle = globalThis.document.createElement("p");
+    noteTitle.id = discoveryNoteTitleId;
     noteTitle.className = "secpal-discovery-note-title";
 
     const noteDescription = globalThis.document.createElement("p");
+    noteDescription.id = discoveryNoteDescriptionId;
     noteDescription.className = "secpal-discovery-note-description";
 
     const field = globalThis.document.createElement("div");
