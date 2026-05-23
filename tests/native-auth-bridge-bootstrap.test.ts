@@ -1344,6 +1344,63 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toBeNull();
   });
 
+  it("blocks logout when the runtime bootstrap restore failed", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      setApiBaseUrl: vi
+        .fn()
+        .mockRejectedValue(new Error("native bridge unavailable")),
+    };
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      logout(): Promise<void>;
+    };
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+
+    authState.active = true;
+
+    await expect(bridge.logout()).rejects.toThrow(/not configured/i);
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(authState.active).toBe(true);
+  });
+
   it("does not render the removed in-app dedicated-device launcher", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const enterprisePlugin = {

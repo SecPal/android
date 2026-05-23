@@ -1370,6 +1370,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return result;
     },
     async logout() {
+      await ensureRuntimeConfigured();
       try {
         return await getPlugin().logout();
       } finally {
