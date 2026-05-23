@@ -7,6 +7,7 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -143,6 +144,53 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(payload.getBoolean("configured"));
         assertNull(payload.opt("apiOrigin"));
         assertNull(payload.opt("bootstrap"));
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapReturnsNullWhenOnlyLegacyApiBaseUrlKeyExists() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        preferences.edit()
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNull(result);
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapRestoresStructuredBootstrapFromPreferences()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNotNull(result);
+        assertEquals("https://tenant-a.example", result.getString("apiOrigin"));
+        assertEquals("Tenant A", result.getString("instanceDisplayName"));
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapSelfHealsCorruptBootstrapJson() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        preferences.edit()
+            .putString("runtime_bootstrap", "{not valid json}")
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNull(result);
+        assertNull(preferences.getString("runtime_bootstrap", null));
     }
 
     @Test

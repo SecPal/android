@@ -648,7 +648,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     private JSObject getPersistedRuntimeBootstrap() {
-        SharedPreferences preferences = getNativeAuthPreferences();
+        return loadPersistedRuntimeBootstrap(getNativeAuthPreferences());
+    }
+
+    static JSObject loadPersistedRuntimeBootstrap(SharedPreferences preferences) {
         String rawBootstrap = preferences.getString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, null);
 
         if (rawBootstrap == null || rawBootstrap.trim().isEmpty()) {

@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - documented the customer-hosted Android binding flow, deployment bootstrap endpoint expectations, and rollout note that the current `0.x` policy allows removal of the old baked-in-origin compatibility shim without preserving a backward-compatibility fallback
+- extracted `getPersistedRuntimeBootstrap` into a package-private static `loadPersistedRuntimeBootstrap(SharedPreferences)` method, mirroring the `clearRuntimeBootstrapState` pattern, and added three focused JUnit tests covering the upgrade-path (legacy `api_base_url`-only prefs → null), structured-bootstrap restore, and corrupt-JSON self-healing
 - refined the Android runtime discovery gate to match the Catalyst-based login shell much more closely, including SecPal logo/footer branding, Catalyst-aligned control and button presentation, persistent EN/DE locale switching, locale-aware bootstrap validation requests, and verified light/dark rendering on the live device for issue `#229`
 - clarified the repo-local under-`1.x` policy in Copilot governance so Android work explicitly prefers removing obsolete compatibility shims over preserving them without a proven live caller
 - Strengthened Copilot governance: require test-impact analysis and same-commit test updates when a fix alters observable behavior, explicitly require running tests locally before pushing behavioral or security changes, and mandate `--body-file` for programmatic PR creation to prevent shell escaping issues.
