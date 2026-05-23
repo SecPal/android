@@ -251,8 +251,15 @@ public class SecPalNativeAuthPluginTest {
             preferences.getString("runtime_bootstrap", null)
         );
         assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
-        assertEquals("tenant-a-token", tokenStorage.token);
-        assertFalse(provisioningStateCleared[0]);
+        assertEquals(
+            "Token must be preserved when preferences commit() fails so native state stays consistent.",
+            "tenant-a-token",
+            tokenStorage.token
+        );
+        assertFalse(
+            "Provisioning state must not be cleared when preferences commit() fails.",
+            provisioningStateCleared[0]
+        );
         assertEquals(
             "Async apply() must not silently retry after a failed commit() that already rejected the caller.",
             0,

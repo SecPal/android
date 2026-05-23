@@ -1439,7 +1439,21 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         }
       }
 
-      await clearPersistedBootstrap();
+      try {
+        await clearPersistedBootstrap();
+      } catch (error) {
+        const code = error && typeof error === "object" ? error.code : undefined;
+
+        if (code === "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED") {
+          throw error;
+        }
+
+        console.warn(
+          "Failed to clear persisted bootstrap before resetting the configured SecPal runtime.",
+          error
+        );
+      }
+
       await clearTenantScopedBrowserState();
     } catch (error) {
       console.warn("Failed to clear the current SecPal instance.", error);

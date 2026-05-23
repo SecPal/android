@@ -1191,6 +1191,100 @@ describe("native auth bridge bootstrap injection", () => {
     }
   });
 
+  it("clears tenant-scoped browser state even when clearPersistedBootstrap throws a non-persistence error", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
+      clearRuntimeBootstrap: vi
+        .fn()
+        .mockRejectedValue(new Error("unexpected plugin error")),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage({
+      "secpal-locale": "en",
+      auth_vault_state: "encrypted-user-state",
+      "tenant-cache": "customer-a",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const cacheStorage = {
+      keys: vi.fn().mockResolvedValue(["runtime-cache"]),
+      delete: vi.fn().mockResolvedValue(true),
+    };
+    const confirm = vi.fn().mockReturnValue(true);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      caches: cacheStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      confirm,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    try {
+      vm.runInNewContext(
+        buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+        sandbox
+      );
+
+      await flushMicrotasks();
+
+      const runtimeResetButton = document.getElementById(
+        "secpal-instance-runtime-summary"
+      ) as MockElement | null;
+
+      expect(runtimeResetButton).not.toBeNull();
+
+      runtimeResetButton!.click();
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+      expect(localStorage.getItem("auth_vault_state")).toBeNull();
+      expect(localStorage.getItem("tenant-cache")).toBeNull();
+      expect(sessionStorage.getItem("tenant-session")).toBeNull();
+      expect(cacheStorage.delete).toHaveBeenCalledWith("runtime-cache");
+      expect(
+        (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+      ).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        "Failed to clear persisted bootstrap before resetting the configured SecPal runtime.",
+        expect.any(Error)
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("updates the destructive instance-switch reset entry on SPA route changes", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
