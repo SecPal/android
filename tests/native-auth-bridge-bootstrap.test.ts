@@ -698,9 +698,10 @@ describe("native auth bridge bootstrap injection", () => {
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
-      getRuntimeBootstrap: vi
-        .fn()
-        .mockResolvedValue(buildRuntimeBootstrapValue()),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const cacheStorage = {
@@ -820,9 +821,10 @@ describe("native auth bridge bootstrap injection", () => {
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
-      getRuntimeBootstrap: vi
-        .fn()
-        .mockResolvedValue(buildRuntimeBootstrapValue()),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
