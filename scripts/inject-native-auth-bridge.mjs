@@ -746,9 +746,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const restorePersistedBootstrap = () => {
-    const plugin = getPlugin();
+    let plugin;
 
-    if (typeof plugin.getRuntimeBootstrap === "function") {
+    try {
+      plugin = getPlugin();
+    } catch {
+      return;
+    }
+
+    let hasNativeRestore = false;
+
+    try {
+      hasNativeRestore = typeof plugin.getRuntimeBootstrap === "function";
+    } catch {
+      return;
+    }
+
+    if (hasNativeRestore) {
       runtimeState.nativeConfigPromise = (async () => {
         try {
           const restored = await loadPersistedBootstrap();
@@ -802,8 +816,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             runtimeState.apiOrigin = restored.apiOrigin;
             removeDiscoveryGate();
           })
-          .catch((error) => {
-            clearPersistedBootstrap();
+          .catch(async (error) => {
+            await clearPersistedBootstrap();
             runtimeState.configured = false;
             runtimeState.bootstrap = null;
             runtimeState.apiOrigin = null;
@@ -819,7 +833,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         runtimeState.nativeConfigPromise = Promise.resolve();
       }
     } catch {
-      clearPersistedBootstrap();
+      void clearPersistedBootstrap();
       runtimeState.configured = false;
       runtimeState.bootstrap = null;
       runtimeState.apiOrigin = null;

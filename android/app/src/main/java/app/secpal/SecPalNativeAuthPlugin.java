@@ -230,10 +230,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
             try {
                 String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
 
-                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
-                    tokenStorage.clearToken();
-                }
-
                 if (!getNativeAuthPreferences()
                     .edit()
                     .putString(API_BASE_URL_PREFERENCE_KEY, nextApiBaseUrl)
@@ -244,6 +240,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
                     );
                     return;
+                }
+
+                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                    tokenStorage.clearToken();
                 }
 
                 apiBaseUrl = nextApiBaseUrl;
@@ -297,16 +297,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 );
                 String nextApiBaseUrl = bootstrap.getString("apiOrigin");
 
-                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
-                    tokenStorage.clearToken();
-                }
-
                 if (!persistRuntimeBootstrap(bootstrap)) {
                     call.reject(
                         "Failed to persist Android runtime bootstrap",
                         "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
                     );
                     return;
+                }
+
+                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                    tokenStorage.clearToken();
                 }
 
                 apiBaseUrl = nextApiBaseUrl;
@@ -348,6 +348,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void clearRuntimeBootstrap(PluginCall call) {
         apiBaseUrl = null;
+        tokenStorage.clearToken();
         getNativeAuthPreferences()
             .edit()
             .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)

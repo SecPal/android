@@ -689,6 +689,64 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("mounts the discovery gate when the native plugin throws synchronously during bootstrap restore", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const document = new MockDocument();
+
+    // Plugin is present for bridge setup but getRuntimeBootstrap throws synchronously,
+    // simulating a plugin proxy that is not fully initialized at restore time.
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+    };
+
+    // Intercept the plugin object so that accessing getRuntimeBootstrap throws.
+    const pluginProxy = new Proxy(plugin, {
+      get(target, prop) {
+        if (prop === "getRuntimeBootstrap") {
+          throw new Error("Plugin not ready");
+        }
+        return (target as Record<string | symbol, unknown>)[prop as string];
+      },
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: pluginProxy } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(() => {
+      vm.runInNewContext(
+        buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+        sandbox
+      );
+    }).not.toThrow();
+
+    await flushMicrotasks();
+
+    expect(document.getElementById("secpal-instance-discovery-gate")).not.toBeNull();
+    expect(sandbox.__SecPalNativeAuthBootstrapInstalled).toBe(true);
+  });
+
   it("shows a hard failure for insecure instance URLs before any bootstrap fetch", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const browserFetch = vi.fn();
