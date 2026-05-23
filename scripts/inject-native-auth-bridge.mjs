@@ -51,6 +51,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
   const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
+  const runtimeResetEntryId = "secpal-instance-runtime-info";
+  const runtimeResetSummaryId = "secpal-instance-runtime-summary";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -64,7 +66,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
-
   const discoveryLocales = {
     en: "English",
     de: "Deutsch",
@@ -87,6 +88,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Continue to login",
       confirmBusy: "Preparing login...",
       summaryTemplate: "Instance: {instanceDisplayName}",
+      resetSummaryTemplate: "Instance: {instanceDisplayName} · {apiOrigin}",
+      resetConfirm:
+        "Switch away from {instanceDisplayName}? This clears local sign-in, offline, and cached instance data on this device.",
+      resetUnavailable:
+        "Instance switching is unavailable because this device cannot show confirmation prompts.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Source Code",
@@ -135,7 +141,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Weiter zur Anmeldung",
       confirmBusy: "Anmeldung wird vorbereitet...",
       summaryTemplate: "Instanz: {instanceDisplayName}",
-      footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
+      resetSummaryTemplate: "Instanz: {instanceDisplayName} · {apiOrigin}",
+      resetConfirm:
+        "Von {instanceDisplayName} wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht.",
+      resetUnavailable:
+        "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
+      footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Quellcode",
       errorBootstrapResponse:
@@ -347,8 +358,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       "#" + discoveryGateId + " .secpal-discovery-footer-link{display:inline-flex;align-items:center;justify-content:center;color:var(--secpal-discovery-subtle);text-decoration:none;}",
       "#" + discoveryGateId + " .secpal-discovery-footer-link:hover{color:var(--secpal-discovery-fg);}",
       "#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(113,113,122,0.45);}",
+      "#" + runtimeResetEntryId + "{padding-top:0.5rem;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;}",
+      "#" + runtimeResetEntryId + ",#" + runtimeResetEntryId + " *{box-sizing:border-box;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{appearance:none;margin:0;border:0;background:transparent;padding:0;color:#71717a;font-size:11px;line-height:1.5;text-align:center;word-break:break-word;cursor:pointer;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{text-decoration:underline;color:#52525b;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:disabled{cursor:wait;opacity:0.7;}",
       "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
       "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
+      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{color:#d4d4d8;}}",
     ].join("\\n");
 
     const parent = globalThis.document.head ?? globalThis.document.body;
@@ -368,14 +385,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const clearPersistedBootstrap = async () => {
-    try {
-      const plugin = getPlugin();
-      if (typeof plugin.clearRuntimeBootstrap === "function") {
-        await plugin.clearRuntimeBootstrap();
-        return;
-      }
-    } catch {
-      // Fall through to the legacy storage cleanup.
+    const plugin = getPlugin();
+    if (typeof plugin.clearRuntimeBootstrap === "function") {
+      await plugin.clearRuntimeBootstrap();
+      return;
     }
 
     const storage = getSessionStorage();
@@ -397,6 +410,156 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         // Native persistence already succeeded, so skip transient web storage failures.
       }
     }
+  };
+
+  const clearSessionStorage = () => {
+    const storage = getSessionStorage();
+
+    if (!storage || typeof storage.clear !== "function") {
+      return;
+    }
+
+    try {
+      storage.clear();
+    } catch {
+      // Browser session cleanup is best-effort during destructive resets.
+    }
+  };
+
+  const clearLocalStoragePreservingLocale = () => {
+    const storage = getLocalStorage();
+
+    if (!storage || typeof storage.clear !== "function") {
+      return;
+    }
+
+    const locale = runtimeState.discoveryLocale ?? detectDiscoveryLocale();
+
+    try {
+      storage.clear();
+    } catch {
+      return;
+    }
+
+    applyDiscoveryLocale(locale);
+  };
+
+  const clearCacheStorage = async () => {
+    const cacheStorage = globalThis.caches;
+
+    if (
+      !cacheStorage ||
+      typeof cacheStorage.keys !== "function" ||
+      typeof cacheStorage.delete !== "function"
+    ) {
+      return;
+    }
+
+    let cacheNames;
+
+    try {
+      cacheNames = await cacheStorage.keys();
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      (Array.isArray(cacheNames) ? cacheNames : []).map((cacheName) =>
+        Promise.resolve(cacheStorage.delete(cacheName)).catch(() => false)
+      )
+    );
+  };
+
+  const deleteIndexedDatabase = (indexedDb, databaseName) =>
+    new Promise((resolve) => {
+      let request;
+
+      try {
+        request = indexedDb.deleteDatabase(databaseName);
+      } catch {
+        resolve();
+        return;
+      }
+
+      if (!request || typeof request !== "object") {
+        resolve();
+        return;
+      }
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => resolve();
+      request.onblocked = () => resolve();
+    });
+
+  const clearIndexedDatabases = async () => {
+    const indexedDb = globalThis.indexedDB;
+
+    if (
+      !indexedDb ||
+      typeof indexedDb.deleteDatabase !== "function" ||
+      typeof indexedDb.databases !== "function"
+    ) {
+      return;
+    }
+
+    let databases;
+
+    try {
+      databases = await indexedDb.databases();
+    } catch {
+      return;
+    }
+
+    const databaseNames = Array.isArray(databases)
+      ? databases
+          .map((database) =>
+            database && typeof database.name === "string" ? database.name : null
+          )
+          .filter(
+            (databaseName) =>
+              typeof databaseName === "string" && databaseName.length > 0
+          )
+      : [];
+
+    await Promise.all(
+      databaseNames.map((databaseName) =>
+        deleteIndexedDatabase(indexedDb, databaseName)
+      )
+    );
+  };
+
+  const clearServiceWorkers = async () => {
+    const serviceWorker = globalThis.navigator?.serviceWorker;
+
+    if (!serviceWorker || typeof serviceWorker.getRegistrations !== "function") {
+      return;
+    }
+
+    let registrations;
+
+    try {
+      registrations = await serviceWorker.getRegistrations();
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      (Array.isArray(registrations) ? registrations : []).map((registration) =>
+        typeof registration?.unregister === "function"
+          ? Promise.resolve(registration.unregister()).catch(() => false)
+          : false
+      )
+    );
+  };
+
+  const clearTenantScopedBrowserState = async () => {
+    clearSessionStorage();
+    clearLocalStoragePreservingLocale();
+    await Promise.all([
+      clearCacheStorage(),
+      clearIndexedDatabases(),
+      clearServiceWorkers(),
+    ]);
   };
 
   const normalizeStoredBootstrap = (parsed) => {
@@ -776,7 +939,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         runtimeState.bootstrap = bootstrap;
         runtimeState.apiOrigin = bootstrap.apiOrigin;
       } catch (error) {
-        await clearPersistedBootstrap();
+        await clearPersistedBootstrap().catch(() => {});
         runtimeState.configured = false;
         runtimeState.bootstrap = null;
         runtimeState.apiOrigin = null;
@@ -820,7 +983,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           runtimeState.apiOrigin = restored.apiOrigin;
           removeDiscoveryGate();
         } catch (error) {
-          await clearPersistedBootstrap();
+          await clearPersistedBootstrap().catch(() => {});
           runtimeState.configured = false;
           runtimeState.bootstrap = null;
           runtimeState.apiOrigin = null;
@@ -864,7 +1027,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             removeDiscoveryGate();
           })
           .catch(async (error) => {
-            await clearPersistedBootstrap();
+            await clearPersistedBootstrap().catch(() => {});
             runtimeState.configured = false;
             runtimeState.bootstrap = null;
             runtimeState.apiOrigin = null;
@@ -931,6 +1094,88 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const getConfiguredRuntimeLabel = () => {
+    if (
+      runtimeState.bootstrap &&
+      typeof runtimeState.bootstrap.instanceDisplayName === "string" &&
+      runtimeState.bootstrap.instanceDisplayName.trim().length > 0
+    ) {
+      return runtimeState.bootstrap.instanceDisplayName.trim();
+    }
+
+    return getActiveApiHost();
+  };
+
+  const getConfiguredRuntimeUrl = () => {
+    if (
+      runtimeState.bootstrap &&
+      typeof runtimeState.bootstrap.apiOrigin === "string" &&
+      runtimeState.bootstrap.apiOrigin.trim().length > 0
+    ) {
+      return runtimeState.bootstrap.apiOrigin.trim();
+    }
+
+    if (runtimeState.apiOrigin && typeof runtimeState.apiOrigin === "string") {
+      return runtimeState.apiOrigin;
+    }
+
+    return getActiveApiOrigin();
+  };
+
+  const getElementChildren = (element) => {
+    if (!element || element.children == null) {
+      return [];
+    }
+
+    try {
+      return Array.from(element.children);
+    } catch {
+      return [];
+    }
+  };
+
+  const getElementTagName = (element) => {
+    return element && typeof element.tagName === "string"
+      ? element.tagName.toLowerCase()
+      : "";
+  };
+
+  const getElementAttribute = (element, name) => {
+    if (element && typeof element.getAttribute === "function") {
+      const value = element.getAttribute(name);
+      return typeof value === "string" ? value : null;
+    }
+
+    if (element && element.attributes && typeof element.attributes === "object") {
+      const value = element.attributes[name];
+      return typeof value === "string" ? value : null;
+    }
+
+    return null;
+  };
+
+  const findElementPath = (root, predicate, ancestors = []) => {
+    if (!root) {
+      return null;
+    }
+
+    for (const child of getElementChildren(root)) {
+      const path = [...ancestors, child];
+
+      if (predicate(child)) {
+        return path;
+      }
+
+      const descendantPath = findElementPath(child, predicate, path);
+
+      if (descendantPath) {
+        return descendantPath;
+      }
+    }
+
+    return null;
+  };
+
   const isApiPath = (pathname) => {
     return (
       pathname === "/v1" ||
@@ -966,6 +1211,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   let discoveryUi = null;
+  let runtimeResetUi = null;
+  let runtimeResetObserver = null;
+  let runtimeResetSyncTimeout = null;
+  let runtimeResetBusy = false;
 
   const syncDiscoveryGateCopy = () => {
     if (!discoveryUi) {
@@ -1048,6 +1297,345 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     } catch {
       return null;
     }
+  };
+
+  const isLoginRoute = () => {
+    try {
+      const locationHref =
+        globalThis.location && typeof globalThis.location.href === "string"
+          ? globalThis.location.href
+          : fallbackApiOrigin;
+      const currentUrl = new URL(locationHref, fallbackApiOrigin);
+
+      return (
+        currentUrl.pathname === "/login" ||
+        currentUrl.pathname.startsWith("/login/")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const getLoginPasskeyButtonContext = () => {
+    if (!globalThis.document?.body || !isLoginRoute()) {
+      return null;
+    }
+
+    const passkeyButtonPath = findElementPath(globalThis.document.body, (element) => {
+      return (
+        getElementTagName(element) === "button" &&
+        getElementAttribute(element, "type") === "button"
+      );
+    });
+
+    if (!passkeyButtonPath || passkeyButtonPath.length < 2) {
+      return null;
+    }
+
+    return {
+      passkeyButton: passkeyButtonPath[passkeyButtonPath.length - 1],
+      passkeyButtonParent: passkeyButtonPath[passkeyButtonPath.length - 2],
+    };
+  };
+
+  const clearRuntimeResetSyncTimeout = () => {
+    if (runtimeResetSyncTimeout == null || typeof globalThis.clearTimeout !== "function") {
+      runtimeResetSyncTimeout = null;
+      return;
+    }
+
+    globalThis.clearTimeout(runtimeResetSyncTimeout);
+    runtimeResetSyncTimeout = null;
+  };
+
+  const disconnectRuntimeResetObserver = () => {
+    if (runtimeResetObserver && typeof runtimeResetObserver.disconnect === "function") {
+      runtimeResetObserver.disconnect();
+    }
+
+    runtimeResetObserver = null;
+  };
+
+  const removeRuntimeResetEntry = () => {
+    clearRuntimeResetSyncTimeout();
+
+    const existing = globalThis.document?.getElementById?.(runtimeResetEntryId);
+
+    if (existing && typeof existing.remove === "function") {
+      existing.remove();
+    }
+
+    runtimeResetUi = null;
+  };
+
+  const syncRuntimeResetEntryCopy = () => {
+    if (!runtimeResetUi) {
+      return;
+    }
+
+    const canConfirmReset = typeof globalThis.confirm === "function";
+    const nextText = translateDiscovery(
+      "resetSummaryTemplate",
+      {
+        instanceDisplayName: getConfiguredRuntimeLabel(),
+        apiOrigin: getConfiguredRuntimeUrl(),
+      }
+    );
+
+    const summaryText = canConfirmReset
+      ? nextText
+      : nextText + " " + translateDiscovery("resetUnavailable");
+
+    if (runtimeResetUi.summary.textContent !== summaryText) {
+      runtimeResetUi.summary.textContent = summaryText;
+    }
+
+    runtimeResetUi.summary.disabled = runtimeResetBusy || !canConfirmReset;
+  };
+
+  const resetConfiguredRuntime = async () => {
+    if (runtimeResetBusy || !runtimeState.configured) {
+      return;
+    }
+
+    if (typeof globalThis.confirm !== "function") {
+      syncRuntimeResetEntryCopy();
+      return;
+    }
+
+    const confirmed = globalThis.confirm(
+      translateDiscovery("resetConfirm", {
+        instanceDisplayName: getConfiguredRuntimeLabel(),
+      })
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    runtimeResetBusy = true;
+    syncRuntimeResetEntryCopy();
+
+    try {
+      if (typeof getPlugin().logout === "function") {
+        try {
+          await getPlugin().logout();
+          authState.active = false;
+        } catch (error) {
+          const code = error && typeof error === "object" ? error.code : undefined;
+
+          if (code === "NO_STORED_TOKEN" || code === "HTTP_401") {
+            authState.active = false;
+          } else {
+            console.warn(
+              "Failed to logout before resetting the configured SecPal runtime.",
+              error
+            );
+          }
+        }
+      }
+
+      try {
+        await clearPersistedBootstrap();
+      } catch (error) {
+        const code = error && typeof error === "object" ? error.code : undefined;
+
+        if (code === "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED") {
+          throw error;
+        }
+
+        console.warn(
+          "Failed to clear persisted bootstrap before resetting the configured SecPal runtime.",
+          error
+        );
+      }
+
+      await clearTenantScopedBrowserState();
+    } catch (error) {
+      console.warn("Failed to clear the current SecPal instance.", error);
+      runtimeResetBusy = false;
+      syncRuntimeResetEntryCopy();
+      return;
+    }
+
+    authState.active = false;
+    runtimeState.configured = false;
+    runtimeState.bootstrap = null;
+    runtimeState.apiOrigin = null;
+    runtimeState.pendingBootstrap = null;
+    runtimeState.discoveryBusyAction = null;
+    runtimeState.discoveryErrorMessage = "";
+    runtimeState.nativeConfigPromise = Promise.resolve();
+    disconnectRuntimeResetObserver();
+    removeRuntimeResetEntry();
+    runtimeResetBusy = false;
+
+    if (globalThis.location && typeof globalThis.location.reload === "function") {
+      globalThis.location.reload();
+    } else {
+      mountDiscoveryGate();
+    }
+  };
+
+  const renderRuntimeResetEntry = (passkeyButtonParent, passkeyButton) => {
+    if (
+      !globalThis.document ||
+      !globalThis.document.body ||
+      !runtimeState.configured ||
+      !isLoginRoute()
+    ) {
+      removeRuntimeResetEntry();
+      return null;
+    }
+
+    if (
+      !passkeyButtonParent ||
+      !passkeyButton ||
+      typeof passkeyButtonParent.insertBefore !== "function"
+    ) {
+      return null;
+    }
+
+    ensureDiscoveryStyles();
+
+    const existing = globalThis.document.getElementById(runtimeResetEntryId);
+    if (existing && runtimeResetUi) {
+      syncRuntimeResetEntryCopy();
+      return runtimeResetUi;
+    }
+
+    const root = globalThis.document.createElement("div");
+    root.id = runtimeResetEntryId;
+
+    const summary = globalThis.document.createElement("button");
+    summary.id = runtimeResetSummaryId;
+    summary.className = "secpal-runtime-reset-summary";
+    summary.setAttribute("type", "button");
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+      void resetConfiguredRuntime();
+    });
+
+    root.appendChild(summary);
+
+    const siblings = getElementChildren(passkeyButtonParent);
+    const passkeyButtonIndex = siblings.indexOf(passkeyButton);
+
+    if (passkeyButtonIndex === -1) {
+      return null;
+    }
+
+    passkeyButtonParent.insertBefore(root, siblings[passkeyButtonIndex + 1] ?? null);
+
+    runtimeResetUi = {
+      root,
+      summary,
+    };
+
+    syncRuntimeResetEntryCopy();
+
+    return runtimeResetUi;
+  };
+
+  const syncLoginRuntimeResetState = () => {
+    if (!runtimeState.configured || !isLoginRoute()) {
+      disconnectRuntimeResetObserver();
+      removeRuntimeResetEntry();
+      return true;
+    }
+
+    applyDiscoveryLocale(detectDiscoveryLocale());
+
+    const passkeyButtonContext = getLoginPasskeyButtonContext();
+
+    if (!passkeyButtonContext) {
+      return false;
+    }
+
+    renderRuntimeResetEntry(
+      passkeyButtonContext.passkeyButtonParent,
+      passkeyButtonContext.passkeyButton
+    );
+    return true;
+  };
+
+  const scheduleLoginRuntimeResetSync = () => {
+    clearRuntimeResetSyncTimeout();
+
+    if (syncLoginRuntimeResetState()) {
+      return;
+    }
+
+    if (typeof globalThis.setTimeout !== "function") {
+      return;
+    }
+
+    runtimeResetSyncTimeout = globalThis.setTimeout(() => {
+      runtimeResetSyncTimeout = null;
+      scheduleLoginRuntimeResetSync();
+    }, 50);
+  };
+
+  const observeLoginRuntimeReset = () => {
+    if (
+      runtimeResetObserver ||
+      typeof globalThis.MutationObserver !== "function" ||
+      !globalThis.document?.body
+    ) {
+      return;
+    }
+
+    runtimeResetObserver = new globalThis.MutationObserver(() => {
+      syncLoginRuntimeResetState();
+    });
+
+    runtimeResetObserver.observe(globalThis.document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  };
+
+  const installRuntimeResetRouteListener = () => {
+    let syncScheduled = false;
+
+    const scheduleSync = () => {
+      if (syncScheduled) {
+        return;
+      }
+
+      syncScheduled = true;
+      Promise.resolve().then(() => {
+        syncScheduled = false;
+        scheduleLoginRuntimeResetSync();
+      });
+    };
+
+    if (typeof globalThis.addEventListener === "function") {
+      globalThis.addEventListener("popstate", scheduleSync);
+    }
+
+    const wrapHistoryMethod = (methodName) => {
+      const history = globalThis.history;
+      const originalMethod = history?.[methodName];
+
+      if (typeof originalMethod !== "function") {
+        return;
+      }
+
+      try {
+        history[methodName] = function wrappedHistoryMethod(...args) {
+          const result = originalMethod.apply(this, args);
+          scheduleSync();
+          return result;
+        };
+      } catch {
+        // Ignore environments where the history methods are not writable.
+      }
+    };
+
+    wrapHistoryMethod("pushState");
+    wrapHistoryMethod("replaceState");
   };
 
   const removeDiscoveryGate = () => {
@@ -1156,18 +1744,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     localeSelect.value = applyDiscoveryLocale(runtimeState.discoveryLocale);
 
-  const localeChevron = globalThis.document.createElement("span");
-  localeChevron.className = "secpal-discovery-select-chevron";
-  localeChevron.setAttribute("aria-hidden", "true");
+    const localeChevron = globalThis.document.createElement("span");
+    localeChevron.className = "secpal-discovery-select-chevron";
+    localeChevron.setAttribute("aria-hidden", "true");
 
-  const svgNamespace = "http://www.w3.org/2000/svg";
-  const localeChevronSvg = globalThis.document.createElementNS(svgNamespace, "svg");
-  localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
-  localeChevronSvg.setAttribute("fill", "none");
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const localeChevronSvg = globalThis.document.createElementNS(svgNamespace, "svg");
+    localeChevronSvg.setAttribute("viewBox", "0 0 16 16");
+    localeChevronSvg.setAttribute("fill", "none");
 
-  const localeChevronPathDown = globalThis.document.createElementNS(svgNamespace, "path");
-  localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
-  localeChevronPathDown.setAttribute("stroke-width", "1.5");
+    const localeChevronPathDown = globalThis.document.createElementNS(svgNamespace, "path");
+    localeChevronPathDown.setAttribute("d", "M5.75 10.75L8 13L10.25 10.75");
+    localeChevronPathDown.setAttribute("stroke-width", "1.5");
   localeChevronPathDown.setAttribute("stroke-linecap", "round");
   localeChevronPathDown.setAttribute("stroke-linejoin", "round");
 
@@ -1513,8 +2101,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const mountDiscoveryGate = () => {
     if (runtimeState.configured) {
       removeDiscoveryGate();
+      observeLoginRuntimeReset();
+      scheduleLoginRuntimeResetSync();
       return;
     }
+
+    disconnectRuntimeResetObserver();
+    removeRuntimeResetEntry();
 
     const ui = renderDiscoveryGate();
 
@@ -1529,6 +2122,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   restorePersistedBootstrap();
+  installRuntimeResetRouteListener();
 
   const bridge = {
     async login(credentials) {

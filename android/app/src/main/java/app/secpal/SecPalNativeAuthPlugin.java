@@ -346,13 +346,21 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void clearRuntimeBootstrap(PluginCall call) {
         runAsync(call, () -> {
+            boolean persisted = clearRuntimeBootstrapState(
+                getNativeAuthPreferences(),
+                tokenStorage,
+                () -> ProvisioningBootstrapStore.fromContext(getContext()).clear()
+            );
+
+            if (!persisted) {
+                call.reject(
+                    "Failed to clear Android runtime bootstrap state",
+                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                );
+                return;
+            }
+
             apiBaseUrl = null;
-            tokenStorage.clearToken();
-            getNativeAuthPreferences()
-                .edit()
-                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-                .remove(API_BASE_URL_PREFERENCE_KEY)
-                .apply();
             call.resolve();
         });
     }
@@ -607,6 +615,29 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    static boolean clearRuntimeBootstrapState(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        Runnable provisioningStateClearer
+    ) {
+        boolean persisted = preferences.edit()
+            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+            .remove(API_BASE_URL_PREFERENCE_KEY)
+            .commit();
+
+        if (!persisted) {
+            return false;
+        }
+
+        tokenStorage.clearToken();
+
+        if (provisioningStateClearer != null) {
+            provisioningStateClearer.run();
+        }
+
+        return true;
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {
