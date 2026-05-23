@@ -374,6 +374,70 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("keeps bootstrap initialization alive when locale persistence fails", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const document = new MockDocument();
+    const localStorage = {
+      getItem() {
+        return "de";
+      },
+      setItem() {
+        throw new Error("storage blocked");
+      },
+      removeItem() {
+        // no-op
+      },
+      clear() {
+        // no-op
+      },
+    };
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      navigator: { language: "de-DE" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(() =>
+      vm.runInNewContext(
+        buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+        sandbox
+      )
+    ).not.toThrow();
+
+    expect(document.documentElement.lang).toBe("de");
+    expect(
+      document.getElementById("secpal-instance-discovery-validate")?.textContent
+    ).toBe("Instanz prüfen");
+  });
+
   it("blocks native login until discovery validates a deployment and confirms the runtime bootstrap", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

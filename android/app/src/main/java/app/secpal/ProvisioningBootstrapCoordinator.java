@@ -56,7 +56,7 @@ final class ProvisioningBootstrapCoordinator {
         Context appContext = context.getApplicationContext();
         NativeAuthHttpClient httpClient = new NativeAuthHttpClient();
         String apiOrigin = SecPalNativeAuthPlugin.resolveConfiguredApiBaseUrl(
-            appContext.getString(R.string.api_base_url)
+            appContext.getString(R.string.provisioning_bootstrap_api_base_url)
         );
         NetworkState networkState = new NetworkState();
 

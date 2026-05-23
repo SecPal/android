@@ -195,6 +195,37 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("keeps provisioning bootstrap on the canonical API origin", () => {
+    const stringsXml = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "strings.xml"
+    );
+    const coordinator = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "ProvisioningBootstrapCoordinator.java"
+    );
+
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(stringsXml).toContain(
+      '<string name="provisioning_bootstrap_api_base_url">https://api.secpal.dev</string>'
+    );
+    expect(coordinator).toContain("R.string.provisioning_bootstrap_api_base_url");
+    expect(coordinator).not.toContain("R.string.api_base_url");
+  });
+
   it("blocks screenshots for SecPal activities and managed device modes", () => {
     const mainActivity = readRepoFile(
       "android",

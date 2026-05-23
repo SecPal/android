@@ -233,7 +233,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const storage = getLocalStorage();
 
     if (storage) {
-      storage.setItem(localeStorageKey, locale);
+      try {
+        storage.setItem(localeStorageKey, locale);
+      } catch {
+        // Locale persistence is best-effort; bootstrap must still initialize.
+      }
     }
 
     if (globalThis.document?.documentElement) {

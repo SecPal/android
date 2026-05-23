@@ -215,7 +215,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         try {
-            apiBaseUrl = resolveRuntimeApiBaseUrl(value);
+            String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
+
+            if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
+                tokenStorage.clearToken();
+            }
+
+            apiBaseUrl = nextApiBaseUrl;
 
             JSObject payload = new JSObject();
             payload.put("apiBaseUrl", apiBaseUrl);
@@ -415,6 +421,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         return normalizedApiBaseUrl;
+    }
+
+    static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
+        return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
     }
 
     private void maybeClearToken(Exception exception) {
