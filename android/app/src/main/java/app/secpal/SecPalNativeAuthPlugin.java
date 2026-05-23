@@ -185,6 +185,51 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getRuntimeInfo(PluginCall call) {
+        ProvisioningBootstrapRuntimeInfo runtimeInfo =
+            ProvisioningBootstrapRuntimeInfo.fromContext(getContext());
+        String appVersion = runtimeInfo.getPackageVersionName();
+        int appBuild = runtimeInfo.getPackageVersionCode();
+
+        if (appVersion == null || appVersion.trim().isEmpty() || appBuild <= 0) {
+            call.reject(
+                "Android runtime version metadata is unavailable",
+                "RUNTIME_INFO_UNAVAILABLE"
+            );
+            return;
+        }
+
+        JSObject payload = new JSObject();
+        payload.put("clientPlatform", "android");
+        payload.put("appVersion", appVersion);
+        payload.put("appBuild", appBuild);
+        call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void setApiBaseUrl(PluginCall call) {
+        String value = requireValue(call, "apiBaseUrl");
+
+        if (value == null) {
+            return;
+        }
+
+        try {
+            apiBaseUrl = resolveConfiguredApiBaseUrl(value);
+
+            JSObject payload = new JSObject();
+            payload.put("apiBaseUrl", apiBaseUrl);
+            call.resolve(payload);
+        } catch (IllegalStateException exception) {
+            call.reject(
+                "Invalid Android auth API origin configuration",
+                "INVALID_API_BASE_URL",
+                exception
+            );
+        }
+    }
+
+    @PluginMethod
     public void isVaultDeviceBoundWrapperAvailable(PluginCall call) {
         JSObject payload = new JSObject();
         payload.put("available", vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable());
