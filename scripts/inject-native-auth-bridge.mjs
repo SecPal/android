@@ -20,7 +20,10 @@ export function readApiBaseUrlFromStringsXml(stringsXml) {
 }
 
 export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
-  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl).replace(/<\/script>/gi, "<\\/script>");
+  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl).replace(
+    /<\/script>/gi,
+    "<\\/script>"
+  );
 
   return `
 (function () {

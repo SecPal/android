@@ -1108,7 +1108,7 @@ describe("native auth bridge bootstrap injection", () => {
       hardwareButtonShortPressed: [],
       hardwareButtonLongPressed: [],
     };
-    const handles: { remove: ReturnType<typeof vi.fn> }[] = [];
+    const handles: { remove: () => void }[] = [];
     const enterprisePlugin = {
       addListener: vi.fn((eventName: string, listener: () => void) => {
         if (eventName in listeners) {
@@ -1213,8 +1213,12 @@ describe("native auth bridge bootstrap injection", () => {
     );
 
     const bridge = sandbox.SecPalEnterpriseBridge as {
-      addHardwareButtonShortPressListener: (cb: () => void) => { remove: () => void };
-      addHardwareButtonLongPressListener: (cb: () => void) => { remove: () => void };
+      addHardwareButtonShortPressListener: (cb: () => void) => {
+        remove: () => void;
+      };
+      addHardwareButtonLongPressListener: (cb: () => void) => {
+        remove: () => void;
+      };
     };
 
     const shortHandle = bridge.addHardwareButtonShortPressListener(() => {});
