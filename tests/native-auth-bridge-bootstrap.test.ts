@@ -619,11 +619,14 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockResolvedValue(
-        buildRuntimeBootstrapValue({
-          instanceDisplayName: "Customer Example",
-          apiOrigin: "https://customer-api.example",
-          rawApiBaseUrl: "https://customer-api.example/v1",
-        })
+        {
+          configured: true,
+          bootstrap: buildRuntimeBootstrapValue({
+            instanceDisplayName: "Customer Example",
+            apiOrigin: "https://customer-api.example",
+            rawApiBaseUrl: "https://customer-api.example/v1",
+          }),
+        }
       ),
     };
     const document = new MockDocument();
