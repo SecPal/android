@@ -690,6 +690,203 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("offers a destructive instance-switch reset on the login page and clears tenant-scoped browser state", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue(
+        buildRuntimeBootstrapValue()
+      ),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const cacheStorage = {
+      keys: vi.fn().mockResolvedValue(["runtime-cache", "offline-cache"]),
+      delete: vi.fn().mockResolvedValue(true),
+    };
+    const deletedDatabases: string[] = [];
+    const indexedDB = {
+      databases: vi.fn().mockResolvedValue([
+        { name: "secpal-offline-vault" },
+        { name: "tenant-cache-db" },
+      ]),
+      deleteDatabase: vi.fn((name: string) => {
+        deletedDatabases.push(name);
+
+        const request: {
+          onsuccess?: () => void;
+          onerror?: () => void;
+          onblocked?: () => void;
+        } = {};
+
+        setTimeout(() => {
+          request.onsuccess?.();
+        }, 0);
+
+        return request;
+      }),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage({
+      "secpal-locale": "de",
+      auth_vault_state: "encrypted-user-state",
+      auth_vault_lock: "1",
+      "tenant-cache": "customer-a",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const confirm = vi.fn().mockReturnValue(true);
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      caches: cacheStorage,
+      indexedDB,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      confirm,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeResetSummary = document.getElementById(
+      "secpal-instance-reset-summary"
+    ) as MockElement | null;
+    const runtimeResetButton = document.getElementById(
+      "secpal-instance-reset-button"
+    ) as MockElement | null;
+
+    expect(runtimeResetSummary?.textContent).toContain("Configured Example");
+    expect(runtimeResetButton).not.toBeNull();
+
+    runtimeResetButton!.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("auth_vault_state")).toBeNull();
+    expect(localStorage.getItem("auth_vault_lock")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(cacheStorage.keys).toHaveBeenCalledOnce();
+    expect(cacheStorage.delete).toHaveBeenCalledWith("runtime-cache");
+    expect(cacheStorage.delete).toHaveBeenCalledWith("offline-cache");
+    expect(indexedDB.databases).toHaveBeenCalledOnce();
+    expect(deletedDatabases).toEqual([
+      "secpal-offline-vault",
+      "tenant-cache-db",
+    ]);
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("does not clear the configured runtime when the destructive instance-switch reset is cancelled", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue(
+        buildRuntimeBootstrapValue()
+      ),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage({
+      "secpal-locale": "en",
+      auth_vault_state: "encrypted-user-state",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const confirm = vi.fn().mockReturnValue(false);
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      confirm,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeResetButton = document.getElementById(
+      "secpal-instance-reset-button"
+    ) as MockElement | null;
+
+    expect(runtimeResetButton).not.toBeNull();
+
+    runtimeResetButton!.click();
+    await flushMicrotasks();
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(plugin.clearRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(localStorage.getItem("auth_vault_state")).toBe(
+      "encrypted-user-state"
+    );
+    expect(sessionStorage.getItem("tenant-session")).toBe(
+      "customer-a-session"
+    );
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).not.toHaveBeenCalled();
+  });
+
   it("restores a legacy configured API origin from the native plugin on startup", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

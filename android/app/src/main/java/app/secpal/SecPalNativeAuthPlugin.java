@@ -347,12 +347,20 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void clearRuntimeBootstrap(PluginCall call) {
         runAsync(call, () -> {
             apiBaseUrl = null;
-            tokenStorage.clearToken();
-            getNativeAuthPreferences()
-                .edit()
-                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-                .remove(API_BASE_URL_PREFERENCE_KEY)
-                .apply();
+            boolean persisted = clearRuntimeBootstrapState(
+                getNativeAuthPreferences(),
+                tokenStorage,
+                () -> ProvisioningBootstrapStore.fromContext(getContext()).clear()
+            );
+
+            if (!persisted) {
+                call.reject(
+                    "Failed to clear Android runtime bootstrap state",
+                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                );
+                return;
+            }
+
             call.resolve();
         });
     }
@@ -607,6 +615,33 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
         return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+    }
+
+    static boolean clearRuntimeBootstrapState(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        Runnable provisioningStateClearer
+    ) {
+        tokenStorage.clearToken();
+
+        if (provisioningStateClearer != null) {
+            provisioningStateClearer.run();
+        }
+
+        SharedPreferences.Editor editor = preferences.edit()
+            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+            .remove(API_BASE_URL_PREFERENCE_KEY);
+
+        if (editor.commit()) {
+            return true;
+        }
+
+        preferences.edit()
+            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+            .remove(API_BASE_URL_PREFERENCE_KEY)
+            .apply();
+
+        return false;
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {

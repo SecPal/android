@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android now exposes an explicit destructive login-screen instance-switch/reset flow that requires confirmation, clears native runtime/bootstrap metadata plus tenant-scoped local auth/offline/cache state before another customer deployment can be used, and returns the wrapper to a clean pre-bootstrap state with focused regression coverage for issue `#231`.
 - Android runtime bootstrap now persists the validated customer deployment in the native auth plugin, restores the selected canonical API binding on startup, and removes the hidden fallback back to the baked-in runtime API origin once a deployment was configured, with focused regression coverage for startup rebinding and fallback removal in issue `#230`.
 - Added a native Android hardware-button route fallback for managed-device Samsung/XCover key events so short presses can still open `/profile` and long presses `/about` even when the injected Web listener is unavailable at runtime, resolving the remaining real-device validation gap in issue #123.
 

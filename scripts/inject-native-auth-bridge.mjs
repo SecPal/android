@@ -51,6 +51,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
   const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
+  const runtimeResetEntryId = "secpal-instance-reset-entry";
+  const runtimeResetSummaryId = "secpal-instance-reset-summary";
+  const runtimeResetButtonId = "secpal-instance-reset-button";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -64,6 +67,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
+  runtimeState.resetBusy = runtimeState.resetBusy ?? false;
 
   const discoveryLocales = {
     en: "English",
@@ -87,6 +91,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Continue to login",
       confirmBusy: "Preparing login...",
       summaryTemplate: "Instance: {instanceDisplayName}",
+      resetSummaryTemplate: "Configured instance: {instanceDisplayName}",
+      reset: "Switch instance",
+      resetBusy: "Resetting instance...",
+      resetConfirm:
+        "Switch away from {instanceDisplayName}? This clears local sign-in, offline, and cached instance data on this device.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Source Code",
@@ -135,6 +144,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirm: "Weiter zur Anmeldung",
       confirmBusy: "Anmeldung wird vorbereitet...",
       summaryTemplate: "Instanz: {instanceDisplayName}",
+      resetSummaryTemplate: "Konfigurierte Instanz: {instanceDisplayName}",
+      reset: "Instanz wechseln",
+      resetBusy: "Instanz wird zurückgesetzt...",
+      resetConfirm:
+        "Von {instanceDisplayName} wegwechseln? Dabei werden lokale Anmeldung, Offline-Daten und zwischengespeicherte Instanzdaten auf diesem Gerät gelöscht.",
       footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
       footerLicense: "AGPL v3+",
       footerSource: "Quellcode",
@@ -347,8 +361,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       "#" + discoveryGateId + " .secpal-discovery-footer-link{display:inline-flex;align-items:center;justify-content:center;color:var(--secpal-discovery-subtle);text-decoration:none;}",
       "#" + discoveryGateId + " .secpal-discovery-footer-link:hover{color:var(--secpal-discovery-fg);}",
       "#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(113,113,122,0.45);}",
+      "#" + runtimeResetEntryId + "{position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:2147483646;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;pointer-events:none;}",
+      "#" + runtimeResetEntryId + ",#" + runtimeResetEntryId + " *{box-sizing:border-box;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-card{pointer-events:auto;display:flex;flex-direction:column;gap:0.75rem;width:min(100%,30rem);border:1px solid rgba(9,9,11,0.08);background:#ffffff;color:#09090b;border-radius:0.75rem;box-shadow:0 1px 2px rgba(15,23,42,0.04),0 18px 36px rgba(15,23,42,0.12);padding:1rem 1rem 1.125rem;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{margin:0;color:#52525b;font-size:0.95rem;line-height:1.5;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button{display:inline-flex;align-items:center;justify-content:center;width:100%;border-radius:0.5rem;border:1px solid rgba(9,9,11,0.12);background:#ffffff;color:#09090b;padding:0.6875rem 0.875rem;font:inherit;font-weight:600;line-height:1.5;box-shadow:0 1px 2px rgba(15,23,42,0.06);}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button:not(:disabled):hover{background:rgba(9,9,11,0.04);}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-button:disabled{opacity:0.55;cursor:not-allowed;}",
       "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
       "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
+      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-card{border-color:rgba(255,255,255,0.1);background:#18181b;color:#f4f4f5;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 18px 36px rgba(0,0,0,0.4);}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{color:#d4d4d8;}#" + runtimeResetEntryId + " .secpal-runtime-reset-button{border-color:rgba(255,255,255,0.12);background:#18181b;color:#f4f4f5;box-shadow:none;}#" + runtimeResetEntryId + " .secpal-runtime-reset-button:not(:disabled):hover{background:rgba(255,255,255,0.06);}}",
     ].join("\\n");
 
     const parent = globalThis.document.head ?? globalThis.document.body;
@@ -397,6 +419,156 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         // Native persistence already succeeded, so skip transient web storage failures.
       }
     }
+  };
+
+  const clearSessionStorage = () => {
+    const storage = getSessionStorage();
+
+    if (!storage || typeof storage.clear !== "function") {
+      return;
+    }
+
+    try {
+      storage.clear();
+    } catch {
+      // Browser session cleanup is best-effort during destructive resets.
+    }
+  };
+
+  const clearLocalStoragePreservingLocale = () => {
+    const storage = getLocalStorage();
+
+    if (!storage || typeof storage.clear !== "function") {
+      return;
+    }
+
+    const locale = runtimeState.discoveryLocale ?? detectDiscoveryLocale();
+
+    try {
+      storage.clear();
+    } catch {
+      return;
+    }
+
+    applyDiscoveryLocale(locale);
+  };
+
+  const clearCacheStorage = async () => {
+    const cacheStorage = globalThis.caches;
+
+    if (
+      !cacheStorage ||
+      typeof cacheStorage.keys !== "function" ||
+      typeof cacheStorage.delete !== "function"
+    ) {
+      return;
+    }
+
+    let cacheNames;
+
+    try {
+      cacheNames = await cacheStorage.keys();
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      (Array.isArray(cacheNames) ? cacheNames : []).map((cacheName) =>
+        Promise.resolve(cacheStorage.delete(cacheName)).catch(() => false)
+      )
+    );
+  };
+
+  const deleteIndexedDatabase = (indexedDb, databaseName) =>
+    new Promise((resolve) => {
+      let request;
+
+      try {
+        request = indexedDb.deleteDatabase(databaseName);
+      } catch {
+        resolve();
+        return;
+      }
+
+      if (!request || typeof request !== "object") {
+        resolve();
+        return;
+      }
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => resolve();
+      request.onblocked = () => resolve();
+    });
+
+  const clearIndexedDatabases = async () => {
+    const indexedDb = globalThis.indexedDB;
+
+    if (
+      !indexedDb ||
+      typeof indexedDb.deleteDatabase !== "function" ||
+      typeof indexedDb.databases !== "function"
+    ) {
+      return;
+    }
+
+    let databases;
+
+    try {
+      databases = await indexedDb.databases();
+    } catch {
+      return;
+    }
+
+    const databaseNames = Array.isArray(databases)
+      ? databases
+          .map((database) =>
+            database && typeof database.name === "string" ? database.name : null
+          )
+          .filter(
+            (databaseName) =>
+              typeof databaseName === "string" && databaseName.length > 0
+          )
+      : [];
+
+    await Promise.all(
+      databaseNames.map((databaseName) =>
+        deleteIndexedDatabase(indexedDb, databaseName)
+      )
+    );
+  };
+
+  const clearServiceWorkers = async () => {
+    const serviceWorker = globalThis.navigator?.serviceWorker;
+
+    if (!serviceWorker || typeof serviceWorker.getRegistrations !== "function") {
+      return;
+    }
+
+    let registrations;
+
+    try {
+      registrations = await serviceWorker.getRegistrations();
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      (Array.isArray(registrations) ? registrations : []).map((registration) =>
+        typeof registration?.unregister === "function"
+          ? Promise.resolve(registration.unregister()).catch(() => false)
+          : false
+      )
+    );
+  };
+
+  const clearTenantScopedBrowserState = async () => {
+    clearSessionStorage();
+    clearLocalStoragePreservingLocale();
+    await Promise.all([
+      clearCacheStorage(),
+      clearIndexedDatabases(),
+      clearServiceWorkers(),
+    ]);
   };
 
   const normalizeStoredBootstrap = (parsed) => {
@@ -931,6 +1103,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const getConfiguredRuntimeLabel = () => {
+    if (
+      runtimeState.bootstrap &&
+      typeof runtimeState.bootstrap.instanceDisplayName === "string" &&
+      runtimeState.bootstrap.instanceDisplayName.trim().length > 0
+    ) {
+      return runtimeState.bootstrap.instanceDisplayName.trim();
+    }
+
+    return getActiveApiHost();
+  };
+
   const isApiPath = (pathname) => {
     return (
       pathname === "/v1" ||
@@ -966,6 +1150,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   let discoveryUi = null;
+  let runtimeResetUi = null;
 
   const syncDiscoveryGateCopy = () => {
     if (!discoveryUi) {
@@ -1048,6 +1233,105 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     } catch {
       return null;
     }
+  };
+
+  const isLoginRoute = () => {
+    try {
+      const locationHref =
+        globalThis.location && typeof globalThis.location.href === "string"
+          ? globalThis.location.href
+          : fallbackApiOrigin;
+      const currentUrl = new URL(locationHref, fallbackApiOrigin);
+
+      return (
+        currentUrl.pathname === "/login" ||
+        currentUrl.pathname.startsWith("/login/")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const removeRuntimeResetEntry = () => {
+    const existing = globalThis.document?.getElementById?.(runtimeResetEntryId);
+
+    if (existing && typeof existing.remove === "function") {
+      existing.remove();
+    }
+
+    runtimeResetUi = null;
+  };
+
+  const syncRuntimeResetEntryCopy = () => {
+    if (!runtimeResetUi) {
+      return;
+    }
+
+    runtimeResetUi.summary.textContent = translateDiscovery(
+      "resetSummaryTemplate",
+      {
+        instanceDisplayName: getConfiguredRuntimeLabel(),
+      }
+    );
+    runtimeResetUi.button.textContent = runtimeState.resetBusy
+      ? translateDiscovery("resetBusy")
+      : translateDiscovery("reset");
+    runtimeResetUi.button.disabled = runtimeState.resetBusy;
+  };
+
+  const renderRuntimeResetEntry = () => {
+    if (
+      !globalThis.document ||
+      !globalThis.document.body ||
+      !runtimeState.configured ||
+      !isLoginRoute()
+    ) {
+      removeRuntimeResetEntry();
+      return null;
+    }
+
+    ensureDiscoveryStyles();
+
+    const existing = globalThis.document.getElementById(runtimeResetEntryId);
+    if (existing && runtimeResetUi) {
+      syncRuntimeResetEntryCopy();
+      return runtimeResetUi;
+    }
+
+    const root = globalThis.document.createElement("section");
+    root.id = runtimeResetEntryId;
+
+    const card = globalThis.document.createElement("div");
+    card.className = "secpal-runtime-reset-card";
+
+    const summary = globalThis.document.createElement("p");
+    summary.id = runtimeResetSummaryId;
+    summary.className = "secpal-runtime-reset-summary";
+
+    const button = globalThis.document.createElement("button");
+    button.id = runtimeResetButtonId;
+    button.className = "secpal-runtime-reset-button";
+    button.setAttribute("type", "button");
+
+    card.appendChild(summary);
+    card.appendChild(button);
+    root.appendChild(card);
+    globalThis.document.body.appendChild(root);
+
+    runtimeResetUi = {
+      root,
+      summary,
+      button,
+    };
+
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      void resetConfiguredRuntime();
+    });
+
+    syncRuntimeResetEntryCopy();
+
+    return runtimeResetUi;
   };
 
   const removeDiscoveryGate = () => {
@@ -1510,11 +1794,78 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const resetConfiguredRuntime = async () => {
+    const ui = renderRuntimeResetEntry();
+
+    if (!ui || !runtimeState.configured) {
+      return;
+    }
+
+    const shouldReset =
+      typeof globalThis.confirm === "function" &&
+      globalThis.confirm(
+        translateDiscovery("resetConfirm", {
+          instanceDisplayName: getConfiguredRuntimeLabel(),
+        })
+      ) === true;
+
+    if (!shouldReset) {
+      return;
+    }
+
+    runtimeState.resetBusy = true;
+    syncRuntimeResetEntryCopy();
+
+    try {
+      if (typeof getPlugin().logout === "function") {
+        try {
+          await getPlugin().logout();
+        } catch (error) {
+          const code = error && typeof error === "object" ? error.code : undefined;
+
+          if (code !== "NO_STORED_TOKEN" && code !== "HTTP_401") {
+            console.warn(
+              "Failed to logout before resetting the configured SecPal runtime.",
+              error
+            );
+          }
+        }
+      }
+
+      await clearPersistedBootstrap();
+      await clearTenantScopedBrowserState();
+
+      authState.active = false;
+      runtimeState.configured = false;
+      runtimeState.bootstrap = null;
+      runtimeState.apiOrigin = null;
+      runtimeState.pendingBootstrap = null;
+      runtimeState.discoveryBusyAction = null;
+      runtimeState.discoveryErrorMessage = "";
+      runtimeState.nativeConfigPromise = Promise.resolve();
+      runtimeState.resetBusy = false;
+
+      removeRuntimeResetEntry();
+      mountDiscoveryGate();
+
+      if (globalThis.location && typeof globalThis.location.reload === "function") {
+        globalThis.location.reload();
+      }
+    } catch (error) {
+      runtimeState.resetBusy = false;
+      syncRuntimeResetEntryCopy();
+      console.warn("Failed to reset the configured SecPal runtime.", error);
+    }
+  };
+
   const mountDiscoveryGate = () => {
     if (runtimeState.configured) {
       removeDiscoveryGate();
+      renderRuntimeResetEntry();
       return;
     }
+
+    removeRuntimeResetEntry();
 
     const ui = renderDiscoveryGate();
 
