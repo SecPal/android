@@ -30,7 +30,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
   const localeStorageKey = "secpal-locale";
-  const runtimeStorageKey = "secpal.runtime.bootstrap";
+  const runtimeStorageKey = "runtimeBootstrapState";
   const discoveryGateId = "secpal-instance-discovery-gate";
   const discoveryStylesId = "secpal-instance-discovery-styles";
   const discoveryTitleId = "secpal-instance-discovery-title";
@@ -67,100 +67,100 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const discoveryTranslations = {
     en: {
-      title: "Connect this SecPal app to your deployment",
+      title: "Enter your instance URL",
       description:
-        "Enter the secure https:// address of your customer-hosted SecPal deployment before login continues.",
+        "Enter the instance URL you received from your supervisor.",
       languageLabel: "Select language",
-      inputLabel: "Deployment URL",
-      inputPlaceholder: "customer.example or https://customer.example",
-      noteTitle: "Secure customer deployment",
+      inputLabel: "Instance URL",
+      inputPlaceholder: "https://instance.example",
+      noteTitle: "Need the URL?",
       noteDescription:
-        "Only secure https:// addresses are supported. SecPal validates the public bootstrap before login continues.",
-      summaryTitle: "Validated deployment",
-      validate: "Validate deployment",
-      validateBusy: "Validating deployment...",
-      confirm: "Use this deployment",
-      confirmBusy: "Configuring deployment...",
-      summaryTemplate: "Instance: {instanceDisplayName}\\nAPI: {apiOrigin}",
+        "Please ask your supervisor for the instance URL.",
+      summaryTitle: "Instance found",
+      validate: "Check instance",
+      validateBusy: "Checking instance...",
+      confirm: "Continue to login",
+      confirmBusy: "Preparing login...",
+      summaryTemplate: "Instance: {instanceDisplayName}",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
       footerSource: "Source Code",
       errorBootstrapResponse:
-        "This SecPal deployment returned an incompatible bootstrap response.",
+        "This instance could not be verified. Contact your administrator.",
       errorBootstrapInvalidApi:
-        "This SecPal deployment returned an invalid API base URL.",
+        "This instance could not be verified. Contact your administrator.",
       errorBootstrapInsecureApi:
-        "This SecPal deployment returned an insecure API base URL.",
+        "This instance cannot be used. Contact your administrator.",
       errorBootstrapIncompatibleApi:
-        "This SecPal deployment returned an incompatible API base URL.",
+        "This instance is not compatible with this app. Contact your administrator.",
       errorEnterSecureUrl:
-        "Enter the secure https:// address of your SecPal deployment.",
+        "Enter the secure https:// instance URL you received from your supervisor.",
       errorEnterValidSecureUrl:
-        "Enter a valid secure https:// address for your SecPal deployment.",
+        "Enter a valid secure https:// instance URL.",
       errorInsecureUrl:
-        "Enter a secure https:// address. Insecure http:// deployments are not supported.",
+        "Only secure https:// instance URLs are supported.",
       errorRuntimeInfoUnavailable:
         "This SecPal app cannot read its version information yet.",
       errorAndroidCompatibility:
-        "This SecPal deployment is not compatible with the Android app.",
+        "This instance is not compatible with this app.",
       errorContactSelectedDeployment:
-        "This SecPal app cannot contact the selected deployment yet.",
+        "This instance cannot be reached right now.",
       errorReachDeployment:
-        "We could not reach that SecPal deployment. Check the URL and your network connection.",
+        "We could not reach this instance. Check the URL or contact your supervisor.",
       errorBootstrapUnavailable:
-        "Public bootstrap is temporarily unavailable on this deployment. Try again later or contact your administrator.",
+        "This instance is temporarily unavailable. Try again later or contact your administrator.",
       errorBootstrapStateInvalid:
-        "This deployment has an invalid public bootstrap configuration. Contact your administrator.",
+        "This instance is not configured correctly. Contact your administrator.",
       errorConfigureRuntime:
-        "Failed to configure this SecPal deployment in the Android runtime.",
+        "This instance could not be set up in the app.",
     },
     de: {
-      title: "Diese SecPal-App mit Ihrer Instanz verbinden",
+      title: "Instanz-URL eingeben",
       description:
-        "Bevor die Anmeldung fortgesetzt wird, geben Sie die sichere https://-Adresse Ihrer gehosteten SecPal-Instanz ein.",
+        "Geben Sie die Instanz-URL ein, die Sie von Ihrem Vorgesetzten erhalten haben.",
       languageLabel: "Sprache auswählen",
       inputLabel: "Instanz-URL",
-      inputPlaceholder: "kunde.example oder https://kunde.example",
-      noteTitle: "Sichere Kundeninstanz",
+      inputPlaceholder: "https://instanz.example",
+      noteTitle: "Noch keine URL?",
       noteDescription:
-        "Es werden nur sichere https://-Adressen unterstützt. SecPal prüft die öffentliche Bootstrap-Konfiguration, bevor die Anmeldung fortgesetzt wird.",
-      summaryTitle: "Geprüfte Instanz",
+        "Bitte fragen Sie Ihren Vorgesetzten nach der Instanz-URL.",
+      summaryTitle: "Instanz gefunden",
       validate: "Instanz prüfen",
       validateBusy: "Instanz wird geprüft...",
-      confirm: "Diese Instanz verwenden",
-      confirmBusy: "Instanz wird verbunden...",
-      summaryTemplate: "Instanz: {instanceDisplayName}\\nAPI: {apiOrigin}",
+      confirm: "Weiter zur Anmeldung",
+      confirmBusy: "Anmeldung wird vorbereitet...",
+      summaryTemplate: "Instanz: {instanceDisplayName}",
       footerPoweredBy: "Powered by SecPal – Der beste Freund jeder Wache",
       footerLicense: "AGPL v3+",
       footerSource: "Quellcode",
       errorBootstrapResponse:
-        "Diese SecPal-Instanz hat eine inkompatible Bootstrap-Antwort zurückgegeben.",
+        "Diese Instanz konnte nicht verifiziert werden. Wenden Sie sich an Ihre Administration.",
       errorBootstrapInvalidApi:
-        "Diese SecPal-Instanz hat eine ungültige API-Basis-URL zurückgegeben.",
+        "Diese Instanz konnte nicht verifiziert werden. Wenden Sie sich an Ihre Administration.",
       errorBootstrapInsecureApi:
-        "Diese SecPal-Instanz hat eine unsichere API-Basis-URL zurückgegeben.",
+        "Diese Instanz kann nicht verwendet werden. Wenden Sie sich an Ihre Administration.",
       errorBootstrapIncompatibleApi:
-        "Diese SecPal-Instanz hat eine inkompatible API-Basis-URL zurückgegeben.",
+        "Diese Instanz ist mit dieser App nicht kompatibel. Wenden Sie sich an Ihre Administration.",
       errorEnterSecureUrl:
-        "Geben Sie die sichere https://-Adresse Ihrer SecPal-Instanz ein.",
+        "Geben Sie die sichere https://-Instanz-URL ein, die Sie von Ihrem Vorgesetzten erhalten haben.",
       errorEnterValidSecureUrl:
-        "Geben Sie eine gültige sichere https://-Adresse für Ihre SecPal-Instanz ein.",
+        "Geben Sie eine gültige sichere https://-Instanz-URL ein.",
       errorInsecureUrl:
-        "Geben Sie eine sichere https://-Adresse ein. Unsichere http://-Instanzen werden nicht unterstützt.",
+        "Es werden nur sichere https://-Instanz-URLs unterstützt.",
       errorRuntimeInfoUnavailable:
         "Diese SecPal-App kann ihre Versionsinformationen noch nicht lesen.",
       errorAndroidCompatibility:
-        "Diese SecPal-Instanz ist mit der Android-App nicht kompatibel.",
+        "Diese Instanz ist mit dieser App nicht kompatibel.",
       errorContactSelectedDeployment:
-        "Diese SecPal-App kann die ausgewählte Instanz noch nicht erreichen.",
+        "Diese Instanz ist derzeit nicht erreichbar.",
       errorReachDeployment:
-        "Diese SecPal-Instanz konnte nicht erreicht werden. Prüfen Sie die URL und Ihre Netzwerkverbindung.",
+        "Diese Instanz konnte nicht erreicht werden. Prüfen Sie die URL oder wenden Sie sich an Ihren Vorgesetzten.",
       errorBootstrapUnavailable:
-        "Die öffentliche Bootstrap-Konfiguration dieser Instanz ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut oder wenden Sie sich an Ihre Administration.",
+        "Diese Instanz ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut oder wenden Sie sich an Ihre Administration.",
       errorBootstrapStateInvalid:
-        "Die öffentliche Bootstrap-Konfiguration dieser Instanz ist ungültig. Wenden Sie sich an Ihre Administration.",
+        "Diese Instanz ist nicht korrekt eingerichtet. Wenden Sie sich an Ihre Administration.",
       errorConfigureRuntime:
-        "Diese SecPal-Instanz konnte in der Android-Laufzeit nicht konfiguriert werden.",
+        "Diese Instanz konnte in der App nicht eingerichtet werden.",
     },
   };
 

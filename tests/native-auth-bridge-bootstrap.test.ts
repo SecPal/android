@@ -150,6 +150,10 @@ function createMockStorage(initialValues?: Record<string, string>) {
   };
 }
 
+const runtimeBootstrapPlaceholderOrigin =
+  "https://runtime-bootstrap-required.secpal.dev";
+const runtimeBootstrapStorageKey = "runtimeBootstrapState";
+
 function buildStoredRuntimeBootstrap(
   overrides: Partial<{
     instanceDisplayName: string;
@@ -199,7 +203,7 @@ describe("native auth bridge bootstrap injection", () => {
       injectorModulePromise.then(({ readApiBaseUrlFromStringsXml }) =>
         readApiBaseUrlFromStringsXml(stringsXml)
       )
-    ).resolves.toBe("https://runtime-bootstrap-required.secpal.invalid");
+    ).resolves.toBe(runtimeBootstrapPlaceholderOrigin);
   });
 
   it("injects the bootstrap script before the first module script and stays idempotent", async () => {
@@ -294,9 +298,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -322,10 +324,14 @@ describe("native auth bridge bootstrap injection", () => {
       "secpal-instance-discovery-styles"
     ) as MockElement | null;
 
-    expect(title?.textContent).toBe(
-      "Diese SecPal-App mit Ihrer Instanz verbinden"
-    );
+    expect(title?.textContent).toBe("Instanz-URL eingeben");
     expect(validateButton?.textContent).toBe("Instanz prüfen");
+    expect(
+      document.getElementById("secpal-instance-discovery-description")
+        ?.textContent
+    ).toBe(
+      "Geben Sie die Instanz-URL ein, die Sie von Ihrem Vorgesetzten erhalten haben."
+    );
     expect(document.documentElement.lang).toBe("de");
     expect(styles?.textContent).toContain(
       "@media (prefers-color-scheme: dark)"
@@ -341,10 +347,12 @@ describe("native auth bridge bootstrap injection", () => {
     localeSelect!.value = "en";
     localeSelect!.change();
 
-    expect(title?.textContent).toBe(
-      "Connect this SecPal app to your deployment"
-    );
-    expect(validateButton?.textContent).toBe("Validate deployment");
+    expect(title?.textContent).toBe("Enter your instance URL");
+    expect(validateButton?.textContent).toBe("Check instance");
+    expect(
+      document.getElementById("secpal-instance-discovery-description")
+        ?.textContent
+    ).toBe("Enter the instance URL you received from your supervisor.");
     expect(document.documentElement.lang).toBe("en");
     expect(localStorage.getItem("secpal-locale")).toBe("en");
     expect(footerPoweredLink?.textContent).toBe(
@@ -443,9 +451,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -487,9 +493,8 @@ describe("native auth bridge bootstrap injection", () => {
         "Accept-Language"
       )
     ).toBe("en");
-    expect(summary?.children[1]?.textContent).toContain("Customer Example");
-    expect(summary?.children[1]?.textContent).toContain(
-      "https://customer-api.example"
+    expect(summary?.children[1]?.textContent).toBe(
+      "Instance: Customer Example"
     );
     expect(confirmButton?.disabled).toBe(false);
 
@@ -499,7 +504,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
       apiBaseUrl: "https://customer-api.example",
     });
-    expect(sessionStorage.getItem("secpal.runtime.bootstrap")).toContain(
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toContain(
       "Customer Example"
     );
     expect(
@@ -507,7 +512,7 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveBeenCalledOnce();
 
     await (sandbox.fetch as typeof fetch)(
-      "https://runtime-bootstrap-required.secpal.invalid/health/ready"
+      `${runtimeBootstrapPlaceholderOrigin}/health/ready`
     );
 
     const rewrittenRequest = browserFetch.mock.calls.at(-1)?.[0] as Request;
@@ -558,9 +563,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -627,9 +630,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -648,7 +649,7 @@ describe("native auth bridge bootstrap injection", () => {
     await flushMicrotasks();
 
     expect(error.textContent).toMatch(/reach/i);
-    expect(error.textContent).toMatch(/deployment|connection/i);
+    expect(error.textContent).toMatch(/url|supervisor/i);
   });
 
   it("rejects incompatible bootstrap payloads before confirming the deployment", async () => {
@@ -720,9 +721,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -743,7 +742,7 @@ describe("native auth bridge bootstrap injection", () => {
     validateButton.click();
     await flushMicrotasks();
 
-    expect(error.textContent).toMatch(/incompatible/i);
+    expect(error.textContent).toMatch(/verified|administrator/i);
     expect(confirmButton.disabled).toBe(true);
   });
 
@@ -786,7 +785,7 @@ describe("native auth bridge bootstrap injection", () => {
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       sessionStorage: createMockStorage({
-        "secpal.runtime.bootstrap": buildStoredRuntimeBootstrap(),
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
       }),
       fetch: browserFetch,
       Request,
@@ -1212,7 +1211,7 @@ describe("native auth bridge bootstrap injection", () => {
     };
     const document = new MockDocument();
     const sessionStorage = createMockStorage({
-      "secpal.runtime.bootstrap": buildStoredRuntimeBootstrap(),
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
     });
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
@@ -1237,9 +1236,7 @@ describe("native auth bridge bootstrap injection", () => {
     sandbox.globalThis = sandbox;
 
     vm.runInNewContext(
-      buildNativeAuthBridgeBootstrapScript(
-        "https://runtime-bootstrap-required.secpal.invalid"
-      ),
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
       sandbox
     );
 
@@ -1255,7 +1252,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.setApiBaseUrl).toHaveBeenCalledWith({
       apiBaseUrl: "https://api.secpal.dev",
     });
-    expect(sessionStorage.getItem("secpal.runtime.bootstrap")).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).not.toBeNull();
@@ -1294,7 +1291,7 @@ describe("native auth bridge bootstrap injection", () => {
       },
       document,
       sessionStorage: createMockStorage({
-        "secpal.runtime.bootstrap": buildStoredRuntimeBootstrap(),
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
       }),
       fetch,
       Request,
