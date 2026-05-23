@@ -34,6 +34,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private NativeAuthHttpClient httpClient;
     private NetworkState networkState;
     private NativePasskeyAuthenticator passkeyAuthenticator;
+    private AndroidPushRuntimeManager androidPushRuntimeManager;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private String apiBaseUrl;
 
@@ -41,9 +42,15 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void load() {
         super.load();
         tokenStorage = new KeystoreTokenStorage(getContext());
+        androidPushRuntimeManager = new AndroidPushRuntimeManager(getContext());
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
+            androidPushRuntimeManager.apply(null);
+        } else {
+            androidPushRuntimeManager.apply(
+                AndroidPushRuntimeMetadata.fromBootstrap(persistedRuntimeBootstrap.optJSONObject("androidPush"))
+            );
         }
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
@@ -271,6 +278,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
         String minimumSupportedAppVersion = requireValue(call, "minimumSupportedAppVersion");
         Integer minimumSupportedAppBuild = call.getInt("minimumSupportedAppBuild");
+        JSObject androidPush = call.getObject("androidPush");
         JSObject features = call.getObject("features");
 
         if (instanceDisplayName == null
@@ -296,6 +304,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     rawApiBaseUrl,
                     minimumSupportedAppVersion,
                     minimumSupportedAppBuild,
+                    androidPush,
                     features
                 );
                 String nextApiBaseUrl = bootstrap.getString("apiOrigin");
@@ -306,6 +315,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
                     );
                     return;
+                }
+
+                try {
+                    androidPushRuntimeManager.apply(
+                        AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
+                    );
+                } catch (RuntimeException exception) {
+                    getNativeAuthPreferences().edit().remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY).apply();
+                    androidPushRuntimeManager.apply(null);
+                    throw exception;
                 }
 
                 if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
@@ -361,6 +380,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             }
 
             apiBaseUrl = null;
+            androidPushRuntimeManager.apply(null);
             call.resolve();
         });
     }
@@ -686,6 +706,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String rawApiBaseUrl,
         String minimumSupportedAppVersion,
         int minimumSupportedAppBuild,
+        JSONObject androidPush,
         JSONObject features
     ) throws JSONException {
         JSObject bootstrap = new JSObject();
@@ -694,6 +715,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         bootstrap.put("rawApiBaseUrl", rawApiBaseUrl);
         bootstrap.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
         bootstrap.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
+
+        if (androidPush != null) {
+            bootstrap.put("androidPush", androidPush);
+        }
 
         if (features != null) {
             bootstrap.put("features", features);
@@ -758,6 +783,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
             features != null && features.optBoolean("managedAndroidEnrollment", false)
         );
         normalized.put("features", normalizedFeatures);
+
+        AndroidPushRuntimeMetadata androidPush = AndroidPushRuntimeMetadata.fromBootstrap(
+            bootstrap.optJSONObject("androidPush")
+        );
+
+        if (androidPush != null) {
+            normalized.put("androidPush", androidPush.toJsObject());
+        }
 
         return normalized;
     }

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Android runtime bootstrap now accepts deployment `schema_version` 2 responses, carries validated `android_push` metadata into the native auth plugin, initializes or clears a deployment-scoped native Firebase runtime from that metadata at runtime instead of relying on `google-services.json`, and adds focused bridge plus Android unit coverage for issue `#238`.
 - Android runtime bootstrap now rejects legacy `apiOrigin`-only restore state from the native plugin and requires structured persisted bootstrap metadata before rebinding after restart, closing the last hidden old-model restore path with focused Java and bridge regression coverage for issue `#232`.
 - Android login now renders a small clickable instance hint directly below the passkey sign-in button, asks for confirmation before clearing the configured instance plus tenant-local browser state, and keeps the injected footer wording aligned with the existing shared frontend footer text while preserving focused regression coverage for issue `#231`.
 - Android runtime bootstrap now persists the validated customer deployment in the native auth plugin, restores the selected canonical API binding on startup, and removes the hidden fallback back to the baked-in runtime API origin once a deployment was configured, with focused regression coverage for startup rebinding and fallback removal in issue `#230`.

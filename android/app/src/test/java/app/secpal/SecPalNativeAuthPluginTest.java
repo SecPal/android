@@ -117,6 +117,78 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void normalizeRuntimeBootstrapPreservesValidatedAndroidPushMetadata() throws Exception {
+        JSObject normalized = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+
+        JSONObject androidPush = normalized.getJSONObject("androidPush");
+
+        assertNotNull(androidPush);
+        assertEquals("fcm", androidPush.getString("provider"));
+        assertEquals(3, androidPush.getInt("metadataRevision"));
+        assertEquals(
+            "public-client-api-key-demo-1234567890",
+            androidPush.getJSONObject("publicClientMetadata").getString("apiKey")
+        );
+        assertEquals(
+            "1234567890",
+            androidPush.getJSONObject("publicClientMetadata").getString("senderId")
+        );
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapRejectsIncompleteAndroidPushMetadata() throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", "Tenant A")
+                    .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                    .put("minimumSupportedAppVersion", "0.0.1")
+                    .put("minimumSupportedAppBuild", 1)
+                    .put(
+                        "androidPush",
+                        new JSONObject()
+                            .put("provider", "fcm")
+                            .put("metadataRevision", 3)
+                            .put(
+                                "publicClientMetadata",
+                                new JSONObject()
+                                    .put("apiKey", "public-client-api-key-demo-1234567890")
+                                    .put("projectId", "secpal-demo-push")
+                                    .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                            )
+                    )
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException exception) {
+            assertEquals(
+                "Android runtime bootstrap requires complete Android push client metadata",
+                exception.getMessage()
+            );
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", exception.getErrorCode());
+        }
+    }
+
+    @Test
     public void buildRuntimeBootstrapPayloadUsesPersistedBootstrapWhenAvailable() throws Exception {
         JSObject bootstrap = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
