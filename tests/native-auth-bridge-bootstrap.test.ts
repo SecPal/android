@@ -600,6 +600,71 @@ describe("native auth bridge bootstrap injection", () => {
     expect(error.textContent).toMatch(/secure/i);
   });
 
+  it("rejects discovery URLs that smuggle userinfo or extra URL parts", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const browserFetch = vi.fn();
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+            getRuntimeInfo: vi.fn().mockResolvedValue({
+              clientPlatform: "android",
+              appVersion: "0.0.1",
+              appBuild: 1,
+            }),
+          },
+        },
+      },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement;
+    const error = document.getElementById(
+      "secpal-instance-discovery-error"
+    ) as MockElement;
+
+    input.value = "https://customer.example@evil.example/path?tenant=1#frag";
+    validateButton.click();
+    await flushMicrotasks();
+
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(error.textContent).toMatch(/valid/i);
+    expect(error.textContent).toMatch(/https/i);
+  });
+
   it("surfaces unreachable bootstrap targets as actionable discovery errors", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const browserFetch = vi

@@ -447,6 +447,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       throw new Error(translateDiscovery("errorInsecureUrl"));
     }
 
+    const pathname = url.pathname.replace(/\\/+$/, "");
+
+    if (url.username || url.password || pathname !== "" || url.search || url.hash) {
+      throw new Error(translateDiscovery("errorEnterValidSecureUrl"));
+    }
+
     return url.origin;
   };
 

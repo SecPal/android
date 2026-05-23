@@ -215,15 +215,15 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         try {
-            apiBaseUrl = resolveConfiguredApiBaseUrl(value);
+            apiBaseUrl = resolveRuntimeApiBaseUrl(value);
 
             JSObject payload = new JSObject();
             payload.put("apiBaseUrl", apiBaseUrl);
             call.resolve(payload);
-        } catch (IllegalStateException exception) {
+        } catch (ConfiguredApiBaseUrlException exception) {
             call.reject(
-                "Invalid Android auth API origin configuration",
-                "INVALID_API_BASE_URL",
+                exception.getMessage(),
+                exception.getErrorCode(),
                 exception
             );
         }
@@ -396,8 +396,25 @@ public class SecPalNativeAuthPlugin extends Plugin {
         try {
             return NativeAuthHttpClient.normalizeBaseUrl(configuredValue);
         } catch (NativeAuthHttpException exception) {
-            throw new IllegalStateException("Invalid Android auth API origin configuration", exception);
+            throw new ConfiguredApiBaseUrlException(
+                "Invalid Android auth API origin configuration",
+                "INVALID_API_BASE_URL",
+                exception
+            );
         }
+    }
+
+    static String resolveRuntimeApiBaseUrl(String configuredValue) {
+        String normalizedApiBaseUrl = resolveConfiguredApiBaseUrl(configuredValue);
+
+        if (!normalizedApiBaseUrl.startsWith("https://")) {
+            throw new ConfiguredApiBaseUrlException(
+                "Android auth API origin must use HTTPS",
+                "INSECURE_API_BASE_URL"
+            );
+        }
+
+        return normalizedApiBaseUrl;
     }
 
     private void maybeClearToken(Exception exception) {
@@ -415,6 +432,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
             throw new NetworkUnavailableException(
                 "Android auth requires an active internet connection"
             );
+        }
+    }
+
+    static final class ConfiguredApiBaseUrlException extends IllegalStateException {
+        private final String errorCode;
+
+        ConfiguredApiBaseUrlException(String message, String errorCode, Throwable cause) {
+            super(message, cause);
+            this.errorCode = errorCode;
+        }
+
+        ConfiguredApiBaseUrlException(String message, String errorCode) {
+            super(message);
+            this.errorCode = errorCode;
+        }
+
+        String getErrorCode() {
+            return errorCode;
         }
     }
 }

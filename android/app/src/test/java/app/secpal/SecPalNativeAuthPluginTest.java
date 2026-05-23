@@ -73,4 +73,15 @@ public class SecPalNativeAuthPluginTest {
             assertTrue(exception.getCause() instanceof NativeAuthHttpException);
         }
     }
+
+    @Test
+    public void resolveRuntimeApiBaseUrlRejectsInsecureHttpOrigin() {
+        try {
+            SecPalNativeAuthPlugin.resolveRuntimeApiBaseUrl("http://api.secpal.dev");
+            fail("Expected ConfiguredApiBaseUrlException");
+        } catch (SecPalNativeAuthPlugin.ConfiguredApiBaseUrlException exception) {
+            assertEquals("Android auth API origin must use HTTPS", exception.getMessage());
+            assertEquals("INSECURE_API_BASE_URL", exception.getErrorCode());
+        }
+    }
 }
