@@ -585,7 +585,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       );
     }
 
-    return message || "We could not validate that SecPal deployment right now.";
+    return message || translateDiscovery("errorBootstrapResponse");
   };
 
   const applyRuntimeBootstrap = async (bootstrap) => {
