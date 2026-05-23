@@ -347,14 +347,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void clearRuntimeBootstrap(PluginCall call) {
-        apiBaseUrl = null;
-        tokenStorage.clearToken();
-        getNativeAuthPreferences()
-            .edit()
-            .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-            .remove(API_BASE_URL_PREFERENCE_KEY)
-            .apply();
-        call.resolve();
+        runAsync(call, () -> {
+            apiBaseUrl = null;
+            tokenStorage.clearToken();
+            getNativeAuthPreferences()
+                .edit()
+                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+                .remove(API_BASE_URL_PREFERENCE_KEY)
+                .apply();
+            call.resolve();
+        });
     }
 
     @PluginMethod
