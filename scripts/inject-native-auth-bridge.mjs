@@ -833,12 +833,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         runtimeState.nativeConfigPromise = Promise.resolve();
       }
     } catch {
-      void clearPersistedBootstrap();
+      runtimeState.nativeConfigPromise = clearPersistedBootstrap().catch(() => {});
       runtimeState.configured = false;
       runtimeState.bootstrap = null;
       runtimeState.apiOrigin = null;
       runtimeState.pendingBootstrap = null;
-      runtimeState.nativeConfigPromise = Promise.resolve();
     }
   };
 
