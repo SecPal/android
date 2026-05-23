@@ -346,7 +346,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void clearRuntimeBootstrap(PluginCall call) {
         runAsync(call, () -> {
-            apiBaseUrl = null;
             boolean persisted = clearRuntimeBootstrapState(
                 getNativeAuthPreferences(),
                 tokenStorage,
@@ -361,6 +360,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 return;
             }
 
+            apiBaseUrl = null;
             call.resolve();
         });
     }

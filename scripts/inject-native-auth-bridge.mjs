@@ -390,14 +390,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const clearPersistedBootstrap = async () => {
-    try {
-      const plugin = getPlugin();
-      if (typeof plugin.clearRuntimeBootstrap === "function") {
-        await plugin.clearRuntimeBootstrap();
-        return;
-      }
-    } catch {
-      // Fall through to the legacy storage cleanup.
+    const plugin = getPlugin();
+    if (typeof plugin.clearRuntimeBootstrap === "function") {
+      await plugin.clearRuntimeBootstrap();
+      return;
     }
 
     const storage = getSessionStorage();
@@ -1334,6 +1330,55 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return runtimeResetUi;
   };
 
+  const syncRouteBoundRuntimeResetEntry = () => {
+    if (!runtimeState.configured) {
+      removeRuntimeResetEntry();
+      return;
+    }
+
+    renderRuntimeResetEntry();
+  };
+
+  const installRuntimeResetRouteListener = () => {
+    let syncScheduled = false;
+    const scheduleSync = () => {
+      if (syncScheduled) {
+        return;
+      }
+
+      syncScheduled = true;
+      Promise.resolve().then(() => {
+        syncScheduled = false;
+        syncRouteBoundRuntimeResetEntry();
+      });
+    };
+
+    if (typeof globalThis.addEventListener === "function") {
+      globalThis.addEventListener("popstate", scheduleSync);
+    }
+
+    const wrapHistoryMethod = (methodName) => {
+      const history = globalThis.history;
+      const originalMethod = history?.[methodName];
+      if (typeof originalMethod !== "function") {
+        return;
+      }
+
+      try {
+        history[methodName] = function wrappedHistoryMethod(...args) {
+          const result = originalMethod.apply(this, args);
+          scheduleSync();
+          return result;
+        };
+      } catch {
+        // Ignore environments where the history methods are not writable.
+      }
+    };
+
+    wrapHistoryMethod("pushState");
+    wrapHistoryMethod("replaceState");
+  };
+
   const removeDiscoveryGate = () => {
     const existing = globalThis.document?.getElementById?.(discoveryGateId);
 
@@ -1861,7 +1906,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const mountDiscoveryGate = () => {
     if (runtimeState.configured) {
       removeDiscoveryGate();
-      renderRuntimeResetEntry();
+      syncRouteBoundRuntimeResetEntry();
       return;
     }
 
@@ -1880,6 +1925,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   restorePersistedBootstrap();
+  installRuntimeResetRouteListener();
 
   const bridge = {
     async login(credentials) {
