@@ -28,6 +28,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
+    private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
+    private static final String ANDROID_PUSH_TOKEN_ERROR_EVENT = "androidPushTokenError";
 
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
@@ -42,7 +44,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void load() {
         super.load();
         tokenStorage = new KeystoreTokenStorage(getContext());
-        androidPushRuntimeManager = new AndroidPushRuntimeManager(getContext());
+        androidPushRuntimeManager = new AndroidPushRuntimeManager(
+            getContext(),
+            createAndroidPushMessagingListener()
+        );
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
@@ -517,6 +522,53 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (!taskExecutor.submit(job)) {
             call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");
         }
+    }
+
+    private AndroidPushRuntimeManager.MessagingListener createAndroidPushMessagingListener() {
+        return new AndroidPushRuntimeManager.MessagingListener() {
+            @Override
+            public void onTokenReceived(String appName, String token) {
+                notifyListeners(
+                    ANDROID_PUSH_TOKEN_RECEIVED_EVENT,
+                    buildAndroidPushTokenPayload(appName, token),
+                    true
+                );
+            }
+
+            @Override
+            public void onTokenError(String appName, Exception exception) {
+                notifyListeners(
+                    ANDROID_PUSH_TOKEN_ERROR_EVENT,
+                    buildAndroidPushTokenErrorPayload(appName, exception),
+                    true
+                );
+            }
+        };
+    }
+
+    private JSObject buildAndroidPushTokenPayload(String appName, String token) {
+        JSObject payload = new JSObject();
+        payload.put("appName", appName);
+        payload.put("provider", "fcm");
+        payload.put("token", token);
+        return payload;
+    }
+
+    private JSObject buildAndroidPushTokenErrorPayload(String appName, Exception exception) {
+        JSObject payload = new JSObject();
+        String message = exception.getMessage();
+
+        payload.put("appName", appName);
+        payload.put("provider", "fcm");
+        payload.put("errorCode", exception.getClass().getSimpleName());
+        payload.put(
+            "message",
+            message == null || message.trim().isEmpty()
+                ? "Failed to retrieve Android push registration token"
+                : message
+        );
+
+        return payload;
     }
 
     private String requireStoredToken(PluginCall call) throws TokenStorageException {

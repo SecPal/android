@@ -568,7 +568,7 @@ public class SecPalNativeAuthPluginTest {
         }
 
         @Override
-        public void ensureMessaging() {
+        public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             fail("ensureMessaging should not run after initialization fails");
         }
     }
