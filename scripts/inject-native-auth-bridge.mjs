@@ -968,7 +968,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const features = data.features && typeof data.features === "object" ? data.features : {};
     const androidPushEnabled = features.android_push === true;
     const androidPush = normalizeBootstrapAndroidPush(
-      data.android_push ?? null,
+      androidPushEnabled ? data.android_push ?? null : null,
       androidPushEnabled
     );
 

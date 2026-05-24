@@ -806,6 +806,16 @@ describe("native auth bridge bootstrap injection", () => {
                 managed_android_enrollment: false,
                 android_push: false,
               },
+              android_push: {
+                provider: "fcm",
+                metadata_revision: 3,
+                public_client_metadata: {
+                  api_key: "public-client-api-key-demo-1234567890",
+                  project_id: "secpal-demo-push",
+                  application_id: "1:1234567890:android:abcdef1234567890",
+                  sender_id: "1234567890",
+                },
+              },
             },
           }),
           {
