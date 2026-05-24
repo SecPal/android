@@ -54,10 +54,6 @@ final class AndroidPushRuntimeManager {
 
     private final FirebaseBackend firebaseBackend;
 
-    AndroidPushRuntimeManager(Context context) {
-        this(context, NO_OP_MESSAGING_LISTENER);
-    }
-
     AndroidPushRuntimeManager(Context context, MessagingListener messagingListener) {
         this(
             new DefaultFirebaseBackend(
@@ -91,14 +87,6 @@ final class AndroidPushRuntimeManager {
         private final Context applicationContext;
         private final FirebaseMessagingClient messagingClient;
         private final MessagingListener messagingListener;
-
-        DefaultFirebaseBackend(Context applicationContext) {
-            this(
-                applicationContext,
-                new DefaultFirebaseMessagingClient(),
-                NO_OP_MESSAGING_LISTENER
-            );
-        }
 
         DefaultFirebaseBackend(
             Context applicationContext,
