@@ -90,6 +90,10 @@ public class SecPalNativeAuthPluginTest {
             "RUNTIME_BOOTSTRAP_INVALID",
             SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(new IllegalStateException("boom"))
         );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(new NullPointerException("firebase-internal"))
+        );
     }
 
     @Test

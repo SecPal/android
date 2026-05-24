@@ -336,7 +336,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 JSObject payload = new JSObject();
                 payload.put("bootstrap", bootstrap);
                 call.resolve(payload);
-            } catch (IllegalStateException exception) {
+            } catch (RuntimeException exception) {
                 call.reject(
                     exception.getMessage(),
                     resolveRuntimeBootstrapErrorCode(exception),
@@ -546,7 +546,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
     }
 
-    static String resolveRuntimeBootstrapErrorCode(IllegalStateException exception) {
+    static String resolveRuntimeBootstrapErrorCode(RuntimeException exception) {
         if (exception instanceof ConfiguredApiBaseUrlException) {
             return ((ConfiguredApiBaseUrlException) exception).getErrorCode();
         }
