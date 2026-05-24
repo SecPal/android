@@ -34,6 +34,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const fallbackApiOrigin = ${serializedApiBaseUrl};
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
+  const maxAndroidPushMetadataRevision = 2147483647;
   const discoveryGateId = "secpal-instance-discovery-gate";
   const discoveryStylesId = "secpal-instance-discovery-styles";
   const discoveryTitleId = "secpal-instance-discovery-title";
@@ -122,6 +123,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         "This instance is temporarily unavailable. Try again later or contact your administrator.",
       errorBootstrapStateInvalid:
         "This instance is not configured correctly. Contact your administrator.",
+      errorAndroidPushMetadataInvalid:
+        "Android push metadata is invalid for this instance. Contact your administrator.",
       errorConfigureRuntime:
         "This instance could not be set up in the app.",
     },
@@ -175,6 +178,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         "Diese Instanz ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut oder wenden Sie sich an Ihre Administration.",
       errorBootstrapStateInvalid:
         "Diese Instanz ist nicht korrekt eingerichtet. Wenden Sie sich an Ihre Administration.",
+      errorAndroidPushMetadataInvalid:
+        "Die Android-Push-Metadaten dieser Instanz sind ungültig. Wenden Sie sich an Ihre Administration.",
       errorConfigureRuntime:
         "Diese Instanz konnte in der App nicht eingerichtet werden.",
     },
@@ -575,6 +580,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       parsed && typeof parsed === "object"
         ? Number(parsed.minimumSupportedAppBuild)
         : Number.NaN;
+    const androidPush = normalizeBootstrapAndroidPush(
+      parsed && typeof parsed === "object" ? parsed.androidPush ?? null : null,
+      parsed && typeof parsed === "object" ? parsed.androidPush != null : false
+    );
 
     if (!instanceDisplayName) {
       throw createIncompatibleBootstrapError();
@@ -603,6 +612,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             ? parsed.features.managedAndroidEnrollment === true
             : false,
       },
+      ...(androidPush ? { androidPush } : {}),
     };
 
     if (
@@ -720,6 +730,87 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const createIncompatibleBootstrapError = () =>
     new Error(translateDiscovery("errorBootstrapResponse"));
+
+  const createInvalidAndroidPushMetadataError = () =>
+    new Error(translateDiscovery("errorAndroidPushMetadataInvalid"));
+
+  const normalizeBootstrapAndroidPush = (value, required) => {
+    if (value == null) {
+      if (required) {
+        throw createInvalidAndroidPushMetadataError();
+      }
+
+      return null;
+    }
+
+    if (!value || typeof value !== "object") {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    const provider =
+      typeof value.provider === "string" ? value.provider.trim().toLowerCase() : "";
+
+    if (provider !== "fcm") {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    const metadataRevision = Number(value.metadata_revision ?? value.metadataRevision);
+    const publicClientMetadataSource =
+      value.public_client_metadata && typeof value.public_client_metadata === "object"
+        ? value.public_client_metadata
+        : value.publicClientMetadata && typeof value.publicClientMetadata === "object"
+          ? value.publicClientMetadata
+          : null;
+
+    if (
+      !publicClientMetadataSource ||
+      !Number.isInteger(metadataRevision) ||
+      metadataRevision <= 0 ||
+      metadataRevision > maxAndroidPushMetadataRevision
+    ) {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    const apiKey =
+      typeof publicClientMetadataSource.api_key === "string"
+        ? publicClientMetadataSource.api_key.trim()
+        : typeof publicClientMetadataSource.apiKey === "string"
+          ? publicClientMetadataSource.apiKey.trim()
+          : "";
+    const projectId =
+      typeof publicClientMetadataSource.project_id === "string"
+        ? publicClientMetadataSource.project_id.trim()
+        : typeof publicClientMetadataSource.projectId === "string"
+          ? publicClientMetadataSource.projectId.trim()
+          : "";
+    const applicationId =
+      typeof publicClientMetadataSource.application_id === "string"
+        ? publicClientMetadataSource.application_id.trim()
+        : typeof publicClientMetadataSource.applicationId === "string"
+          ? publicClientMetadataSource.applicationId.trim()
+          : "";
+    const senderId =
+      typeof publicClientMetadataSource.sender_id === "string"
+        ? publicClientMetadataSource.sender_id.trim()
+        : typeof publicClientMetadataSource.senderId === "string"
+          ? publicClientMetadataSource.senderId.trim()
+          : "";
+
+    if (!apiKey || !projectId || !applicationId || !senderId) {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    return {
+      provider: "fcm",
+      metadataRevision,
+      publicClientMetadata: {
+        apiKey,
+        projectId,
+        applicationId,
+        senderId,
+      },
+    };
+  };
 
   const normalizeBootstrapApiBaseUrl = (value) => {
     let url;
@@ -868,7 +959,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     if (
       bootstrapVersion !== "v1" ||
-      schemaVersion !== 1 ||
+      schemaVersion !== 2 ||
       !minimumSupportedAppVersion ||
       !Number.isInteger(minimumSupportedAppBuild) ||
       minimumSupportedAppBuild <= 0
@@ -877,6 +968,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     const features = data.features && typeof data.features === "object" ? data.features : {};
+    const androidPushEnabled = features.android_push === true;
+    const androidPush = normalizeBootstrapAndroidPush(
+      androidPushEnabled ? data.android_push ?? null : null,
+      androidPushEnabled
+    );
 
     return {
       instanceDisplayName,
@@ -889,6 +985,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         passkeyLoginEnabled: features.passkey_login === true,
         managedAndroidEnrollment: features.managed_android_enrollment === true,
       },
+      ...(androidPush ? { androidPush } : {}),
     };
   };
 

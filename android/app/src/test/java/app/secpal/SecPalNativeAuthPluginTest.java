@@ -67,6 +67,36 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void resolveRuntimeBootstrapErrorCodeHandlesKnownAndFallbackFailures() {
+        assertEquals(
+            "INSECURE_API_BASE_URL",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(
+                new SecPalNativeAuthPlugin.ConfiguredApiBaseUrlException(
+                    "Android auth API origin must use HTTPS",
+                    "INSECURE_API_BASE_URL"
+                )
+            )
+        );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(
+                new SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException(
+                    "Android runtime bootstrap is invalid",
+                    "RUNTIME_BOOTSTRAP_INVALID"
+                )
+            )
+        );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(new IllegalStateException("boom"))
+        );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(new NullPointerException("firebase-internal"))
+        );
+    }
+
+    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",
@@ -114,6 +144,113 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(
             normalized.getJSONObject("features").getBoolean("managedAndroidEnrollment")
         );
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapPreservesValidatedAndroidPushMetadata() throws Exception {
+        JSObject normalized = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+
+        JSONObject androidPush = normalized.getJSONObject("androidPush");
+
+        assertNotNull(androidPush);
+        assertEquals("fcm", androidPush.getString("provider"));
+        assertEquals(3, androidPush.getInt("metadataRevision"));
+        assertEquals(
+            "public-client-api-key-demo-1234567890",
+            androidPush.getJSONObject("publicClientMetadata").getString("apiKey")
+        );
+        assertEquals(
+            "1234567890",
+            androidPush.getJSONObject("publicClientMetadata").getString("senderId")
+        );
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapRejectsIncompleteAndroidPushMetadata() throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", "Tenant A")
+                    .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                    .put("minimumSupportedAppVersion", "0.0.1")
+                    .put("minimumSupportedAppBuild", 1)
+                    .put(
+                        "androidPush",
+                        new JSONObject()
+                            .put("provider", "fcm")
+                            .put("metadataRevision", 3)
+                            .put(
+                                "publicClientMetadata",
+                                new JSONObject()
+                                    .put("apiKey", "public-client-api-key-demo-1234567890")
+                                    .put("projectId", "secpal-demo-push")
+                                    .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                            )
+                    )
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException exception) {
+            assertEquals(
+                "Android runtime bootstrap requires complete Android push client metadata",
+                exception.getMessage()
+            );
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", exception.getErrorCode());
+        }
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapRejectsAndroidPushMetadataRevisionStringOverflow()
+        throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", "Tenant A")
+                    .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                    .put("minimumSupportedAppVersion", "0.0.1")
+                    .put("minimumSupportedAppBuild", 1)
+                    .put(
+                        "androidPush",
+                        new JSONObject()
+                            .put("provider", "fcm")
+                            .put("metadataRevision", "9999999999")
+                            .put(
+                                "publicClientMetadata",
+                                new JSONObject()
+                                    .put("apiKey", "public-client-api-key-demo-1234567890")
+                                    .put("projectId", "secpal-demo-push")
+                                    .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                    .put("senderId", "1234567890")
+                            )
+                    )
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException exception) {
+            assertEquals(
+                "Android runtime bootstrap requires a positive Android push metadata revision",
+                exception.getMessage()
+            );
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", exception.getErrorCode());
+        }
     }
 
     @Test
@@ -191,6 +328,87 @@ public class SecPalNativeAuthPluginTest {
 
         assertNull(result);
         assertNull(preferences.getString("runtime_bootstrap", null));
+    }
+
+    @Test
+    public void restoreRuntimeBootstrapPersistenceRollsBackPreviousDeploymentState() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-b.example\"}")
+            .remove("api_base_url")
+            .commit();
+
+        SecPalNativeAuthPlugin.restoreRuntimeBootstrapPersistence(
+            preferences,
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            "https://tenant-a.example"
+        );
+
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
+        assertEquals(1, preferences.applyCallCount);
+    }
+
+    @Test
+    public void applyPersistedRuntimeBootstrapSelfHealsFirebaseInitializationFailures()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+        ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
+
+        JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            preferences,
+            tokenStorage,
+            new AndroidPushRuntimeManager(firebaseBackend),
+            stored
+        );
+
+        assertNull(result);
+        assertNull(preferences.getString("runtime_bootstrap", null));
+        assertNull(preferences.getString("api_base_url", null));
+        assertNull(tokenStorage.token);
+        assertEquals(
+            "Load-time Firebase failures should clear the persisted bootstrap asynchronously.",
+            1,
+            preferences.applyCallCount
+        );
+        assertEquals(1, firebaseBackend.initializeCallCount);
+        assertEquals(2, firebaseBackend.findRuntimeAppCallCount);
     }
 
     @Test
@@ -330,6 +548,28 @@ public class SecPalNativeAuthPluginTest {
         @Override
         public void clearToken() {
             token = null;
+        }
+    }
+
+    private static final class ThrowingFirebaseBackend implements AndroidPushRuntimeManager.FirebaseBackend {
+        private int findRuntimeAppCallCount;
+        private int initializeCallCount;
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+            findRuntimeAppCallCount += 1;
+            return null;
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle initialize(AndroidPushRuntimeMetadata metadata) {
+            initializeCallCount += 1;
+            throw new IllegalStateException("Failed to initialize Android push runtime from deployment metadata");
+        }
+
+        @Override
+        public void ensureMessaging() {
+            fail("ensureMessaging should not run after initialization fails");
         }
     }
 

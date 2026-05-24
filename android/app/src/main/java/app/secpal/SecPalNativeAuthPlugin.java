@@ -34,6 +34,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private NativeAuthHttpClient httpClient;
     private NetworkState networkState;
     private NativePasskeyAuthenticator passkeyAuthenticator;
+    private AndroidPushRuntimeManager androidPushRuntimeManager;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private String apiBaseUrl;
 
@@ -41,10 +42,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
     public void load() {
         super.load();
         tokenStorage = new KeystoreTokenStorage(getContext());
+        androidPushRuntimeManager = new AndroidPushRuntimeManager(getContext());
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
         }
+        persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
+            getNativeAuthPreferences(),
+            tokenStorage,
+            androidPushRuntimeManager,
+            persistedRuntimeBootstrap
+        );
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
             : null;
@@ -271,6 +279,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
         String minimumSupportedAppVersion = requireValue(call, "minimumSupportedAppVersion");
         Integer minimumSupportedAppBuild = call.getInt("minimumSupportedAppBuild");
+        JSObject androidPush = call.getObject("androidPush");
         JSObject features = call.getObject("features");
 
         if (instanceDisplayName == null
@@ -296,9 +305,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     rawApiBaseUrl,
                     minimumSupportedAppVersion,
                     minimumSupportedAppBuild,
+                    androidPush,
                     features
                 );
                 String nextApiBaseUrl = bootstrap.getString("apiOrigin");
+                SharedPreferences preferences = getNativeAuthPreferences();
+                String previousRuntimeBootstrap = preferences.getString(
+                    RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+                    null
+                );
+                String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
 
                 if (!persistRuntimeBootstrap(bootstrap)) {
                     call.reject(
@@ -306,6 +322,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
                     );
                     return;
+                }
+
+                try {
+                    androidPushRuntimeManager.apply(
+                        AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
+                    );
+                } catch (RuntimeException exception) {
+                    restoreRuntimeBootstrapPersistence(
+                        preferences,
+                        previousRuntimeBootstrap,
+                        previousApiBaseUrl
+                    );
+                    try {
+                        androidPushRuntimeManager.apply(null);
+                    } catch (RuntimeException cleanupException) {
+                        exception.addSuppressed(cleanupException);
+                    }
+                    throw exception;
                 }
 
                 if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
@@ -317,12 +351,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 JSObject payload = new JSObject();
                 payload.put("bootstrap", bootstrap);
                 call.resolve(payload);
-            } catch (ConfiguredApiBaseUrlException | InvalidRuntimeBootstrapException exception) {
+            } catch (RuntimeException exception) {
                 call.reject(
                     exception.getMessage(),
-                    exception instanceof ConfiguredApiBaseUrlException
-                        ? ((ConfiguredApiBaseUrlException) exception).getErrorCode()
-                        : ((InvalidRuntimeBootstrapException) exception).getErrorCode(),
+                    resolveRuntimeBootstrapErrorCode(exception),
                     exception
                 );
             } catch (JSONException exception) {
@@ -361,6 +393,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
             }
 
             apiBaseUrl = null;
+            try {
+                androidPushRuntimeManager.apply(null);
+            } catch (RuntimeException exception) {
+                call.reject(
+                    exception.getMessage(),
+                    resolveRuntimeBootstrapErrorCode(exception),
+                    exception
+                );
+                return;
+            }
             call.resolve();
         });
     }
@@ -528,6 +570,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
     }
 
+    static String resolveRuntimeBootstrapErrorCode(RuntimeException exception) {
+        if (exception instanceof ConfiguredApiBaseUrlException) {
+            return ((ConfiguredApiBaseUrlException) exception).getErrorCode();
+        }
+
+        if (exception instanceof InvalidRuntimeBootstrapException) {
+            return ((InvalidRuntimeBootstrapException) exception).getErrorCode();
+        }
+
+        return "RUNTIME_BOOTSTRAP_INVALID";
+    }
+
     static String resolveConfiguredApiBaseUrl(String configuredValue) {
         try {
             return NativeAuthHttpClient.normalizeBaseUrl(configuredValue);
@@ -616,6 +670,33 @@ public class SecPalNativeAuthPlugin extends Plugin {
         tokenStorage.clearToken();
     }
 
+    static JSObject applyPersistedRuntimeBootstrap(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        AndroidPushRuntimeManager androidPushRuntimeManager,
+        JSObject persistedRuntimeBootstrap
+    ) {
+        if (persistedRuntimeBootstrap == null) {
+            androidPushRuntimeManager.apply(null);
+            return null;
+        }
+
+        try {
+            androidPushRuntimeManager.apply(
+                AndroidPushRuntimeMetadata.fromBootstrap(persistedRuntimeBootstrap.optJSONObject("androidPush"))
+            );
+            return persistedRuntimeBootstrap;
+        } catch (RuntimeException exception) {
+            preferences.edit()
+                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+                .remove(API_BASE_URL_PREFERENCE_KEY)
+                .apply();
+            tokenStorage.clearToken();
+            androidPushRuntimeManager.apply(null);
+            return null;
+        }
+    }
+
     static boolean clearRuntimeBootstrapState(
         SharedPreferences preferences,
         TokenStorage tokenStorage,
@@ -637,6 +718,28 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         return true;
+    }
+
+    static void restoreRuntimeBootstrapPersistence(
+        SharedPreferences preferences,
+        String previousRuntimeBootstrap,
+        String previousApiBaseUrl
+    ) {
+        SharedPreferences.Editor editor = preferences.edit();
+
+        if (previousRuntimeBootstrap == null || previousRuntimeBootstrap.trim().isEmpty()) {
+            editor.remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY);
+        } else {
+            editor.putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, previousRuntimeBootstrap);
+        }
+
+        if (previousApiBaseUrl == null || previousApiBaseUrl.trim().isEmpty()) {
+            editor.remove(API_BASE_URL_PREFERENCE_KEY);
+        } else {
+            editor.putString(API_BASE_URL_PREFERENCE_KEY, previousApiBaseUrl);
+        }
+
+        editor.apply();
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {
@@ -686,6 +789,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String rawApiBaseUrl,
         String minimumSupportedAppVersion,
         int minimumSupportedAppBuild,
+        JSONObject androidPush,
         JSONObject features
     ) throws JSONException {
         JSObject bootstrap = new JSObject();
@@ -694,6 +798,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         bootstrap.put("rawApiBaseUrl", rawApiBaseUrl);
         bootstrap.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
         bootstrap.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
+
+        if (androidPush != null) {
+            bootstrap.put("androidPush", androidPush);
+        }
 
         if (features != null) {
             bootstrap.put("features", features);
@@ -759,10 +867,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
         );
         normalized.put("features", normalizedFeatures);
 
+        AndroidPushRuntimeMetadata androidPush = AndroidPushRuntimeMetadata.fromBootstrap(
+            bootstrap.optJSONObject("androidPush")
+        );
+
+        if (androidPush != null) {
+            normalized.put("androidPush", androidPush.toJsObject());
+        }
+
         return normalized;
     }
 
-    private static String normalizeRequiredString(String value, String message)
+    static String normalizeRequiredString(String value, String message)
         throws InvalidRuntimeBootstrapException {
         if (value == null || value.trim().isEmpty()) {
             throw new InvalidRuntimeBootstrapException(message, "RUNTIME_BOOTSTRAP_INVALID");
@@ -771,7 +887,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return value.trim();
     }
 
-    private static String firstNonBlank(String preferred, String fallback) {
+    static String firstNonBlank(String preferred, String fallback) {
         if (preferred != null && !preferred.trim().isEmpty()) {
             return preferred;
         }
