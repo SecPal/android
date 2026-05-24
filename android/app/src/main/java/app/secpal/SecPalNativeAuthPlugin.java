@@ -827,7 +827,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return normalized;
     }
 
-    private static String normalizeRequiredString(String value, String message)
+    static String normalizeRequiredString(String value, String message)
         throws InvalidRuntimeBootstrapException {
         if (value == null || value.trim().isEmpty()) {
             throw new InvalidRuntimeBootstrapException(message, "RUNTIME_BOOTSTRAP_INVALID");
@@ -836,7 +836,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return value.trim();
     }
 
-    private static String firstNonBlank(String preferred, String fallback) {
+    static String firstNonBlank(String preferred, String fallback) {
         if (preferred != null && !preferred.trim().isEmpty()) {
             return preferred;
         }

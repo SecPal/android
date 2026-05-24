@@ -89,8 +89,8 @@ final class AndroidPushRuntimeMetadata {
             return null;
         }
 
-        String provider = normalizeRequiredString(
-            firstNonBlank(androidPush.optString("provider", null), null),
+        String provider = SecPalNativeAuthPlugin.normalizeRequiredString(
+            SecPalNativeAuthPlugin.firstNonBlank(androidPush.optString("provider", null), null),
             "Android runtime bootstrap requires the FCM Android push provider"
         ).toLowerCase();
 
@@ -130,22 +130,10 @@ final class AndroidPushRuntimeMetadata {
 
     private static String requiredPublicClientMetadataValue(JSONObject source, String camelKey, String snakeKey)
         throws SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException {
-        return normalizeRequiredString(
-            firstNonBlank(source.optString(camelKey, null), source.optString(snakeKey, null)),
+        return SecPalNativeAuthPlugin.normalizeRequiredString(
+            SecPalNativeAuthPlugin.firstNonBlank(source.optString(camelKey, null), source.optString(snakeKey, null)),
             "Android runtime bootstrap requires complete Android push client metadata"
         );
-    }
-
-    private static String normalizeRequiredString(String value, String message)
-        throws SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException {
-        if (value == null || value.trim().isEmpty()) {
-            throw new SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException(
-                message,
-                "RUNTIME_BOOTSTRAP_INVALID"
-            );
-        }
-
-        return value.trim();
     }
 
     private static int parsePositiveInteger(Object value, String message)
@@ -182,14 +170,6 @@ final class AndroidPushRuntimeMetadata {
             message,
             "RUNTIME_BOOTSTRAP_INVALID"
         );
-    }
-
-    private static String firstNonBlank(String preferred, String fallback) {
-        if (preferred != null && !preferred.trim().isEmpty()) {
-            return preferred;
-        }
-
-        return fallback;
     }
 
     private static Object firstNonNull(Object preferred, Object fallback) {
