@@ -11,6 +11,7 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class AndroidPushRuntimeManager {
     private static final String RUNTIME_APP_NAME = "secpal-runtime-push";
@@ -49,6 +50,8 @@ final class AndroidPushRuntimeManager {
 
         FirebaseAppHandle initialize(AndroidPushRuntimeMetadata metadata);
 
+        void cancelPendingTokenRequest();
+
         void ensureMessaging(FirebaseAppHandle app);
     }
 
@@ -69,6 +72,8 @@ final class AndroidPushRuntimeManager {
     }
 
     void apply(AndroidPushRuntimeMetadata metadata) {
+        firebaseBackend.cancelPendingTokenRequest();
+
         FirebaseAppHandle existingRuntimeApp = firebaseBackend.findRuntimeApp();
 
         if (existingRuntimeApp != null) {
@@ -87,6 +92,7 @@ final class AndroidPushRuntimeManager {
         private final Context applicationContext;
         private final FirebaseMessagingClient messagingClient;
         private final MessagingListener messagingListener;
+        private final AtomicInteger requestGeneration = new AtomicInteger(0);
 
         DefaultFirebaseBackend(
             Context applicationContext,
@@ -98,6 +104,11 @@ final class AndroidPushRuntimeManager {
             this.messagingListener = messagingListener == null
                 ? NO_OP_MESSAGING_LISTENER
                 : messagingListener;
+        }
+
+        @Override
+        public void cancelPendingTokenRequest() {
+            requestGeneration.incrementAndGet();
         }
 
         @Override
@@ -133,25 +144,26 @@ final class AndroidPushRuntimeManager {
         @Override
         public void ensureMessaging(FirebaseAppHandle app) {
             String appName = app.getName();
+            int generation = requestGeneration.get();
 
-            try {
-                messagingClient.requestToken(
-                    appName,
-                    new MessagingTokenListener() {
-                        @Override
-                        public void onTokenReceived(String token) {
+            messagingClient.requestToken(
+                appName,
+                new MessagingTokenListener() {
+                    @Override
+                    public void onTokenReceived(String token) {
+                        if (requestGeneration.get() == generation) {
                             messagingListener.onTokenReceived(appName, token);
                         }
+                    }
 
-                        @Override
-                        public void onTokenError(Exception exception) {
+                    @Override
+                    public void onTokenError(Exception exception) {
+                        if (requestGeneration.get() == generation) {
                             messagingListener.onTokenError(appName, exception);
                         }
                     }
-                );
-            } catch (RuntimeException exception) {
-                messagingListener.onTokenError(appName, exception);
-            }
+                }
+            );
         }
     }
 

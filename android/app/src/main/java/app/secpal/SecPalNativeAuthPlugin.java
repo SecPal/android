@@ -38,6 +38,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private NativePasskeyAuthenticator passkeyAuthenticator;
     private AndroidPushRuntimeManager androidPushRuntimeManager;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+    private volatile boolean destroyed = false;
     private String apiBaseUrl;
 
     @Override
@@ -69,6 +70,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        destroyed = true;
         super.handleOnDestroy();
         taskExecutor.shutdownNow();
     }
@@ -524,29 +526,51 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
+    interface DestroyedCheck {
+        boolean isDestroyed();
+    }
+
+    interface PushEventNotifier {
+        void notifyRetained(String event, JSObject payload);
+    }
+
     private AndroidPushRuntimeManager.MessagingListener createAndroidPushMessagingListener() {
+        return buildAndroidPushMessagingListener(
+            () -> destroyed,
+            (event, payload) -> notifyListeners(event, payload, true)
+        );
+    }
+
+    static AndroidPushRuntimeManager.MessagingListener buildAndroidPushMessagingListener(
+        DestroyedCheck destroyedCheck,
+        PushEventNotifier notifier
+    ) {
         return new AndroidPushRuntimeManager.MessagingListener() {
             @Override
             public void onTokenReceived(String appName, String token) {
-                notifyListeners(
+                if (destroyedCheck.isDestroyed()) {
+                    return;
+                }
+                notifier.notifyRetained(
                     ANDROID_PUSH_TOKEN_RECEIVED_EVENT,
-                    buildAndroidPushTokenPayload(appName, token),
-                    true
+                    buildAndroidPushTokenPayload(appName, token)
                 );
             }
 
             @Override
             public void onTokenError(String appName, Exception exception) {
-                notifyListeners(
+                if (destroyedCheck.isDestroyed()) {
+                    return;
+                }
+                notifier.notifyRetained(
                     ANDROID_PUSH_TOKEN_ERROR_EVENT,
-                    buildAndroidPushTokenErrorPayload(appName, exception),
-                    true
+                    buildAndroidPushTokenErrorPayload(appName, exception)
                 );
             }
         };
     }
 
-    private JSObject buildAndroidPushTokenPayload(String appName, String token) {
+    private static JSObject buildAndroidPushTokenPayload(String appName, String token) {
         JSObject payload = new JSObject();
         payload.put("appName", appName);
         payload.put("provider", "fcm");
@@ -554,7 +578,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return payload;
     }
 
-    private JSObject buildAndroidPushTokenErrorPayload(String appName, Exception exception) {
+    private static JSObject buildAndroidPushTokenErrorPayload(String appName, Exception exception) {
         JSObject payload = new JSObject();
         String message = exception.getMessage();
 

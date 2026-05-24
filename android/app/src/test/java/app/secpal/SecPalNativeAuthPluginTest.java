@@ -412,6 +412,60 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void messagingListenerForwardsTokenEventBeforeDestroyed() {
+        final boolean[] notified = { false };
+        AndroidPushRuntimeManager.MessagingListener listener =
+            SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
+                () -> false,
+                (event, payload) -> {
+                    assertEquals("androidPushTokenReceived", event);
+                    assertEquals("secpal-runtime-push", payload.getString("appName"));
+                    assertEquals("fcm", payload.getString("provider"));
+                    assertEquals("fcm-token-demo", payload.getString("token"));
+                    notified[0] = true;
+                }
+            );
+
+        listener.onTokenReceived("secpal-runtime-push", "fcm-token-demo");
+
+        assertTrue("Token event must reach notifier before destroy", notified[0]);
+    }
+
+    @Test
+    public void messagingListenerSuppressesTokenEventAfterDestroyed() {
+        final boolean[] notified = { false };
+        AndroidPushRuntimeManager.MessagingListener listener =
+            SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
+                () -> true,
+                (event, payload) -> notified[0] = true
+            );
+
+        listener.onTokenReceived("secpal-runtime-push", "fcm-token-demo");
+
+        assertFalse(
+            "Token callback must be suppressed after plugin is destroyed",
+            notified[0]
+        );
+    }
+
+    @Test
+    public void messagingListenerSuppressesTokenErrorAfterDestroyed() {
+        final boolean[] notified = { false };
+        AndroidPushRuntimeManager.MessagingListener listener =
+            SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
+                () -> true,
+                (event, payload) -> notified[0] = true
+            );
+
+        listener.onTokenError("secpal-runtime-push", new RuntimeException("token-failure"));
+
+        assertFalse(
+            "Error callback must be suppressed after plugin is destroyed",
+            notified[0]
+        );
+    }
+
+    @Test
     public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(
@@ -566,6 +620,9 @@ public class SecPalNativeAuthPluginTest {
             initializeCallCount += 1;
             throw new IllegalStateException("Failed to initialize Android push runtime from deployment metadata");
         }
+
+        @Override
+        public void cancelPendingTokenRequest() {}
 
         @Override
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
