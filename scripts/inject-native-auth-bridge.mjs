@@ -54,6 +54,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
   const runtimeResetEntryId = "secpal-instance-runtime-info";
   const runtimeResetSummaryId = "secpal-instance-runtime-summary";
+  const androidPushInstallationIdStorageKeyPrefix =
+    "secpal-android-push-installation:";
+  const androidPushDeviceName = "SecPal Android";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -64,9 +67,40 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     nativeConfigPromise: Promise.resolve(),
   };
   globalThis.__SecPalRuntimeDiscoveryState = runtimeState;
+  const androidPushSyncState = globalThis.__SecPalAndroidPushSyncState ?? {};
+  globalThis.__SecPalAndroidPushSyncState = androidPushSyncState;
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
+  androidPushSyncState.currentToken =
+    typeof androidPushSyncState.currentToken === "string" &&
+    androidPushSyncState.currentToken.trim().length >= 32
+      ? androidPushSyncState.currentToken.trim()
+      : null;
+  androidPushSyncState.lastSyncedToken =
+    typeof androidPushSyncState.lastSyncedToken === "string" &&
+    androidPushSyncState.lastSyncedToken.trim().length >= 32
+      ? androidPushSyncState.lastSyncedToken.trim()
+      : null;
+  androidPushSyncState.lastSyncedApiOrigin =
+    typeof androidPushSyncState.lastSyncedApiOrigin === "string" &&
+    androidPushSyncState.lastSyncedApiOrigin.trim().length > 0
+      ? androidPushSyncState.lastSyncedApiOrigin.trim()
+      : null;
+  androidPushSyncState.lastSyncedMetadataRevision = Number.isInteger(
+    androidPushSyncState.lastSyncedMetadataRevision
+  )
+    ? Number(androidPushSyncState.lastSyncedMetadataRevision)
+    : null;
+  androidPushSyncState.suspended = androidPushSyncState.suspended === true;
+  androidPushSyncState.installationIds =
+    androidPushSyncState.installationIds &&
+    typeof androidPushSyncState.installationIds === "object"
+      ? androidPushSyncState.installationIds
+      : {};
+  androidPushSyncState.syncPromise = Promise.resolve(
+    androidPushSyncState.syncPromise
+  ).catch(() => undefined);
   const discoveryLocales = {
     en: "English",
     de: "Deutsch",
@@ -1168,6 +1202,369 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return bytes;
   };
 
+  const normalizePushToken = (value) => {
+    return typeof value === "string" ? value.trim() : "";
+  };
+
+  const isUuid = (value) => {
+    return typeof value === "string"
+      ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          value.trim()
+        )
+      : false;
+  };
+
+  const generateInstallationId = () => {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+
+    if (typeof globalThis.crypto?.getRandomValues === "function") {
+      const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (byte) =>
+        byte.toString(16).padStart(2, "0")
+      ).join("");
+
+      return [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        hex.slice(12, 16),
+        hex.slice(16, 20),
+        hex.slice(20),
+      ].join("-");
+    }
+
+    return "00000000-0000-4000-8000-000000000000";
+  };
+
+  const getPushInstallationStorageKey = (apiOrigin) => {
+    return androidPushInstallationIdStorageKeyPrefix + encodeURIComponent(apiOrigin);
+  };
+
+  const getStoredPushInstallationId = (apiOrigin) => {
+    if (typeof apiOrigin !== "string" || apiOrigin.trim().length === 0) {
+      return null;
+    }
+
+    const storageKey = getPushInstallationStorageKey(apiOrigin.trim());
+    const storage = getLocalStorage();
+
+    if (storage && typeof storage.getItem === "function") {
+      try {
+        const stored = storage.getItem(storageKey);
+
+        if (isUuid(stored)) {
+          return stored.trim();
+        }
+      } catch {
+        // Installation identifier persistence is best-effort only.
+      }
+    }
+
+    const fallback = androidPushSyncState.installationIds[storageKey];
+
+    return isUuid(fallback) ? fallback.trim() : null;
+  };
+
+  const getOrCreatePushInstallationId = (apiOrigin) => {
+    const existing = getStoredPushInstallationId(apiOrigin);
+
+    if (existing) {
+      return existing;
+    }
+
+    const installationId = generateInstallationId();
+    const normalizedApiOrigin = apiOrigin.trim();
+    const storageKey = getPushInstallationStorageKey(normalizedApiOrigin);
+    const storage = getLocalStorage();
+
+    androidPushSyncState.installationIds[storageKey] = installationId;
+
+    if (storage && typeof storage.setItem === "function") {
+      try {
+        storage.setItem(storageKey, installationId);
+      } catch {
+        // Installation identifier persistence is best-effort only.
+      }
+    }
+
+    return installationId;
+  };
+
+  const getConfiguredAndroidPushMetadata = () => {
+    if (!runtimeState.configured || typeof runtimeState.apiOrigin !== "string") {
+      return null;
+    }
+
+    const bootstrap = runtimeState.bootstrap;
+
+    if (!bootstrap || typeof bootstrap !== "object") {
+      return null;
+    }
+
+    const androidPush = bootstrap.androidPush;
+    const provider =
+      androidPush && typeof androidPush === "object" && typeof androidPush.provider === "string"
+        ? androidPush.provider.trim()
+        : "";
+    const metadataRevision =
+      androidPush && typeof androidPush === "object"
+        ? Number(androidPush.metadataRevision)
+        : Number.NaN;
+
+    if (
+      provider !== "fcm" ||
+      !Number.isInteger(metadataRevision) ||
+      metadataRevision <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      apiOrigin: runtimeState.apiOrigin.trim(),
+      provider,
+      metadataRevision,
+    };
+  };
+
+  const clearAndroidPushSyncState = ({
+    preserveCurrentToken = false,
+  } = {}) => {
+    if (!preserveCurrentToken) {
+      androidPushSyncState.currentToken = null;
+    }
+
+    androidPushSyncState.lastSyncedToken = null;
+    androidPushSyncState.lastSyncedApiOrigin = null;
+    androidPushSyncState.lastSyncedMetadataRevision = null;
+    androidPushSyncState.syncPromise = Promise.resolve();
+  };
+
+  const encodeJsonRequestBody = (value) => {
+    const json = JSON.stringify(value);
+    const encoder =
+      typeof globalThis.TextEncoder === "function"
+        ? new globalThis.TextEncoder()
+        : null;
+    const bytes = encoder
+      ? encoder.encode(json)
+      : Uint8Array.from(json, (character) => character.charCodeAt(0));
+
+    return encodeBase64(bytes);
+  };
+
+  const queueAndroidPushSync = () => {
+    androidPushSyncState.syncPromise = Promise.resolve(
+      androidPushSyncState.syncPromise
+    )
+      .catch(() => undefined)
+      .then(async () => {
+        const pushMetadata = getConfiguredAndroidPushMetadata();
+        const token = normalizePushToken(androidPushSyncState.currentToken);
+
+        if (
+          !pushMetadata ||
+          androidPushSyncState.suspended === true ||
+          authState.active !== true ||
+          token.length < 32
+        ) {
+          return;
+        }
+
+        if (
+          androidPushSyncState.lastSyncedToken === token &&
+          androidPushSyncState.lastSyncedApiOrigin === pushMetadata.apiOrigin &&
+          androidPushSyncState.lastSyncedMetadataRevision ===
+            pushMetadata.metadataRevision
+        ) {
+          return;
+        }
+
+        const lifecycleEvent =
+          androidPushSyncState.lastSyncedApiOrigin === pushMetadata.apiOrigin &&
+          typeof androidPushSyncState.lastSyncedToken === "string" &&
+          androidPushSyncState.lastSyncedToken !== token
+            ? "token_rotated"
+            : "registered";
+        const runtimeInfo = await getRuntimeInfo();
+        const installationId = getOrCreatePushInstallationId(pushMetadata.apiOrigin);
+        const response = await sendAuthenticatedNativeRequest({
+          method: "PUT",
+          path: "/v1/me/push-devices/" + installationId,
+          bodyBase64: encodeJsonRequestBody({
+            platform: "android",
+            provider: pushMetadata.provider,
+            device_name: androidPushDeviceName,
+            push_token: token,
+            lifecycle_event: lifecycleEvent,
+            app: {
+              package_name: "app.secpal",
+              package_version_name: runtimeInfo.appVersion,
+              package_version_code: runtimeInfo.appBuild,
+            },
+            runtime: {
+              bootstrap_version: "v1",
+              schema_version: 2,
+              push_metadata_revision: pushMetadata.metadataRevision,
+            },
+          }),
+          contentType: "application/json",
+          accept: "application/json",
+        });
+        const status =
+          response && typeof response === "object"
+            ? Number(response.status)
+            : Number.NaN;
+
+        if (status === 200 || status === 201) {
+          androidPushSyncState.lastSyncedToken = token;
+          androidPushSyncState.lastSyncedApiOrigin = pushMetadata.apiOrigin;
+          androidPushSyncState.lastSyncedMetadataRevision =
+            pushMetadata.metadataRevision;
+          return;
+        }
+
+        if (status === 401) {
+          return;
+        }
+
+        throw new Error(
+          "Android push device registration request failed with status " +
+            String(status)
+        );
+      })
+      .catch((error) => {
+        console.warn("Failed to sync Android push device registration.", error);
+      });
+
+    return androidPushSyncState.syncPromise;
+  };
+
+  const setAuthActive = (nextActive) => {
+    const wasActive = authState.active === true;
+
+    authState.active = nextActive === true;
+
+    if (!wasActive && authState.active && androidPushSyncState.suspended !== true) {
+      queueAndroidPushSync();
+    }
+  };
+
+  const sendAuthenticatedNativeRequest = async (
+    request,
+    { markAuthenticatedOnSuccess = true } = {}
+  ) => {
+    await ensureRuntimeConfigured();
+
+    const response = await getPlugin().request(request);
+    const status =
+      response && typeof response === "object" ? Number(response.status) : Number.NaN;
+
+    if (status === 401) {
+      setAuthActive(false);
+    } else if (markAuthenticatedOnSuccess && status >= 200 && status < 300) {
+      setAuthActive(true);
+    }
+
+    return response;
+  };
+
+  const revokeAndroidPushRegistration = () => {
+    androidPushSyncState.syncPromise = Promise.resolve(
+      androidPushSyncState.syncPromise
+    )
+      .catch(() => undefined)
+      .then(async () => {
+        const apiOrigin =
+          typeof runtimeState.apiOrigin === "string" ? runtimeState.apiOrigin.trim() : "";
+        const installationId = apiOrigin ? getStoredPushInstallationId(apiOrigin) : null;
+
+        if (!runtimeState.configured || !apiOrigin || !installationId) {
+          clearAndroidPushSyncState({ preserveCurrentToken: true });
+          return;
+        }
+
+        try {
+          const response = await sendAuthenticatedNativeRequest(
+            {
+              method: "DELETE",
+              path: "/v1/me/push-devices/" + installationId,
+              accept: "application/json",
+            },
+            { markAuthenticatedOnSuccess: false }
+          );
+          const status =
+            response && typeof response === "object"
+              ? Number(response.status)
+              : Number.NaN;
+
+          if (status === 200 || status === 204 || status === 401) {
+            return;
+          }
+
+          throw new Error(
+            "Android push device revocation request failed with status " +
+              String(status)
+          );
+        } catch (error) {
+          console.warn("Failed to revoke Android push device registration.", error);
+        } finally {
+          clearAndroidPushSyncState({ preserveCurrentToken: true });
+        }
+      });
+
+    return androidPushSyncState.syncPromise;
+  };
+
+  const installAndroidPushListeners = () => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.addListener !== "function") {
+      return;
+    }
+
+    const rememberListenerHandle = (key, handleOrPromise) => {
+      Promise.resolve(handleOrPromise)
+        .then((handle) => {
+          androidPushSyncState[key] = handle ?? null;
+        })
+        .catch(() => {
+          androidPushSyncState[key] = null;
+        });
+    };
+
+    rememberListenerHandle(
+      "tokenReceivedHandle",
+      plugin.addListener("androidPushTokenReceived", (payload) => {
+        const provider =
+          payload && typeof payload === "object" && typeof payload.provider === "string"
+            ? payload.provider.trim()
+            : "";
+        const token = normalizePushToken(
+          payload && typeof payload === "object" ? payload.token : null
+        );
+
+        if (provider !== "fcm" || token.length < 32) {
+          return;
+        }
+
+        androidPushSyncState.currentToken = token;
+        queueAndroidPushSync();
+      })
+    );
+    rememberListenerHandle(
+      "tokenErrorHandle",
+      plugin.addListener("androidPushTokenError", (payload) => {
+        console.warn(
+          "Failed to retrieve Android push registration token.",
+          payload
+        );
+      })
+    );
+  };
+
   const buildPath = (url) => url.pathname + url.search;
   const fallbackApiHost = new URL(fallbackApiOrigin).hostname;
   const originalFetch =
@@ -1507,13 +1904,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     try {
       if (typeof getPlugin().logout === "function") {
         try {
+          androidPushSyncState.suspended = true;
+          setAuthActive(false);
+          await revokeAndroidPushRegistration();
           await getPlugin().logout();
-          authState.active = false;
+          setAuthActive(false);
         } catch (error) {
           const code = error && typeof error === "object" ? error.code : undefined;
 
           if (code === "NO_STORED_TOKEN" || code === "HTTP_401") {
-            authState.active = false;
+            setAuthActive(false);
           } else {
             console.warn(
               "Failed to logout before resetting the configured SecPal runtime.",
@@ -1540,13 +1940,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
       await clearTenantScopedBrowserState();
     } catch (error) {
+      androidPushSyncState.suspended = false;
       console.warn("Failed to clear the current SecPal instance.", error);
       runtimeResetBusy = false;
       syncRuntimeResetEntryCopy();
       return;
     }
 
-    authState.active = false;
+    androidPushSyncState.suspended = false;
+    setAuthActive(false);
+    clearAndroidPushSyncState();
     runtimeState.configured = false;
     runtimeState.bootstrap = null;
     runtimeState.apiOrigin = null;
@@ -2211,32 +2614,38 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   restorePersistedBootstrap();
   installRuntimeResetRouteListener();
+  installAndroidPushListeners();
 
   const bridge = {
     async login(credentials) {
       await ensureRuntimeConfigured();
       const result = await getPlugin().login(credentials);
-      authState.active = true;
+      setAuthActive(true);
       return result;
     },
     async logout() {
       await ensureRuntimeConfigured();
       try {
+        androidPushSyncState.suspended = true;
+        setAuthActive(false);
+        await revokeAndroidPushRegistration();
         return await getPlugin().logout();
       } finally {
-        authState.active = false;
+        setAuthActive(false);
+        clearAndroidPushSyncState({ preserveCurrentToken: true });
+        androidPushSyncState.suspended = false;
       }
     },
     async getCurrentUser() {
       await ensureRuntimeConfigured();
       try {
         const result = await getPlugin().getCurrentUser();
-        authState.active = true;
+        setAuthActive(true);
         return result;
       } catch (error) {
         const code = error && typeof error === "object" ? error.code : undefined;
         if (code === "HTTP_401" || code === "NO_STORED_TOKEN") {
-          authState.active = false;
+          setAuthActive(false);
         }
         throw error;
       }
@@ -2246,8 +2655,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return result && typeof result === "object" ? result.available === true : result === true;
     },
     async request(request) {
-      await ensureRuntimeConfigured();
-      return getPlugin().request(request);
+      return sendAuthenticatedNativeRequest(request);
     },
     async createPasskeyAttestation(options) {
       const result = await getPlugin().createPasskeyAttestation({ publicKey: options });
@@ -2261,7 +2669,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     bridge.loginWithPasskey = async () => {
       await ensureRuntimeConfigured();
       const result = await getPlugin().loginWithPasskey();
-      authState.active = true;
+      setAuthActive(true);
       return result;
     };
   }
@@ -2395,11 +2803,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           contentType: request.headers.get("Content-Type") ?? undefined,
           accept: request.headers.get("Accept") ?? undefined,
         });
-        if (nativeResponse.status === 401) {
-          authState.active = false;
-        } else {
-          authState.active = true;
-        }
         const headers = new Headers();
         if (nativeResponse.contentType) {
           headers.set("Content-Type", nativeResponse.contentType);

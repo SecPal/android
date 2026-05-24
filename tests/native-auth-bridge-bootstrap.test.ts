@@ -3256,6 +3256,515 @@ describe("native auth bridge bootstrap injection", () => {
     expect(authState.active).toBe(true);
   });
 
+  function createCustomerAndroidPushBootstrap() {
+    return buildRuntimeBootstrapValue({
+      instanceDisplayName: "Customer Example",
+      apiOrigin: "https://customer-api.example",
+      rawApiBaseUrl: "https://customer-api.example/v1",
+      androidPush: {
+        provider: "fcm",
+        metadataRevision: 3,
+        publicClientMetadata: {
+          apiKey: "public-client-api-key-demo-1234567890",
+          projectId: "secpal-demo-push",
+          applicationId: "1:1234567890:android:abcdef1234567890",
+          senderId: "1234567890",
+        },
+      },
+    });
+  }
+
+  function decodeBase64Json(value: string) {
+    return JSON.parse(Buffer.from(value, "base64").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  async function createAndroidPushLifecycleSandbox(
+    options: {
+      includeResetUi?: boolean;
+    } = {}
+  ) {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const browserFetch = vi.fn(async () => new Response("browser", { status: 200 }));
+    const listeners: Record<
+      string,
+      Array<(payload: Record<string, unknown>) => void>
+    > = {
+      androidPushTokenReceived: [],
+      androidPushTokenError: [],
+    };
+    const handles: Array<{ remove: ReturnType<typeof vi.fn> }> = [];
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 201,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+            },
+          })
+        ),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "1.5.0",
+        appBuild: 10500,
+      }),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: createCustomerAndroidPushBootstrap(),
+      }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      addListener: vi.fn(
+        (
+          eventName: string,
+          listener: (payload: Record<string, unknown>) => void
+        ) => {
+          if (eventName in listeners) {
+            listeners[eventName].push(listener);
+          }
+
+          const handle = { remove: vi.fn() };
+          handles.push(handle);
+          return handle;
+        }
+      ),
+    };
+    const document = new MockDocument();
+
+    if (options.includeResetUi) {
+      appendMockLoginFooter(document);
+    }
+
+    const localStorage = createMockStorage({
+      "secpal-locale": "en",
+      "tenant-cache": "customer-a",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap({
+        instanceDisplayName: "Customer Example",
+        apiOrigin: "https://customer-api.example",
+        rawApiBaseUrl: "https://customer-api.example/v1",
+        androidPush: {
+          provider: "fcm",
+          metadataRevision: 3,
+          publicClientMetadata: {
+            apiKey: "public-client-api-key-demo-1234567890",
+            projectId: "secpal-demo-push",
+            applicationId: "1:1234567890:android:abcdef1234567890",
+            senderId: "1234567890",
+          },
+        },
+      }),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      confirm: vi.fn().mockReturnValue(true),
+      crypto: {
+        randomUUID: vi.fn(() => installationId),
+      },
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    return {
+      bridge: sandbox.SecPalNativeAuthBridge as {
+        login(credentials: {
+          email: string;
+          password: string;
+        }): Promise<unknown>;
+        logout(): Promise<void>;
+      },
+      browserFetch,
+      document,
+      handles,
+      installationId,
+      listeners,
+      localStorage,
+      plugin,
+      sandbox,
+      sessionStorage,
+    };
+  }
+
+  it("registers a pending Android push token after native login against the selected customer-hosted backend", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const {
+      bridge,
+      browserFetch,
+      handles,
+      installationId,
+      listeners,
+      plugin,
+    } = await createAndroidPushLifecycleSandbox();
+
+    expect(plugin.addListener).toHaveBeenCalledTimes(2);
+    expect(plugin.addListener.mock.calls.map((call) => call[0])).toEqual([
+      "androidPushTokenReceived",
+      "androidPushTokenError",
+    ]);
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    expect(browserFetch).not.toHaveBeenCalled();
+
+    const registrationRequest = plugin.request.mock.calls[0]?.[0] as {
+      accept?: string;
+      bodyBase64?: string;
+      contentType?: string;
+      method: string;
+      path: string;
+    };
+    const registrationPayload = decodeBase64Json(
+      String(registrationRequest.bodyBase64)
+    );
+
+    expect(registrationRequest).toEqual({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+      bodyBase64: registrationRequest.bodyBase64,
+      contentType: "application/json",
+      accept: "application/json",
+    });
+    expect(registrationPayload).toEqual({
+      platform: "android",
+      provider: "fcm",
+      device_name: "SecPal Android",
+      push_token: pushToken,
+      lifecycle_event: "registered",
+      app: {
+        package_name: "app.secpal",
+        package_version_name: "1.5.0",
+        package_version_code: 10500,
+      },
+      runtime: {
+        bootstrap_version: "v1",
+        schema_version: 2,
+        push_metadata_revision: 3,
+      },
+    });
+
+    expect(handles).toHaveLength(2);
+    for (const handle of handles) {
+      expect(typeof handle.remove).toBe("function");
+      const remove = handle.remove as unknown as () => void;
+      remove();
+      expect(handle.remove).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("updates the backend registration when the Android push token rotates", async () => {
+    const firstToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const secondToken = "fcm-token-rotation-0987654321zyxwvutsrqponmlkji";
+    const { bridge, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox();
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: firstToken,
+    });
+    await flushMicrotasks();
+
+    const initialRequest = plugin.request.mock.calls[0]?.[0] as {
+      bodyBase64?: string;
+      path: string;
+    };
+    const initialPayload = decodeBase64Json(String(initialRequest.bodyBase64));
+
+    expect(initialRequest.path).toBe(`/v1/me/push-devices/${installationId}`);
+    expect(initialPayload.lifecycle_event).toBe("registered");
+
+    plugin.request.mockClear();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: secondToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+
+    const rotatedRequest = plugin.request.mock.calls[0]?.[0] as {
+      bodyBase64?: string;
+      method: string;
+      path: string;
+    };
+    const rotatedPayload = decodeBase64Json(String(rotatedRequest.bodyBase64));
+
+    expect(rotatedRequest.method).toBe("PUT");
+    expect(rotatedRequest.path).toBe(`/v1/me/push-devices/${installationId}`);
+    expect(rotatedPayload.lifecycle_event).toBe("token_rotated");
+    expect(rotatedPayload.push_token).toBe(secondToken);
+  });
+
+  it("revokes the backend push-device registration before logout and re-registers it on the next login", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox();
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request.mockResolvedValue({
+      status: 200,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          data: {
+            installation_id: installationId,
+            revoked_at: "2026-05-25T10:00:00Z",
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
+    plugin.request.mockClear();
+
+    await bridge.logout();
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.request.mock.invocationCallOrder[0]).toBeLessThan(
+      plugin.logout.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    );
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+
+    plugin.request.mockResolvedValue({
+      status: 201,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          data: {
+            installation_id: installationId,
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
+    plugin.request.mockClear();
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+
+    const reRegistrationPayload = decodeBase64Json(
+      String(
+        (
+          plugin.request.mock.calls[0]?.[0] as {
+            bodyBase64?: string;
+          }
+        ).bodyBase64
+      )
+    );
+
+    expect(reRegistrationPayload.lifecycle_event).toBe("registered");
+    expect(reRegistrationPayload.push_token).toBe(pushToken);
+  });
+
+  it("waits for an in-flight Android push registration before revoking it during logout", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox();
+    type NativeRequestResponse = {
+      bodyBase64: string;
+      contentType: string;
+      status: number;
+    };
+    let resolveRegistrationRequest: (value: NativeRequestResponse) => void = () => {};
+    const pendingRegistrationRequest = new Promise<NativeRequestResponse>((resolve) => {
+      resolveRegistrationRequest = resolve;
+    });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockImplementationOnce(() => pendingRegistrationRequest)
+      .mockResolvedValueOnce({
+        status: 200,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+              revoked_at: "2026-05-25T10:00:00Z",
+            },
+          })
+        ),
+        contentType: "application/json",
+      });
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledTimes(1);
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+
+    const logoutPromise = bridge.logout();
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledTimes(1);
+
+    resolveRegistrationRequest({
+      status: 201,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          data: {
+            installation_id: installationId,
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
+
+    await logoutPromise;
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledTimes(2);
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.logout).toHaveBeenCalledOnce();
+  });
+
+  it("revokes the backend push-device registration during destructive runtime reset", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, document, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox({ includeResetUi: true });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request.mockResolvedValue({
+      status: 200,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          data: {
+            installation_id: installationId,
+            revoked_at: "2026-05-25T10:00:00Z",
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
+    plugin.request.mockClear();
+
+    const runtimeInfoSummary = document.getElementById(
+      "secpal-instance-runtime-summary"
+    ) as MockElement | null;
+
+    runtimeInfoSummary!.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.request.mock.invocationCallOrder[0]).toBeLessThan(
+      plugin.logout.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    );
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+  });
+
   it("does not render the removed in-app dedicated-device launcher", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const enterprisePlugin = {
