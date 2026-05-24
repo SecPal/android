@@ -163,7 +163,6 @@ final class AndroidPushRuntimeManager {
                 );
             } catch (RuntimeException exception) {
                 messagingListener.onTokenError(appName, exception);
-                throw exception;
             }
         }
     }
