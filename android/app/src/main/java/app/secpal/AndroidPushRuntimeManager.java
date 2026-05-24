@@ -8,14 +8,41 @@ package app.secpal;
 import android.content.Context;
 
 import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class AndroidPushRuntimeManager {
     private static final String RUNTIME_APP_NAME = "secpal-runtime-push";
+    private static final MessagingListener NO_OP_MESSAGING_LISTENER = new MessagingListener() {
+        @Override
+        public void onTokenReceived(String appName, String token) {}
+
+        @Override
+        public void onTokenError(String appName, Exception exception) {}
+    };
 
     interface FirebaseAppHandle {
+        String getName();
+
         void delete();
+    }
+
+    interface MessagingTokenListener {
+        void onTokenReceived(String token);
+
+        void onTokenError(Exception exception);
+    }
+
+    interface MessagingListener {
+        void onTokenReceived(String appName, String token);
+
+        void onTokenError(String appName, Exception exception);
+    }
+
+    interface FirebaseMessagingClient {
+        void requestToken(String appName, MessagingTokenListener listener);
     }
 
     interface FirebaseBackend {
@@ -23,13 +50,21 @@ final class AndroidPushRuntimeManager {
 
         FirebaseAppHandle initialize(AndroidPushRuntimeMetadata metadata);
 
-        void ensureMessaging();
+        void cancelPendingTokenRequest();
+
+        void ensureMessaging(FirebaseAppHandle app);
     }
 
     private final FirebaseBackend firebaseBackend;
 
-    AndroidPushRuntimeManager(Context context) {
-        this(new DefaultFirebaseBackend(context.getApplicationContext()));
+    AndroidPushRuntimeManager(Context context, MessagingListener messagingListener) {
+        this(
+            new DefaultFirebaseBackend(
+                context.getApplicationContext(),
+                new DefaultFirebaseMessagingClient(),
+                messagingListener
+            )
+        );
     }
 
     AndroidPushRuntimeManager(FirebaseBackend firebaseBackend) {
@@ -37,6 +72,8 @@ final class AndroidPushRuntimeManager {
     }
 
     void apply(AndroidPushRuntimeMetadata metadata) {
+        firebaseBackend.cancelPendingTokenRequest();
+
         FirebaseAppHandle existingRuntimeApp = firebaseBackend.findRuntimeApp();
 
         if (existingRuntimeApp != null) {
@@ -47,15 +84,31 @@ final class AndroidPushRuntimeManager {
             return;
         }
 
-        firebaseBackend.initialize(metadata);
-        firebaseBackend.ensureMessaging();
+        FirebaseAppHandle initializedApp = firebaseBackend.initialize(metadata);
+        firebaseBackend.ensureMessaging(initializedApp);
     }
 
-    private static final class DefaultFirebaseBackend implements FirebaseBackend {
+    static final class DefaultFirebaseBackend implements FirebaseBackend {
         private final Context applicationContext;
+        private final FirebaseMessagingClient messagingClient;
+        private final MessagingListener messagingListener;
+        private final AtomicInteger requestGeneration = new AtomicInteger(0);
 
-        DefaultFirebaseBackend(Context applicationContext) {
+        DefaultFirebaseBackend(
+            Context applicationContext,
+            FirebaseMessagingClient messagingClient,
+            MessagingListener messagingListener
+        ) {
             this.applicationContext = applicationContext;
+            this.messagingClient = messagingClient;
+            this.messagingListener = messagingListener == null
+                ? NO_OP_MESSAGING_LISTENER
+                : messagingListener;
+        }
+
+        @Override
+        public void cancelPendingTokenRequest() {
+            requestGeneration.incrementAndGet();
         }
 
         @Override
@@ -89,8 +142,47 @@ final class AndroidPushRuntimeManager {
         }
 
         @Override
-        public void ensureMessaging() {
-            // FCM token retrieval for the named app is tracked in issue #241.
+        public void ensureMessaging(FirebaseAppHandle app) {
+            String appName = app.getName();
+            int generation = requestGeneration.get();
+
+            messagingClient.requestToken(
+                appName,
+                new MessagingTokenListener() {
+                    @Override
+                    public void onTokenReceived(String token) {
+                        if (requestGeneration.get() == generation) {
+                            messagingListener.onTokenReceived(appName, token);
+                        }
+                    }
+
+                    @Override
+                    public void onTokenError(Exception exception) {
+                        if (requestGeneration.get() == generation) {
+                            messagingListener.onTokenError(appName, exception);
+                        }
+                    }
+                }
+            );
+        }
+    }
+
+    static final class DefaultFirebaseMessagingClient implements FirebaseMessagingClient {
+        @Override
+        public void requestToken(String appName, MessagingTokenListener listener) {
+            FirebaseApp namedApp = FirebaseApp.getInstance(appName);
+            FirebaseMessaging messaging = namedApp.get(FirebaseMessaging.class);
+
+            if (messaging == null) {
+                throw new IllegalStateException(
+                    "Failed to resolve Firebase Messaging for Android push runtime app " + appName
+                );
+            }
+
+            messaging
+                .getToken()
+                .addOnSuccessListener(listener::onTokenReceived)
+                .addOnFailureListener(listener::onTokenError);
         }
     }
 
@@ -99,6 +191,11 @@ final class AndroidPushRuntimeManager {
 
         DefaultFirebaseAppHandle(FirebaseApp firebaseApp) {
             this.firebaseApp = firebaseApp;
+        }
+
+        @Override
+        public String getName() {
+            return firebaseApp.getName();
         }
 
         @Override

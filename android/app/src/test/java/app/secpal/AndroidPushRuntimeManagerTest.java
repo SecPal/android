@@ -32,6 +32,7 @@ public class AndroidPushRuntimeManagerTest {
 
         assertEquals(1, backend.initializeCallCount);
         assertEquals(1, backend.ensureMessagingCallCount);
+        assertSame(backend.lastInitializedApp, backend.lastEnsuredMessagingApp);
         assertEquals("fcm", backend.lastInitializedMetadata.provider());
         assertEquals(3, backend.lastInitializedMetadata.metadataRevision());
         assertEquals(0, backend.deleteCallCount);
@@ -40,7 +41,7 @@ public class AndroidPushRuntimeManagerTest {
     @Test
     public void applyClearsExistingRuntimeWhenDeploymentDisablesPush() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
-        backend.existingApp = new FakeFirebaseApp(backend);
+        backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
         AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
 
         manager.apply(null);
@@ -55,7 +56,7 @@ public class AndroidPushRuntimeManagerTest {
     public void applyPropagatesDeleteExceptionBeforeInitializeIsAttempted() {
         RuntimeException deleteException = new RuntimeException("delete-failed");
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
-        backend.existingApp = new FakeFirebaseApp(backend) {
+        backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push") {
             @Override
             public void delete() {
                 super.delete();
@@ -79,10 +80,96 @@ public class AndroidPushRuntimeManagerTest {
         assertEquals(0, backend.initializeCallCount);
     }
 
+    @Test
+    public void defaultFirebaseBackendRequestsTokenForNamedRuntimeApp() {
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        FakeMessagingListener messagingListener = new FakeMessagingListener();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                messagingListener
+            );
+
+        backend.ensureMessaging(new FakeFirebaseApp(new FakeFirebaseBackend(), "secpal-runtime-push"));
+
+        assertEquals("secpal-runtime-push", messagingClient.lastRequestedAppName);
+        assertEquals("fcm-token-demo", messagingListener.lastReceivedToken);
+        assertEquals("secpal-runtime-push", messagingListener.lastReceivedAppName);
+    }
+
+    @Test
+    public void defaultFirebaseBackendSurfacesTokenRequestFailureToListener() {
+        RuntimeException tokenFailure = new RuntimeException("token-request-failed");
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        messagingClient.failure = tokenFailure;
+        FakeMessagingListener messagingListener = new FakeMessagingListener();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                messagingListener
+            );
+
+        backend.ensureMessaging(new FakeFirebaseApp(new FakeFirebaseBackend(), "secpal-runtime-push"));
+
+        assertEquals("secpal-runtime-push", messagingClient.lastRequestedAppName);
+        assertSame(tokenFailure, messagingListener.lastFailure);
+        assertEquals("secpal-runtime-push", messagingListener.lastFailedAppName);
+    }
+
+    @Test
+    public void defaultFirebaseBackendPropagatesSynchronousTokenRequestFailureToCaller() {
+        RuntimeException tokenFailure = new RuntimeException("token-request-failed");
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        messagingClient.thrownFailure = tokenFailure;
+        FakeMessagingListener messagingListener = new FakeMessagingListener();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                messagingListener
+            );
+
+        try {
+            backend.ensureMessaging(new FakeFirebaseApp(new FakeFirebaseBackend(), "secpal-runtime-push"));
+            fail("Expected synchronous exception to propagate");
+        } catch (RuntimeException thrown) {
+            assertSame(tokenFailure, thrown);
+        }
+
+        assertEquals("secpal-runtime-push", messagingClient.lastRequestedAppName);
+        assertNull(messagingListener.lastFailure);
+    }
+
+    @Test
+    public void cancelPendingTokenRequestSuppressesCallbacksFromPreviousRequest() {
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        messagingClient.holdCallback = true;
+        FakeMessagingListener messagingListener = new FakeMessagingListener();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                messagingListener
+            );
+
+        backend.ensureMessaging(new FakeFirebaseApp(new FakeFirebaseBackend(), "secpal-runtime-push"));
+        backend.cancelPendingTokenRequest();
+        messagingClient.deliverPendingSuccess("fcm-token-demo");
+
+        assertNull(
+            "Token callback must be suppressed after cancelPendingTokenRequest()",
+            messagingListener.lastReceivedToken
+        );
+    }
+
     private static class FakeFirebaseBackend
         implements AndroidPushRuntimeManager.FirebaseBackend {
         FakeFirebaseApp existingApp;
+        FakeFirebaseApp lastInitializedApp;
         AndroidPushRuntimeMetadata lastInitializedMetadata;
+        AndroidPushRuntimeManager.FirebaseAppHandle lastEnsuredMessagingApp;
         int initializeCallCount;
         int ensureMessagingCallCount;
         int deleteCallCount;
@@ -98,27 +185,98 @@ public class AndroidPushRuntimeManagerTest {
         ) {
             initializeCallCount += 1;
             lastInitializedMetadata = metadata;
-            existingApp = new FakeFirebaseApp(this);
+            existingApp = new FakeFirebaseApp(this, "secpal-runtime-push");
+            lastInitializedApp = existingApp;
             return existingApp;
         }
 
         @Override
-        public void ensureMessaging() {
+        public void cancelPendingTokenRequest() {}
+
+        @Override
+        public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             ensureMessagingCallCount += 1;
+            lastEnsuredMessagingApp = app;
         }
     }
 
     private static class FakeFirebaseApp implements AndroidPushRuntimeManager.FirebaseAppHandle {
         protected final FakeFirebaseBackend owner;
+        private final String name;
 
-        FakeFirebaseApp(FakeFirebaseBackend owner) {
+        FakeFirebaseApp(FakeFirebaseBackend owner, String name) {
             this.owner = owner;
+            this.name = name;
+        }
+
+        @Override
+        public String getName() {
+            return name;
         }
 
         @Override
         public void delete() {
             owner.deleteCallCount += 1;
             owner.existingApp = null;
+        }
+    }
+
+    private static final class FakeFirebaseMessagingClient
+        implements AndroidPushRuntimeManager.FirebaseMessagingClient {
+        private String lastRequestedAppName;
+        private RuntimeException failure;
+        private RuntimeException thrownFailure;
+        private boolean holdCallback;
+        private AndroidPushRuntimeManager.MessagingTokenListener pendingListener;
+
+        void deliverPendingSuccess(String token) {
+            if (pendingListener != null) {
+                pendingListener.onTokenReceived(token);
+            }
+        }
+
+        @Override
+        public void requestToken(
+            String appName,
+            AndroidPushRuntimeManager.MessagingTokenListener listener
+        ) {
+            lastRequestedAppName = appName;
+
+            if (thrownFailure != null) {
+                throw thrownFailure;
+            }
+
+            if (holdCallback) {
+                pendingListener = listener;
+                return;
+            }
+
+            if (failure != null) {
+                listener.onTokenError(failure);
+                return;
+            }
+
+            listener.onTokenReceived("fcm-token-demo");
+        }
+    }
+
+    private static final class FakeMessagingListener
+        implements AndroidPushRuntimeManager.MessagingListener {
+        private String lastReceivedAppName;
+        private String lastReceivedToken;
+        private String lastFailedAppName;
+        private Exception lastFailure;
+
+        @Override
+        public void onTokenReceived(String appName, String token) {
+            lastReceivedAppName = appName;
+            lastReceivedToken = token;
+        }
+
+        @Override
+        public void onTokenError(String appName, Exception exception) {
+            lastFailedAppName = appName;
+            lastFailure = exception;
         }
     }
 }
