@@ -7,6 +7,8 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
@@ -49,13 +51,41 @@ public class AndroidPushRuntimeManagerTest {
         assertNull(backend.lastInitializedMetadata);
     }
 
-    private static final class FakeFirebaseBackend
+    @Test
+    public void applyPropagatesDeleteExceptionBeforeInitializeIsAttempted() {
+        RuntimeException deleteException = new RuntimeException("delete-failed");
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        backend.existingApp = new FakeFirebaseApp(backend) {
+            @Override
+            public void delete() {
+                super.delete();
+                throw deleteException;
+            }
+        };
+
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        try {
+            manager.apply(
+                new AndroidPushRuntimeMetadata(
+                    "fcm", 1, "api-key", "project-id", "app-id", "sender-id"
+                )
+            );
+            fail("Expected exception from delete");
+        } catch (RuntimeException thrown) {
+            assertSame(deleteException, thrown);
+        }
+
+        assertEquals(0, backend.initializeCallCount);
+    }
+
+    private static class FakeFirebaseBackend
         implements AndroidPushRuntimeManager.FirebaseBackend {
-        private FakeFirebaseApp existingApp;
-        private AndroidPushRuntimeMetadata lastInitializedMetadata;
-        private int initializeCallCount;
-        private int ensureMessagingCallCount;
-        private int deleteCallCount;
+        FakeFirebaseApp existingApp;
+        AndroidPushRuntimeMetadata lastInitializedMetadata;
+        int initializeCallCount;
+        int ensureMessagingCallCount;
+        int deleteCallCount;
 
         @Override
         public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
@@ -78,9 +108,8 @@ public class AndroidPushRuntimeManagerTest {
         }
     }
 
-    private static final class FakeFirebaseApp
-        implements AndroidPushRuntimeManager.FirebaseAppHandle {
-        private final FakeFirebaseBackend owner;
+    private static class FakeFirebaseApp implements AndroidPushRuntimeManager.FirebaseAppHandle {
+        protected final FakeFirebaseBackend owner;
 
         FakeFirebaseApp(FakeFirebaseBackend owner) {
             this.owner = owner;

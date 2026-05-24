@@ -90,7 +90,7 @@ final class AndroidPushRuntimeManager {
 
         @Override
         public void ensureMessaging() {
-            // Initializing the named Firebase app is sufficient for this PR slice.
+            // FCM token retrieval for the named app is tracked in issue #241.
         }
     }
 

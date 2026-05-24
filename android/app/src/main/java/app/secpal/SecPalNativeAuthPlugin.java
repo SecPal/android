@@ -334,7 +334,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         previousRuntimeBootstrap,
                         previousApiBaseUrl
                     );
-                    androidPushRuntimeManager.apply(null);
+                    try {
+                        androidPushRuntimeManager.apply(null);
+                    } catch (RuntimeException cleanupException) {
+                        exception.addSuppressed(cleanupException);
+                    }
                     throw exception;
                 }
 
