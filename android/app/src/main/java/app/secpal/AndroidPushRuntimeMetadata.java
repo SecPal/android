@@ -130,19 +130,10 @@ final class AndroidPushRuntimeMetadata {
 
     private static String requiredPublicClientMetadataValue(JSONObject source, String camelKey, String snakeKey)
         throws SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException {
-        String value = normalizeRequiredString(
+        return normalizeRequiredString(
             firstNonBlank(source.optString(camelKey, null), source.optString(snakeKey, null)),
             "Android runtime bootstrap requires complete Android push client metadata"
         );
-
-        if (value == null) {
-            throw new SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException(
-                "Android runtime bootstrap requires complete Android push client metadata",
-                "RUNTIME_BOOTSTRAP_INVALID"
-            );
-        }
-
-        return value;
     }
 
     private static String normalizeRequiredString(String value, String message)

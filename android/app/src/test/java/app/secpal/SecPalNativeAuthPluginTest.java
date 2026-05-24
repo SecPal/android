@@ -327,6 +327,53 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void applyPersistedRuntimeBootstrapSelfHealsFirebaseInitializationFailures()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put("minimumSupportedAppVersion", "0.0.1")
+                .put("minimumSupportedAppBuild", 1)
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .commit();
+        ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
+
+        JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            preferences,
+            new AndroidPushRuntimeManager(firebaseBackend),
+            stored
+        );
+
+        assertNull(result);
+        assertNull(preferences.getString("runtime_bootstrap", null));
+        assertEquals(
+            "Load-time Firebase failures should clear the persisted bootstrap asynchronously.",
+            1,
+            preferences.applyCallCount
+        );
+        assertEquals(1, firebaseBackend.initializeCallCount);
+        assertEquals(2, firebaseBackend.findRuntimeAppCallCount);
+    }
+
+    @Test
     public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(
@@ -463,6 +510,28 @@ public class SecPalNativeAuthPluginTest {
         @Override
         public void clearToken() {
             token = null;
+        }
+    }
+
+    private static final class ThrowingFirebaseBackend implements AndroidPushRuntimeManager.FirebaseBackend {
+        private int findRuntimeAppCallCount;
+        private int initializeCallCount;
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+            findRuntimeAppCallCount += 1;
+            return null;
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle initialize(AndroidPushRuntimeMetadata metadata) {
+            initializeCallCount += 1;
+            throw new IllegalStateException("Failed to initialize Android push runtime from deployment metadata");
+        }
+
+        @Override
+        public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            fail("ensureMessaging should not run after initialization fails");
         }
     }
 
