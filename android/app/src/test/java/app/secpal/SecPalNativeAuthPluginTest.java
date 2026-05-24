@@ -331,6 +331,34 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void restoreRuntimeBootstrapPersistenceRollsBackPreviousDeploymentState() {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-b.example\"}")
+            .remove("api_base_url")
+            .commit();
+
+        SecPalNativeAuthPlugin.restoreRuntimeBootstrapPersistence(
+            preferences,
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            "https://tenant-a.example"
+        );
+
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
+        assertEquals(1, preferences.applyCallCount);
+    }
+
+    @Test
     public void applyPersistedRuntimeBootstrapSelfHealsFirebaseInitializationFailures()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();

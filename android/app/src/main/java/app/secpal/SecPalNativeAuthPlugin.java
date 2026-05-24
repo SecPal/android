@@ -309,6 +309,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     features
                 );
                 String nextApiBaseUrl = bootstrap.getString("apiOrigin");
+                SharedPreferences preferences = getNativeAuthPreferences();
+                String previousRuntimeBootstrap = preferences.getString(
+                    RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+                    null
+                );
+                String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
 
                 if (!persistRuntimeBootstrap(bootstrap)) {
                     call.reject(
@@ -323,7 +329,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
                     );
                 } catch (RuntimeException exception) {
-                    getNativeAuthPreferences().edit().remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY).apply();
+                    restoreRuntimeBootstrapPersistence(
+                        preferences,
+                        previousRuntimeBootstrap,
+                        previousApiBaseUrl
+                    );
                     androidPushRuntimeManager.apply(null);
                     throw exception;
                 }
@@ -704,6 +714,28 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         return true;
+    }
+
+    static void restoreRuntimeBootstrapPersistence(
+        SharedPreferences preferences,
+        String previousRuntimeBootstrap,
+        String previousApiBaseUrl
+    ) {
+        SharedPreferences.Editor editor = preferences.edit();
+
+        if (previousRuntimeBootstrap == null || previousRuntimeBootstrap.trim().isEmpty()) {
+            editor.remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY);
+        } else {
+            editor.putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, previousRuntimeBootstrap);
+        }
+
+        if (previousApiBaseUrl == null || previousApiBaseUrl.trim().isEmpty()) {
+            editor.remove(API_BASE_URL_PREFERENCE_KEY);
+        } else {
+            editor.putString(API_BASE_URL_PREFERENCE_KEY, previousApiBaseUrl);
+        }
+
+        editor.apply();
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {
