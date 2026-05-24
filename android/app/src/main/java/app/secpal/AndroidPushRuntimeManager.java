@@ -23,7 +23,7 @@ final class AndroidPushRuntimeManager {
 
         FirebaseAppHandle initialize(AndroidPushRuntimeMetadata metadata);
 
-        void ensureMessaging(FirebaseAppHandle app);
+        void ensureMessaging();
     }
 
     private final FirebaseBackend firebaseBackend;
@@ -47,8 +47,8 @@ final class AndroidPushRuntimeManager {
             return;
         }
 
-        FirebaseAppHandle initializedApp = firebaseBackend.initialize(metadata);
-        firebaseBackend.ensureMessaging(initializedApp);
+        firebaseBackend.initialize(metadata);
+        firebaseBackend.ensureMessaging();
     }
 
     private static final class DefaultFirebaseBackend implements FirebaseBackend {
@@ -89,7 +89,7 @@ final class AndroidPushRuntimeManager {
         }
 
         @Override
-        public void ensureMessaging(FirebaseAppHandle app) {
+        public void ensureMessaging() {
             // Initializing the named Firebase app is sufficient for this PR slice.
         }
     }

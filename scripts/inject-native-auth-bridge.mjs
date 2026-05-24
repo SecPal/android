@@ -581,11 +581,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         : Number.NaN;
     const androidPush = normalizeBootstrapAndroidPush(
       parsed && typeof parsed === "object" ? parsed.androidPush ?? null : null,
-      parsed && typeof parsed === "object"
-        ? parsed.features && typeof parsed.features === "object"
-          ? parsed.features.androidPushEnabled === true || parsed.androidPush != null
-          : parsed.androidPush != null
-        : false
+      parsed && typeof parsed === "object" ? parsed.androidPush != null : false
     );
 
     if (!instanceDisplayName) {

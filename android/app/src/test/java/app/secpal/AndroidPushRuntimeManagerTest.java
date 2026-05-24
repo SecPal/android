@@ -73,7 +73,7 @@ public class AndroidPushRuntimeManagerTest {
         }
 
         @Override
-        public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+        public void ensureMessaging() {
             ensureMessagingCallCount += 1;
         }
     }

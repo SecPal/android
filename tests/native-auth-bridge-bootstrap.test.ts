@@ -966,6 +966,94 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("restores persisted Android push metadata without relying on a stored feature flag", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue({
+          instanceDisplayName: "Customer Example",
+          apiOrigin: "https://customer-api.example",
+          rawApiBaseUrl: "https://customer-api.example/v1",
+          androidPush: {
+            provider: "fcm",
+            metadataRevision: 3,
+            publicClientMetadata: {
+              apiKey: "public-client-api-key-demo-1234567890",
+              projectId: "secpal-demo-push",
+              applicationId: "1:1234567890:android:abcdef1234567890",
+              senderId: "1234567890",
+            },
+          },
+        }),
+      }),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      bootstrap: {
+        androidPush?: {
+          provider: string;
+          metadataRevision: number;
+          publicClientMetadata: {
+            apiKey: string;
+            projectId: string;
+            applicationId: string;
+            senderId: string;
+          };
+        };
+      } | null;
+      nativeConfigPromise: Promise<void>;
+    };
+
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.bootstrap?.androidPush).toEqual({
+      provider: "fcm",
+      metadataRevision: 3,
+      publicClientMetadata: {
+        apiKey: "public-client-api-key-demo-1234567890",
+        projectId: "secpal-demo-push",
+        applicationId: "1:1234567890:android:abcdef1234567890",
+        senderId: "1234567890",
+      },
+    });
+  });
+
   it("reopens discovery when the native plugin only returns a legacy api origin", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
