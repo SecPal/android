@@ -336,12 +336,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 JSObject payload = new JSObject();
                 payload.put("bootstrap", bootstrap);
                 call.resolve(payload);
-            } catch (ConfiguredApiBaseUrlException | InvalidRuntimeBootstrapException exception) {
+            } catch (IllegalStateException exception) {
                 call.reject(
                     exception.getMessage(),
-                    exception instanceof ConfiguredApiBaseUrlException
-                        ? ((ConfiguredApiBaseUrlException) exception).getErrorCode()
-                        : ((InvalidRuntimeBootstrapException) exception).getErrorCode(),
+                    resolveRuntimeBootstrapErrorCode(exception),
                     exception
                 );
             } catch (JSONException exception) {
@@ -546,6 +544,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
         int statusCode = ((NativeAuthHttpException) exception).getStatusCode();
 
         return statusCode > 0 ? "HTTP_" + statusCode : "VALIDATION_ERROR";
+    }
+
+    static String resolveRuntimeBootstrapErrorCode(IllegalStateException exception) {
+        if (exception instanceof ConfiguredApiBaseUrlException) {
+            return ((ConfiguredApiBaseUrlException) exception).getErrorCode();
+        }
+
+        if (exception instanceof InvalidRuntimeBootstrapException) {
+            return ((InvalidRuntimeBootstrapException) exception).getErrorCode();
+        }
+
+        return "RUNTIME_BOOTSTRAP_INVALID";
     }
 
     static String resolveConfiguredApiBaseUrl(String configuredValue) {

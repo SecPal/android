@@ -179,7 +179,11 @@ final class AndroidPushRuntimeMetadata {
             String trimmed = ((String) value).trim();
 
             if (trimmed.matches("^[1-9][0-9]*$")) {
-                return Integer.parseInt(trimmed);
+                try {
+                    return Integer.parseInt(trimmed);
+                } catch (NumberFormatException ignored) {
+                    // Fall through to the standardized runtime bootstrap validation error.
+                }
             }
         }
 

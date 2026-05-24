@@ -67,6 +67,32 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void resolveRuntimeBootstrapErrorCodeHandlesKnownAndFallbackFailures() {
+        assertEquals(
+            "INSECURE_API_BASE_URL",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(
+                new SecPalNativeAuthPlugin.ConfiguredApiBaseUrlException(
+                    "Android auth API origin must use HTTPS",
+                    "INSECURE_API_BASE_URL"
+                )
+            )
+        );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(
+                new SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException(
+                    "Android runtime bootstrap is invalid",
+                    "RUNTIME_BOOTSTRAP_INVALID"
+                )
+            )
+        );
+        assertEquals(
+            "RUNTIME_BOOTSTRAP_INVALID",
+            SecPalNativeAuthPlugin.resolveRuntimeBootstrapErrorCode(new IllegalStateException("boom"))
+        );
+    }
+
+    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",
@@ -182,6 +208,41 @@ public class SecPalNativeAuthPluginTest {
         } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException exception) {
             assertEquals(
                 "Android runtime bootstrap requires complete Android push client metadata",
+                exception.getMessage()
+            );
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", exception.getErrorCode());
+        }
+    }
+
+    @Test
+    public void normalizeRuntimeBootstrapRejectsAndroidPushMetadataRevisionStringOverflow()
+        throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", "Tenant A")
+                    .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                    .put("minimumSupportedAppVersion", "0.0.1")
+                    .put("minimumSupportedAppBuild", 1)
+                    .put(
+                        "androidPush",
+                        new JSONObject()
+                            .put("provider", "fcm")
+                            .put("metadataRevision", "9999999999")
+                            .put(
+                                "publicClientMetadata",
+                                new JSONObject()
+                                    .put("apiKey", "public-client-api-key-demo-1234567890")
+                                    .put("projectId", "secpal-demo-push")
+                                    .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                    .put("senderId", "1234567890")
+                            )
+                    )
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException exception) {
+            assertEquals(
+                "Android runtime bootstrap requires a positive Android push metadata revision",
                 exception.getMessage()
             );
             assertEquals("RUNTIME_BOOTSTRAP_INVALID", exception.getErrorCode());

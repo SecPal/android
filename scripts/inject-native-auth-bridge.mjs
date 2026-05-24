@@ -178,7 +178,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       errorBootstrapStateInvalid:
         "Diese Instanz ist nicht korrekt eingerichtet. Wenden Sie sich an Ihre Administration.",
       errorAndroidPushMetadataInvalid:
-        "Die Android-Push-Metadaten dieser Instanz sind ungultig. Wenden Sie sich an Ihre Administration.",
+        "Die Android-Push-Metadaten dieser Instanz sind ungültig. Wenden Sie sich an Ihre Administration.",
       errorConfigureRuntime:
         "Diese Instanz konnte in der App nicht eingerichtet werden.",
     },
