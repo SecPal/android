@@ -34,6 +34,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const fallbackApiOrigin = ${serializedApiBaseUrl};
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
+  const maxAndroidPushMetadataRevision = 2147483647;
   const discoveryGateId = "secpal-instance-discovery-gate";
   const discoveryStylesId = "secpal-instance-discovery-styles";
   const discoveryTitleId = "secpal-instance-discovery-title";
@@ -764,7 +765,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     if (
       !publicClientMetadataSource ||
       !Number.isInteger(metadataRevision) ||
-      metadataRevision <= 0
+      metadataRevision <= 0 ||
+      metadataRevision > maxAndroidPushMetadataRevision
     ) {
       throw createInvalidAndroidPushMetadataError();
     }

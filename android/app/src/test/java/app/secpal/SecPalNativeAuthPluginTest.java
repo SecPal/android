@@ -334,6 +334,7 @@ public class SecPalNativeAuthPluginTest {
     public void applyPersistedRuntimeBootstrapSelfHealsFirebaseInitializationFailures()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
         JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
@@ -357,17 +358,22 @@ public class SecPalNativeAuthPluginTest {
         );
         preferences.edit()
             .putString("runtime_bootstrap", stored.toString())
+            .putString("api_base_url", "https://tenant-a.example")
             .commit();
+        tokenStorage.token = "tenant-a-token";
         ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
 
         JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
             preferences,
+            tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
             stored
         );
 
         assertNull(result);
         assertNull(preferences.getString("runtime_bootstrap", null));
+        assertNull(preferences.getString("api_base_url", null));
+        assertNull(tokenStorage.token);
         assertEquals(
             "Load-time Firebase failures should clear the persisted bootstrap asynchronously.",
             1,

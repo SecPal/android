@@ -49,6 +49,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
         persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
             getNativeAuthPreferences(),
+            tokenStorage,
             androidPushRuntimeManager,
             persistedRuntimeBootstrap
         );
@@ -378,7 +379,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
             }
 
             apiBaseUrl = null;
-            androidPushRuntimeManager.apply(null);
+            try {
+                androidPushRuntimeManager.apply(null);
+            } catch (RuntimeException exception) {
+                call.reject(
+                    exception.getMessage(),
+                    resolveRuntimeBootstrapErrorCode(exception),
+                    exception
+                );
+                return;
+            }
             call.resolve();
         });
     }
@@ -648,6 +658,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static JSObject applyPersistedRuntimeBootstrap(
         SharedPreferences preferences,
+        TokenStorage tokenStorage,
         AndroidPushRuntimeManager androidPushRuntimeManager,
         JSObject persistedRuntimeBootstrap
     ) {
@@ -662,7 +673,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
             );
             return persistedRuntimeBootstrap;
         } catch (RuntimeException exception) {
-            preferences.edit().remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY).apply();
+            preferences.edit()
+                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
+                .remove(API_BASE_URL_PREFERENCE_KEY)
+                .apply();
+            tokenStorage.clearToken();
             androidPushRuntimeManager.apply(null);
             return null;
         }
