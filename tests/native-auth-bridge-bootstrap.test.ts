@@ -3288,7 +3288,9 @@ describe("native auth bridge bootstrap injection", () => {
   ) {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const installationId = "11111111-1111-4111-8111-111111111111";
-    const browserFetch = vi.fn(async () => new Response("browser", { status: 200 }));
+    const browserFetch = vi.fn(
+      async () => new Response("browser", { status: 200 })
+    );
     const listeners: Record<
       string,
       Array<(payload: Record<string, unknown>) => void>
@@ -3422,14 +3424,8 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("registers a pending Android push token after native login against the selected customer-hosted backend", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
-    const {
-      bridge,
-      browserFetch,
-      handles,
-      installationId,
-      listeners,
-      plugin,
-    } = await createAndroidPushLifecycleSandbox();
+    const { bridge, browserFetch, handles, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox();
 
     expect(plugin.addListener).toHaveBeenCalledTimes(2);
     expect(plugin.addListener.mock.calls.map((call) => call[0])).toEqual([
@@ -3641,10 +3637,14 @@ describe("native auth bridge bootstrap injection", () => {
       contentType: string;
       status: number;
     };
-    let resolveRegistrationRequest: (value: NativeRequestResponse) => void = () => {};
-    const pendingRegistrationRequest = new Promise<NativeRequestResponse>((resolve) => {
-      resolveRegistrationRequest = resolve;
-    });
+    let resolveRegistrationRequest: (
+      value: NativeRequestResponse
+    ) => void = () => {};
+    const pendingRegistrationRequest = new Promise<NativeRequestResponse>(
+      (resolve) => {
+        resolveRegistrationRequest = resolve;
+      }
+    );
 
     await bridge.login({
       email: "worker@customer.example",
