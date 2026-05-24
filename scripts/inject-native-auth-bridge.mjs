@@ -1390,29 +1390,32 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             : "registered";
         const runtimeInfo = await getRuntimeInfo();
         const installationId = getOrCreatePushInstallationId(pushMetadata.apiOrigin);
-        const response = await sendAuthenticatedNativeRequest({
-          method: "PUT",
-          path: "/v1/me/push-devices/" + installationId,
-          bodyBase64: encodeJsonRequestBody({
-            platform: "android",
-            provider: pushMetadata.provider,
-            device_name: androidPushDeviceName,
-            push_token: token,
-            lifecycle_event: lifecycleEvent,
-            app: {
-              package_name: "app.secpal",
-              package_version_name: runtimeInfo.appVersion,
-              package_version_code: runtimeInfo.appBuild,
-            },
-            runtime: {
-              bootstrap_version: "v1",
-              schema_version: 2,
-              push_metadata_revision: pushMetadata.metadataRevision,
-            },
-          }),
-          contentType: "application/json",
-          accept: "application/json",
-        });
+        const response = await sendAuthenticatedNativeRequest(
+          {
+            method: "PUT",
+            path: "/v1/me/push-devices/" + installationId,
+            bodyBase64: encodeJsonRequestBody({
+              platform: "android",
+              provider: pushMetadata.provider,
+              device_name: androidPushDeviceName,
+              push_token: token,
+              lifecycle_event: lifecycleEvent,
+              app: {
+                package_name: "app.secpal",
+                package_version_name: runtimeInfo.appVersion,
+                package_version_code: runtimeInfo.appBuild,
+              },
+              runtime: {
+                bootstrap_version: "v1",
+                schema_version: 2,
+                push_metadata_revision: pushMetadata.metadataRevision,
+              },
+            }),
+            contentType: "application/json",
+            accept: "application/json",
+          },
+          { markAuthenticatedOnSuccess: false }
+        );
         const status =
           response && typeof response === "object"
             ? Number(response.status)
