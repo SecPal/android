@@ -3284,13 +3284,15 @@ describe("native auth bridge bootstrap injection", () => {
   async function createAndroidPushLifecycleSandbox(
     options: {
       includeResetUi?: boolean;
+      installationId?: string;
       localStorage?: ReturnType<typeof createMockStorage>;
       sessionStorage?: ReturnType<typeof createMockStorage>;
       runtimeBootstrap?: ReturnType<typeof createCustomerAndroidPushBootstrap>;
     } = {}
   ) {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
-    const installationId = "11111111-1111-4111-8111-111111111111";
+    const installationId =
+      options.installationId ?? "11111111-1111-4111-8111-111111111111";
     const runtimeBootstrap =
       options.runtimeBootstrap ?? createCustomerAndroidPushBootstrap();
     const browserFetch = vi.fn(
@@ -3512,17 +3514,24 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("registers a retained Android push token after a reload and login", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const firstInstallationId = "11111111-1111-4111-8111-111111111111";
+    const secondInstallationId = "22222222-2222-4222-8222-222222222222";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const installationStorageKey =
+      "secpal-android-push-installation:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
     const sharedLocalStorage = createMockStorage({
       "secpal-locale": "en",
       "tenant-cache": "customer-a",
+      [installationStorageKey]: firstInstallationId,
     });
-    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
     const sharedSessionStorage = createMockStorage({
       [runtimeBootstrapStorageKey]:
         buildStoredRuntimeBootstrap(runtimeBootstrap),
       "tenant-session": "customer-a-session",
     });
     const firstPage = await createAndroidPushLifecycleSandbox({
+      installationId: firstInstallationId,
       localStorage: sharedLocalStorage,
       sessionStorage: sharedSessionStorage,
       runtimeBootstrap,
@@ -3538,6 +3547,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(firstPage.plugin.request).not.toHaveBeenCalled();
 
     const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId: secondInstallationId,
       localStorage: sharedLocalStorage,
       sessionStorage: sharedSessionStorage,
       runtimeBootstrap,
@@ -3563,6 +3573,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(registrationRequest.method).toBe("PUT");
     expect(registrationRequest.path).toBe(
+      `/v1/me/push-devices/${firstInstallationId}`
+    );
+    expect(registrationRequest.path).not.toBe(
       `/v1/me/push-devices/${reloadedPage.installationId}`
     );
     expect(registrationPayload.push_token).toBe(pushToken);

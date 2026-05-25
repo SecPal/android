@@ -57,6 +57,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
+  const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
@@ -75,12 +76,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
   androidPushSyncState.currentToken =
     typeof androidPushSyncState.currentToken === "string" &&
-    androidPushSyncState.currentToken.trim().length >= 32
+    androidPushSyncState.currentToken.trim().length >= minAndroidPushTokenLength
       ? androidPushSyncState.currentToken.trim()
       : null;
   androidPushSyncState.lastSyncedToken =
     typeof androidPushSyncState.lastSyncedToken === "string" &&
-    androidPushSyncState.lastSyncedToken.trim().length >= 32
+    androidPushSyncState.lastSyncedToken.trim().length >= minAndroidPushTokenLength
       ? androidPushSyncState.lastSyncedToken.trim()
       : null;
   androidPushSyncState.lastSyncedApiOrigin =
@@ -1317,7 +1318,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       typeof apiOrigin === "string" ? apiOrigin.trim() : "";
     const normalizedToken = normalizePushToken(token);
 
-    if (normalizedApiOrigin.length === 0 || normalizedToken.length < 32) {
+    if (
+      normalizedApiOrigin.length === 0 ||
+      normalizedToken.length < minAndroidPushTokenLength
+    ) {
       return;
     }
 
@@ -1477,10 +1481,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         const pushMetadata = getConfiguredAndroidPushMetadata();
         let token = normalizePushToken(androidPushSyncState.currentToken);
 
-        if (token.length < 32 && pushMetadata) {
+        if (token.length < minAndroidPushTokenLength && pushMetadata) {
           token = getStoredPushToken(pushMetadata.apiOrigin);
 
-          if (token.length >= 32) {
+          if (token.length >= minAndroidPushTokenLength) {
             androidPushSyncState.currentToken = token;
           }
         }
@@ -1489,7 +1493,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           !pushMetadata ||
           androidPushSyncState.suspended === true ||
           authState.active !== true ||
-          token.length < 32
+          token.length < minAndroidPushTokenLength
         ) {
           return;
         }
@@ -1673,7 +1677,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           payload && typeof payload === "object" ? payload.token : null
         );
 
-        if (provider !== "fcm" || token.length < 32) {
+        if (provider !== "fcm" || token.length < minAndroidPushTokenLength) {
           return;
         }
 
