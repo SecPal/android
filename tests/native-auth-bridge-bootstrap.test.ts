@@ -3780,7 +3780,8 @@ describe("native auth bridge bootstrap injection", () => {
       sessionStorage,
       runtimeBootstrap,
     });
-    const reloadedPushState = reloadedPage.sandbox.__SecPalAndroidPushSyncState as {
+    const reloadedPushState = reloadedPage.sandbox
+      .__SecPalAndroidPushSyncState as {
       currentToken: string | null;
     };
 
