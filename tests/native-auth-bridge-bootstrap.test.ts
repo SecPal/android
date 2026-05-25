@@ -3583,6 +3583,212 @@ describe("native auth bridge bootstrap injection", () => {
     expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
+  it("rehydrates a retained Android push token after logout clears session storage and the login route reloads", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const installationStorageKey =
+      "secpal-android-push-installation:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const sharedLocalStorage = createMockStorage({
+      [installationStorageKey]: installationId,
+    });
+    const sharedSessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+      "tenant-session": "customer-a-session",
+    });
+    const firstPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+
+    firstPage.listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    sharedSessionStorage.clear();
+
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+    const pushSyncState = reloadedPage.sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    await flushMicrotasks();
+
+    expect(pushSyncState.currentToken).toBe(pushToken);
+
+    await reloadedPage.bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(reloadedPage.plugin.request).toHaveBeenCalledOnce();
+
+    const registrationRequest = reloadedPage.plugin.request.mock
+      .calls[0]?.[0] as {
+      bodyBase64?: string;
+      method: string;
+      path: string;
+    };
+    const registrationPayload = decodeBase64Json(
+      String(registrationRequest.bodyBase64)
+    );
+
+    expect(registrationRequest.method).toBe("PUT");
+    expect(registrationRequest.path).toBe(
+      `/v1/me/push-devices/${installationId}`
+    );
+    expect(registrationPayload.push_token).toBe(pushToken);
+    expect(registrationPayload.lifecycle_event).toBe("registered");
+  });
+
+  it("persists an early Android push token once the runtime bootstrap finishes restoring and rehydrates it after the login-route reload", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const tokenStorageKey =
+      "secpal-android-push-token:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    let resolveRuntimeBootstrap!: (value: unknown) => void;
+    const runtimeBootstrapPromise = new Promise((resolve) => {
+      resolveRuntimeBootstrap = resolve;
+    });
+    const listeners: Record<
+      string,
+      Array<(payload: Record<string, unknown>) => void>
+    > = {
+      androidPushTokenReceived: [],
+      androidPushTokenError: [],
+    };
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 201,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+            },
+          })
+        ),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "1.5.0",
+        appBuild: 10500,
+      }),
+      getRuntimeBootstrap: vi.fn().mockReturnValue(runtimeBootstrapPromise),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      addListener: vi.fn(
+        (
+          eventName: string,
+          listener: (payload: Record<string, unknown>) => void
+        ) => {
+          if (eventName in listeners) {
+            listeners[eventName].push(listener);
+          }
+
+          return { remove: vi.fn() };
+        }
+      ),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage();
+    const sessionStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(async () => new Response("browser", { status: 200 })),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      crypto: {
+        randomUUID: vi.fn(() => installationId),
+      },
+      location: { href: "https://app.secpal.dev/", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    const firstPagePushState = sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    expect(firstPagePushState.currentToken).toBe(pushToken);
+    expect(localStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenStorageKey)).toBeNull();
+
+    resolveRuntimeBootstrap({
+      configured: true,
+      bootstrap: runtimeBootstrap,
+    });
+    await flushMicrotasks();
+
+    expect(localStorage.getItem(tokenStorageKey)).toBe(pushToken);
+    expect(localStorage.getItem(tokenAppStorageKey)).toBe(
+      "secpal-runtime-push"
+    );
+
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage,
+      sessionStorage,
+      runtimeBootstrap,
+    });
+    const reloadedPushState = reloadedPage.sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    await flushMicrotasks();
+
+    expect(reloadedPushState.currentToken).toBe(pushToken);
+  });
+
   it("does not register a legacy retained Android push token without runtime-app provenance after a reload and login", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const installationId = "11111111-1111-4111-8111-111111111111";
