@@ -1447,7 +1447,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const getOrCreatePushInstallationId = (apiOrigin) => {
     const normalizedApiOrigin = apiOrigin.trim();
-    const existing = getStoredPushInstallationId(apiOrigin);
+    const existing = getStoredPushInstallationId(normalizedApiOrigin);
 
     if (existing) {
       return existing;
