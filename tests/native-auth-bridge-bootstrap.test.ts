@@ -3424,8 +3424,15 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("registers a pending Android push token after native login against the selected customer-hosted backend", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
-    const { bridge, browserFetch, handles, installationId, listeners, plugin } =
-      await createAndroidPushLifecycleSandbox();
+    const {
+      bridge,
+      browserFetch,
+      handles,
+      installationId,
+      listeners,
+      plugin,
+      sandbox,
+    } = await createAndroidPushLifecycleSandbox();
 
     expect(plugin.addListener).toHaveBeenCalledTimes(2);
     expect(plugin.addListener.mock.calls.map((call) => call[0])).toEqual([
@@ -3487,7 +3494,18 @@ describe("native auth bridge bootstrap injection", () => {
       },
     });
 
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      tokenReceivedHandle: { remove: () => void } | null;
+      tokenErrorHandle: { remove: () => void } | null;
+    };
+
     expect(handles).toHaveLength(2);
+    await flushMicrotasks();
+    expect(pushSyncState.tokenReceivedHandle).not.toBeNull();
+    expect(typeof pushSyncState.tokenReceivedHandle?.remove).toBe("function");
+    expect(pushSyncState.tokenErrorHandle).not.toBeNull();
+    expect(typeof pushSyncState.tokenErrorHandle?.remove).toBe("function");
+
     for (const handle of handles) {
       expect(typeof handle.remove).toBe("function");
       const remove = handle.remove as unknown as () => void;
@@ -3546,6 +3564,71 @@ describe("native auth bridge bootstrap injection", () => {
     expect(rotatedRequest.path).toBe(`/v1/me/push-devices/${installationId}`);
     expect(rotatedPayload.lifecycle_event).toBe("token_rotated");
     expect(rotatedPayload.push_token).toBe(secondToken);
+  });
+
+  it("re-registers the push token after a session-expiry 401 during registration", async () => {
+    // Scenario: push token arrives before login, first registration attempt gets 401
+    // (session expired mid-sync). On next login with the same token, a fresh PUT must
+    // be issued — not silently skipped by the dedup guard.
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, installationId, listeners, plugin } =
+      await createAndroidPushLifecycleSandbox();
+
+    // Token arrives before the user logs in — no registration yet.
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+
+    // First login: registration PUT is sent and returns 401.
+    plugin.request.mockResolvedValueOnce({
+      status: 401,
+      bodyBase64: "",
+      contentType: "application/json",
+    });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+
+    plugin.request.mockClear();
+    // Restore the default 201 response for the next request.
+    plugin.request.mockResolvedValue({
+      status: 201,
+      bodyBase64: encodeBase64(
+        JSON.stringify({ data: { installation_id: installationId } })
+      ),
+      contentType: "application/json",
+    });
+
+    // Second login with the same push token: dedup guard must NOT suppress
+    // the re-registration because the 401 cleared lastSyncedToken.
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    const reRegistrationPayload = decodeBase64Json(
+      String(
+        (plugin.request.mock.calls[0]?.[0] as { bodyBase64?: string }).bodyBase64
+      )
+    );
+    expect(reRegistrationPayload.lifecycle_event).toBe("registered");
+    expect(reRegistrationPayload.push_token).toBe(pushToken);
   });
 
   it("revokes the backend push-device registration before logout and re-registers it on the next login", async () => {
@@ -3638,6 +3721,9 @@ describe("native auth bridge bootstrap injection", () => {
       status: number;
     };
     const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      suspended: boolean;
+    };
     let resolveRegistrationRequest: (
       value: NativeRequestResponse
     ) => void = () => {};
@@ -3713,6 +3799,7 @@ describe("native auth bridge bootstrap injection", () => {
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(authState.active).toBe(false);
+    expect(pushSyncState.suspended).toBe(false);
   });
 
   it("revokes the backend push-device registration during destructive runtime reset", async () => {

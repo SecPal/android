@@ -1236,7 +1236,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       ].join("-");
     }
 
-    return "00000000-0000-4000-8000-000000000000";
+    throw new Error(
+      "Cannot generate a push installation identifier: crypto API is unavailable."
+    );
   };
 
   const getPushInstallationStorageKey = (apiOrigin) => {
@@ -1430,6 +1432,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         }
 
         if (status === 401) {
+          androidPushSyncState.lastSyncedToken = null;
+          androidPushSyncState.lastSyncedApiOrigin = null;
+          androidPushSyncState.lastSyncedMetadataRevision = null;
           return;
         }
 
