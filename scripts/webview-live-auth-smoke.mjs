@@ -13,6 +13,7 @@ const defaultRuntimeUrl =
   process.env.SECPAL_RUNTIME_URL ?? "https://api.secpal.dev";
 const defaultTargetPattern =
   process.env.SECPAL_WEBVIEW_TARGET_PATTERN ?? "app\\.secpal\\.dev";
+const defaultCdpRequestTimeoutMs = 5000;
 
 function getRequiredElement(documentLike, elementId) {
   const element = documentLike?.getElementById?.(elementId) ?? null;
@@ -261,76 +262,172 @@ async function getTargetWebSocketUrl(debuggerListUrl, targetPattern) {
   return target.webSocketDebuggerUrl;
 }
 
-async function evaluateInWebView(expression, options = {}) {
-  const webSocketUrl = await getTargetWebSocketUrl(
-    options.debuggerListUrl ?? defaultDebuggerListUrl,
-    options.targetPattern ?? defaultTargetPattern
+function getCdpRequestTimeoutMs(requestTimeoutMs) {
+  if (Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0) {
+    return requestTimeoutMs;
+  }
+
+  return defaultCdpRequestTimeoutMs;
+}
+
+function createCdpTimeoutError(method, timeoutMs) {
+  return new Error(
+    `Timed out waiting for CDP response to ${method} after ${timeoutMs}ms.`
   );
-  const websocket = new WebSocket(webSocketUrl);
+}
+
+export async function resolveSessionWebSocketUrl(
+  options,
+  loadWebSocketUrl = getTargetWebSocketUrl
+) {
+  const resolvedOptions = options ?? {};
+  const debuggerSession =
+    resolvedOptions.debuggerSession &&
+    typeof resolvedOptions.debuggerSession === "object"
+      ? resolvedOptions.debuggerSession
+      : {};
+
+  resolvedOptions.debuggerSession = debuggerSession;
+
+  if (
+    typeof debuggerSession.webSocketUrl === "string" &&
+    debuggerSession.webSocketUrl.length > 0
+  ) {
+    return debuggerSession.webSocketUrl;
+  }
+
+  const webSocketUrl = await loadWebSocketUrl(
+    resolvedOptions.debuggerListUrl ?? defaultDebuggerListUrl,
+    resolvedOptions.targetPattern ?? defaultTargetPattern
+  );
+
+  debuggerSession.webSocketUrl = webSocketUrl;
+
+  return webSocketUrl;
+}
+
+export function createCdpCommandSender(websocket, options = {}) {
   const pendingRequests = new Map();
   let nextRequestId = 1;
+  const requestTimeoutMs = getCdpRequestTimeoutMs(options.requestTimeoutMs);
 
-  await new Promise((resolve, reject) => {
-    websocket.onopen = resolve;
-    websocket.onerror = reject;
-  });
+  const clearPendingRequest = (requestId) => {
+    const pendingRequest = pendingRequests.get(requestId) ?? null;
+
+    if (!pendingRequest) {
+      return null;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingRequests.delete(requestId);
+
+    return pendingRequest;
+  };
+
+  const rejectPending = (reason) => {
+    for (const requestId of pendingRequests.keys()) {
+      const pendingRequest = clearPendingRequest(requestId);
+
+      pendingRequest?.reject(reason);
+    }
+  };
 
   websocket.onmessage = (event) => {
     const payload = JSON.parse(event.data);
 
-    if (payload.id && pendingRequests.has(payload.id)) {
-      pendingRequests.get(payload.id)(payload);
-      pendingRequests.delete(payload.id);
-    }
-  };
+    if (payload.id) {
+      const pendingRequest = clearPendingRequest(payload.id);
 
-  const rejectPending = (reason) => {
-    for (const resolve of pendingRequests.values()) {
-      resolve(Promise.reject(reason));
+      pendingRequest?.resolve(payload);
     }
-    pendingRequests.clear();
   };
 
   websocket.onclose = () => {
     rejectPending(new Error("WebView debugger WebSocket closed unexpectedly."));
   };
 
-  const send = (method, params = {}) => {
-    const requestId = nextRequestId;
-    nextRequestId += 1;
-    websocket.send(JSON.stringify({ id: requestId, method, params }));
-    return new Promise((resolve, reject) =>
-      pendingRequests.set(requestId, (response) => {
-        if (response instanceof Promise) {
-          response.then(resolve, reject);
-        } else {
-          resolve(response);
+  return {
+    send(method, params = {}) {
+      const requestId = nextRequestId;
+      nextRequestId += 1;
+
+      return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          pendingRequests.delete(requestId);
+          websocket.close();
+          reject(createCdpTimeoutError(method, requestTimeoutMs));
+        }, requestTimeoutMs);
+
+        pendingRequests.set(requestId, { resolve, reject, timeoutId });
+
+        try {
+          websocket.send(JSON.stringify({ id: requestId, method, params }));
+        } catch (error) {
+          clearPendingRequest(requestId);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
-      })
-    );
+      });
+    },
+    close() {
+      rejectPending(
+        new Error("WebView debugger WebSocket closed unexpectedly.")
+      );
+      websocket.onclose = null;
+      websocket.close();
+    },
   };
+}
+
+export function assertCdpCommandSucceeded(response, method) {
+  if (response?.error && typeof response.error === "object") {
+    const errorCode =
+      typeof response.error.code === "number"
+        ? ` (${response.error.code})`
+        : "";
+    const errorMessage =
+      typeof response.error.message === "string" &&
+      response.error.message.length > 0
+        ? response.error.message
+        : "Unknown CDP protocol error.";
+
+    throw new Error(
+      `CDP command ${method} failed${errorCode}: ${errorMessage}`
+    );
+  }
+
+  if (response?.result?.exceptionDetails) {
+    const description =
+      response.result.exceptionDetails.exception?.description ??
+      response.result.exceptionDetails.text ??
+      `${method} failed`;
+
+    throw new Error(description);
+  }
+}
+
+async function evaluateInWebView(expression, options = {}) {
+  const webSocketUrl = await resolveSessionWebSocketUrl(options);
+  const websocket = new WebSocket(webSocketUrl);
+
+  await new Promise((resolve, reject) => {
+    websocket.onopen = resolve;
+    websocket.onerror = reject;
+  });
+  const cdpClient = createCdpCommandSender(websocket, options);
 
   let response;
 
   try {
-    await send("Runtime.enable");
-    response = await send("Runtime.evaluate", {
+    const enableResponse = await cdpClient.send("Runtime.enable");
+    assertCdpCommandSucceeded(enableResponse, "Runtime.enable");
+    response = await cdpClient.send("Runtime.evaluate", {
       expression,
       awaitPromise: options.awaitPromise ?? true,
       returnByValue: options.returnByValue ?? true,
     });
+    assertCdpCommandSucceeded(response, "Runtime.evaluate");
   } finally {
-    websocket.onclose = null;
-    websocket.close();
-  }
-
-  if (response.result?.exceptionDetails) {
-    const description =
-      response.result.exceptionDetails.exception?.description ??
-      response.result.exceptionDetails.text ??
-      "Runtime.evaluate failed";
-
-    throw new Error(description);
+    cdpClient.close();
   }
 
   return response.result?.result?.value;

@@ -5,7 +5,7 @@
 
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 type BrowserEventInit = {
   bubbles?: boolean;
@@ -120,6 +120,25 @@ class FakeLocation {
   }
 }
 
+class FakeWebSocket {
+  onclose: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  readonly sentPayloads: string[] = [];
+  closeCalls = 0;
+
+  send(payload: string): void {
+    this.sentPayloads.push(payload);
+  }
+
+  close(): void {
+    this.closeCalls += 1;
+  }
+
+  dispatchMessage(payload: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
+}
+
 async function loadSmokeModule(): Promise<{
   setFormControlValue: (element: FakeInputElement, value: string) => void;
   submitLoginForm: (
@@ -143,6 +162,25 @@ async function loadSmokeModule(): Promise<{
     entryPointArg: string | undefined,
     moduleUrl: string
   ) => boolean;
+  resolveSessionWebSocketUrl: (
+    options: {
+      debuggerListUrl?: string;
+      targetPattern?: string;
+      debuggerSession?: { webSocketUrl?: string };
+    },
+    loadWebSocketUrl?: (
+      debuggerListUrl: string,
+      targetPattern: string
+    ) => Promise<string>
+  ) => Promise<string>;
+  createCdpCommandSender: (
+    websocket: FakeWebSocket,
+    options?: { requestTimeoutMs?: number }
+  ) => {
+    send: (method: string, params?: unknown) => Promise<unknown>;
+    close: () => void;
+  };
+  assertCdpCommandSucceeded: (response: unknown, method: string) => void;
 }> {
   // @ts-expect-error This helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/webview-live-auth-smoke.mjs");
@@ -150,6 +188,8 @@ async function loadSmokeModule(): Promise<{
 
 describe("WebView live auth smoke helpers", () => {
   afterEach(() => {
+    vi.useRealTimers();
+
     // Remove the configurable value descriptor installed by individual tests so
     // each test starts from a clean prototype state.
     if (Object.getOwnPropertyDescriptor(FakeInputElement.prototype, "value")) {
@@ -291,6 +331,64 @@ describe("WebView live auth smoke helpers", () => {
     expect(
       isDirectExecutionPath("./scripts/webview-live-auth-smoke.mjs", moduleUrl)
     ).toBe(true);
+  });
+
+  it("pins a single matching CDP target for the entire smoke session", async () => {
+    const { resolveSessionWebSocketUrl } = await loadSmokeModule();
+    const options = {
+      debuggerListUrl: "http://127.0.0.1:9223/json/list",
+      targetPattern: "app\\.secpal\\.dev",
+      debuggerSession: {},
+    };
+    const loadWebSocketUrl = vi
+      .fn<(debuggerListUrl: string, targetPattern: string) => Promise<string>>()
+      .mockResolvedValue("ws://target-1");
+
+    await expect(
+      resolveSessionWebSocketUrl(options, loadWebSocketUrl)
+    ).resolves.toBe("ws://target-1");
+    await expect(
+      resolveSessionWebSocketUrl(options, loadWebSocketUrl)
+    ).resolves.toBe("ws://target-1");
+    expect(loadWebSocketUrl).toHaveBeenCalledOnce();
+  });
+
+  it("fails fast for protocol-level CDP command errors", async () => {
+    const { assertCdpCommandSucceeded } = await loadSmokeModule();
+
+    expect(() =>
+      assertCdpCommandSucceeded(
+        {
+          error: {
+            code: -32000,
+            message: "Execution context was destroyed.",
+          },
+        },
+        "Runtime.evaluate"
+      )
+    ).toThrow(
+      "CDP command Runtime.evaluate failed (-32000): Execution context was destroyed."
+    );
+  });
+
+  it("times out stalled CDP commands and closes the socket", async () => {
+    const { createCdpCommandSender } = await loadSmokeModule();
+    const websocket = new FakeWebSocket();
+    const sender = createCdpCommandSender(websocket, { requestTimeoutMs: 25 });
+
+    vi.useFakeTimers();
+
+    const sendPromise = sender.send("Runtime.evaluate", {
+      expression: "globalThis.location?.href",
+    });
+    const rejectionExpectation = expect(sendPromise).rejects.toThrow(
+      "Timed out waiting for CDP response to Runtime.evaluate after 25ms."
+    );
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await rejectionExpectation;
+    expect(websocket.closeCalls).toBe(1);
   });
 
   it("serializes browser helper expressions with their local dependencies", async () => {
