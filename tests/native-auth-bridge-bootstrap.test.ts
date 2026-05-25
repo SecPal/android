@@ -3583,7 +3583,8 @@ describe("native auth bridge bootstrap injection", () => {
   });
 
   it("does not reactivate auth state after a successful direct bridge request", async () => {
-    const { bridge, plugin, sandbox } = await createAndroidPushLifecycleSandbox();
+    const { bridge, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
     const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
     const nativeBridge = bridge as typeof bridge & {
       request(request: {
@@ -3620,7 +3621,8 @@ describe("native auth bridge bootstrap injection", () => {
   });
 
   it("clears auth state when a direct bridge request returns 401", async () => {
-    const { bridge, plugin, sandbox } = await createAndroidPushLifecycleSandbox();
+    const { bridge, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
     const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
     const nativeBridge = bridge as typeof bridge & {
       request(request: {
