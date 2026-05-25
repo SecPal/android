@@ -135,8 +135,22 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     androidPushSyncState.currentTokenSourceAppName.trim().length > 0
       ? androidPushSyncState.currentTokenSourceAppName.trim()
       : null;
+  {
+    const rawSavedAt = androidPushSyncState.currentTokenSavedAt;
+    const parsedSavedAt =
+      typeof rawSavedAt === "number"
+        ? rawSavedAt
+        : typeof rawSavedAt === "string" && rawSavedAt.trim().length > 0
+          ? Number(rawSavedAt)
+          : Number.NaN;
+    androidPushSyncState.currentTokenSavedAt =
+      Number.isFinite(parsedSavedAt) && parsedSavedAt >= 0
+        ? Math.trunc(parsedSavedAt)
+        : -1;
+  }
   if (androidPushSyncState.currentToken === null) {
     androidPushSyncState.currentTokenSourceAppName = null;
+    androidPushSyncState.currentTokenSavedAt = -1;
   }
   androidPushSyncState.lastSyncedToken =
     typeof androidPushSyncState.lastSyncedToken === "string" &&
@@ -1478,9 +1492,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
-  const getStoredPushToken = (apiOrigin) => {
+  const getStoredPushTokenEntry = (apiOrigin) => {
     if (typeof apiOrigin !== "string" || apiOrigin.trim().length === 0) {
-      return "";
+      return { token: "", savedAt: -1 };
     }
 
     const normalizedApiOrigin = apiOrigin.trim();
@@ -1512,10 +1526,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         selectedAppName,
         selectedSavedAt
       );
-      return selectedToken;
+      return { token: selectedToken, savedAt: selectedSavedAt };
     }
 
-    return "";
+    return { token: "", savedAt: -1 };
+  };
+
+  const getStoredPushToken = (apiOrigin) => {
+    return getStoredPushTokenEntry(apiOrigin).token;
   };
 
   const persistPushToken = (
@@ -1597,7 +1615,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         persistPushToken(
           normalizedApiOrigin,
           currentToken,
-          androidPushSyncState.currentTokenSourceAppName
+          androidPushSyncState.currentTokenSourceAppName,
+          androidPushSyncState.currentTokenSavedAt
         );
       }
 
@@ -1607,19 +1626,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     if (normalizedApiOrigin.length === 0) {
       androidPushSyncState.currentToken = null;
       androidPushSyncState.currentTokenSourceAppName = null;
+      androidPushSyncState.currentTokenSavedAt = -1;
       return "";
     }
 
-    const retainedToken = getStoredPushToken(normalizedApiOrigin);
+    const { token: retainedToken, savedAt: retainedSavedAt } =
+      getStoredPushTokenEntry(normalizedApiOrigin);
 
     if (retainedToken.length >= minAndroidPushTokenLength) {
       androidPushSyncState.currentToken = retainedToken;
       androidPushSyncState.currentTokenSourceAppName = androidPushRuntimeAppName;
+      androidPushSyncState.currentTokenSavedAt = retainedSavedAt;
       return retainedToken;
     }
 
     androidPushSyncState.currentToken = null;
     androidPushSyncState.currentTokenSourceAppName = null;
+    androidPushSyncState.currentTokenSavedAt = -1;
     return "";
   };
 
@@ -1645,6 +1668,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const clearRetainedPushTokenState = () => {
     androidPushSyncState.currentToken = null;
     androidPushSyncState.currentTokenSourceAppName = null;
+    androidPushSyncState.currentTokenSavedAt = -1;
 
     for (const apiOrigin of getPushTokenCleanupOrigins()) {
       clearStoredPushToken(apiOrigin);
@@ -1747,6 +1771,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
       androidPushSyncState.currentToken = null;
       androidPushSyncState.currentTokenSourceAppName = null;
+      androidPushSyncState.currentTokenSavedAt = -1;
     }
 
     androidPushSyncState.lastSyncedToken = null;
@@ -1996,7 +2021,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
         androidPushSyncState.currentToken = token;
         androidPushSyncState.currentTokenSourceAppName = appName;
-        persistPushToken(getActivePushApiOrigin(), token, appName);
+        androidPushSyncState.currentTokenSavedAt = getCurrentPushTokenSavedAt();
+        persistPushToken(getActivePushApiOrigin(), token, appName, androidPushSyncState.currentTokenSavedAt);
         queueAndroidPushSync();
       })
     );
