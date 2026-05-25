@@ -3583,6 +3583,40 @@ describe("native auth bridge bootstrap injection", () => {
     expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
+  it("does not register a legacy retained Android push token without runtime-app provenance after a reload and login", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const installationStorageKey =
+      "secpal-android-push-installation:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const tokenStorageKey =
+      "secpal-android-push-token:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const sharedLocalStorage = createMockStorage({
+      [installationStorageKey]: installationId,
+    });
+    const sharedSessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+      [tokenStorageKey]: pushToken,
+    });
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+
+    await reloadedPage.bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(reloadedPage.plugin.request).not.toHaveBeenCalled();
+  });
+
   it("does not reactivate auth state after a successful direct bridge request", async () => {
     const { bridge, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox();
@@ -3753,6 +3787,43 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.request).not.toHaveBeenCalled();
     expect(pushSyncState.currentToken).toBeNull();
+  });
+
+  it("preserves a trusted retained Android push token when a foreign Firebase app emits a token event", async () => {
+    const retainedToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const foreignToken = "fcm-token-abcdefghijklmnopqrstuvwxyz1234567890";
+    const tokenStorageKey =
+      "secpal-android-push-token:" +
+      encodeURIComponent("https://customer-api.example");
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" +
+      encodeURIComponent("https://customer-api.example");
+    const { listeners, plugin, sandbox, sessionStorage } =
+      await createAndroidPushLifecycleSandbox();
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+      currentTokenSourceAppName: string | null;
+    };
+
+    pushSyncState.currentToken = retainedToken;
+    pushSyncState.currentTokenSourceAppName = "secpal-runtime-push";
+    sessionStorage.setItem(tokenStorageKey, retainedToken);
+    sessionStorage.setItem(tokenAppStorageKey, "secpal-runtime-push");
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "legacy-default-firebase",
+      provider: "fcm",
+      token: foreignToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+    expect(pushSyncState.currentToken).toBe(retainedToken);
+    expect(pushSyncState.currentTokenSourceAppName).toBe("secpal-runtime-push");
+    expect(sessionStorage.getItem(tokenStorageKey)).toBe(retainedToken);
+    expect(sessionStorage.getItem(tokenAppStorageKey)).toBe(
+      "secpal-runtime-push"
+    );
   });
 
   it("retains Android push state when the runtime Firebase app emits a malformed token event", async () => {
