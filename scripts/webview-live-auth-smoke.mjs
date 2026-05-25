@@ -27,17 +27,30 @@ function getRequiredElement(documentLike, elementId) {
 
 function getNativeValueSetter(element) {
   const defaultView = element?.ownerDocument?.defaultView ?? globalThis;
-  const constructorList = [
-    defaultView.HTMLInputElement,
-    defaultView.HTMLTextAreaElement,
-    defaultView.HTMLSelectElement,
+  const prototypeChain = [];
+  let prototype = Object.getPrototypeOf(element);
+
+  while (prototype && prototype !== Object.prototype) {
+    prototypeChain.push(prototype);
+    prototype = Object.getPrototypeOf(prototype);
+  }
+
+  const constructorPrototypes = [
+    defaultView.HTMLInputElement?.prototype,
+    defaultView.HTMLTextAreaElement?.prototype,
+    defaultView.HTMLSelectElement?.prototype,
   ].filter(Boolean);
 
-  for (const constructor of constructorList) {
-    const descriptor = Object.getOwnPropertyDescriptor(
-      constructor.prototype,
-      "value"
-    );
+  const candidates = [...prototypeChain];
+
+  for (const candidate of constructorPrototypes) {
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  }
+
+  for (const candidate of candidates) {
+    const descriptor = Object.getOwnPropertyDescriptor(candidate, "value");
 
     if (typeof descriptor?.set === "function") {
       return descriptor.set;

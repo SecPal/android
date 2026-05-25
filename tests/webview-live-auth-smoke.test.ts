@@ -242,6 +242,34 @@ describe("WebView live auth smoke helpers", () => {
     expect(input.dispatchedEvents.every((event) => event.bubbles)).toBe(true);
   });
 
+  it("uses the native value setter from the textarea class when given a textarea", async () => {
+    const { setFormControlValue } = await loadSmokeModule();
+    const textarea = new FakeTextAreaElement();
+
+    Object.defineProperty(FakeInputElement.prototype, "value", {
+      configurable: true,
+      get() {
+        return this.internalValue;
+      },
+      set() {
+        throw new TypeError("Wrong setter used for textarea control.");
+      },
+    });
+    Object.defineProperty(FakeTextAreaElement.prototype, "value", {
+      configurable: true,
+      get() {
+        return this.internalValue;
+      },
+      set(nextValue: string) {
+        this.internalValue = `${nextValue}:textarea`;
+      },
+    });
+
+    setFormControlValue(textarea, "notes");
+
+    expect(textarea.internalValue).toBe("notes:textarea");
+  });
+
   it("fills both login inputs and submits the enclosing form", async () => {
     const { submitLoginForm } = await loadSmokeModule();
     const document = new FakeDocument();
