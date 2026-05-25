@@ -110,6 +110,19 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return error;
   }
 
+  const normalizePushTokenSavedAt = (value) => {
+    const numericValue =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && value.trim().length > 0
+          ? Number(value)
+          : Number.NaN;
+
+    return Number.isFinite(numericValue) && numericValue >= 0
+      ? Math.trunc(numericValue)
+      : -1;
+  };
+
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -135,19 +148,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     androidPushSyncState.currentTokenSourceAppName.trim().length > 0
       ? androidPushSyncState.currentTokenSourceAppName.trim()
       : null;
-  {
-    const rawSavedAt = androidPushSyncState.currentTokenSavedAt;
-    const parsedSavedAt =
-      typeof rawSavedAt === "number"
-        ? rawSavedAt
-        : typeof rawSavedAt === "string" && rawSavedAt.trim().length > 0
-          ? Number(rawSavedAt)
-          : Number.NaN;
-    androidPushSyncState.currentTokenSavedAt =
-      Number.isFinite(parsedSavedAt) && parsedSavedAt >= 0
-        ? Math.trunc(parsedSavedAt)
-        : -1;
-  }
+  androidPushSyncState.currentTokenSavedAt = normalizePushTokenSavedAt(
+    androidPushSyncState.currentTokenSavedAt
+  );
   if (androidPushSyncState.currentToken === null) {
     androidPushSyncState.currentTokenSourceAppName = null;
     androidPushSyncState.currentTokenSavedAt = -1;
@@ -1298,19 +1301,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const normalizePushToken = (value) => {
     return typeof value === "string" ? value.trim() : "";
-  };
-
-  const normalizePushTokenSavedAt = (value) => {
-    const numericValue =
-      typeof value === "number"
-        ? value
-        : typeof value === "string" && value.trim().length > 0
-          ? Number(value)
-          : Number.NaN;
-
-    return Number.isFinite(numericValue) && numericValue >= 0
-      ? Math.trunc(numericValue)
-      : -1;
   };
 
   const getCurrentPushTokenSavedAt = () => {
