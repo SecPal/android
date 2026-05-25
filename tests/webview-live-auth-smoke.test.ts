@@ -391,6 +391,101 @@ describe("WebView live auth smoke helpers", () => {
     expect(websocket.closeCalls).toBe(1);
   });
 
+  it("startRuntimeDiscovery fills the URL input and clicks the validate button", async () => {
+    const { startRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const urlInput = new FakeInputElement();
+    const validateButton = new FakeButtonElement();
+
+    Object.defineProperty(FakeInputElement.prototype, "value", {
+      configurable: true,
+      get() {
+        return this.internalValue;
+      },
+      set(nextValue: string) {
+        this.internalValue = nextValue;
+      },
+    });
+
+    document.register("secpal-instance-discovery-url", urlInput);
+    document.register("secpal-instance-discovery-validate", validateButton);
+
+    const result = startRuntimeDiscovery(document, "https://api.secpal.dev");
+
+    expect(urlInput.internalValue).toBe("https://api.secpal.dev");
+    expect(validateButton.clicks).toBe(1);
+    expect(result).toEqual({ action: "validate" });
+  });
+
+  it("startRuntimeDiscovery throws when the validate button is disabled", async () => {
+    const { startRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const urlInput = new FakeInputElement();
+    const validateButton = new FakeButtonElement();
+    validateButton.disabled = true;
+
+    Object.defineProperty(FakeInputElement.prototype, "value", {
+      configurable: true,
+      get() {
+        return this.internalValue;
+      },
+      set(nextValue: string) {
+        this.internalValue = nextValue;
+      },
+    });
+
+    document.register("secpal-instance-discovery-url", urlInput);
+    document.register("secpal-instance-discovery-validate", validateButton);
+
+    expect(() =>
+      startRuntimeDiscovery(document, "https://api.secpal.dev")
+    ).toThrow("The runtime validation button is currently disabled.");
+  });
+
+  it("startRuntimeDiscovery throws when the URL input element is missing", async () => {
+    const { startRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+
+    expect(() =>
+      startRuntimeDiscovery(document, "https://api.secpal.dev")
+    ).toThrow("Required element not found: secpal-instance-discovery-url");
+  });
+
+  it("confirmRuntimeDiscovery clicks the confirm button and returns the action", async () => {
+    const { confirmRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const confirmButton = new FakeButtonElement();
+
+    document.register("secpal-instance-discovery-confirm", confirmButton);
+
+    const result = confirmRuntimeDiscovery(document);
+
+    expect(confirmButton.clicks).toBe(1);
+    expect(result).toEqual({ action: "confirm" });
+  });
+
+  it("confirmRuntimeDiscovery throws when the confirm button is disabled", async () => {
+    const { confirmRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const confirmButton = new FakeButtonElement();
+    confirmButton.disabled = true;
+
+    document.register("secpal-instance-discovery-confirm", confirmButton);
+
+    expect(() => confirmRuntimeDiscovery(document)).toThrow(
+      "The runtime confirmation button is currently disabled."
+    );
+  });
+
+  it("confirmRuntimeDiscovery throws when the confirm button element is missing", async () => {
+    const { confirmRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+
+    expect(() => confirmRuntimeDiscovery(document)).toThrow(
+      "Required element not found: secpal-instance-discovery-confirm"
+    );
+  });
+
   it("serializes browser helper expressions with their local dependencies", async () => {
     const { buildDocumentCallExpression } = await loadSmokeModule();
     const document = new FakeDocument();
