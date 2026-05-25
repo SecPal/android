@@ -3284,10 +3284,15 @@ describe("native auth bridge bootstrap injection", () => {
   async function createAndroidPushLifecycleSandbox(
     options: {
       includeResetUi?: boolean;
+      localStorage?: ReturnType<typeof createMockStorage>;
+      sessionStorage?: ReturnType<typeof createMockStorage>;
+      runtimeBootstrap?: ReturnType<typeof createCustomerAndroidPushBootstrap>;
     } = {}
   ) {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap =
+      options.runtimeBootstrap ?? createCustomerAndroidPushBootstrap();
     const browserFetch = vi.fn(
       async () => new Response("browser", { status: 200 })
     );
@@ -3322,7 +3327,7 @@ describe("native auth bridge bootstrap injection", () => {
       }),
       getRuntimeBootstrap: vi.fn().mockResolvedValue({
         configured: true,
-        bootstrap: createCustomerAndroidPushBootstrap(),
+        bootstrap: runtimeBootstrap,
       }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
@@ -3346,28 +3351,18 @@ describe("native auth bridge bootstrap injection", () => {
       appendMockLoginFooter(document);
     }
 
-    const localStorage = createMockStorage({
-      "secpal-locale": "en",
-      "tenant-cache": "customer-a",
-    });
-    const sessionStorage = createMockStorage({
-      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap({
-        instanceDisplayName: "Customer Example",
-        apiOrigin: "https://customer-api.example",
-        rawApiBaseUrl: "https://customer-api.example/v1",
-        androidPush: {
-          provider: "fcm",
-          metadataRevision: 3,
-          publicClientMetadata: {
-            apiKey: "public-client-api-key-demo-1234567890",
-            projectId: "secpal-demo-push",
-            applicationId: "1:1234567890:android:abcdef1234567890",
-            senderId: "1234567890",
-          },
-        },
-      }),
-      "tenant-session": "customer-a-session",
-    });
+    const localStorage =
+      options.localStorage ??
+      createMockStorage({
+        "secpal-locale": "en",
+        "tenant-cache": "customer-a",
+      });
+    const sessionStorage =
+      options.sessionStorage ??
+      createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(runtimeBootstrap),
+        "tenant-session": "customer-a-session",
+      });
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
@@ -3512,6 +3507,63 @@ describe("native auth bridge bootstrap injection", () => {
       remove();
       expect(handle.remove).toHaveBeenCalledOnce();
     }
+  });
+
+  it("registers a retained Android push token after a reload and login", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const sharedLocalStorage = createMockStorage({
+      "secpal-locale": "en",
+      "tenant-cache": "customer-a",
+    });
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const sharedSessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(runtimeBootstrap),
+      "tenant-session": "customer-a-session",
+    });
+    const firstPage = await createAndroidPushLifecycleSandbox({
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+
+    firstPage.listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(firstPage.plugin.request).not.toHaveBeenCalled();
+
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+
+    await reloadedPage.bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(reloadedPage.plugin.request).toHaveBeenCalledOnce();
+
+    const registrationRequest = reloadedPage.plugin.request.mock.calls[0]?.[0] as {
+      bodyBase64?: string;
+      method: string;
+      path: string;
+    };
+    const registrationPayload = decodeBase64Json(
+      String(registrationRequest.bodyBase64)
+    );
+
+    expect(registrationRequest.method).toBe("PUT");
+    expect(registrationRequest.path).toBe(
+      `/v1/me/push-devices/${reloadedPage.installationId}`
+    );
+    expect(registrationPayload.push_token).toBe(pushToken);
+    expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
   it("updates the backend registration when the Android push token rotates", async () => {
