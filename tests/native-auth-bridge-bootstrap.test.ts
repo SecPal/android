@@ -3802,6 +3802,99 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("aligns the trusted in-memory push token savedAt with the persisted timestamp during bootstrap hydration", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" +
+      encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const localStorage = createMockStorage();
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+    });
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 201,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+            },
+          })
+        ),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "1.5.0",
+        appBuild: 10500,
+      }),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: runtimeBootstrap,
+      }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      addListener: vi.fn(
+        () => ({
+          remove: vi.fn(),
+        })
+      ),
+    };
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      __SecPalAndroidPushSyncState: {
+        currentToken: pushToken,
+        currentTokenSourceAppName: "secpal-runtime-push",
+        currentTokenSavedAt: -1,
+      },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(async () => new Response("browser", { status: 200 })),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      crypto: {
+        randomUUID: vi.fn(() => installationId),
+      },
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      currentTokenSavedAt: number;
+    };
+    const persistedSavedAt = localStorage.getItem(tokenSavedAtStorageKey);
+
+    expect(persistedSavedAt).not.toBeNull();
+    expect(pushSyncState.currentTokenSavedAt).toBe(Number(persistedSavedAt));
+    expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
+  });
+
   it("persists an early Android push token once the runtime bootstrap finishes restoring and rehydrates it after the login-route reload", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";

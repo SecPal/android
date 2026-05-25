@@ -1603,12 +1603,19 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       isTrustedPushTokenSource(androidPushSyncState.currentTokenSourceAppName) &&
       currentToken.length >= minAndroidPushTokenLength
     ) {
+      const effectiveSavedAt =
+        androidPushSyncState.currentTokenSavedAt >= 0
+          ? androidPushSyncState.currentTokenSavedAt
+          : getCurrentPushTokenSavedAt();
+
+      androidPushSyncState.currentTokenSavedAt = effectiveSavedAt;
+
       if (normalizedApiOrigin.length > 0) {
         persistPushToken(
           normalizedApiOrigin,
           currentToken,
           androidPushSyncState.currentTokenSourceAppName,
-          androidPushSyncState.currentTokenSavedAt
+          effectiveSavedAt
         );
       }
 
