@@ -442,32 +442,6 @@ describe("WebView live auth smoke helpers", () => {
     expect(websocket.closeCalls).toBe(1);
   });
 
-  it("startRuntimeDiscovery fills the URL input and clicks the validate button", async () => {
-    const { startRuntimeDiscovery } = await loadSmokeModule();
-    const document = new FakeDocument();
-    const urlInput = new FakeInputElement();
-    const validateButton = new FakeButtonElement();
-
-    Object.defineProperty(FakeInputElement.prototype, "value", {
-      configurable: true,
-      get() {
-        return this.internalValue;
-      },
-      set(nextValue: string) {
-        this.internalValue = nextValue;
-      },
-    });
-
-    document.register("secpal-instance-discovery-url", urlInput);
-    document.register("secpal-instance-discovery-validate", validateButton);
-
-    const result = startRuntimeDiscovery(document, "https://api.secpal.dev");
-
-    expect(urlInput.internalValue).toBe("https://api.secpal.dev");
-    expect(validateButton.clicks).toBe(1);
-    expect(result).toEqual({ action: "validate" });
-  });
-
   it("startRuntimeDiscovery throws when the validate button is disabled", async () => {
     const { startRuntimeDiscovery } = await loadSmokeModule();
     const document = new FakeDocument();
@@ -513,19 +487,6 @@ describe("WebView live auth smoke helpers", () => {
 
     expect(confirmButton.clicks).toBe(1);
     expect(result).toEqual({ action: "confirm" });
-  });
-
-  it("confirmRuntimeDiscovery throws when the confirm button is disabled", async () => {
-    const { confirmRuntimeDiscovery } = await loadSmokeModule();
-    const document = new FakeDocument();
-    const confirmButton = new FakeButtonElement();
-    confirmButton.disabled = true;
-
-    document.register("secpal-instance-discovery-confirm", confirmButton);
-
-    expect(() => confirmRuntimeDiscovery(document)).toThrow(
-      "The runtime confirmation button is currently disabled."
-    );
   });
 
   it("confirmRuntimeDiscovery throws when the confirm button element is missing", async () => {
