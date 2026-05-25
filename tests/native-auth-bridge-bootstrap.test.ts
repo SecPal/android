@@ -3913,7 +3913,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(handles).toHaveLength(2);
     expect(firstPagePushState.tokenReceivedHandle).not.toBeNull();
-    expect(typeof firstPagePushState.tokenReceivedHandle?.remove).toBe("function");
+    expect(typeof firstPagePushState.tokenReceivedHandle?.remove).toBe(
+      "function"
+    );
     expect(firstPagePushState.tokenErrorHandle).not.toBeNull();
     expect(typeof firstPagePushState.tokenErrorHandle?.remove).toBe("function");
 
@@ -3949,7 +3951,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(reloadedPage.handles).toHaveLength(2);
     expect(reloadedPushState.tokenReceivedHandle).not.toBeNull();
-    expect(typeof reloadedPushState.tokenReceivedHandle?.remove).toBe("function");
+    expect(typeof reloadedPushState.tokenReceivedHandle?.remove).toBe(
+      "function"
+    );
     expect(reloadedPushState.tokenErrorHandle).not.toBeNull();
     expect(typeof reloadedPushState.tokenErrorHandle?.remove).toBe("function");
 
@@ -3973,17 +3977,26 @@ describe("native auth bridge bootstrap injection", () => {
       "secpal-android-push-token-saved-at:" + encodedApiOrigin;
     const sharedLocalStorage = createMockStorage();
     const sharedSessionStorage = createMockStorage({
-      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(runtimeBootstrap),
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
       "tenant-session": "customer-a-session",
     });
 
-    const { bridge, document, handles, installationId, listeners, localStorage, plugin, sessionStorage } =
-      await createAndroidPushLifecycleSandbox({
-        includeResetUi: true,
-        localStorage: sharedLocalStorage,
-        sessionStorage: sharedSessionStorage,
-        runtimeBootstrap,
-      });
+    const {
+      bridge,
+      document,
+      handles,
+      installationId,
+      listeners,
+      localStorage,
+      plugin,
+      sessionStorage,
+    } = await createAndroidPushLifecycleSandbox({
+      includeResetUi: true,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -4002,8 +4015,12 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem(tokenStorageKey)).toBe(pushToken);
     expect(localStorage.getItem(tokenSavedAtStorageKey)).not.toBeNull();
     expect(sessionStorage.getItem(tokenSavedAtStorageKey)).not.toBeNull();
-    expect(localStorage.getItem(tokenAppStorageKey)).toBe("secpal-runtime-push");
-    expect(sessionStorage.getItem(tokenAppStorageKey)).toBe("secpal-runtime-push");
+    expect(localStorage.getItem(tokenAppStorageKey)).toBe(
+      "secpal-runtime-push"
+    );
+    expect(sessionStorage.getItem(tokenAppStorageKey)).toBe(
+      "secpal-runtime-push"
+    );
 
     plugin.request.mockResolvedValue({
       status: 200,
