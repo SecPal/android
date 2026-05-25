@@ -3630,13 +3630,14 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("waits for an in-flight Android push registration before revoking it during logout", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
-    const { bridge, installationId, listeners, plugin } =
+    const { bridge, installationId, listeners, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox();
     type NativeRequestResponse = {
       bodyBase64: string;
       contentType: string;
       status: number;
     };
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
     let resolveRegistrationRequest: (
       value: NativeRequestResponse
     ) => void = () => {};
@@ -3711,6 +3712,7 @@ describe("native auth bridge bootstrap injection", () => {
       path: `/v1/me/push-devices/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(authState.active).toBe(false);
   });
 
   it("revokes the backend push-device registration during destructive runtime reset", async () => {
