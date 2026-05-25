@@ -3284,6 +3284,7 @@ describe("native auth bridge bootstrap injection", () => {
   async function createAndroidPushLifecycleSandbox(
     options: {
       includeResetUi?: boolean;
+      crypto?: Record<string, unknown>;
       installationId?: string;
       localStorage?: ReturnType<typeof createMockStorage>;
       sessionStorage?: ReturnType<typeof createMockStorage>;
@@ -3386,7 +3387,7 @@ describe("native auth bridge bootstrap injection", () => {
       atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
       console,
       confirm: vi.fn().mockReturnValue(true),
-      crypto: {
+      crypto: options.crypto ?? {
         randomUUID: vi.fn(() => installationId),
       },
       location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
@@ -3769,6 +3770,91 @@ describe("native auth bridge bootstrap injection", () => {
     );
     expect(reRegistrationPayload.lifecycle_event).toBe("registered");
     expect(reRegistrationPayload.push_token).toBe(pushToken);
+  });
+
+  it("permanently disables Android push registration with a structured error when secure UUID APIs are unavailable", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const { bridge, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox({ crypto: {} });
+    const nativeBridge = bridge as typeof bridge & {
+      getAndroidPushRegistrationState(): Promise<{
+        disabledError: {
+          apiOrigin: string | null;
+          code: string;
+          message: string;
+          retryable: boolean;
+        } | null;
+      }>;
+    };
+
+    await expect(
+      nativeBridge.getAndroidPushRegistrationState()
+    ).resolves.toEqual({
+      disabledError: null,
+    });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      disabledError: {
+        apiOrigin: string;
+        code: string;
+        message: string;
+        retryable: boolean;
+      } | null;
+    };
+    const registrationState =
+      await nativeBridge.getAndroidPushRegistrationState();
+
+    expect(registrationState).toEqual({
+      disabledError: {
+        apiOrigin: "https://customer-api.example",
+        code: "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE",
+        message:
+          "Android push device registration is disabled because secure UUID generation is unavailable.",
+        retryable: false,
+      },
+    });
+    expect(pushSyncState.disabledError).toEqual(
+      registrationState.disabledError
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Android push device registration is disabled.",
+      registrationState.disabledError
+    );
+
+    errorSpy.mockClear();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    await expect(
+      nativeBridge.getAndroidPushRegistrationState()
+    ).resolves.toEqual(registrationState);
+
+    errorSpy.mockRestore();
   });
 
   it("revokes the backend push-device registration before logout and re-registers it on the next login", async () => {

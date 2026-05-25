@@ -114,6 +114,16 @@ describe("capacitor Android wrapper configuration", () => {
     });
   });
 
+  it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+
+    await expect(bridge.getAndroidPushRegistrationState()).resolves.toEqual({
+      disabledError: null,
+    });
+  });
+
   it("exposes the optional vault wrapper bridge methods when the native plugin supports them", async () => {
     pluginMocks.isVaultDeviceBoundWrapperAvailable = vi
       .fn()
