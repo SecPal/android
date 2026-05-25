@@ -103,7 +103,7 @@ SECPAL_TEST_PASSWORD=password \
 npm run test:live:webview-auth-smoke
 ```
 
-The script keeps the configured runtime (or completes discovery first when needed), fills the React-controlled login form through the DOM, waits for native auth completion, and then verifies the authenticated Android push registration sync for the selected deployment when the login WebView already has a hydrated Android push token. Override `SECPAL_RUNTIME_URL`, `SECPAL_WEBVIEW_DEVTOOLS_URL`, or `SECPAL_WEBVIEW_TARGET_PATTERN` if your test target differs. If the app restarts and the `webview_devtools_remote_<pid>` socket changes, redo the `adb forward` step before rerunning the smoke command. A separate Android runtime blocker remains tracked in issue `#248`: after some logout flows that leave the WebView on `/`, rerouting back to `/login` can still lose the retained push token before the next DOM-driven login.
+The script keeps the configured runtime (or completes discovery first when needed), fills the React-controlled login form through the DOM, waits for native auth completion, and then verifies the authenticated Android push registration sync for the selected deployment when the login WebView already has a hydrated Android push token. Override `SECPAL_RUNTIME_URL`, `SECPAL_WEBVIEW_DEVTOOLS_URL`, or `SECPAL_WEBVIEW_TARGET_PATTERN` if your test target differs. If the app restarts and the `webview_devtools_remote_<pid>` socket changes, redo the `adb forward` step before rerunning the smoke command. The logout `/` -> `/login` reroute path from issue `#248` is covered by this smoke: the retained Android push token now rehydrates before the next DOM-driven login and the subsequent authenticated push-device sync is expected to succeed.
 
 ## Capacitor Setup
 
