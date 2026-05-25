@@ -191,6 +191,10 @@ async function loadSmokeModule(): Promise<{
     close: () => void;
   };
   assertCdpCommandSucceeded: (response: unknown, method: string) => void;
+  assertFreshPreLoginSmokeState: (state: {
+    nativeAuthActive?: boolean | null;
+    lastSyncedToken?: string | null;
+  }) => void;
   readRequiredEnv: (name: string) => string;
   waitForWebSocketOpen: (
     websocket: FakeWebSocket,
@@ -574,6 +578,32 @@ describe("WebView live auth smoke helpers", () => {
     ).toThrow("Unknown browser helper: setFormControlValue");
     expect(() => buildDocumentCallExpression("getNativeValueSetter")).toThrow(
       "Unknown browser helper: getNativeValueSetter"
+    );
+  });
+
+  it("rejects a smoke run that starts while native auth is already active", async () => {
+    const { assertFreshPreLoginSmokeState } = await loadSmokeModule();
+
+    expect(() =>
+      assertFreshPreLoginSmokeState({
+        nativeAuthActive: true,
+        lastSyncedToken: null,
+      })
+    ).toThrow(
+      "The WebView is already authenticated before the smoke login step."
+    );
+  });
+
+  it("rejects a smoke run that starts with an already synced push token", async () => {
+    const { assertFreshPreLoginSmokeState } = await loadSmokeModule();
+
+    expect(() =>
+      assertFreshPreLoginSmokeState({
+        nativeAuthActive: false,
+        lastSyncedToken: "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz",
+      })
+    ).toThrow(
+      "Android push sync already completed before the smoke login step."
     );
   });
 });
