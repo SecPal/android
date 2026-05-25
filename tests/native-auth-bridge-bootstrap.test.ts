@@ -3760,14 +3760,14 @@ describe("native auth bridge bootstrap injection", () => {
     const tokenStorageKey =
       "secpal-android-push-token:" +
       encodeURIComponent("https://customer-api.example");
-    const { listeners, localStorage, plugin, sandbox } =
+    const { listeners, plugin, sandbox, sessionStorage } =
       await createAndroidPushLifecycleSandbox();
     const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
       currentToken: string | null;
     };
 
     pushSyncState.currentToken = retainedToken;
-    localStorage.setItem(tokenStorageKey, retainedToken);
+    sessionStorage.setItem(tokenStorageKey, retainedToken);
 
     listeners.androidPushTokenReceived[0]?.({
       appName: "secpal-runtime-push",
@@ -3777,7 +3777,7 @@ describe("native auth bridge bootstrap injection", () => {
     await flushMicrotasks();
 
     expect(pushSyncState.currentToken).toBe(retainedToken);
-    expect(localStorage.getItem(tokenStorageKey)).toBe(retainedToken);
+    expect(sessionStorage.getItem(tokenStorageKey)).toBe(retainedToken);
 
     listeners.androidPushTokenReceived[0]?.({
       appName: "secpal-runtime-push",
@@ -3788,7 +3788,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.request).not.toHaveBeenCalled();
     expect(pushSyncState.currentToken).toBe(retainedToken);
-    expect(localStorage.getItem(tokenStorageKey)).toBe(retainedToken);
+    expect(sessionStorage.getItem(tokenStorageKey)).toBe(retainedToken);
   });
 
   it("ignores Android push token errors from unexpected Firebase app instances", async () => {
