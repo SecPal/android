@@ -419,15 +419,16 @@ async function runLoginSmoke(options) {
     "native login completion",
     inspectStateExpression,
     (value) =>
-      value?.nativeAuthState?.active === true ||
-      Boolean(value?.loginErrorText),
+      value?.nativeAuthState?.active === true || Boolean(value?.loginErrorText),
     options
   );
   console.log("POST_LOGIN_STATE");
   console.log(formatJson(postLoginState));
 
   if (postLoginState?.loginErrorText) {
-    throw new Error(`Login failed in the WebView: ${postLoginState.loginErrorText}`);
+    throw new Error(
+      `Login failed in the WebView: ${postLoginState.loginErrorText}`
+    );
   }
 
   const pushSyncState = await waitFor(
@@ -435,7 +436,9 @@ async function runLoginSmoke(options) {
     inspectStateExpression,
     (value) => {
       const syncState = value?.androidPushSyncState;
-      return syncState?.lastSyncedToken != null || syncState?.disabledError != null;
+      return (
+        syncState?.lastSyncedToken != null || syncState?.disabledError != null
+      );
     },
     {
       ...options,
@@ -489,7 +492,8 @@ async function main() {
 }
 
 const isDirectExecution =
-  process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+  process.argv[1] &&
+  import.meta.url === new URL(`file://${process.argv[1]}`).href;
 
 if (isDirectExecution) {
   main().catch((error) => {
