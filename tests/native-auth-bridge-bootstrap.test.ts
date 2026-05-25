@@ -3655,8 +3655,10 @@ describe("native auth bridge bootstrap injection", () => {
   });
 
   it("prefers the freshest trusted retained Android push token when local and session storage diverge", async () => {
-    const stalePushToken = "fcm-token-stale-1234567890abcdefghijklmnopqrstuvwxyz";
-    const freshPushToken = "fcm-token-fresh-1234567890abcdefghijklmnopqrstuvwxyz";
+    const stalePushToken =
+      "fcm-token-stale-1234567890abcdefghijklmnopqrstuvwxyz";
+    const freshPushToken =
+      "fcm-token-fresh-1234567890abcdefghijklmnopqrstuvwxyz";
     const installationId = "11111111-1111-4111-8111-111111111111";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
     const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
