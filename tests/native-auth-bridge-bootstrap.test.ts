@@ -3733,6 +3733,36 @@ describe("native auth bridge bootstrap injection", () => {
     expect(pushSyncState.lastSyncedToken).toBeNull();
   });
 
+  it("ignores Android push token errors from unexpected Firebase app instances", async () => {
+    const { listeners } = await createAndroidPushLifecycleSandbox();
+
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue(undefined);
+
+    listeners.androidPushTokenError[0]?.({
+      appName: "legacy-default-firebase",
+      error: "TOKEN_ERROR_UNKNOWN",
+    });
+    await flushMicrotasks();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning for Android push token errors from the runtime Firebase app", async () => {
+    const { listeners } = await createAndroidPushLifecycleSandbox();
+
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue(undefined);
+
+    listeners.androidPushTokenError[0]?.({
+      appName: "secpal-runtime-push",
+      error: "TOKEN_ERROR_UNKNOWN",
+    });
+    await flushMicrotasks();
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
   it("re-registers the push token after a session-expiry 401 during registration", async () => {
     // Scenario: push token arrives before login, first registration attempt gets 401
     // (session expired mid-sync). On next login with the same token, a fresh PUT must

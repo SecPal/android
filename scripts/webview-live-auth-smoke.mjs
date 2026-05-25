@@ -281,21 +281,45 @@ async function evaluateInWebView(expression, options = {}) {
     }
   };
 
+  const rejectPending = (reason) => {
+    for (const resolve of pendingRequests.values()) {
+      resolve(Promise.reject(reason));
+    }
+    pendingRequests.clear();
+  };
+
+  websocket.onclose = () => {
+    rejectPending(new Error("WebView debugger WebSocket closed unexpectedly."));
+  };
+
   const send = (method, params = {}) => {
     const requestId = nextRequestId;
     nextRequestId += 1;
     websocket.send(JSON.stringify({ id: requestId, method, params }));
-    return new Promise((resolve) => pendingRequests.set(requestId, resolve));
+    return new Promise((resolve, reject) =>
+      pendingRequests.set(requestId, (response) => {
+        if (response instanceof Promise) {
+          response.then(resolve, reject);
+        } else {
+          resolve(response);
+        }
+      })
+    );
   };
 
-  await send("Runtime.enable");
-  const response = await send("Runtime.evaluate", {
-    expression,
-    awaitPromise: options.awaitPromise ?? true,
-    returnByValue: options.returnByValue ?? true,
-  });
+  let response;
 
-  websocket.close();
+  try {
+    await send("Runtime.enable");
+    response = await send("Runtime.evaluate", {
+      expression,
+      awaitPromise: options.awaitPromise ?? true,
+      returnByValue: options.returnByValue ?? true,
+    });
+  } finally {
+    websocket.onclose = null;
+    websocket.close();
+  }
 
   if (response.result?.exceptionDetails) {
     const description =

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 type BrowserEventInit = {
   bubbles?: boolean;
@@ -138,6 +138,14 @@ async function loadSmokeModule(): Promise<{
 }
 
 describe("WebView live auth smoke helpers", () => {
+  afterEach(() => {
+    // Remove the configurable value descriptor installed by individual tests so
+    // each test starts from a clean prototype state.
+    if (Object.getOwnPropertyDescriptor(FakeInputElement.prototype, "value")) {
+      delete (FakeInputElement.prototype as unknown as Record<string, unknown>).value;
+    }
+  });
+
   it("uses the native value setter and dispatches bubbling input events", async () => {
     const { setFormControlValue } = await loadSmokeModule();
     const input = new FakeInputElement();
