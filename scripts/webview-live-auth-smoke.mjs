@@ -241,8 +241,27 @@ const loginFormReadyExpression = `(() => ({
 const preLoginPushReadyExpression = `(() => ({
   href: globalThis.location?.href ?? null,
   currentToken: globalThis.__SecPalAndroidPushSyncState?.currentToken ?? null,
+  lastSyncedToken: globalThis.__SecPalAndroidPushSyncState?.lastSyncedToken ?? null,
   disabledError: globalThis.__SecPalAndroidPushSyncState?.disabledError ?? null,
+  nativeAuthActive: globalThis.__SecPalNativeAuthState?.active ?? null,
 }))()`;
+
+export function assertFreshPreLoginSmokeState(state) {
+  if (state?.nativeAuthActive === true) {
+    throw new Error(
+      "The WebView is already authenticated before the smoke login step. Clear the current session and rerun the smoke."
+    );
+  }
+
+  if (
+    typeof state?.lastSyncedToken === "string" &&
+    state.lastSyncedToken.length > 0
+  ) {
+    throw new Error(
+      "Android push sync already completed before the smoke login step. Clear the current session and rerun the smoke."
+    );
+  }
+}
 
 function formatJson(value) {
   return JSON.stringify(value, null, 2);
@@ -579,6 +598,8 @@ async function runLoginSmoke(options) {
       `Push registration is disabled before login: ${preLoginPushState.disabledError}`
     );
   }
+
+  assertFreshPreLoginSmokeState(preLoginPushState);
 
   const loginSubmitResult = await evaluateInWebView(
     buildDocumentCallExpression("submitLoginForm", {
