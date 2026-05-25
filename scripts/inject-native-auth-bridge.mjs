@@ -1520,13 +1520,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     if (selectedToken.length >= minAndroidPushTokenLength) {
+      const persistedSavedAt =
+        selectedSavedAt >= 0 ? selectedSavedAt : getCurrentPushTokenSavedAt();
       persistPushToken(
         normalizedApiOrigin,
         selectedToken,
         selectedAppName,
-        selectedSavedAt
+        persistedSavedAt
       );
-      return { token: selectedToken, savedAt: selectedSavedAt };
+      return { token: selectedToken, savedAt: persistedSavedAt };
     }
 
     return { token: "", savedAt: -1 };

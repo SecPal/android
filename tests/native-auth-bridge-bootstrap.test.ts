@@ -3757,6 +3757,50 @@ describe("native auth bridge bootstrap injection", () => {
     }
   });
 
+  it("hydrates legacy retained Android push token timestamps from persisted storage", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const installationStorageKey =
+      "secpal-android-push-installation:" + encodedApiOrigin;
+    const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
+    const tokenAppStorageKey = "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" + encodedApiOrigin;
+    const sharedLocalStorage = createMockStorage({
+      [installationStorageKey]: installationId,
+      [tokenStorageKey]: pushToken,
+      [tokenAppStorageKey]: "secpal-runtime-push",
+    });
+    const sharedSessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+    });
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+    const pushSyncState = reloadedPage.sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+      currentTokenSavedAt: number;
+    };
+
+    await flushMicrotasks();
+
+    const persistedSavedAt = sharedLocalStorage.getItem(tokenSavedAtStorageKey);
+
+    expect(pushSyncState.currentToken).toBe(pushToken);
+    expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
+    expect(persistedSavedAt).not.toBeNull();
+    expect(pushSyncState.currentTokenSavedAt).toBe(Number(persistedSavedAt));
+    expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe(
+      persistedSavedAt
+    );
+  });
+
   it("persists an early Android push token once the runtime bootstrap finishes restoring and rehydrates it after the login-route reload", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
