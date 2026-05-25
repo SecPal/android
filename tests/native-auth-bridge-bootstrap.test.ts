@@ -3582,6 +3582,75 @@ describe("native auth bridge bootstrap injection", () => {
     expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
+  it("does not reactivate auth state after a successful direct bridge request", async () => {
+    const { bridge, plugin, sandbox } = await createAndroidPushLifecycleSandbox();
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const nativeBridge = bridge as typeof bridge & {
+      request(request: {
+        method: string;
+        path: string;
+        accept?: string;
+      }): Promise<{
+        status: number;
+        bodyBase64?: string;
+        contentType?: string;
+      }>;
+    };
+
+    plugin.request.mockResolvedValueOnce({
+      status: 200,
+      bodyBase64: encodeBase64('{"ok":true}'),
+      contentType: "application/json",
+    });
+    authState.active = false;
+
+    const response = await nativeBridge.request({
+      method: "GET",
+      path: "/v1/me",
+      accept: "application/json",
+    });
+
+    expect(plugin.request).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/v1/me",
+      accept: "application/json",
+    });
+    expect(response.status).toBe(200);
+    expect(authState.active).toBe(false);
+  });
+
+  it("clears auth state when a direct bridge request returns 401", async () => {
+    const { bridge, plugin, sandbox } = await createAndroidPushLifecycleSandbox();
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const nativeBridge = bridge as typeof bridge & {
+      request(request: {
+        method: string;
+        path: string;
+        accept?: string;
+      }): Promise<{
+        status: number;
+        bodyBase64?: string;
+        contentType?: string;
+      }>;
+    };
+
+    plugin.request.mockResolvedValueOnce({
+      status: 401,
+      bodyBase64: encodeBase64('{"message":"Unauthenticated."}'),
+      contentType: "application/json",
+    });
+    authState.active = true;
+
+    const response = await nativeBridge.request({
+      method: "GET",
+      path: "/v1/me",
+      accept: "application/json",
+    });
+
+    expect(response.status).toBe(401);
+    expect(authState.active).toBe(false);
+  });
+
   it("updates the backend registration when the Android push token rotates", async () => {
     const firstToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const secondToken = "fcm-token-rotation-0987654321zyxwvutsrqponmlkji";
