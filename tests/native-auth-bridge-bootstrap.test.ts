@@ -3765,7 +3765,8 @@ describe("native auth bridge bootstrap injection", () => {
     const installationStorageKey =
       "secpal-android-push-installation:" + encodedApiOrigin;
     const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
-    const tokenAppStorageKey = "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" + encodedApiOrigin;
     const tokenSavedAtStorageKey =
       "secpal-android-push-token-saved-at:" + encodedApiOrigin;
     const sharedLocalStorage = createMockStorage({
