@@ -142,7 +142,8 @@ describe("WebView live auth smoke helpers", () => {
     // Remove the configurable value descriptor installed by individual tests so
     // each test starts from a clean prototype state.
     if (Object.getOwnPropertyDescriptor(FakeInputElement.prototype, "value")) {
-      delete (FakeInputElement.prototype as unknown as Record<string, unknown>).value;
+      delete (FakeInputElement.prototype as unknown as Record<string, unknown>)
+        .value;
     }
   });
 
