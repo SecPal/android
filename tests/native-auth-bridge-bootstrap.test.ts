@@ -3706,6 +3706,33 @@ describe("native auth bridge bootstrap injection", () => {
     expect(rotatedPayload.push_token).toBe(secondToken);
   });
 
+  it("ignores Android push tokens from unexpected Firebase app instances", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+      lastSyncedToken: string | null;
+    };
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "legacy-default-firebase",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+    expect(pushSyncState.currentToken).toBeNull();
+    expect(pushSyncState.lastSyncedToken).toBeNull();
+  });
+
   it("re-registers the push token after a session-expiry 401 during registration", async () => {
     // Scenario: push token arrives before login, first registration attempt gets 401
     // (session expired mid-sync). On next login with the same token, a fresh PUT must

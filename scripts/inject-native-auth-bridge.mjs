@@ -61,6 +61,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE";
   const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
+  const androidPushRuntimeAppName = "secpal-runtime-push";
   function normalizeAndroidPushDisabledError(value) {
     if (!value || typeof value !== "object") {
       return null;
@@ -1757,6 +1758,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     rememberListenerHandle(
       "tokenReceivedHandle",
       plugin.addListener("androidPushTokenReceived", (payload) => {
+        const appName =
+          payload && typeof payload === "object" && typeof payload.appName === "string"
+            ? payload.appName.trim()
+            : "";
         const provider =
           payload && typeof payload === "object" && typeof payload.provider === "string"
             ? payload.provider.trim()
@@ -1765,7 +1770,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           payload && typeof payload === "object" ? payload.token : null
         );
 
-        if (provider !== "fcm" || token.length < minAndroidPushTokenLength) {
+        if (
+          appName !== androidPushRuntimeAppName ||
+          provider !== "fcm" ||
+          token.length < minAndroidPushTokenLength
+        ) {
           return;
         }
 
@@ -1777,6 +1786,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     rememberListenerHandle(
       "tokenErrorHandle",
       plugin.addListener("androidPushTokenError", (payload) => {
+        const appName =
+          payload && typeof payload === "object" && typeof payload.appName === "string"
+            ? payload.appName.trim()
+            : "";
+
+        if (appName !== androidPushRuntimeAppName) {
+          return;
+        }
+
         console.warn(
           "Failed to retrieve Android push registration token.",
           payload

@@ -96,16 +96,38 @@ The bootstrap response is the binding contract for Android login and must provid
 - `instance.display_name` so the user can confirm the correct deployment before login
 - compatibility metadata such as `bootstrap_version`, `schema_version`, `minimum_supported_app_version`, and `minimum_supported_app_build`
 - the feature flags required by the login shell
+- when `features.android_push` is enabled, the `android_push` FCM metadata required to initialize the customer-owned native runtime (`provider`, `metadata_revision`, `project_id`, `application_id`, `sender_id`, and `api_key`)
 
 If the customer-facing instance URL and the canonical API host differ, keep `GET /v1/bootstrap` reachable on the customer-facing URL and let `api_base_url` point to the canonical API host. The Android app persists that canonical API origin only after the user confirms the resolved instance.
 
 If bootstrap is missing, incompatible, or unreachable, the Android app stays on the discovery gate and does not fall back to `https://api.secpal.dev` or any other fixed production origin.
+
+## Customer-Owned Android Push Runtime
+
+When a validated bootstrap enables Android push, the generic Android app uses that deployment metadata as the only source of truth for native push runtime behavior.
+
+- The app initializes the named native Firebase runtime `secpal-runtime-push` from the customer-owned metadata and does not rely on a bundled `google-services.json` file or a SecPal-owned default sender.
+- Native FCM token retrieval happens on-device, but the authenticated backend binding is created only after native login succeeds against the selected customer API origin.
+- The login flow registers `PUT /v1/me/push-devices/{installationId}` on the canonical API origin returned by bootstrap.
+- Later token refreshes update that same installation binding with `lifecycle_event=token_rotated` instead of creating a second device registration.
+- Logout and destructive instance reset revoke `DELETE /v1/me/push-devices/{installationId}` before the app clears local runtime state.
+- Token or error events from any Firebase app instance other than `secpal-runtime-push` are ignored so a customer-owned runtime cannot silently fall back to a stale or foreign push configuration.
+
+For operator rollout validation on a real Android device, verify at least:
+
+- the bootstrap payload includes the expected `android_push` metadata for the customer deployment
+- login triggers `PUT /v1/me/push-devices/{installationId}` on the customer API host
+- a token refresh updates the same installation binding instead of creating a second registration
+- logout or `Log out and switch instance` triggers `DELETE /v1/me/push-devices/{installationId}` before local cleanup finishes
+- no registration, rotation, or revocation request goes to a SecPal-owned API host or any other legacy push fallback path
 
 ## Rollout Notes For Replacing The Baked-In Origin Assumption
 
 SecPal Android is still on the current `0.x` line. Breaking changes are therefore permitted when they remove obsolete or unsafe runtime-bootstrap compatibility paths.
 
 For this rollout, SecPal intentionally preserves no backward-compatibility shim for the old baked-in-origin model. Customer-hosted deployments must expose the bootstrap contract before updated Android builds are distributed.
+
+The same `0.x` rule applies to Android push runtime behavior. Updated builds intentionally preserve no compatibility fallback to old SecPal-owned push assumptions, bundled Firebase defaults, or foreign Firebase app token events once customer-owned runtime push is configured.
 
 Before handing the generic Android app to a tenant, operators should verify:
 

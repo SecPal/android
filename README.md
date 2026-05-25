@@ -59,6 +59,12 @@ Use the customer-facing instance URL that the user received, not a copied API pa
 
 For the current SecPal live deployment, the bootstrap/input host is `https://api.secpal.dev`. `https://app.secpal.dev` remains the browser frontend host and does not currently expose `GET /v1/bootstrap` for Android runtime binding.
 
+When the validated bootstrap enables Android push with current `android_push` metadata, the generic app initializes a deployment-scoped native Firebase runtime named `secpal-runtime-push` from that customer metadata. It does not fall back to a bundled `google-services.json`, a SecPal-owned sender configuration, or token events emitted by another Firebase app instance.
+
+The native shell requests the FCM token on-device, but the authenticated device binding is created only after native login succeeds against the selected customer API. The app then registers `PUT /v1/me/push-devices/{installationId}` on that canonical API origin, updates the same binding when the token rotates, and revokes it on logout or `Log out and switch instance` before clearing local runtime state.
+
+For operator validation on a real device, confirm the app binds to the intended customer instance, login triggers the push-device registration on the customer API host, logout or instance reset revokes that registration, and no push traffic falls back to any SecPal-owned API or legacy Firebase setup.
+
 ## Local Setup
 
 ```bash
