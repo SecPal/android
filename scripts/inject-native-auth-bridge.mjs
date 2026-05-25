@@ -59,6 +59,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
   const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
+  const minAndroidPushTokenLength = 32;
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -1239,7 +1240,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     throw new Error(
-      "Cannot generate a push installation identifier: crypto API is unavailable."
+      "Cannot generate a push installation identifier: crypto API is unavailable. See issue #244."
     );
   };
 
@@ -2787,7 +2788,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return result && typeof result === "object" ? result.available === true : result === true;
     },
     async request(request) {
-      return sendAuthenticatedNativeRequest(request);
+      return sendAuthenticatedNativeRequest(request, {
+        markAuthenticatedOnSuccess: false,
+      });
     },
     async createPasskeyAttestation(options) {
       const result = await getPlugin().createPasskeyAttestation({ publicKey: options });
