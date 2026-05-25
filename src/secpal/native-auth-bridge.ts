@@ -69,6 +69,17 @@ export interface NativeVaultRootKeyUnwrapResult {
   rootKeyBase64: string;
 }
 
+export interface AndroidPushRegistrationDisabledError {
+  apiOrigin: string | null;
+  code: string;
+  message: string;
+  retryable: false;
+}
+
+export interface AndroidPushRegistrationState {
+  disabledError: AndroidPushRegistrationDisabledError | null;
+}
+
 export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
   loginWithPasskey?(): Promise<unknown>;
@@ -85,6 +96,7 @@ export interface NativeAuthBridge {
   unwrapVaultRootKey?(
     options: NativeVaultRootKeyUnwrapOptions
   ): Promise<NativeVaultRootKeyUnwrapResult>;
+  getAndroidPushRegistrationState(): Promise<AndroidPushRegistrationState>;
   request(
     request: NativeAuthenticatedRequest
   ): Promise<NativeAuthenticatedResponse>;
@@ -131,6 +143,13 @@ interface SecPalNativeAuthPlugin {
 
 const secPalNativeAuthPlugin =
   registerPlugin<SecPalNativeAuthPlugin>("SecPalNativeAuth");
+
+function createEmptyAndroidPushRegistrationState(): AndroidPushRegistrationState {
+  return {
+    disabledError: null,
+  };
+}
+
 export function createNativeAuthBridge(): NativeAuthBridge {
   const bridge: NativeAuthBridge = {
     login(credentials) {
@@ -149,6 +168,9 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       const result = await secPalNativeAuthPlugin.isNetworkAvailable();
 
       return result.available === true;
+    },
+    async getAndroidPushRegistrationState() {
+      return createEmptyAndroidPushRegistrationState();
     },
     request(request) {
       return secPalNativeAuthPlugin.request({

@@ -152,6 +152,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   androidPushSyncState.syncPromise = Promise.resolve(
     androidPushSyncState.syncPromise
   ).catch(() => undefined);
+  const cloneAndroidPushDisabledError = (value) => {
+    const normalized = normalizeAndroidPushDisabledError(value);
+
+    return normalized ? { ...normalized } : null;
+  };
+  const getAndroidPushRegistrationState = () => {
+    return {
+      disabledError: cloneAndroidPushDisabledError(
+        androidPushSyncState.disabledError
+      ),
+    };
+  };
   const discoveryLocales = {
     en: "English",
     de: "Deutsch",
@@ -2861,6 +2873,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     async isNetworkAvailable() {
       const result = await getPlugin().isNetworkAvailable();
       return result && typeof result === "object" ? result.available === true : result === true;
+    },
+    async getAndroidPushRegistrationState() {
+      return getAndroidPushRegistrationState();
     },
     async request(request) {
       return sendAuthenticatedNativeRequest(request, {

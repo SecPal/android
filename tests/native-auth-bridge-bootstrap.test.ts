@@ -3779,6 +3779,22 @@ describe("native auth bridge bootstrap injection", () => {
       .mockImplementation(() => undefined);
     const { bridge, listeners, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox({ crypto: {} });
+    const nativeBridge = bridge as typeof bridge & {
+      getAndroidPushRegistrationState(): Promise<{
+        disabledError: {
+          apiOrigin: string | null;
+          code: string;
+          message: string;
+          retryable: boolean;
+        } | null;
+      }>;
+    };
+
+    await expect(nativeBridge.getAndroidPushRegistrationState()).resolves.toEqual(
+      {
+        disabledError: null,
+      }
+    );
 
     await bridge.login({
       email: "worker@customer.example",
@@ -3803,17 +3819,21 @@ describe("native auth bridge bootstrap injection", () => {
         retryable: boolean;
       } | null;
     };
+    const registrationState = await nativeBridge.getAndroidPushRegistrationState();
 
-    expect(pushSyncState.disabledError).toEqual({
-      apiOrigin: "https://customer-api.example",
-      code: "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE",
-      message:
-        "Android push device registration is disabled because secure UUID generation is unavailable.",
-      retryable: false,
+    expect(registrationState).toEqual({
+      disabledError: {
+        apiOrigin: "https://customer-api.example",
+        code: "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE",
+        message:
+          "Android push device registration is disabled because secure UUID generation is unavailable.",
+        retryable: false,
+      },
     });
+    expect(pushSyncState.disabledError).toEqual(registrationState.disabledError);
     expect(errorSpy).toHaveBeenCalledWith(
       "Android push device registration is disabled.",
-      pushSyncState.disabledError
+      registrationState.disabledError
     );
 
     errorSpy.mockClear();
@@ -3827,6 +3847,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.request).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
+    await expect(nativeBridge.getAndroidPushRegistrationState()).resolves.toEqual(
+      registrationState
+    );
 
     errorSpy.mockRestore();
   });
