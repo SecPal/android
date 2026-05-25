@@ -3841,11 +3841,9 @@ describe("native auth bridge bootstrap injection", () => {
         bootstrap: runtimeBootstrap,
       }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
-      addListener: vi.fn(
-        () => ({
-          remove: vi.fn(),
-        })
-      ),
+      addListener: vi.fn(() => ({
+        remove: vi.fn(),
+      })),
     };
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
