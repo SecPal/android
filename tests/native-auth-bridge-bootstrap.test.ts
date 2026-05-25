@@ -3654,6 +3654,75 @@ describe("native auth bridge bootstrap injection", () => {
     expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
+  it("prefers the freshest trusted retained Android push token when local and session storage diverge", async () => {
+    const stalePushToken = "fcm-token-stale-1234567890abcdefghijklmnopqrstuvwxyz";
+    const freshPushToken = "fcm-token-fresh-1234567890abcdefghijklmnopqrstuvwxyz";
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const installationStorageKey =
+      "secpal-android-push-installation:" + encodedApiOrigin;
+    const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" + encodedApiOrigin;
+    const sharedLocalStorage = createMockStorage({
+      [installationStorageKey]: installationId,
+      [tokenStorageKey]: stalePushToken,
+      [tokenAppStorageKey]: "secpal-runtime-push",
+      [tokenSavedAtStorageKey]: "100",
+    });
+    const sharedSessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+      [tokenStorageKey]: freshPushToken,
+      [tokenAppStorageKey]: "secpal-runtime-push",
+      [tokenSavedAtStorageKey]: "200",
+    });
+
+    const reloadedPage = await createAndroidPushLifecycleSandbox({
+      installationId,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
+      runtimeBootstrap,
+    });
+    const pushSyncState = reloadedPage.sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    await flushMicrotasks();
+
+    expect(pushSyncState.currentToken).toBe(freshPushToken);
+    expect(sharedLocalStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
+    expect(sharedSessionStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
+
+    await reloadedPage.bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    expect(reloadedPage.plugin.request).toHaveBeenCalledOnce();
+
+    const registrationRequest = reloadedPage.plugin.request.mock
+      .calls[0]?.[0] as {
+      bodyBase64?: string;
+      method: string;
+      path: string;
+    };
+    const registrationPayload = decodeBase64Json(
+      String(registrationRequest.bodyBase64)
+    );
+
+    expect(registrationRequest.method).toBe("PUT");
+    expect(registrationRequest.path).toBe(
+      `/v1/me/push-devices/${installationId}`
+    );
+    expect(registrationPayload.push_token).toBe(freshPushToken);
+    expect(registrationPayload.lifecycle_event).toBe("registered");
+  });
+
   it("persists an early Android push token once the runtime bootstrap finishes restoring and rehydrates it after the login-route reload", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
