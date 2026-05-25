@@ -172,8 +172,6 @@ export function ensureLoginFormRoute(globalLike) {
 export function buildDocumentCallExpression(functionName, ...args) {
   const helperMap = {
     getRequiredElement,
-    getNativeValueSetter,
-    setFormControlValue,
     submitLoginForm,
     startRuntimeDiscovery,
     confirmRuntimeDiscovery,
