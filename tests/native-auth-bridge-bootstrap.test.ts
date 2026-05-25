@@ -3755,6 +3755,42 @@ describe("native auth bridge bootstrap injection", () => {
     expect(pushSyncState.currentToken).toBeNull();
   });
 
+  it("retains Android push state when the runtime Firebase app emits a malformed token event", async () => {
+    const retainedToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const tokenStorageKey =
+      "secpal-android-push-token:" +
+      encodeURIComponent("https://customer-api.example");
+    const { listeners, localStorage, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    pushSyncState.currentToken = retainedToken;
+    localStorage.setItem(tokenStorageKey, retainedToken);
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "apns",
+      token: retainedToken,
+    });
+    await flushMicrotasks();
+
+    expect(pushSyncState.currentToken).toBe(retainedToken);
+    expect(localStorage.getItem(tokenStorageKey)).toBe(retainedToken);
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: "short-token",
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+    expect(pushSyncState.currentToken).toBe(retainedToken);
+    expect(localStorage.getItem(tokenStorageKey)).toBe(retainedToken);
+  });
+
   it("ignores Android push token errors from unexpected Firebase app instances", async () => {
     const { listeners } = await createAndroidPushLifecycleSandbox();
 

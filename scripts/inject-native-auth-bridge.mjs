@@ -1778,12 +1778,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           payload && typeof payload === "object" ? payload.token : null
         );
 
-        if (
-          appName !== androidPushRuntimeAppName ||
-          provider !== "fcm" ||
-          token.length < minAndroidPushTokenLength
-        ) {
+        if (appName !== androidPushRuntimeAppName) {
           clearRetainedPushTokenState();
+          return;
+        }
+
+        if (provider !== "fcm" || token.length < minAndroidPushTokenLength) {
           return;
         }
 
