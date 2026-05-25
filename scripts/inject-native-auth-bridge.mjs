@@ -57,8 +57,54 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
+  const androidPushInstallationIdUnavailableErrorCode =
+    "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE";
   const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
+  function normalizeAndroidPushDisabledError(value) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const code = typeof value.code === "string" ? value.code.trim() : "";
+    const message = typeof value.message === "string" ? value.message.trim() : "";
+    const apiOrigin =
+      typeof value.apiOrigin === "string" && value.apiOrigin.trim().length > 0
+        ? value.apiOrigin.trim()
+        : null;
+
+    if (
+      code !== androidPushInstallationIdUnavailableErrorCode ||
+      message.length === 0 ||
+      value.retryable !== false
+    ) {
+      return null;
+    }
+
+    return {
+      apiOrigin,
+      code,
+      message,
+      retryable: false,
+    };
+  }
+
+  function createAndroidPushInstallationIdUnavailableError(apiOrigin) {
+    const error = new Error(
+      "Android push device registration is disabled because secure UUID generation is unavailable."
+    );
+
+    error.name = "SecPalAndroidPushRegistrationError";
+    error.code = androidPushInstallationIdUnavailableErrorCode;
+    error.apiOrigin =
+      typeof apiOrigin === "string" && apiOrigin.trim().length > 0
+        ? apiOrigin.trim()
+        : null;
+    error.retryable = false;
+
+    return error;
+  }
+
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
@@ -100,6 +146,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     typeof androidPushSyncState.installationIds === "object"
       ? androidPushSyncState.installationIds
       : {};
+  androidPushSyncState.disabledError = normalizeAndroidPushDisabledError(
+    androidPushSyncState.disabledError
+  );
   androidPushSyncState.syncPromise = Promise.resolve(
     androidPushSyncState.syncPromise
   ).catch(() => undefined);
@@ -1216,7 +1265,24 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       : false;
   };
 
-  const generateInstallationId = () => {
+  const disableAndroidPushRegistration = (error) => {
+    if (androidPushSyncState.disabledError !== null) {
+      return androidPushSyncState.disabledError;
+    }
+
+    const disabledError = normalizeAndroidPushDisabledError(error);
+
+    if (!disabledError) {
+      return null;
+    }
+
+    androidPushSyncState.disabledError = disabledError;
+    console.error("Android push device registration is disabled.", disabledError);
+
+    return disabledError;
+  };
+
+  const generateInstallationId = (apiOrigin) => {
     if (typeof globalThis.crypto?.randomUUID === "function") {
       return globalThis.crypto.randomUUID();
     }
@@ -1238,9 +1304,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       ].join("-");
     }
 
-    throw new Error(
-      "Cannot generate a push installation identifier: crypto API is unavailable. See issue #244."
-    );
+    throw createAndroidPushInstallationIdUnavailableError(apiOrigin);
   };
 
   const getPushInstallationStorageKey = (apiOrigin) => {
@@ -1382,14 +1446,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const getOrCreatePushInstallationId = (apiOrigin) => {
+    const normalizedApiOrigin = apiOrigin.trim();
     const existing = getStoredPushInstallationId(apiOrigin);
 
     if (existing) {
       return existing;
     }
 
-    const installationId = generateInstallationId();
-    const normalizedApiOrigin = apiOrigin.trim();
+    const installationId = generateInstallationId(normalizedApiOrigin);
     const storageKey = getPushInstallationStorageKey(normalizedApiOrigin);
     const storage = getLocalStorage();
 
@@ -1492,6 +1556,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         if (
           !pushMetadata ||
           androidPushSyncState.suspended === true ||
+          androidPushSyncState.disabledError !== null ||
           authState.active !== true ||
           token.length < minAndroidPushTokenLength
         ) {
@@ -1514,7 +1579,18 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             ? "token_rotated"
             : "registered";
         const runtimeInfo = await getRuntimeInfo();
-        const installationId = getOrCreatePushInstallationId(pushMetadata.apiOrigin);
+        let installationId;
+
+        try {
+          installationId = getOrCreatePushInstallationId(pushMetadata.apiOrigin);
+        } catch (error) {
+          if (disableAndroidPushRegistration(error)) {
+            return;
+          }
+
+          throw error;
+        }
+
         const response = await sendAuthenticatedNativeRequest(
           {
             method: "PUT",
