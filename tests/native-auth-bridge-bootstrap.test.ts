@@ -3790,11 +3790,11 @@ describe("native auth bridge bootstrap injection", () => {
       }>;
     };
 
-    await expect(nativeBridge.getAndroidPushRegistrationState()).resolves.toEqual(
-      {
-        disabledError: null,
-      }
-    );
+    await expect(
+      nativeBridge.getAndroidPushRegistrationState()
+    ).resolves.toEqual({
+      disabledError: null,
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -3819,7 +3819,8 @@ describe("native auth bridge bootstrap injection", () => {
         retryable: boolean;
       } | null;
     };
-    const registrationState = await nativeBridge.getAndroidPushRegistrationState();
+    const registrationState =
+      await nativeBridge.getAndroidPushRegistrationState();
 
     expect(registrationState).toEqual({
       disabledError: {
@@ -3830,7 +3831,9 @@ describe("native auth bridge bootstrap injection", () => {
         retryable: false,
       },
     });
-    expect(pushSyncState.disabledError).toEqual(registrationState.disabledError);
+    expect(pushSyncState.disabledError).toEqual(
+      registrationState.disabledError
+    );
     expect(errorSpy).toHaveBeenCalledWith(
       "Android push device registration is disabled.",
       registrationState.disabledError
@@ -3847,9 +3850,9 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(plugin.request).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
-    await expect(nativeBridge.getAndroidPushRegistrationState()).resolves.toEqual(
-      registrationState
-    );
+    await expect(
+      nativeBridge.getAndroidPushRegistrationState()
+    ).resolves.toEqual(registrationState);
 
     errorSpy.mockRestore();
   });
