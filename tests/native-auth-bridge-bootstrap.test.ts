@@ -3387,10 +3387,9 @@ describe("native auth bridge bootstrap injection", () => {
       atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
       console,
       confirm: vi.fn().mockReturnValue(true),
-      crypto:
-        options.crypto ?? {
-          randomUUID: vi.fn(() => installationId),
-        },
+      crypto: options.crypto ?? {
+        randomUUID: vi.fn(() => installationId),
+      },
       location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
     } as Record<string, unknown>;
     sandbox.globalThis = sandbox;
@@ -3775,7 +3774,9 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("permanently disables Android push registration with a structured error when secure UUID APIs are unavailable", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const { bridge, listeners, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox({ crypto: {} });
 
