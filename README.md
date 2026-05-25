@@ -59,6 +59,12 @@ Use the customer-facing instance URL that the user received, not a copied API pa
 
 For the current SecPal live deployment, the bootstrap/input host is `https://api.secpal.dev`. `https://app.secpal.dev` remains the browser frontend host and does not currently expose `GET /v1/bootstrap` for Android runtime binding.
 
+When the validated bootstrap enables Android push with current `android_push` metadata, the generic app initializes a deployment-scoped native Firebase runtime named `secpal-runtime-push` from that customer metadata. It does not fall back to a bundled `google-services.json`, a SecPal-owned sender configuration, or token events emitted by another Firebase app instance.
+
+The native shell requests the FCM token on-device, but the authenticated device binding is created only after native login succeeds against the selected customer API. The app then registers `PUT /v1/me/push-devices/{installationId}` on that canonical API origin, updates the same binding when the token rotates, and revokes it on logout or `Log out and switch instance` before clearing local runtime state.
+
+For operator validation on a real device, confirm the app binds to the intended customer instance, login triggers the push-device registration on the customer API host, logout or instance reset revokes that registration, and no push traffic falls back to any SecPal-owned API or legacy Firebase setup.
+
 ## Local Setup
 
 ```bash
@@ -86,6 +92,18 @@ Install Git hooks after cloning:
 ```
 
 See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
+
+For a repeatable live-device login smoke against the real WebView DOM, forward the current debug WebView socket and run the repo-owned smoke script with test credentials:
+
+```bash
+adb shell cat /proc/net/unix | grep webview_devtools_remote
+adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>
+SECPAL_TEST_EMAIL=test@example.com \
+SECPAL_TEST_PASSWORD=password \
+npm run test:live:webview-auth-smoke
+```
+
+The script keeps the configured runtime (or completes discovery first when needed), fills the React-controlled login form through the DOM, waits for native auth completion, and then verifies the authenticated Android push registration sync for the selected deployment when the login WebView already has a hydrated Android push token. Override `SECPAL_RUNTIME_URL`, `SECPAL_WEBVIEW_DEVTOOLS_URL`, or `SECPAL_WEBVIEW_TARGET_PATTERN` if your test target differs. If the app restarts and the `webview_devtools_remote_<pid>` socket changes, redo the `adb forward` step before rerunning the smoke command. A separate Android runtime blocker remains tracked in issue `#248`: after some logout flows that leave the WebView on `/`, rerouting back to `/login` can still lose the retained push token before the next DOM-driven login.
 
 ## Capacitor Setup
 

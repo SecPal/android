@@ -33,6 +33,7 @@
     "test": "vitest run",
     "test:run": "vitest run --bail=1",
     "test:coverage": "vitest run --coverage",
+    "test:live:webview-auth-smoke": "node ./scripts/webview-live-auth-smoke.mjs",
     "format": "prettier --write --cache '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",

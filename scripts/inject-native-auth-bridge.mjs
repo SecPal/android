@@ -57,10 +57,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
+  const androidPushTokenAppStorageKeyPrefix =
+    "secpal-android-push-token-app:";
   const androidPushInstallationIdUnavailableErrorCode =
     "ANDROID_PUSH_INSTALLATION_ID_UNAVAILABLE";
   const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
+  const androidPushRuntimeAppName = "secpal-runtime-push";
   function normalizeAndroidPushDisabledError(value) {
     if (!value || typeof value !== "object") {
       return null;
@@ -125,6 +128,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     androidPushSyncState.currentToken.trim().length >= minAndroidPushTokenLength
       ? androidPushSyncState.currentToken.trim()
       : null;
+  androidPushSyncState.currentTokenSourceAppName =
+    typeof androidPushSyncState.currentTokenSourceAppName === "string" &&
+    androidPushSyncState.currentTokenSourceAppName.trim().length > 0
+      ? androidPushSyncState.currentTokenSourceAppName.trim()
+      : null;
+  if (androidPushSyncState.currentToken === null) {
+    androidPushSyncState.currentTokenSourceAppName = null;
+  }
   androidPushSyncState.lastSyncedToken =
     typeof androidPushSyncState.lastSyncedToken === "string" &&
     androidPushSyncState.lastSyncedToken.trim().length >= minAndroidPushTokenLength
@@ -1327,6 +1338,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return androidPushTokenStorageKeyPrefix + encodeURIComponent(apiOrigin);
   };
 
+  const getPushTokenAppStorageKey = (apiOrigin) => {
+    return androidPushTokenAppStorageKeyPrefix + encodeURIComponent(apiOrigin);
+  };
+
+  const isTrustedPushTokenSource = (appName) => {
+    return (
+      typeof appName === "string" && appName.trim() === androidPushRuntimeAppName
+    );
+  };
+
   const getPendingPushApiOrigin = () => {
     return runtimeState.pendingBootstrap &&
       typeof runtimeState.pendingBootstrap === "object" &&
@@ -1381,22 +1402,33 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     try {
+      const normalizedApiOrigin = apiOrigin.trim();
+      const storedAppName = storage.getItem(
+        getPushTokenAppStorageKey(normalizedApiOrigin)
+      );
+
+      if (!isTrustedPushTokenSource(storedAppName)) {
+        return "";
+      }
+
       return normalizePushToken(
-        storage.getItem(getPushTokenStorageKey(apiOrigin.trim()))
+        storage.getItem(getPushTokenStorageKey(normalizedApiOrigin))
       );
     } catch {
       return "";
     }
   };
 
-  const persistPushToken = (apiOrigin, token) => {
+  const persistPushToken = (apiOrigin, token, appName = androidPushRuntimeAppName) => {
     const normalizedApiOrigin =
       typeof apiOrigin === "string" ? apiOrigin.trim() : "";
     const normalizedToken = normalizePushToken(token);
+    const normalizedAppName = typeof appName === "string" ? appName.trim() : "";
 
     if (
       normalizedApiOrigin.length === 0 ||
-      normalizedToken.length < minAndroidPushTokenLength
+      normalizedToken.length < minAndroidPushTokenLength ||
+      !isTrustedPushTokenSource(normalizedAppName)
     ) {
       return;
     }
@@ -1409,6 +1441,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     try {
       storage.setItem(getPushTokenStorageKey(normalizedApiOrigin), normalizedToken);
+      storage.setItem(getPushTokenAppStorageKey(normalizedApiOrigin), normalizedAppName);
     } catch {
       // Push token persistence is best-effort only.
     }
@@ -1426,9 +1459,40 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     try {
-      storage.removeItem(getPushTokenStorageKey(apiOrigin.trim()));
+      const normalizedApiOrigin = apiOrigin.trim();
+
+      storage.removeItem(getPushTokenStorageKey(normalizedApiOrigin));
+      storage.removeItem(getPushTokenAppStorageKey(normalizedApiOrigin));
     } catch {
       // Push token cleanup is best-effort only.
+    }
+  };
+
+  const hasTrustedRetainedPushToken = () => {
+    const currentToken = normalizePushToken(androidPushSyncState.currentToken);
+
+    if (
+      isTrustedPushTokenSource(androidPushSyncState.currentTokenSourceAppName) &&
+      currentToken.length >= minAndroidPushTokenLength
+    ) {
+      return true;
+    }
+
+    for (const apiOrigin of getPushTokenCleanupOrigins()) {
+      if (getStoredPushToken(apiOrigin).length >= minAndroidPushTokenLength) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const clearRetainedPushTokenState = () => {
+    androidPushSyncState.currentToken = null;
+    androidPushSyncState.currentTokenSourceAppName = null;
+
+    for (const apiOrigin of getPushTokenCleanupOrigins()) {
+      clearStoredPushToken(apiOrigin);
     }
   };
 
@@ -1527,6 +1591,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       }
 
       androidPushSyncState.currentToken = null;
+      androidPushSyncState.currentTokenSourceAppName = null;
     }
 
     androidPushSyncState.lastSyncedToken = null;
@@ -1555,13 +1620,19 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       .catch(() => undefined)
       .then(async () => {
         const pushMetadata = getConfiguredAndroidPushMetadata();
-        let token = normalizePushToken(androidPushSyncState.currentToken);
+        let token = isTrustedPushTokenSource(
+          androidPushSyncState.currentTokenSourceAppName
+        )
+          ? normalizePushToken(androidPushSyncState.currentToken)
+          : "";
 
         if (token.length < minAndroidPushTokenLength && pushMetadata) {
           token = getStoredPushToken(pushMetadata.apiOrigin);
 
           if (token.length >= minAndroidPushTokenLength) {
             androidPushSyncState.currentToken = token;
+            androidPushSyncState.currentTokenSourceAppName =
+              androidPushRuntimeAppName;
           }
         }
 
@@ -1757,6 +1828,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     rememberListenerHandle(
       "tokenReceivedHandle",
       plugin.addListener("androidPushTokenReceived", (payload) => {
+        const appName =
+          payload && typeof payload === "object" && typeof payload.appName === "string"
+            ? payload.appName.trim()
+            : "";
         const provider =
           payload && typeof payload === "object" && typeof payload.provider === "string"
             ? payload.provider.trim()
@@ -1765,18 +1840,35 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           payload && typeof payload === "object" ? payload.token : null
         );
 
+        if (appName !== androidPushRuntimeAppName) {
+          if (!hasTrustedRetainedPushToken()) {
+            clearRetainedPushTokenState();
+          }
+          return;
+        }
+
         if (provider !== "fcm" || token.length < minAndroidPushTokenLength) {
           return;
         }
 
         androidPushSyncState.currentToken = token;
-        persistPushToken(getActivePushApiOrigin(), token);
+        androidPushSyncState.currentTokenSourceAppName = appName;
+        persistPushToken(getActivePushApiOrigin(), token, appName);
         queueAndroidPushSync();
       })
     );
     rememberListenerHandle(
       "tokenErrorHandle",
       plugin.addListener("androidPushTokenError", (payload) => {
+        const appName =
+          payload && typeof payload === "object" && typeof payload.appName === "string"
+            ? payload.appName.trim()
+            : "";
+
+        if (appName !== androidPushRuntimeAppName) {
+          return;
+        }
+
         console.warn(
           "Failed to retrieve Android push registration token.",
           payload
