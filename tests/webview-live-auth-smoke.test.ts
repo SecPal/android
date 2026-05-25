@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 type BrowserEventInit = {
@@ -124,6 +126,11 @@ async function loadSmokeModule(): Promise<{
     document: FakeDocument,
     credentials: { email: string; password: string }
   ) => { submitMethod: string };
+  startRuntimeDiscovery: (
+    document: FakeDocument,
+    runtimeUrl: string
+  ) => { action: string };
+  confirmRuntimeDiscovery: (document: FakeDocument) => { action: string };
   buildDocumentCallExpression: (
     functionName: string,
     ...args: unknown[]
@@ -132,6 +139,10 @@ async function loadSmokeModule(): Promise<{
     document: FakeDocument;
     location: FakeLocation;
   }) => { navigated: boolean; hasLoginForm: boolean; href: string };
+  isDirectExecutionPath: (
+    entryPointArg: string | undefined,
+    moduleUrl: string
+  ) => boolean;
 }> {
   // @ts-expect-error This helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/webview-live-auth-smoke.mjs");
@@ -213,6 +224,49 @@ describe("WebView live auth smoke helpers", () => {
     expect(result).toEqual({ submitMethod: "requestSubmit" });
   });
 
+  it("fills the discovery input and clicks the runtime validation button", async () => {
+    const { startRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const runtimeInput = new FakeInputElement();
+    const validateButton = new FakeButtonElement();
+
+    document.register("secpal-instance-discovery-url", runtimeInput);
+    document.register("secpal-instance-discovery-validate", validateButton);
+
+    Object.defineProperty(FakeInputElement.prototype, "value", {
+      configurable: true,
+      get() {
+        return this.internalValue;
+      },
+      set(nextValue: string) {
+        this.internalValue = nextValue;
+      },
+    });
+
+    const result = startRuntimeDiscovery(document, "https://api.secpal.dev");
+
+    expect(runtimeInput.internalValue).toBe("https://api.secpal.dev");
+    expect(runtimeInput.dispatchedEvents.map((event) => event.type)).toEqual([
+      "input",
+      "change",
+    ]);
+    expect(validateButton.clicks).toBe(1);
+    expect(result).toEqual({ action: "validate" });
+  });
+
+  it("rejects discovery confirmation when the button is disabled", async () => {
+    const { confirmRuntimeDiscovery } = await loadSmokeModule();
+    const document = new FakeDocument();
+    const confirmButton = new FakeButtonElement();
+
+    confirmButton.disabled = true;
+    document.register("secpal-instance-discovery-confirm", confirmButton);
+
+    expect(() => confirmRuntimeDiscovery(document)).toThrow(
+      "The runtime confirmation button is currently disabled."
+    );
+  });
+
   it("returns the smoke run to /login when the login form is missing", async () => {
     const { ensureLoginFormRoute } = await loadSmokeModule();
     const document = new FakeDocument();
@@ -226,6 +280,17 @@ describe("WebView live auth smoke helpers", () => {
       hasLoginForm: false,
       href: "https://app.secpal.dev/login",
     });
+  });
+
+  it("treats a relative entry path as direct execution for the script module", async () => {
+    const { isDirectExecutionPath } = await loadSmokeModule();
+    const moduleUrl = pathToFileURL(
+      resolve("scripts/webview-live-auth-smoke.mjs")
+    ).href;
+
+    expect(
+      isDirectExecutionPath("./scripts/webview-live-auth-smoke.mjs", moduleUrl)
+    ).toBe(true);
   });
 
   it("serializes browser helper expressions with their local dependencies", async () => {

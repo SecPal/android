@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 const defaultDebuggerListUrl =
   process.env.SECPAL_WEBVIEW_DEVTOOLS_URL ?? "http://127.0.0.1:9223/json/list";
 const defaultRuntimeUrl =
@@ -515,9 +518,18 @@ async function main() {
   console.log(formatJson(result));
 }
 
-const isDirectExecution =
-  process.argv[1] &&
-  import.meta.url === new URL(`file://${process.argv[1]}`).href;
+export function isDirectExecutionPath(
+  entryPointArg,
+  moduleUrl = import.meta.url
+) {
+  if (!entryPointArg) {
+    return false;
+  }
+
+  return pathToFileURL(resolve(entryPointArg)).href === moduleUrl;
+}
+
+const isDirectExecution = isDirectExecutionPath(process.argv[1]);
 
 if (isDirectExecution) {
   main().catch((error) => {
