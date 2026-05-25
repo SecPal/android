@@ -3624,7 +3624,8 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.request).toHaveBeenCalledOnce();
     const reRegistrationPayload = decodeBase64Json(
       String(
-        (plugin.request.mock.calls[0]?.[0] as { bodyBase64?: string }).bodyBase64
+        (plugin.request.mock.calls[0]?.[0] as { bodyBase64?: string })
+          .bodyBase64
       )
     );
     expect(reRegistrationPayload.lifecycle_event).toBe("registered");
