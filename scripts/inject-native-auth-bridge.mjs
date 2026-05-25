@@ -1433,6 +1433,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const clearRetainedPushTokenState = () => {
+    androidPushSyncState.currentToken = null;
+
+    for (const apiOrigin of getPushTokenCleanupOrigins()) {
+      clearStoredPushToken(apiOrigin);
+    }
+  };
+
   const getStoredPushInstallationId = (apiOrigin) => {
     if (typeof apiOrigin !== "string" || apiOrigin.trim().length === 0) {
       return null;
@@ -1775,6 +1783,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           provider !== "fcm" ||
           token.length < minAndroidPushTokenLength
         ) {
+          clearRetainedPushTokenState();
           return;
         }
 

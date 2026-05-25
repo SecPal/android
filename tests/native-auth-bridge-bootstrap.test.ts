@@ -3733,6 +3733,28 @@ describe("native auth bridge bootstrap injection", () => {
     expect(pushSyncState.lastSyncedToken).toBeNull();
   });
 
+  it("clears retained Android push tokens when a foreign Firebase app emits a token event", async () => {
+    const staleToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const foreignToken = "fcm-token-abcdefghijklmnopqrstuvwxyz1234567890";
+    const { listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      currentToken: string | null;
+    };
+
+    pushSyncState.currentToken = staleToken;
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "legacy-default-firebase",
+      provider: "fcm",
+      token: foreignToken,
+    });
+    await flushMicrotasks();
+
+    expect(plugin.request).not.toHaveBeenCalled();
+    expect(pushSyncState.currentToken).toBeNull();
+  });
+
   it("ignores Android push token errors from unexpected Firebase app instances", async () => {
     const { listeners } = await createAndroidPushLifecycleSandbox();
 

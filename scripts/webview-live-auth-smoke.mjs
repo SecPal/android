@@ -274,6 +274,47 @@ function createCdpTimeoutError(method, timeoutMs) {
   );
 }
 
+function createWebSocketOpenTimeoutError(timeoutMs) {
+  return new Error(
+    `Timed out waiting for WebView debugger WebSocket to open after ${timeoutMs}ms.`
+  );
+}
+
+export function waitForWebSocketOpen(
+  websocket,
+  timeoutMs = defaultCdpRequestTimeoutMs
+) {
+  const openTimeoutMs = getCdpRequestTimeoutMs(timeoutMs);
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      websocket.onopen = null;
+      websocket.onerror = null;
+      websocket.onclose = null;
+    };
+
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      websocket.close();
+      reject(createWebSocketOpenTimeoutError(openTimeoutMs));
+    }, openTimeoutMs);
+
+    websocket.onopen = () => {
+      cleanup();
+      resolve();
+    };
+    websocket.onerror = (error) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    websocket.onclose = () => {
+      cleanup();
+      reject(new Error("WebView debugger WebSocket closed before opening."));
+    };
+  });
+}
+
 export async function resolveSessionWebSocketUrl(
   options,
   loadWebSocketUrl = getTargetWebSocketUrl
@@ -407,10 +448,10 @@ async function evaluateInWebView(expression, options = {}) {
   const webSocketUrl = await resolveSessionWebSocketUrl(options);
   const websocket = new WebSocket(webSocketUrl);
 
-  await new Promise((resolve, reject) => {
-    websocket.onopen = resolve;
-    websocket.onerror = reject;
-  });
+  await waitForWebSocketOpen(
+    websocket,
+    options.connectTimeoutMs ?? options.requestTimeoutMs
+  );
   const cdpClient = createCdpCommandSender(websocket, options);
 
   let response;
@@ -584,10 +625,10 @@ async function runLoginSmoke(options) {
   };
 }
 
-function readRequiredEnv(name) {
-  const value = process.env[name]?.trim() ?? "";
+export function readRequiredEnv(name) {
+  const value = process.env[name];
 
-  if (!value) {
+  if (typeof value !== "string" || value.length === 0) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
 

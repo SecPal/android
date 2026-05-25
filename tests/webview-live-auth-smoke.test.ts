@@ -121,6 +121,8 @@ class FakeLocation {
 }
 
 class FakeWebSocket {
+  onopen: (() => void) | null = null;
+  onerror: ((error: unknown) => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   readonly sentPayloads: string[] = [];
@@ -136,6 +138,14 @@ class FakeWebSocket {
 
   dispatchMessage(payload: unknown): void {
     this.onmessage?.({ data: JSON.stringify(payload) });
+  }
+
+  dispatchOpen(): void {
+    this.onopen?.();
+  }
+
+  dispatchError(error: unknown): void {
+    this.onerror?.(error);
   }
 }
 
@@ -181,6 +191,11 @@ async function loadSmokeModule(): Promise<{
     close: () => void;
   };
   assertCdpCommandSucceeded: (response: unknown, method: string) => void;
+  readRequiredEnv: (name: string) => string;
+  waitForWebSocketOpen: (
+    websocket: FakeWebSocket,
+    timeoutMs?: number
+  ) => Promise<void>;
 }> {
   // @ts-expect-error This helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/webview-live-auth-smoke.mjs");
@@ -383,6 +398,42 @@ describe("WebView live auth smoke helpers", () => {
     });
     const rejectionExpectation = expect(sendPromise).rejects.toThrow(
       "Timed out waiting for CDP response to Runtime.evaluate after 25ms."
+    );
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await rejectionExpectation;
+    expect(websocket.closeCalls).toBe(1);
+  });
+
+  it("preserves leading and trailing whitespace in required env values", async () => {
+    const { readRequiredEnv } = await loadSmokeModule();
+    const previousValue = process.env.SECPAL_TEST_PASSWORD;
+
+    process.env.SECPAL_TEST_PASSWORD = "  pass with spaces  ";
+
+    try {
+      expect(readRequiredEnv("SECPAL_TEST_PASSWORD")).toBe(
+        "  pass with spaces  "
+      );
+    } finally {
+      if (typeof previousValue === "string") {
+        process.env.SECPAL_TEST_PASSWORD = previousValue;
+      } else {
+        delete process.env.SECPAL_TEST_PASSWORD;
+      }
+    }
+  });
+
+  it("times out the WebSocket open handshake and closes the socket", async () => {
+    const { waitForWebSocketOpen } = await loadSmokeModule();
+    const websocket = new FakeWebSocket();
+
+    vi.useFakeTimers();
+
+    const openPromise = waitForWebSocketOpen(websocket, 25);
+    const rejectionExpectation = expect(openPromise).rejects.toThrow(
+      "Timed out waiting for WebView debugger WebSocket to open after 25ms."
     );
 
     await vi.advanceTimersByTimeAsync(25);
