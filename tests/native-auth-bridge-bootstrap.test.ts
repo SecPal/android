@@ -3360,7 +3360,8 @@ describe("native auth bridge bootstrap injection", () => {
     const sessionStorage =
       options.sessionStorage ??
       createMockStorage({
-        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(runtimeBootstrap),
+        [runtimeBootstrapStorageKey]:
+          buildStoredRuntimeBootstrap(runtimeBootstrap),
         "tenant-session": "customer-a-session",
       });
     const sandbox = {
@@ -3517,7 +3518,8 @@ describe("native auth bridge bootstrap injection", () => {
     });
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
     const sharedSessionStorage = createMockStorage({
-      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(runtimeBootstrap),
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
       "tenant-session": "customer-a-session",
     });
     const firstPage = await createAndroidPushLifecycleSandbox({
@@ -3549,7 +3551,8 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(reloadedPage.plugin.request).toHaveBeenCalledOnce();
 
-    const registrationRequest = reloadedPage.plugin.request.mock.calls[0]?.[0] as {
+    const registrationRequest = reloadedPage.plugin.request.mock
+      .calls[0]?.[0] as {
       bodyBase64?: string;
       method: string;
       path: string;
