@@ -93,6 +93,18 @@ Install Git hooks after cloning:
 
 See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
 
+For a repeatable live-device login smoke against the real WebView DOM, forward the current debug WebView socket and run the repo-owned smoke script with test credentials:
+
+```bash
+adb shell cat /proc/net/unix | grep webview_devtools_remote
+adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>
+SECPAL_TEST_EMAIL=test@example.com \
+SECPAL_TEST_PASSWORD=password \
+npm run test:live:webview-auth-smoke
+```
+
+The script keeps the configured runtime (or completes discovery first when needed), fills the React-controlled login form through the DOM, waits for native auth completion, and then verifies the authenticated Android push registration sync for the selected deployment when the login WebView already has a hydrated Android push token. Override `SECPAL_RUNTIME_URL`, `SECPAL_WEBVIEW_DEVTOOLS_URL`, or `SECPAL_WEBVIEW_TARGET_PATTERN` if your test target differs. If the app restarts and the `webview_devtools_remote_<pid>` socket changes, redo the `adb forward` step before rerunning the smoke command. A separate Android runtime blocker remains tracked in issue `#248`: after some logout flows that leave the WebView on `/`, rerouting back to `/login` can still lose the retained push token before the next DOM-driven login.
+
 ## Capacitor Setup
 
 ```bash
