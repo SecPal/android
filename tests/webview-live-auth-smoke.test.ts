@@ -538,11 +538,14 @@ describe("WebView live auth smoke helpers", () => {
     expect(form.requestSubmitCalls).toEqual([submitButton]);
   });
 
-  it("rejects element-scoped helpers as document call targets", async () => {
+  it("rejects element-scoped helpers as invalid top-level document call targets", async () => {
     const { buildDocumentCallExpression } = await loadSmokeModule();
 
     expect(() =>
       buildDocumentCallExpression("setFormControlValue", "value")
     ).toThrow("Unknown browser helper: setFormControlValue");
+    expect(() => buildDocumentCallExpression("getNativeValueSetter")).toThrow(
+      "Unknown browser helper: getNativeValueSetter"
+    );
   });
 });
