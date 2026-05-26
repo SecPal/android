@@ -96,7 +96,7 @@ The bootstrap response is the binding contract for Android login and must provid
 - `instance.display_name` so the user can confirm the correct deployment before login
 - compatibility metadata such as `bootstrap_version`, `schema_version`, `minimum_supported_app_version`, and `minimum_supported_app_build`
 - the feature flags required by the login shell
-- when `features.android_push` is enabled, the `android_push` FCM metadata required to initialize the customer-owned native runtime (`provider`, `metadata_revision`, `project_id`, `application_id`, `sender_id`, and `api_key`)
+- when `features.notification_channels.android_fcm` is enabled, the canonical `notification_channels.android_fcm` runtime metadata required to initialize the customer-owned native runtime (`channel`, `metadata_revision`, and `public_runtime_metadata.{api_key,project_id,application_id,sender_id}`)
 
 If the customer-facing instance URL and the canonical API host differ, keep `GET /v1/bootstrap` reachable on the customer-facing URL and let `api_base_url` point to the canonical API host. The Android app persists that canonical API origin only after the user confirms the resolved instance.
 
@@ -111,14 +111,16 @@ When a validated bootstrap enables Android push, the generic Android app uses th
 - The login flow registers `PUT /v1/me/push-devices/{installationId}` on the canonical API origin returned by bootstrap.
 - Later token refreshes update that same installation binding with `lifecycle_event=token_rotated` instead of creating a second device registration.
 - Logout and destructive instance reset revoke `DELETE /v1/me/push-devices/{installationId}` before the app clears local runtime state.
+- If authenticated registration returns `409 NOTIFICATION_RUNTIME_STATE_INVALID` or `409 NOTIFICATION_CHANNEL_UNSUPPORTED`, the app clears the selected runtime, logout state, and tenant-scoped browser storage before discovery resumes so stale notification metadata cannot leak across deployment switches.
 - Token or error events from any Firebase app instance other than `secpal-runtime-push` are ignored so a customer-owned runtime cannot silently fall back to a stale or foreign push configuration.
 
 For operator rollout validation on a real Android device, verify at least:
 
-- the bootstrap payload includes the expected `android_push` metadata for the customer deployment
+- the bootstrap payload includes the expected `features.notification_channels.android_fcm` flag and canonical `notification_channels.android_fcm` metadata for the customer deployment
 - login triggers `PUT /v1/me/push-devices/{installationId}` on the customer API host
 - a token refresh updates the same installation binding instead of creating a second registration
 - logout or `Log out and switch instance` triggers `DELETE /v1/me/push-devices/{installationId}` before local cleanup finishes
+- a stale or disabled Android notification channel causes the app to clear the selected runtime and require bootstrap confirmation again before another login attempt
 - no registration, rotation, or revocation request goes to a SecPal-owned API host or any other legacy push fallback path
 
 ## Rollout Notes For Replacing The Baked-In Origin Assumption

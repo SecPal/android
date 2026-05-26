@@ -617,16 +617,21 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: true,
                 managed_android_enrollment: false,
-                android_push: true,
+                notification_channels: {
+                  android_fcm: true,
+                  web_push: false,
+                },
               },
-              android_push: {
-                provider: "fcm",
-                metadata_revision: 3,
-                public_client_metadata: {
-                  api_key: "public-client-api-key-demo-1234567890",
-                  project_id: "secpal-demo-push",
-                  application_id: "1:1234567890:android:abcdef1234567890",
-                  sender_id: "1234567890",
+              notification_channels: {
+                android_fcm: {
+                  channel: "android_fcm",
+                  metadata_revision: 3,
+                  public_runtime_metadata: {
+                    api_key: "public-client-api-key-demo-1234567890",
+                    project_id: "secpal-demo-push",
+                    application_id: "1:1234567890:android:abcdef1234567890",
+                    sender_id: "1234567890",
+                  },
                 },
               },
             },
@@ -804,16 +809,9 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: true,
                 managed_android_enrollment: false,
-                android_push: false,
-              },
-              android_push: {
-                provider: "fcm",
-                metadata_revision: 3,
-                public_client_metadata: {
-                  api_key: "public-client-api-key-demo-1234567890",
-                  project_id: "secpal-demo-push",
-                  application_id: "1:1234567890:android:abcdef1234567890",
-                  sender_id: "1234567890",
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
                 },
               },
             },
@@ -2223,15 +2221,20 @@ describe("native auth bridge bootstrap injection", () => {
               password_login: true,
               passkey_login: true,
               managed_android_enrollment: false,
-              android_push: true,
+              notification_channels: {
+                android_fcm: true,
+                web_push: false,
+              },
             },
-            android_push: {
-              provider: "fcm",
-              metadata_revision: 3,
-              public_client_metadata: {
-                api_key: "public-client-api-key-demo-1234567890",
-                project_id: "secpal-demo-push",
-                application_id: "1:1234567890:android:abcdef1234567890",
+            notification_channels: {
+              android_fcm: {
+                channel: "android_fcm",
+                metadata_revision: 3,
+                public_runtime_metadata: {
+                  api_key: "public-client-api-key-demo-1234567890",
+                  project_id: "secpal-demo-push",
+                  application_id: "1:1234567890:android:abcdef1234567890",
+                },
               },
             },
           },
@@ -2329,16 +2332,21 @@ describe("native auth bridge bootstrap injection", () => {
               password_login: true,
               passkey_login: true,
               managed_android_enrollment: false,
-              android_push: true,
+              notification_channels: {
+                android_fcm: true,
+                web_push: false,
+              },
             },
-            android_push: {
-              provider: "fcm",
-              metadata_revision: 9999999999,
-              public_client_metadata: {
-                api_key: "public-client-api-key-demo-1234567890",
-                project_id: "secpal-demo-push",
-                application_id: "1:1234567890:android:abcdef1234567890",
-                sender_id: "1234567890",
+            notification_channels: {
+              android_fcm: {
+                channel: "android_fcm",
+                metadata_revision: 9999999999,
+                public_runtime_metadata: {
+                  api_key: "public-client-api-key-demo-1234567890",
+                  project_id: "secpal-demo-push",
+                  application_id: "1:1234567890:android:abcdef1234567890",
+                  sender_id: "1234567890",
+                },
               },
             },
           },
@@ -4524,6 +4532,109 @@ describe("native auth bridge bootstrap injection", () => {
     expect(reRegistrationPayload.push_token).toBe(pushToken);
   });
 
+  it("clears the selected runtime when push registration reports stale notification metadata", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" + encodedApiOrigin;
+    const {
+      bridge,
+      installationId,
+      listeners,
+      localStorage,
+      plugin,
+      sandbox,
+      sessionStorage,
+    } = await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+    };
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockResolvedValueOnce({
+        status: 409,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            message:
+              "Notification runtime metadata changed; refresh bootstrap before retrying this installation update.",
+            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+            details: {
+              bootstrap_version: "v1",
+              schema_version: 2,
+              channel: "android_fcm",
+              provided_metadata_revision: 3,
+              expected_metadata_revision: 4,
+            },
+          })
+        ),
+        contentType: "application/json",
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+              revoked_at: "2026-05-26T10:00:00Z",
+            },
+          })
+        ),
+        contentType: "application/json",
+      });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(runtimeState.pendingBootstrap).toBeNull();
+    expect(authState.active).toBe(false);
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(localStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
   it("permanently disables Android push registration with a structured error when secure UUID APIs are unavailable", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const errorSpy = vi
@@ -5292,6 +5403,10 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: false,
                 managed_android_enrollment: false,
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
+                },
               },
             },
           }),
@@ -5406,6 +5521,10 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: false,
                 managed_android_enrollment: false,
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
+                },
               },
             },
           }),
