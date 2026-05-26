@@ -1395,14 +1395,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return new globalThis.TextDecoder().decode(bytes);
     }
 
-    let text = "";
-    const chunkSize = 32768;
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-      const chunk = bytes.subarray(index, index + chunkSize);
-      text += String.fromCharCode(...chunk);
+    const encodedBytes = [];
+
+    for (let index = 0; index < bytes.length; index += 1) {
+      encodedBytes.push("%" + bytes[index].toString(16).padStart(2, "0"));
     }
 
-    return text;
+    return decodeURIComponent(encodedBytes.join(""));
   };
 
   const decodeNativeJsonBody = (response) => {

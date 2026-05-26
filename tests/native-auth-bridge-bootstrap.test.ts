@@ -4532,6 +4532,62 @@ describe("native auth bridge bootstrap injection", () => {
     expect(reRegistrationPayload.push_token).toBe(pushToken);
   });
 
+  it("decodes native JSON bodies as UTF-8 when TextDecoder is unavailable", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const instrumentedScript = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    ).replace(
+      "globalThis.SecPalNativeAuthBridge = bridge;",
+      "globalThis.__testDecodeBase64Text = decodeBase64Text;\n  globalThis.SecPalNativeAuthBridge = bridge;"
+    );
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document: new MockDocument(),
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder: undefined,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(instrumentedScript, sandbox);
+
+    const decodeBase64Text = sandbox.__testDecodeBase64Text as
+      | ((value: string) => string)
+      | undefined;
+
+    expect(typeof decodeBase64Text).toBe("function");
+    expect(
+      JSON.parse(
+        decodeBase64Text!(
+          encodeBase64(JSON.stringify({ message: "Grüße aus Köln 🦊" }))
+        )
+      )
+    ).toEqual({ message: "Grüße aus Köln 🦊" });
+  });
+
   it("clears the selected runtime when push registration reports stale notification metadata", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
