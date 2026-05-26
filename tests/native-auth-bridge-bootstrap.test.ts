@@ -4580,7 +4580,9 @@ describe("native auth bridge bootstrap injection", () => {
     const messagePayload = JSON.stringify({ message: "Grüße aus Köln 🦊" });
 
     expect(typeof decodeBase64Text).toBe("function");
-    expect(decodeBase64Text!(encodeBase64(messagePayload))).toBe(messagePayload);
+    expect(decodeBase64Text!(encodeBase64(messagePayload))).toBe(
+      messagePayload
+    );
   });
 
   it("clears the selected runtime when push registration reports stale notification metadata", async () => {
