@@ -4577,15 +4577,10 @@ describe("native auth bridge bootstrap injection", () => {
     const decodeBase64Text = sandbox.__testDecodeBase64Text as
       | ((value: string) => string)
       | undefined;
+    const messagePayload = JSON.stringify({ message: "Grüße aus Köln 🦊" });
 
     expect(typeof decodeBase64Text).toBe("function");
-    expect(
-      JSON.parse(
-        decodeBase64Text!(
-          encodeBase64(JSON.stringify({ message: "Grüße aus Köln 🦊" }))
-        )
-      )
-    ).toEqual({ message: "Grüße aus Köln 🦊" });
+    expect(decodeBase64Text!(encodeBase64(messagePayload))).toBe(messagePayload);
   });
 
   it("clears the selected runtime when push registration reports stale notification metadata", async () => {
