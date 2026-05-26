@@ -4913,12 +4913,8 @@ describe("native auth bridge bootstrap injection", () => {
   it("clears the selected runtime on a 409 stale-metadata response when TextDecoder is unavailable", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
-    const {
-      bridge,
-      listeners,
-      plugin,
-      sandbox,
-    } = await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+    const { bridge, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
 
     // Remove TextDecoder to exercise the manual UTF-8 fallback path.
     delete (sandbox as Record<string, unknown>).TextDecoder;
