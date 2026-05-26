@@ -2101,7 +2101,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           ? Number(response.status)
           : Number.NaN;
 
-      if (status === 200 || status === 204 || status === 401) {
+      if (status === 200 || status === 204 || status === 401 || status === 404) {
         return;
       }
 
