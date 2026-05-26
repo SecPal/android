@@ -2187,6 +2187,134 @@ describe("native auth bridge bootstrap injection", () => {
     expect(confirmButton.disabled).toBe(true);
   });
 
+  it("confirms a deployment whose bootstrap omits features.notification_channels entirely", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        bodyBase64: encodeBase64('{"status":"ready"}'),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "0.0.1",
+        appBuild: 1,
+      }),
+      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const browserFetch = vi.fn(async (input: Request | string | URL) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+
+      if (
+        url.origin === "https://customer.example" &&
+        url.pathname === "/v1/bootstrap"
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              client_platform: "android",
+              api_base_url: "https://customer-api.example/v1",
+              instance: {
+                display_name: "Customer Example",
+              },
+              compatibility: {
+                bootstrap_version: "v1",
+                schema_version: 2,
+                minimum_supported_app_version: "0.0.1",
+                minimum_supported_app_build: 1,
+              },
+              features: {
+                password_login: true,
+                passkey_login: true,
+                managed_android_enrollment: false,
+                // notification_channels intentionally absent — pre-migration server shape
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return new Response('{"status":"ready"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: {
+        href: "https://app.secpal.dev/login",
+        reload: vi.fn(),
+      },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const confirmButton = document.getElementById(
+      "secpal-instance-discovery-confirm"
+    ) as MockElement | null;
+
+    input!.value = "https://customer.example";
+    validateButton!.click();
+    await flushMicrotasks();
+
+    confirmButton!.click();
+    await flushMicrotasks();
+
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith({
+      instanceDisplayName: "Customer Example",
+      apiOrigin: "https://customer-api.example",
+      rawApiBaseUrl: "https://customer-api.example/v1",
+      minimumSupportedAppVersion: "0.0.1",
+      minimumSupportedAppBuild: 1,
+      features: {
+        passwordLoginEnabled: true,
+        passkeyLoginEnabled: true,
+        managedAndroidEnrollment: false,
+      },
+    });
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
   it("fails before confirmation when Android push metadata is advertised but incomplete", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -4777,6 +4905,65 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem(tokenAppStorageKey)).toBeNull();
     expect(localStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
     expect(sessionStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("clears the selected runtime on a 409 stale-metadata response when TextDecoder is unavailable", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const {
+      bridge,
+      listeners,
+      plugin,
+      sandbox,
+    } = await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+
+    // Remove TextDecoder to exercise the manual UTF-8 fallback path.
+    delete (sandbox as Record<string, unknown>).TextDecoder;
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+    };
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockResolvedValueOnce({
+        status: 409,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            message: "Notification runtime metadata changed.",
+            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+          })
+        ),
+        contentType: "application/json",
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        bodyBase64: encodeBase64(""),
+        contentType: "application/json",
+      });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
     expect(
       (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
     ).toHaveBeenCalledOnce();

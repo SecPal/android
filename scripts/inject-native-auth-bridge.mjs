@@ -862,7 +862,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     new Error(translateDiscovery("errorAndroidPushMetadataInvalid"));
 
   const normalizeBootstrapNotificationChannelsFeatureFlags = (value) => {
-    if (!value || typeof value !== "object") {
+    if (value == null) {
+      return { androidFcmEnabled: false };
+    }
+
+    if (typeof value !== "object") {
       throw createIncompatibleBootstrapError();
     }
 
@@ -1395,9 +1399,38 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return new globalThis.TextDecoder().decode(bytes);
     }
 
-    return decodeURIComponent(
-      Array.from(bytes, (byte) => "%" + byte.toString(16).padStart(2, "0")).join("")
-    );
+    // Manual UTF-8 decode: walk the byte array and reconstruct code points.
+    let text = "";
+    let index = 0;
+    while (index < bytes.length) {
+      const byte = bytes[index];
+      let codePoint;
+
+      if (byte < 0x80) {
+        codePoint = byte;
+        index += 1;
+      } else if ((byte & 0xe0) === 0xc0) {
+        codePoint = ((byte & 0x1f) << 6) | (bytes[index + 1] & 0x3f);
+        index += 2;
+      } else if ((byte & 0xf0) === 0xe0) {
+        codePoint =
+          ((byte & 0x0f) << 12) |
+          ((bytes[index + 1] & 0x3f) << 6) |
+          (bytes[index + 2] & 0x3f);
+        index += 3;
+      } else {
+        codePoint =
+          ((byte & 0x07) << 18) |
+          ((bytes[index + 1] & 0x3f) << 12) |
+          ((bytes[index + 2] & 0x3f) << 6) |
+          (bytes[index + 3] & 0x3f);
+        index += 4;
+      }
+
+      text += String.fromCodePoint(codePoint);
+    }
+
+    return text;
   };
 
   const decodeNativeJsonBody = (response) => {
