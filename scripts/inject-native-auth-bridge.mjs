@@ -861,6 +861,84 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const createInvalidAndroidPushMetadataError = () =>
     new Error(translateDiscovery("errorAndroidPushMetadataInvalid"));
 
+  const normalizeBootstrapNotificationChannelsFeatureFlags = (value) => {
+    if (value == null) {
+      return { androidFcmEnabled: false };
+    }
+
+    if (typeof value !== "object") {
+      throw createIncompatibleBootstrapError();
+    }
+
+    return {
+      androidFcmEnabled: value.android_fcm === true,
+    };
+  };
+
+  const normalizeBootstrapNotificationChannelAndroidFcm = (value, required) => {
+    if (value == null) {
+      if (required) {
+        throw createInvalidAndroidPushMetadataError();
+      }
+
+      return null;
+    }
+
+    if (!value || typeof value !== "object") {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    const channel = typeof value.channel === "string" ? value.channel.trim() : "";
+    const metadataRevision = Number(value.metadata_revision);
+    const publicRuntimeMetadata =
+      value.public_runtime_metadata &&
+      typeof value.public_runtime_metadata === "object"
+        ? value.public_runtime_metadata
+        : null;
+
+    if (
+      channel !== "android_fcm" ||
+      !publicRuntimeMetadata ||
+      !Number.isInteger(metadataRevision) ||
+      metadataRevision <= 0 ||
+      metadataRevision > maxAndroidPushMetadataRevision
+    ) {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    const apiKey =
+      typeof publicRuntimeMetadata.api_key === "string"
+        ? publicRuntimeMetadata.api_key.trim()
+        : "";
+    const projectId =
+      typeof publicRuntimeMetadata.project_id === "string"
+        ? publicRuntimeMetadata.project_id.trim()
+        : "";
+    const applicationId =
+      typeof publicRuntimeMetadata.application_id === "string"
+        ? publicRuntimeMetadata.application_id.trim()
+        : "";
+    const senderId =
+      typeof publicRuntimeMetadata.sender_id === "string"
+        ? publicRuntimeMetadata.sender_id.trim()
+        : "";
+
+    if (!apiKey || !projectId || !applicationId || !senderId) {
+      throw createInvalidAndroidPushMetadataError();
+    }
+
+    return {
+      provider: "fcm",
+      metadataRevision,
+      publicClientMetadata: {
+        apiKey,
+        projectId,
+        applicationId,
+        senderId,
+      },
+    };
+  };
+
   const normalizeBootstrapAndroidPush = (value, required) => {
     if (value == null) {
       if (required) {
@@ -1094,11 +1172,26 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       throw createIncompatibleBootstrapError();
     }
 
-    const features = data.features && typeof data.features === "object" ? data.features : {};
-    const androidPushEnabled = features.android_push === true;
-    const androidPush = normalizeBootstrapAndroidPush(
-      androidPushEnabled ? data.android_push ?? null : null,
-      androidPushEnabled
+    const features =
+      data.features && typeof data.features === "object" ? data.features : null;
+
+    if (!features) {
+      throw createIncompatibleBootstrapError();
+    }
+
+    const notificationChannelFeatures =
+      normalizeBootstrapNotificationChannelsFeatureFlags(
+        features.notification_channels
+      );
+    const notificationChannels =
+      data.notification_channels && typeof data.notification_channels === "object"
+        ? data.notification_channels
+        : null;
+    const androidPush = normalizeBootstrapNotificationChannelAndroidFcm(
+      notificationChannelFeatures.androidFcmEnabled
+        ? notificationChannels?.android_fcm ?? null
+        : null,
+      notificationChannelFeatures.androidFcmEnabled
     );
 
     return {
@@ -1297,6 +1390,72 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       bytes[index] = binary.charCodeAt(index);
     }
     return bytes;
+  };
+
+  const decodeBase64Text = (value) => {
+    const bytes = decodeBase64(value);
+
+    if (typeof globalThis.TextDecoder === "function") {
+      return new globalThis.TextDecoder().decode(bytes);
+    }
+
+    // Manual UTF-8 decode: walk the byte array and reconstruct code points.
+    let text = "";
+    let index = 0;
+    while (index < bytes.length) {
+      const byte = bytes[index];
+      let codePoint;
+
+      if (byte < 0x80) {
+        codePoint = byte;
+        index += 1;
+      } else if ((byte & 0xe0) === 0xc0) {
+        codePoint = ((byte & 0x1f) << 6) | (bytes[index + 1] & 0x3f);
+        index += 2;
+      } else if ((byte & 0xf0) === 0xe0) {
+        codePoint =
+          ((byte & 0x0f) << 12) |
+          ((bytes[index + 1] & 0x3f) << 6) |
+          (bytes[index + 2] & 0x3f);
+        index += 3;
+      } else {
+        codePoint =
+          ((byte & 0x07) << 18) |
+          ((bytes[index + 1] & 0x3f) << 12) |
+          ((bytes[index + 2] & 0x3f) << 6) |
+          (bytes[index + 3] & 0x3f);
+        index += 4;
+      }
+
+      text += String.fromCodePoint(codePoint);
+    }
+
+    return text;
+  };
+
+  const decodeNativeJsonBody = (response) => {
+    if (!response || typeof response !== "object") {
+      return null;
+    }
+
+    const bodyBase64 =
+      typeof response.bodyBase64 === "string" ? response.bodyBase64.trim() : "";
+    const contentType =
+      typeof response.contentType === "string"
+        ? response.contentType.trim().toLowerCase()
+        : "";
+
+    if (!bodyBase64 || (contentType && !contentType.includes("json"))) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(decodeBase64Text(bodyBase64));
+
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
   };
 
   const normalizePushToken = (value) => {
@@ -1887,6 +2046,24 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           return;
         }
 
+        if (status === 409) {
+          const responseBody = decodeNativeJsonBody(response);
+          const responseCode =
+            responseBody && typeof responseBody === "object" && typeof responseBody.code === "string"
+              ? responseBody.code.trim()
+              : "";
+
+          if (
+            responseCode === "NOTIFICATION_RUNTIME_STATE_INVALID" ||
+            responseCode === "NOTIFICATION_CHANNEL_UNSUPPORTED"
+          ) {
+            await clearConfiguredRuntimeState({
+              revokeAndroidPushRegistrationDirect: true,
+            });
+            return;
+          }
+        }
+
         throw new Error(
           "Android push device registration request failed with status " +
             String(status)
@@ -1928,49 +2105,51 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return response;
   };
 
+  const revokeConfiguredAndroidPushRegistrationDirect = async () => {
+    const apiOrigin =
+      typeof runtimeState.apiOrigin === "string" ? runtimeState.apiOrigin.trim() : "";
+    const installationId = apiOrigin ? getStoredPushInstallationId(apiOrigin) : null;
+
+    if (!runtimeState.configured || !apiOrigin || !installationId) {
+      clearAndroidPushSyncState({ preserveCurrentToken: true });
+      return;
+    }
+
+    try {
+      const response = await sendAuthenticatedNativeRequest(
+        {
+          method: "DELETE",
+          path: "/v1/me/push-devices/" + installationId,
+          accept: "application/json",
+        },
+        { markAuthenticatedOnSuccess: false }
+      );
+      const status =
+        response && typeof response === "object"
+          ? Number(response.status)
+          : Number.NaN;
+
+      if (status === 200 || status === 204 || status === 401 || status === 404) {
+        return;
+      }
+
+      throw new Error(
+        "Android push device revocation request failed with status " +
+          String(status)
+      );
+    } catch (error) {
+      console.warn("Failed to revoke Android push device registration.", error);
+    } finally {
+      clearAndroidPushSyncState({ preserveCurrentToken: true });
+    }
+  };
+
   const revokeAndroidPushRegistration = () => {
     androidPushSyncState.syncPromise = Promise.resolve(
       androidPushSyncState.syncPromise
     )
       .catch(() => undefined)
-      .then(async () => {
-        const apiOrigin =
-          typeof runtimeState.apiOrigin === "string" ? runtimeState.apiOrigin.trim() : "";
-        const installationId = apiOrigin ? getStoredPushInstallationId(apiOrigin) : null;
-
-        if (!runtimeState.configured || !apiOrigin || !installationId) {
-          clearAndroidPushSyncState({ preserveCurrentToken: true });
-          return;
-        }
-
-        try {
-          const response = await sendAuthenticatedNativeRequest(
-            {
-              method: "DELETE",
-              path: "/v1/me/push-devices/" + installationId,
-              accept: "application/json",
-            },
-            { markAuthenticatedOnSuccess: false }
-          );
-          const status =
-            response && typeof response === "object"
-              ? Number(response.status)
-              : Number.NaN;
-
-          if (status === 200 || status === 204 || status === 401) {
-            return;
-          }
-
-          throw new Error(
-            "Android push device revocation request failed with status " +
-              String(status)
-          );
-        } catch (error) {
-          console.warn("Failed to revoke Android push device registration.", error);
-        } finally {
-          clearAndroidPushSyncState({ preserveCurrentToken: true });
-        }
-      });
+      .then(() => revokeConfiguredAndroidPushRegistrationDirect());
 
     return androidPushSyncState.syncPromise;
   };
@@ -2378,6 +2557,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
+    await clearConfiguredRuntimeState();
+  };
+
+  const clearConfiguredRuntimeState = async ({
+    revokeAndroidPushRegistrationDirect: useDirectPushRevocation = false,
+  } = {}) => {
+    if (runtimeResetBusy || !runtimeState.configured) {
+      return;
+    }
+
     runtimeResetBusy = true;
     syncRuntimeResetEntryCopy();
 
@@ -2386,7 +2575,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         try {
           androidPushSyncState.suspended = true;
           setAuthActive(false);
-          await revokeAndroidPushRegistration();
+          if (useDirectPushRevocation) {
+            await revokeConfiguredAndroidPushRegistrationDirect();
+          } else {
+            await revokeAndroidPushRegistration();
+          }
           await getPlugin().logout();
           setAuthActive(false);
         } catch (error) {

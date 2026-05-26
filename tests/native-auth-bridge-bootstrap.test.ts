@@ -617,16 +617,21 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: true,
                 managed_android_enrollment: false,
-                android_push: true,
+                notification_channels: {
+                  android_fcm: true,
+                  web_push: false,
+                },
               },
-              android_push: {
-                provider: "fcm",
-                metadata_revision: 3,
-                public_client_metadata: {
-                  api_key: "public-client-api-key-demo-1234567890",
-                  project_id: "secpal-demo-push",
-                  application_id: "1:1234567890:android:abcdef1234567890",
-                  sender_id: "1234567890",
+              notification_channels: {
+                android_fcm: {
+                  channel: "android_fcm",
+                  metadata_revision: 3,
+                  public_runtime_metadata: {
+                    api_key: "public-client-api-key-demo-1234567890",
+                    project_id: "secpal-demo-push",
+                    application_id: "1:1234567890:android:abcdef1234567890",
+                    sender_id: "1234567890",
+                  },
                 },
               },
             },
@@ -804,16 +809,9 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: true,
                 managed_android_enrollment: false,
-                android_push: false,
-              },
-              android_push: {
-                provider: "fcm",
-                metadata_revision: 3,
-                public_client_metadata: {
-                  api_key: "public-client-api-key-demo-1234567890",
-                  project_id: "secpal-demo-push",
-                  application_id: "1:1234567890:android:abcdef1234567890",
-                  sender_id: "1234567890",
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
                 },
               },
             },
@@ -2189,6 +2187,134 @@ describe("native auth bridge bootstrap injection", () => {
     expect(confirmButton.disabled).toBe(true);
   });
 
+  it("confirms a deployment whose bootstrap omits features.notification_channels entirely", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      logout: vi.fn().mockResolvedValue(undefined),
+      getCurrentUser: vi.fn().mockResolvedValue({ id: 7 }),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        bodyBase64: encodeBase64('{"status":"ready"}'),
+        contentType: "application/json",
+      }),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "0.0.1",
+        appBuild: 1,
+      }),
+      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const browserFetch = vi.fn(async (input: Request | string | URL) => {
+      const request =
+        input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+
+      if (
+        url.origin === "https://customer.example" &&
+        url.pathname === "/v1/bootstrap"
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              client_platform: "android",
+              api_base_url: "https://customer-api.example/v1",
+              instance: {
+                display_name: "Customer Example",
+              },
+              compatibility: {
+                bootstrap_version: "v1",
+                schema_version: 2,
+                minimum_supported_app_version: "0.0.1",
+                minimum_supported_app_build: 1,
+              },
+              features: {
+                password_login: true,
+                passkey_login: true,
+                managed_android_enrollment: false,
+                // notification_channels intentionally absent — pre-migration server shape
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return new Response('{"status":"ready"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const document = new MockDocument();
+    const sessionStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage,
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: {
+        href: "https://app.secpal.dev/login",
+        reload: vi.fn(),
+      },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const input = document.getElementById(
+      "secpal-instance-discovery-url"
+    ) as MockElement | null;
+    const validateButton = document.getElementById(
+      "secpal-instance-discovery-validate"
+    ) as MockElement | null;
+    const confirmButton = document.getElementById(
+      "secpal-instance-discovery-confirm"
+    ) as MockElement | null;
+
+    input!.value = "https://customer.example";
+    validateButton!.click();
+    await flushMicrotasks();
+
+    confirmButton!.click();
+    await flushMicrotasks();
+
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith({
+      instanceDisplayName: "Customer Example",
+      apiOrigin: "https://customer-api.example",
+      rawApiBaseUrl: "https://customer-api.example/v1",
+      minimumSupportedAppVersion: "0.0.1",
+      minimumSupportedAppBuild: 1,
+      features: {
+        passwordLoginEnabled: true,
+        passkeyLoginEnabled: true,
+        managedAndroidEnrollment: false,
+      },
+    });
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
   it("fails before confirmation when Android push metadata is advertised but incomplete", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -2223,15 +2349,20 @@ describe("native auth bridge bootstrap injection", () => {
               password_login: true,
               passkey_login: true,
               managed_android_enrollment: false,
-              android_push: true,
+              notification_channels: {
+                android_fcm: true,
+                web_push: false,
+              },
             },
-            android_push: {
-              provider: "fcm",
-              metadata_revision: 3,
-              public_client_metadata: {
-                api_key: "public-client-api-key-demo-1234567890",
-                project_id: "secpal-demo-push",
-                application_id: "1:1234567890:android:abcdef1234567890",
+            notification_channels: {
+              android_fcm: {
+                channel: "android_fcm",
+                metadata_revision: 3,
+                public_runtime_metadata: {
+                  api_key: "public-client-api-key-demo-1234567890",
+                  project_id: "secpal-demo-push",
+                  application_id: "1:1234567890:android:abcdef1234567890",
+                },
               },
             },
           },
@@ -2329,16 +2460,21 @@ describe("native auth bridge bootstrap injection", () => {
               password_login: true,
               passkey_login: true,
               managed_android_enrollment: false,
-              android_push: true,
+              notification_channels: {
+                android_fcm: true,
+                web_push: false,
+              },
             },
-            android_push: {
-              provider: "fcm",
-              metadata_revision: 9999999999,
-              public_client_metadata: {
-                api_key: "public-client-api-key-demo-1234567890",
-                project_id: "secpal-demo-push",
-                application_id: "1:1234567890:android:abcdef1234567890",
-                sender_id: "1234567890",
+            notification_channels: {
+              android_fcm: {
+                channel: "android_fcm",
+                metadata_revision: 9999999999,
+                public_runtime_metadata: {
+                  api_key: "public-client-api-key-demo-1234567890",
+                  project_id: "secpal-demo-push",
+                  application_id: "1:1234567890:android:abcdef1234567890",
+                  sender_id: "1234567890",
+                },
               },
             },
           },
@@ -4524,6 +4660,311 @@ describe("native auth bridge bootstrap injection", () => {
     expect(reRegistrationPayload.push_token).toBe(pushToken);
   });
 
+  it("decodes native JSON bodies as UTF-8 when TextDecoder is unavailable", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const instrumentedScript = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    ).replace(
+      "globalThis.SecPalNativeAuthBridge = bridge;",
+      "globalThis.__testDecodeBase64Text = decodeBase64Text;\n  globalThis.SecPalNativeAuthBridge = bridge;"
+    );
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document: new MockDocument(),
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder: undefined,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(instrumentedScript, sandbox);
+
+    const decodeBase64Text = sandbox.__testDecodeBase64Text as
+      | ((value: string) => string)
+      | undefined;
+    const messagePayload = JSON.stringify({ message: "Grüße aus Köln 🦊" });
+
+    expect(typeof decodeBase64Text).toBe("function");
+    expect(decodeBase64Text!(encodeBase64(messagePayload))).toBe(
+      messagePayload
+    );
+  });
+
+  it("clears the selected runtime when push registration reports stale notification metadata", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" + encodedApiOrigin;
+    const {
+      bridge,
+      installationId,
+      listeners,
+      localStorage,
+      plugin,
+      sandbox,
+      sessionStorage,
+    } = await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+    };
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockResolvedValueOnce({
+        status: 409,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            message:
+              "Notification runtime metadata changed; refresh bootstrap before retrying this installation update.",
+            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+            details: {
+              bootstrap_version: "v1",
+              schema_version: 2,
+              channel: "android_fcm",
+              provided_metadata_revision: 3,
+              expected_metadata_revision: 4,
+            },
+          })
+        ),
+        contentType: "application/json",
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            data: {
+              installation_id: installationId,
+              revoked_at: "2026-05-26T10:00:00Z",
+            },
+          })
+        ),
+        contentType: "application/json",
+      });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(runtimeState.pendingBootstrap).toBeNull();
+    expect(authState.active).toBe(false);
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(localStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("clears the selected runtime when push registration reports an unsupported notification channel", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
+    const tokenStorageKey = "secpal-android-push-token:" + encodedApiOrigin;
+    const tokenAppStorageKey =
+      "secpal-android-push-token-app:" + encodedApiOrigin;
+    const tokenSavedAtStorageKey =
+      "secpal-android-push-token-saved-at:" + encodedApiOrigin;
+    const {
+      bridge,
+      installationId,
+      listeners,
+      localStorage,
+      plugin,
+      sandbox,
+      sessionStorage,
+    } = await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+    };
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockResolvedValueOnce({
+        status: 409,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            message:
+              "Notification channel is no longer supported for this deployment.",
+            code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
+            details: {
+              bootstrap_version: "v1",
+              schema_version: 2,
+              channel: "android_fcm",
+            },
+          })
+        ),
+        contentType: "application/json",
+      })
+      .mockResolvedValueOnce({
+        status: 404,
+        bodyBase64: encodeBase64(JSON.stringify({ message: "Not found." })),
+        contentType: "application/json",
+      });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
+      method: "PUT",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
+      method: "DELETE",
+      path: `/v1/me/push-devices/${installationId}`,
+    });
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(runtimeState.pendingBootstrap).toBeNull();
+    expect(authState.active).toBe(false);
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(localStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenAppStorageKey)).toBeNull();
+    expect(localStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(sessionStorage.getItem(tokenSavedAtStorageKey)).toBeNull();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("clears the selected runtime on a 409 stale-metadata response when TextDecoder is unavailable", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const { bridge, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+
+    // Remove TextDecoder to exercise the manual UTF-8 fallback path.
+    delete (sandbox as Record<string, unknown>).TextDecoder;
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+    };
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request
+      .mockResolvedValueOnce({
+        status: 409,
+        bodyBase64: encodeBase64(
+          JSON.stringify({
+            message: "Notification runtime metadata changed.",
+            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+          })
+        ),
+        contentType: "application/json",
+      })
+      .mockResolvedValueOnce({
+        status: 204,
+        bodyBase64: encodeBase64(""),
+        contentType: "application/json",
+      });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(
+      plugin.request.mock.calls.map(
+        (call) => (call[0] as { method: string }).method
+      )
+    ).toEqual(["PUT", "DELETE"]);
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
   it("permanently disables Android push registration with a structured error when secure UUID APIs are unavailable", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const errorSpy = vi
@@ -5292,6 +5733,10 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: false,
                 managed_android_enrollment: false,
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
+                },
               },
             },
           }),
@@ -5406,6 +5851,10 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: false,
                 managed_android_enrollment: false,
+                notification_channels: {
+                  android_fcm: false,
+                  web_push: false,
+                },
               },
             },
           }),
