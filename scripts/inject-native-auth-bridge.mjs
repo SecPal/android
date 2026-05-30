@@ -34,6 +34,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const fallbackApiOrigin = ${serializedApiBaseUrl};
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
+  const currentBootstrapVersion = "v1";
+  const currentBootstrapSchemaVersion = 3;
   const maxAndroidPushMetadataRevision = 2147483647;
   const discoveryGateId = "secpal-instance-discovery-gate";
   const discoveryStylesId = "secpal-instance-discovery-styles";
@@ -1208,8 +1210,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         : Number.NaN;
 
     if (
-      bootstrapVersion !== "v1" ||
-      schemaVersion !== 2 ||
+      bootstrapVersion !== currentBootstrapVersion ||
+      schemaVersion !== currentBootstrapSchemaVersion ||
       !minimumSupportedAppVersion ||
       !Number.isInteger(minimumSupportedAppBuild) ||
       minimumSupportedAppBuild <= 0
@@ -2032,7 +2034,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           androidPushSyncState.lastSyncedApiOrigin === pushMetadata.apiOrigin &&
           typeof androidPushSyncState.lastSyncedToken === "string" &&
           androidPushSyncState.lastSyncedToken !== token
-            ? "token_rotated"
+            ? "credential_rotated"
             : "registered";
         const runtimeInfo = await getRuntimeInfo();
         let installationId;
@@ -2050,22 +2052,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         const response = await sendAuthenticatedNativeRequest(
           {
             method: "PUT",
-            path: "/v1/me/push-devices/" + installationId,
+            path: "/v1/me/notification-installations/" + installationId,
             bodyBase64: encodeJsonRequestBody({
-              platform: "android",
-              provider: pushMetadata.provider,
-              device_name: androidPushDeviceName,
-              push_token: token,
+              channel: "android_fcm",
+              installation_name: androidPushDeviceName,
               lifecycle_event: lifecycleEvent,
-              app: {
-                package_name: "app.secpal",
-                package_version_name: runtimeInfo.appVersion,
-                package_version_code: runtimeInfo.appBuild,
+              registration: {
+                push_token: token,
+                app: {
+                  package_name: "app.secpal",
+                  package_version_name: runtimeInfo.appVersion,
+                  package_version_code: runtimeInfo.appBuild,
+                },
               },
               runtime: {
-                bootstrap_version: "v1",
-                schema_version: 2,
-                push_metadata_revision: pushMetadata.metadataRevision,
+                bootstrap_version: currentBootstrapVersion,
+                schema_version: currentBootstrapSchemaVersion,
+                metadata_revision: pushMetadata.metadataRevision,
               },
             }),
             contentType: "application/json",
@@ -2166,7 +2169,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       const response = await sendAuthenticatedNativeRequest(
         {
           method: "DELETE",
-          path: "/v1/me/push-devices/" + installationId,
+          path: "/v1/me/notification-installations/" + installationId,
           accept: "application/json",
         },
         { markAuthenticatedOnSuccess: false }
