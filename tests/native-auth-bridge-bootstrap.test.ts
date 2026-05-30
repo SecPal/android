@@ -10,6 +10,16 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
+const CANONICAL_API_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+function expectCanonicalApiTimestamp(
+  value: string | null
+): asserts value is string {
+  expect(value).not.toBeNull();
+  expect(value).toMatch(CANONICAL_API_TIMESTAMP_PATTERN);
+}
+
 class MockElement {
   id = "";
   className = "";
@@ -3809,6 +3819,7 @@ describe("native auth bridge bootstrap injection", () => {
       "fcm-token-stale-1234567890abcdefghijklmnopqrstuvwxyz";
     const freshPushToken =
       "fcm-token-fresh-1234567890abcdefghijklmnopqrstuvwxyz";
+    const freshSavedAt = "1970-01-01T00:00:02Z";
     const installationId = "11111111-1111-4111-8111-111111111111";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
     const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
@@ -3823,14 +3834,14 @@ describe("native auth bridge bootstrap injection", () => {
       [installationStorageKey]: installationId,
       [tokenStorageKey]: stalePushToken,
       [tokenAppStorageKey]: "secpal-runtime-push",
-      [tokenSavedAtStorageKey]: "100",
+      [tokenSavedAtStorageKey]: "1000",
     });
     const sharedSessionStorage = createMockStorage({
       [runtimeBootstrapStorageKey]:
         buildStoredRuntimeBootstrap(runtimeBootstrap),
       [tokenStorageKey]: freshPushToken,
       [tokenAppStorageKey]: "secpal-runtime-push",
-      [tokenSavedAtStorageKey]: "200",
+      [tokenSavedAtStorageKey]: "2000",
     });
 
     const reloadedPage = await createAndroidPushLifecycleSandbox({
@@ -3855,11 +3866,13 @@ describe("native auth bridge bootstrap injection", () => {
     expect(typeof pushSyncState.tokenErrorHandle?.remove).toBe("function");
 
     expect(pushSyncState.currentToken).toBe(freshPushToken);
-    expect(pushSyncState.currentTokenSavedAt).toBe(200);
+    expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(freshSavedAt));
     expect(sharedLocalStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
     expect(sharedSessionStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
-    expect(sharedLocalStorage.getItem(tokenSavedAtStorageKey)).toBe("200");
-    expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe("200");
+    expect(sharedLocalStorage.getItem(tokenSavedAtStorageKey)).toBe(freshSavedAt);
+    expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe(
+      freshSavedAt
+    );
 
     await reloadedPage.bridge.login({
       email: "worker@customer.example",
@@ -3931,8 +3944,8 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(pushSyncState.currentToken).toBe(pushToken);
     expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
-    expect(persistedSavedAt).not.toBeNull();
-    expect(pushSyncState.currentTokenSavedAt).toBe(Number(persistedSavedAt));
+    expectCanonicalApiTimestamp(persistedSavedAt);
+    expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(persistedSavedAt));
     expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe(
       persistedSavedAt
     );
@@ -4024,8 +4037,8 @@ describe("native auth bridge bootstrap injection", () => {
     };
     const persistedSavedAt = localStorage.getItem(tokenSavedAtStorageKey);
 
-    expect(persistedSavedAt).not.toBeNull();
-    expect(pushSyncState.currentTokenSavedAt).toBe(Number(persistedSavedAt));
+    expectCanonicalApiTimestamp(persistedSavedAt);
+    expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(persistedSavedAt));
     expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
   });
 

@@ -111,16 +111,46 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const normalizePushTokenSavedAt = (value) => {
-    const numericValue =
-      typeof value === "number"
-        ? value
-        : typeof value === "string" && value.trim().length > 0
-          ? Number(value)
-          : Number.NaN;
+    if (typeof value === "number") {
+      return Number.isFinite(value) && value >= 0
+        ? Math.trunc(value / 1000) * 1000
+        : -1;
+    }
 
-    return Number.isFinite(numericValue) && numericValue >= 0
-      ? Math.trunc(numericValue)
+    if (typeof value !== "string") {
+      return -1;
+    }
+
+    const trimmedValue = value.trim();
+
+    if (trimmedValue.length === 0) {
+      return -1;
+    }
+
+    if (/^\\d+$/.test(trimmedValue)) {
+      const parsedLegacyValue = Number(trimmedValue);
+
+      return Number.isFinite(parsedLegacyValue) && parsedLegacyValue >= 0
+        ? Math.trunc(parsedLegacyValue / 1000) * 1000
+        : -1;
+    }
+
+    const parsedTimestamp = Date.parse(trimmedValue);
+
+    return Number.isFinite(parsedTimestamp) && parsedTimestamp >= 0
+      ? Math.trunc(parsedTimestamp / 1000) * 1000
       : -1;
+  };
+
+  const serializePushTokenSavedAt = (value) => {
+    const normalizedSavedAt = normalizePushTokenSavedAt(value);
+    const effectiveSavedAt =
+      normalizedSavedAt >= 0 ? normalizedSavedAt : getCurrentPushTokenSavedAt();
+    const isoString = new Date(effectiveSavedAt).toISOString();
+
+    return isoString.endsWith(".000Z")
+      ? isoString.slice(0, -5) + "Z"
+      : isoString;
   };
 
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
@@ -1469,7 +1499,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         : Number.NaN;
 
     return Number.isFinite(currentValue) && currentValue >= 0
-      ? Math.trunc(currentValue)
+      ? Math.trunc(currentValue / 1000) * 1000
       : 0;
   };
 
@@ -1697,10 +1727,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       typeof apiOrigin === "string" ? apiOrigin.trim() : "";
     const normalizedToken = normalizePushToken(token);
     const normalizedAppName = typeof appName === "string" ? appName.trim() : "";
-    const normalizedSavedAt = normalizePushTokenSavedAt(savedAt);
-    const persistedSavedAt = String(
-      normalizedSavedAt >= 0 ? normalizedSavedAt : getCurrentPushTokenSavedAt()
-    );
+    const persistedSavedAt = serializePushTokenSavedAt(savedAt);
 
     if (
       normalizedApiOrigin.length === 0 ||
