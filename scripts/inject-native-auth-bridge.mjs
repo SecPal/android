@@ -110,9 +110,16 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return error;
   }
 
+  const maxCanonicalPushTokenSavedAt = 253402300799000;
+
+  const isPushTokenSavedAtValueUsable = (value) =>
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= maxCanonicalPushTokenSavedAt;
+
   const getPushTokenSavedAtOrderingValue = (value) => {
     if (typeof value === "number") {
-      return Number.isFinite(value) && value >= 0
+      return isPushTokenSavedAtValueUsable(value)
         ? Math.trunc(value)
         : -1;
     }
@@ -130,14 +137,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     if (/^\\d+$/.test(trimmedValue)) {
       const parsedLegacyValue = Number(trimmedValue);
 
-      return Number.isFinite(parsedLegacyValue) && parsedLegacyValue >= 0
+      return isPushTokenSavedAtValueUsable(parsedLegacyValue)
         ? Math.trunc(parsedLegacyValue)
         : -1;
     }
 
     const parsedTimestamp = Date.parse(trimmedValue);
 
-    return Number.isFinite(parsedTimestamp) && parsedTimestamp >= 0
+    return isPushTokenSavedAtValueUsable(parsedTimestamp)
       ? Math.trunc(parsedTimestamp)
       : -1;
   };
