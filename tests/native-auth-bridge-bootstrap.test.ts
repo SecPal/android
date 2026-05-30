@@ -3452,7 +3452,9 @@ describe("native auth bridge bootstrap injection", () => {
     >;
   }
 
-  function getNotificationRegistrationPushToken(payload: Record<string, unknown>) {
+  function getNotificationRegistrationPushToken(
+    payload: Record<string, unknown>
+  ) {
     const registration = payload.registration as
       | { push_token?: string }
       | undefined;
