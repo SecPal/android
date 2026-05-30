@@ -619,7 +619,7 @@ describe("native auth bridge bootstrap injection", () => {
               },
               compatibility: {
                 bootstrap_version: "v1",
-                schema_version: 2,
+                schema_version: 3,
                 minimum_supported_app_version: "0.0.1",
                 minimum_supported_app_build: 1,
               },
@@ -811,7 +811,7 @@ describe("native auth bridge bootstrap injection", () => {
               },
               compatibility: {
                 bootstrap_version: "v1",
-                schema_version: 2,
+                schema_version: 3,
                 minimum_supported_app_version: "0.0.1",
                 minimum_supported_app_build: 1,
               },
@@ -2116,7 +2116,7 @@ describe("native auth bridge bootstrap injection", () => {
             },
             compatibility: {
               bootstrap_version: "v2",
-              schema_version: 2,
+              schema_version: 3,
               minimum_supported_app_version: "0.0.1",
               minimum_supported_app_build: 1,
             },
@@ -2197,7 +2197,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(confirmButton.disabled).toBe(true);
   });
 
-  it("confirms a deployment whose bootstrap omits features.notification_channels entirely", async () => {
+  it("confirms a deployment whose bootstrap matches the current notification channel schema", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
@@ -2235,7 +2235,7 @@ describe("native auth bridge bootstrap injection", () => {
               },
               compatibility: {
                 bootstrap_version: "v1",
-                schema_version: 2,
+                schema_version: 3,
                 minimum_supported_app_version: "0.0.1",
                 minimum_supported_app_build: 1,
               },
@@ -2243,7 +2243,22 @@ describe("native auth bridge bootstrap injection", () => {
                 password_login: true,
                 passkey_login: true,
                 managed_android_enrollment: false,
-                // notification_channels intentionally absent — pre-migration server shape
+                notification_channels: {
+                  android_fcm: true,
+                  web_push: false,
+                },
+              },
+              notification_channels: {
+                android_fcm: {
+                  channel: "android_fcm",
+                  metadata_revision: 4,
+                  public_runtime_metadata: {
+                    api_key: "public-client-api-key-demo-1234567890",
+                    project_id: "secpal-demo-push",
+                    application_id: "1:1234567890:android:abcdef1234567890",
+                    sender_id: "1234567890",
+                  },
+                },
               },
             },
           }),
@@ -2314,6 +2329,16 @@ describe("native auth bridge bootstrap injection", () => {
       rawApiBaseUrl: "https://customer-api.example/v1",
       minimumSupportedAppVersion: "0.0.1",
       minimumSupportedAppBuild: 1,
+      androidPush: {
+        provider: "fcm",
+        metadataRevision: 4,
+        publicClientMetadata: {
+          apiKey: "public-client-api-key-demo-1234567890",
+          projectId: "secpal-demo-push",
+          applicationId: "1:1234567890:android:abcdef1234567890",
+          senderId: "1234567890",
+        },
+      },
       features: {
         passwordLoginEnabled: true,
         passkeyLoginEnabled: true,
@@ -2351,7 +2376,7 @@ describe("native auth bridge bootstrap injection", () => {
             },
             compatibility: {
               bootstrap_version: "v1",
-              schema_version: 2,
+              schema_version: 3,
               minimum_supported_app_version: "0.0.1",
               minimum_supported_app_build: 1,
             },
@@ -2462,7 +2487,7 @@ describe("native auth bridge bootstrap injection", () => {
             },
             compatibility: {
               bootstrap_version: "v1",
-              schema_version: 2,
+              schema_version: 3,
               minimum_supported_app_version: "0.0.1",
               minimum_supported_app_build: 1,
             },
@@ -3427,6 +3452,14 @@ describe("native auth bridge bootstrap injection", () => {
     >;
   }
 
+  function getNotificationRegistrationPushToken(payload: Record<string, unknown>) {
+    const registration = payload.registration as
+      | { push_token?: string }
+      | undefined;
+
+    return registration?.push_token;
+  }
+
   async function createAndroidPushLifecycleSandbox(
     options: {
       includeResetUi?: boolean;
@@ -3616,26 +3649,27 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(registrationRequest).toEqual({
       method: "PUT",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
       bodyBase64: registrationRequest.bodyBase64,
       contentType: "application/json",
       accept: "application/json",
     });
     expect(registrationPayload).toEqual({
-      platform: "android",
-      provider: "fcm",
-      device_name: "SecPal Android",
-      push_token: pushToken,
-      lifecycle_event: "registered",
-      app: {
-        package_name: "app.secpal",
-        package_version_name: "1.5.0",
-        package_version_code: 10500,
+      channel: "android_fcm",
+      installation_name: "SecPal Android",
+      registration: {
+        push_token: pushToken,
+        app: {
+          package_name: "app.secpal",
+          package_version_name: "1.5.0",
+          package_version_code: 10500,
+        },
       },
+      lifecycle_event: "registered",
       runtime: {
         bootstrap_version: "v1",
-        schema_version: 2,
-        push_metadata_revision: 3,
+        schema_version: 3,
+        metadata_revision: 3,
       },
     });
 
@@ -3720,12 +3754,14 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(registrationRequest.method).toBe("PUT");
     expect(registrationRequest.path).toBe(
-      `/v1/me/push-devices/${firstInstallationId}`
+      `/v1/me/notification-installations/${firstInstallationId}`
     );
     expect(registrationRequest.path).not.toBe(
-      `/v1/me/push-devices/${reloadedPage.installationId}`
+      `/v1/me/notification-installations/${reloadedPage.installationId}`
     );
-    expect(registrationPayload.push_token).toBe(pushToken);
+    expect(getNotificationRegistrationPushToken(registrationPayload)).toBe(
+      pushToken
+    );
     expect(registrationPayload.lifecycle_event).toBe("registered");
   });
 
@@ -3802,9 +3838,11 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(registrationRequest.method).toBe("PUT");
     expect(registrationRequest.path).toBe(
-      `/v1/me/push-devices/${installationId}`
+      `/v1/me/notification-installations/${installationId}`
     );
-    expect(registrationPayload.push_token).toBe(pushToken);
+    expect(getNotificationRegistrationPushToken(registrationPayload)).toBe(
+      pushToken
+    );
     expect(registrationPayload.lifecycle_event).toBe("registered");
 
     for (const handle of reloadedPage.handles) {
@@ -3896,9 +3934,11 @@ describe("native auth bridge bootstrap injection", () => {
 
     expect(registrationRequest.method).toBe("PUT");
     expect(registrationRequest.path).toBe(
-      `/v1/me/push-devices/${installationId}`
+      `/v1/me/notification-installations/${installationId}`
     );
-    expect(registrationPayload.push_token).toBe(freshPushToken);
+    expect(getNotificationRegistrationPushToken(registrationPayload)).toBe(
+      freshPushToken
+    );
     expect(registrationPayload.lifecycle_event).toBe("registered");
 
     for (const handle of reloadedPage.handles) {
@@ -4484,7 +4524,9 @@ describe("native auth bridge bootstrap injection", () => {
     };
     const initialPayload = decodeBase64Json(String(initialRequest.bodyBase64));
 
-    expect(initialRequest.path).toBe(`/v1/me/push-devices/${installationId}`);
+    expect(initialRequest.path).toBe(
+      `/v1/me/notification-installations/${installationId}`
+    );
     expect(initialPayload.lifecycle_event).toBe("registered");
 
     plugin.request.mockClear();
@@ -4506,9 +4548,13 @@ describe("native auth bridge bootstrap injection", () => {
     const rotatedPayload = decodeBase64Json(String(rotatedRequest.bodyBase64));
 
     expect(rotatedRequest.method).toBe("PUT");
-    expect(rotatedRequest.path).toBe(`/v1/me/push-devices/${installationId}`);
-    expect(rotatedPayload.lifecycle_event).toBe("token_rotated");
-    expect(rotatedPayload.push_token).toBe(secondToken);
+    expect(rotatedRequest.path).toBe(
+      `/v1/me/notification-installations/${installationId}`
+    );
+    expect(rotatedPayload.lifecycle_event).toBe("credential_rotated");
+    expect(getNotificationRegistrationPushToken(rotatedPayload)).toBe(
+      secondToken
+    );
   });
 
   it("ignores Android push tokens from unexpected Firebase app instances", async () => {
@@ -4697,7 +4743,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.request).toHaveBeenCalledOnce();
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
 
     plugin.request.mockClear();
@@ -4726,7 +4772,9 @@ describe("native auth bridge bootstrap injection", () => {
       )
     );
     expect(reRegistrationPayload.lifecycle_event).toBe("registered");
-    expect(reRegistrationPayload.push_token).toBe(pushToken);
+    expect(getNotificationRegistrationPushToken(reRegistrationPayload)).toBe(
+      pushToken
+    );
   });
 
   it("decodes native JSON bodies as UTF-8 when TextDecoder is unavailable", async () => {
@@ -4824,7 +4872,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_RUNTIME_STATE_INVALID",
             details: {
               bootstrap_version: "v1",
-              schema_version: 2,
+              schema_version: 3,
               channel: "android_fcm",
               provided_metadata_revision: 3,
               expected_metadata_revision: 4,
@@ -4859,11 +4907,11 @@ describe("native auth bridge bootstrap injection", () => {
     ).toEqual(["PUT", "DELETE"]);
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
       method: "DELETE",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
@@ -4927,7 +4975,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
             details: {
               bootstrap_version: "v1",
-              schema_version: 2,
+              schema_version: 3,
               channel: "android_fcm",
             },
           })
@@ -4953,11 +5001,11 @@ describe("native auth bridge bootstrap injection", () => {
     ).toEqual(["PUT", "DELETE"]);
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
       method: "DELETE",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
@@ -5161,7 +5209,7 @@ describe("native auth bridge bootstrap injection", () => {
     );
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "DELETE",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
 
     plugin.request.mockResolvedValue({
@@ -5196,7 +5244,9 @@ describe("native auth bridge bootstrap injection", () => {
     );
 
     expect(reRegistrationPayload.lifecycle_event).toBe("registered");
-    expect(reRegistrationPayload.push_token).toBe(pushToken);
+    expect(getNotificationRegistrationPushToken(reRegistrationPayload)).toBe(
+      pushToken
+    );
   });
 
   it("waits for an in-flight Android push registration before revoking it during logout", async () => {
@@ -5252,7 +5302,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.request).toHaveBeenCalledTimes(1);
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
 
     const logoutPromise = bridge.logout();
@@ -5283,7 +5333,7 @@ describe("native auth bridge bootstrap injection", () => {
     ).toEqual(["PUT", "DELETE"]);
     expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
       method: "DELETE",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(authState.active).toBe(false);
@@ -5338,7 +5388,7 @@ describe("native auth bridge bootstrap injection", () => {
     );
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "DELETE",
-      path: `/v1/me/push-devices/${installationId}`,
+      path: `/v1/me/notification-installations/${installationId}`,
     });
   });
 
@@ -5794,7 +5844,7 @@ describe("native auth bridge bootstrap injection", () => {
               instance: { display_name: "Customer Example" },
               compatibility: {
                 bootstrap_version: "v1",
-                schema_version: 2,
+                schema_version: 3,
                 minimum_supported_app_version: "0.0.1",
                 minimum_supported_app_build: 1,
               },
@@ -5912,7 +5962,7 @@ describe("native auth bridge bootstrap injection", () => {
               instance: { display_name: "Customer Example" },
               compatibility: {
                 bootstrap_version: "v1",
-                schema_version: 2,
+                schema_version: 3,
                 minimum_supported_app_version: "0.0.1",
                 minimum_supported_app_build: 1,
               },
