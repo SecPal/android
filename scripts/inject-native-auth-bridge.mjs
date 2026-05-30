@@ -110,10 +110,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return error;
   }
 
-  const normalizePushTokenSavedAt = (value) => {
+  const getPushTokenSavedAtOrderingValue = (value) => {
     if (typeof value === "number") {
       return Number.isFinite(value) && value >= 0
-        ? Math.trunc(value / 1000) * 1000
+        ? Math.trunc(value)
         : -1;
     }
 
@@ -131,14 +131,22 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       const parsedLegacyValue = Number(trimmedValue);
 
       return Number.isFinite(parsedLegacyValue) && parsedLegacyValue >= 0
-        ? Math.trunc(parsedLegacyValue / 1000) * 1000
+        ? Math.trunc(parsedLegacyValue)
         : -1;
     }
 
     const parsedTimestamp = Date.parse(trimmedValue);
 
     return Number.isFinite(parsedTimestamp) && parsedTimestamp >= 0
-      ? Math.trunc(parsedTimestamp / 1000) * 1000
+      ? Math.trunc(parsedTimestamp)
+      : -1;
+  };
+
+  const normalizePushTokenSavedAt = (value) => {
+    const orderingValue = getPushTokenSavedAtOrderingValue(value);
+
+    return orderingValue >= 0
+      ? Math.trunc(orderingValue / 1000) * 1000
       : -1;
   };
 
@@ -1662,6 +1670,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           storage.getItem(getPushTokenStorageKey(normalizedApiOrigin))
         ),
         appName,
+        orderingSavedAt: getPushTokenSavedAtOrderingValue(
+          storage.getItem(getPushTokenSavedAtStorageKey(normalizedApiOrigin))
+        ),
         savedAt: normalizePushTokenSavedAt(
           storage.getItem(getPushTokenSavedAtStorageKey(normalizedApiOrigin))
         ),
@@ -1679,10 +1690,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const normalizedApiOrigin = apiOrigin.trim();
     let selectedToken = "";
     let selectedAppName = "";
+    let selectedOrderingSavedAt = -1;
     let selectedSavedAt = -1;
 
     for (const storage of getPushTokenStorages()) {
-      const { token, appName, savedAt } = readStoredPushToken(
+      const { token, appName, orderingSavedAt, savedAt } = readStoredPushToken(
         storage,
         normalizedApiOrigin
       );
@@ -1690,10 +1702,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       if (
         token.length >= minAndroidPushTokenLength &&
         (selectedToken.length < minAndroidPushTokenLength ||
-          savedAt > selectedSavedAt)
+          orderingSavedAt > selectedOrderingSavedAt)
       ) {
         selectedToken = token;
         selectedAppName = appName;
+        selectedOrderingSavedAt = orderingSavedAt;
         selectedSavedAt = savedAt;
       }
     }

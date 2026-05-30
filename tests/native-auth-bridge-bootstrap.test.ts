@@ -3819,7 +3819,7 @@ describe("native auth bridge bootstrap injection", () => {
       "fcm-token-stale-1234567890abcdefghijklmnopqrstuvwxyz";
     const freshPushToken =
       "fcm-token-fresh-1234567890abcdefghijklmnopqrstuvwxyz";
-    const freshSavedAt = "1970-01-01T00:00:02Z";
+    const freshSavedAt = "1970-01-01T00:00:00Z";
     const installationId = "11111111-1111-4111-8111-111111111111";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
     const encodedApiOrigin = encodeURIComponent(runtimeBootstrap.apiOrigin);
@@ -3834,14 +3834,14 @@ describe("native auth bridge bootstrap injection", () => {
       [installationStorageKey]: installationId,
       [tokenStorageKey]: stalePushToken,
       [tokenAppStorageKey]: "secpal-runtime-push",
-      [tokenSavedAtStorageKey]: "1000",
+      [tokenSavedAtStorageKey]: "100",
     });
     const sharedSessionStorage = createMockStorage({
       [runtimeBootstrapStorageKey]:
         buildStoredRuntimeBootstrap(runtimeBootstrap),
       [tokenStorageKey]: freshPushToken,
       [tokenAppStorageKey]: "secpal-runtime-push",
-      [tokenSavedAtStorageKey]: "2000",
+      [tokenSavedAtStorageKey]: "200",
     });
 
     const reloadedPage = await createAndroidPushLifecycleSandbox({
