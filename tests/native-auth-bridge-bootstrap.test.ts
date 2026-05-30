@@ -3869,7 +3869,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(freshSavedAt));
     expect(sharedLocalStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
     expect(sharedSessionStorage.getItem(tokenStorageKey)).toBe(freshPushToken);
-    expect(sharedLocalStorage.getItem(tokenSavedAtStorageKey)).toBe(freshSavedAt);
+    expect(sharedLocalStorage.getItem(tokenSavedAtStorageKey)).toBe(
+      freshSavedAt
+    );
     expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe(
       freshSavedAt
     );
@@ -3945,7 +3947,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(pushSyncState.currentToken).toBe(pushToken);
     expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
     expectCanonicalApiTimestamp(persistedSavedAt);
-    expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(persistedSavedAt));
+    expect(pushSyncState.currentTokenSavedAt).toBe(
+      Date.parse(persistedSavedAt)
+    );
     expect(sharedSessionStorage.getItem(tokenSavedAtStorageKey)).toBe(
       persistedSavedAt
     );
@@ -4038,7 +4042,9 @@ describe("native auth bridge bootstrap injection", () => {
     const persistedSavedAt = localStorage.getItem(tokenSavedAtStorageKey);
 
     expectCanonicalApiTimestamp(persistedSavedAt);
-    expect(pushSyncState.currentTokenSavedAt).toBe(Date.parse(persistedSavedAt));
+    expect(pushSyncState.currentTokenSavedAt).toBe(
+      Date.parse(persistedSavedAt)
+    );
     expect(pushSyncState.currentTokenSavedAt).toBeGreaterThanOrEqual(0);
   });
 
