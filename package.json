@@ -54,7 +54,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.4.0",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.4",
     "@vitest/coverage-v8": "^4.1.8",
