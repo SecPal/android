@@ -52,7 +52,7 @@
     "@capacitor/core": "^8.4.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.0",
+    "@capacitor/cli": "^8.4.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
