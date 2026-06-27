@@ -5499,6 +5499,9 @@ describe("native auth bridge bootstrap injection", () => {
   it("dispatches a native logout event after the bridge completes logout", async () => {
     const { bridge, sandbox } = await createAndroidPushLifecycleSandbox();
     const logoutListener = vi.fn();
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      suspended: boolean;
+    };
 
     (
       sandbox as {
@@ -5507,14 +5510,22 @@ describe("native auth bridge bootstrap injection", () => {
           listener: (event: { type: string }) => void
         ): void;
       }
-    ).addEventListener("secpal:native-auth-logout", logoutListener);
+    ).addEventListener("secpal:native-auth-logout", (event) => {
+      logoutListener({
+        event,
+        suspended: pushSyncState.suspended,
+      });
+    });
 
     await bridge.logout();
     await flushMicrotasks();
 
     expect(logoutListener).toHaveBeenCalledOnce();
     expect(logoutListener).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "secpal:native-auth-logout" })
+      expect.objectContaining({
+        event: expect.objectContaining({ type: "secpal:native-auth-logout" }),
+        suspended: false,
+      })
     );
   });
 
@@ -5547,6 +5558,15 @@ describe("native auth bridge bootstrap injection", () => {
     const { bridge, document, listeners, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox({ includeResetUi: true });
     const logoutListener = vi.fn();
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      bootstrap: { apiOrigin: string } | null;
+      apiOrigin: string | null;
+      pendingBootstrap: unknown;
+    };
+    const pushSyncState = sandbox.__SecPalAndroidPushSyncState as {
+      suspended: boolean;
+    };
 
     (
       sandbox as {
@@ -5555,7 +5575,16 @@ describe("native auth bridge bootstrap injection", () => {
           listener: (event: { type: string }) => void
         ): void;
       }
-    ).addEventListener("secpal:native-auth-logout", logoutListener);
+    ).addEventListener("secpal:native-auth-logout", (event) => {
+      logoutListener({
+        event,
+        configured: runtimeState.configured,
+        bootstrap: runtimeState.bootstrap,
+        apiOrigin: runtimeState.apiOrigin,
+        pendingBootstrap: runtimeState.pendingBootstrap,
+        suspended: pushSyncState.suspended,
+      });
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -5594,7 +5623,14 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(logoutListener).toHaveBeenCalledOnce();
     expect(logoutListener).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "secpal:native-auth-logout" })
+      expect.objectContaining({
+        event: expect.objectContaining({ type: "secpal:native-auth-logout" }),
+        configured: false,
+        bootstrap: null,
+        apiOrigin: null,
+        pendingBootstrap: null,
+        suspended: false,
+      })
     );
     expect(plugin.logout.mock.invocationCallOrder[0]).toBeLessThan(
       logoutListener.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER

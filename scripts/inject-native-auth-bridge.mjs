@@ -2620,6 +2620,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     runtimeResetBusy = true;
     syncRuntimeResetEntryCopy();
+    let didLogoutSucceed = false;
 
     try {
       if (typeof getPlugin().logout === "function") {
@@ -2632,7 +2633,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             await revokeAndroidPushRegistration();
           }
           await getPlugin().logout();
-          globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+          didLogoutSucceed = true;
           setAuthActive(false);
         } catch (error) {
           const code = error && typeof error === "object" ? error.code : undefined;
@@ -2685,6 +2686,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     disconnectRuntimeResetObserver();
     removeRuntimeResetEntry();
     runtimeResetBusy = false;
+
+    if (didLogoutSucceed) {
+      globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+    }
 
     if (globalThis.location && typeof globalThis.location.reload === "function") {
       globalThis.location.reload();
@@ -3350,18 +3355,25 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     },
     async logout() {
       await ensureRuntimeConfigured();
+      let result;
+      let didLogoutSucceed = false;
       try {
         androidPushSyncState.suspended = true;
         setAuthActive(false);
         await revokeAndroidPushRegistration();
-        const result = await getPlugin().logout();
-        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
-        return result;
+        result = await getPlugin().logout();
+        didLogoutSucceed = true;
       } finally {
         setAuthActive(false);
         clearAndroidPushSyncState({ preserveCurrentToken: true });
         androidPushSyncState.suspended = false;
       }
+
+      if (didLogoutSucceed) {
+        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+      }
+
+      return result;
     },
     async getCurrentUser() {
       await ensureRuntimeConfigured();

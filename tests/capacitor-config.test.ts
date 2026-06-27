@@ -191,21 +191,23 @@ describe("capacitor Android wrapper configuration", () => {
     pluginMocks.logout.mockResolvedValue(undefined);
     const dispatched: Event[] = [];
     const originalDispatch = globalThis.dispatchEvent;
-    globalThis.dispatchEvent = (event: Event) => {
-      dispatched.push(event);
-      return true;
-    };
+    try {
+      globalThis.dispatchEvent = (event: Event) => {
+        dispatched.push(event);
+        return true;
+      };
 
-    const { createNativeAuthBridge } =
-      await import("../src/secpal/native-auth-bridge");
-    const bridge = createNativeAuthBridge();
+      const { createNativeAuthBridge } =
+        await import("../src/secpal/native-auth-bridge");
+      const bridge = createNativeAuthBridge();
 
-    await bridge.logout();
+      await bridge.logout();
 
-    globalThis.dispatchEvent = originalDispatch;
-
-    expect(dispatched).toHaveLength(1);
-    expect(dispatched[0]?.type).toBe("secpal:native-auth-logout");
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0]?.type).toBe("secpal:native-auth-logout");
+    } finally {
+      globalThis.dispatchEvent = originalDispatch;
+    }
   });
 
   it("does not dispatch the native logout event when the typed bridge plugin logout throws", async () => {
@@ -214,19 +216,21 @@ describe("capacitor Android wrapper configuration", () => {
     );
     const dispatched: Event[] = [];
     const originalDispatch = globalThis.dispatchEvent;
-    globalThis.dispatchEvent = (event: Event) => {
-      dispatched.push(event);
-      return true;
-    };
+    try {
+      globalThis.dispatchEvent = (event: Event) => {
+        dispatched.push(event);
+        return true;
+      };
 
-    const { createNativeAuthBridge } =
-      await import("../src/secpal/native-auth-bridge");
-    const bridge = createNativeAuthBridge();
+      const { createNativeAuthBridge } =
+        await import("../src/secpal/native-auth-bridge");
+      const bridge = createNativeAuthBridge();
 
-    await expect(bridge.logout()).rejects.toThrow("native logout failed");
+      await expect(bridge.logout()).rejects.toThrow("native logout failed");
 
-    globalThis.dispatchEvent = originalDispatch;
-
-    expect(dispatched).toHaveLength(0);
+      expect(dispatched).toHaveLength(0);
+    } finally {
+      globalThis.dispatchEvent = originalDispatch;
+    }
   });
 });
