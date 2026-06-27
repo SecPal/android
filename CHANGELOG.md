@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- strengthened the provider-neutral AI-governance rollout so `AGENTS.md` now advertises the workflow-specific overlay at runtime, explicitly blesses `apk.secpal.app` as the canonical Android artifact host, and keeps the central AI-instructions validation job visible in release history
 - the local-only `.preflight-allow-large-pr` override is no longer tracked in git; contributors can still create it locally when an exceptional branch legitimately exceeds the PR-size guard because the repo keeps the ignore rule in place for issue `#250`
 - documented the generic-app customer-owned Android push lifecycle for operators, including bootstrap metadata requirements, login-time `/v1/me/push-devices/{installationId}` registration, token rotation and logout/reset cleanup behavior, and the explicit `0.x` no-compatibility rollout stance for removing obsolete SecPal-owned push assumptions
 - documented the customer-hosted Android binding flow, deployment bootstrap endpoint expectations, and rollout note that the current `0.x` policy allows removal of the old baked-in-origin compatibility shim without preserving a backward-compatibility fallback

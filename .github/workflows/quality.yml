@@ -31,9 +31,9 @@ jobs:
     name: Markdown Lint
     uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@main
 
-  copilot-instructions:
-    name: Copilot Instructions
-    uses: SecPal/.github/.github/workflows/reusable-copilot-instructions.yml@main
+  ai-instructions:
+    name: AI Instructions
+    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@main
 
   eslint:
     name: ESLint
