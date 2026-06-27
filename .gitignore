@@ -20,6 +20,7 @@ ios/
 .env
 .env.*
 !.env.example
+android-release.env
 secrets/
 credentials/
 *.key
