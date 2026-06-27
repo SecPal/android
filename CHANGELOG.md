@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Added `android-release.env` to the repo-local ignore rules so Android signing environment files are not accidentally staged from developer machines.
 - Removed the optional `email` field from native public-passkey (`token`-mode) challenge startup so the Android wrapper, bridge, and injected plugin contract now match the discoverable-only API surface required by `SecPal/api#1101`. `SecPalNativeAuthPlugin.loginWithPasskey`, `NativeAuthHttpClient.startTokenPasskeyAuthenticationChallenge`, the typed `NativeAuthBridge.loginWithPasskey` signature, and the injected `SecPalNativeAuthBridge` no longer accept or forward an `email` argument, preventing email-scoped public passkey challenges from being issued through the Android shell (issue #225).
 - refreshed the npm lockfile so the shared `minimatch` chain used by `eslint`, `@typescript-eslint`, and `@capacitor/cli` now resolves transitive `brace-expansion@5.0.6` instead of the GHSA-jxxr-4gwj-5jf2 vulnerable `5.0.5` release tracked in issue `#258`
 
