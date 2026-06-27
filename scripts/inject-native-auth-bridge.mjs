@@ -32,6 +32,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
   const currentBootstrapVersion = "v1";
@@ -3352,7 +3353,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         androidPushSyncState.suspended = true;
         setAuthActive(false);
         await revokeAndroidPushRegistration();
-        return await getPlugin().logout();
+        const result = await getPlugin().logout();
+        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+        return result;
       } finally {
         setAuthActive(false);
         clearAndroidPushSyncState({ preserveCurrentToken: true });

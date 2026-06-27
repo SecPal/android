@@ -3680,6 +3680,10 @@ describe("native auth bridge bootstrap injection", () => {
           buildStoredRuntimeBootstrap(runtimeBootstrap),
         "tenant-session": "customer-a-session",
       });
+    const windowEventListeners = new Map<
+      string,
+      Array<(event: { type: string }) => void>
+    >();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
@@ -3704,6 +3708,21 @@ describe("native auth bridge bootstrap injection", () => {
         randomUUID: vi.fn(() => installationId),
       },
       location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+      Event: class MockWindowEvent {
+        constructor(readonly type: string) {}
+      },
+      addEventListener(eventName: string, listener: (event: { type: string }) => void) {
+        const registeredListeners = windowEventListeners.get(eventName) ?? [];
+        registeredListeners.push(listener);
+        windowEventListeners.set(eventName, registeredListeners);
+      },
+      dispatchEvent(event: { type: string }) {
+        for (const listener of windowEventListeners.get(event.type) ?? []) {
+          listener(event);
+        }
+
+        return true;
+      },
     } as Record<string, unknown>;
     sandbox.globalThis = sandbox;
 
@@ -5472,6 +5491,28 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.logout).toHaveBeenCalledOnce();
     expect(authState.active).toBe(false);
     expect(pushSyncState.suspended).toBe(false);
+  });
+
+  it("dispatches a native logout event after the bridge completes logout", async () => {
+    const { bridge, sandbox } = await createAndroidPushLifecycleSandbox();
+    const logoutListener = vi.fn();
+
+    (
+      sandbox as {
+        addEventListener(
+          eventName: string,
+          listener: (event: { type: string }) => void
+        ): void;
+      }
+    ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+    await bridge.logout();
+    await flushMicrotasks();
+
+    expect(logoutListener).toHaveBeenCalledOnce();
+    expect(logoutListener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "secpal:native-auth-logout" })
+    );
   });
 
   it("revokes the backend push-device registration during destructive runtime reset", async () => {
