@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/Widget.SecPal.DedicatedHome.Tile"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_margin="@dimen/enterprise_home_tile_margin"
+    android:layout_columnWeight="1">
+
+    <ImageView
+        android:id="@+id/enterprise_home_tile_icon"
+        android:layout_width="@dimen/enterprise_home_tile_icon_size"
+        android:layout_height="@dimen/enterprise_home_tile_icon_size"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="fitCenter" />
+
+    <TextView
+        android:id="@+id/enterprise_home_tile_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/enterprise_home_tile_label_margin_top"
+        android:gravity="center"
+        android:maxLines="2"
+        android:textAppearance="@style/TextAppearance.SecPal.DedicatedHome.TileLabel" />
+</LinearLayout>

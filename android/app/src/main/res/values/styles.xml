@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
 <resources>
 
     <!-- Base application theme. -->
@@ -20,5 +24,31 @@
         <item name="android:background">@drawable/splash_screen_background</item>
         <item name="windowSplashScreenBackground">@color/splash_screen_background</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+
+    <style name="TextAppearance.SecPal.DedicatedHome.Title" parent="@android:style/TextAppearance.Large">
+        <item name="android:textColor">@color/enterprise_home_on_surface</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.SecPal.DedicatedHome.Body" parent="@android:style/TextAppearance.Medium">
+        <item name="android:textColor">@color/enterprise_home_on_surface_muted</item>
+    </style>
+
+    <style name="TextAppearance.SecPal.DedicatedHome.TileLabel" parent="@android:style/TextAppearance.Medium">
+        <item name="android:textColor">@color/enterprise_home_on_surface</item>
+    </style>
+
+    <style name="Widget.SecPal.DedicatedHome.Tile" parent="">
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center_horizontal</item>
+        <item name="android:background">@drawable/enterprise_home_tile_background</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:minHeight">@dimen/enterprise_home_tile_min_height</item>
+        <item name="android:paddingStart">@dimen/enterprise_home_tile_padding_horizontal</item>
+        <item name="android:paddingTop">@dimen/enterprise_home_tile_padding_top</item>
+        <item name="android:paddingEnd">@dimen/enterprise_home_tile_padding_horizontal</item>
+        <item name="android:paddingBottom">@dimen/enterprise_home_tile_padding_bottom</item>
     </style>
 </resources>

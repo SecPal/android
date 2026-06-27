@@ -7,6 +7,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     android:shape="rectangle">
     <gradient
         android:angle="270"
-        android:endColor="#0F172A"
-        android:startColor="#111827" />
+        android:endColor="@color/enterprise_home_background_end"
+        android:startColor="@color/enterprise_home_background_start" />
 </shape>

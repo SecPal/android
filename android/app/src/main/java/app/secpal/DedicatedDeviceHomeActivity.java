@@ -10,25 +10,25 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.GridLayout;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.AppCompatImageView;
-import androidx.appcompat.widget.AppCompatTextView;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
+    private static volatile DedicatedDeviceHomeDependencies dependencies = new DedicatedDeviceHomeDependencies();
+
     private GridLayout appGrid;
     private TextView emptyState;
+    private DedicatedDeviceHomeTileGridRenderer tileGridRenderer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,6 +41,7 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
 
         appGrid = findViewById(R.id.enterprise_home_app_grid);
         emptyState = findViewById(R.id.enterprise_home_empty_state);
+        tileGridRenderer = createTileGridRenderer();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -53,9 +54,8 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
-
-        EnterprisePolicyController.maybeEnterLockTask(this);
+        EnterpriseManagedState managedState = dependencies.syncPolicy(this);
+        dependencies.maybeEnterLockTask(this);
 
         if (!managedState.isKioskActive()) {
             openSecPal();
@@ -88,101 +88,49 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
     }
 
     private void renderLauncher(EnterpriseManagedState managedState) {
-        appGrid.removeAllViews();
+        List<DedicatedDeviceHomeTileModel> tiles = new ArrayList<>();
 
-        List<LauncherTile> tiles = new ArrayList<>();
-
-        tiles.add(new LauncherTile(
+        tiles.add(new DedicatedDeviceHomeTileModel(
             getString(R.string.enterprise_home_open_secpal),
             resolveAppIcon(getPackageName()),
             view -> openSecPal()
         ));
 
         for (EnterprisePolicyController.AllowedLaunchApp allowedApp
-            : EnterprisePolicyController.resolveAllowedLaunchApps(this)) {
-            tiles.add(new LauncherTile(
+            : dependencies.resolveAllowedLaunchApps(this)) {
+            tiles.add(new DedicatedDeviceHomeTileModel(
                 allowedApp.getLabel(),
                 resolveAppIcon(allowedApp.getPackageName()),
-                view -> EnterprisePolicyController.launchAllowedApp(
+                view -> dependencies.launchAllowedApp(
                     this,
                     allowedApp.getPackageName()
                 )
             ));
         }
 
-        String dialerPackage = managedState.resolveDialerPackage(this);
+        String dialerPackage = dependencies.resolveDialerPackage(managedState, this);
 
         if (managedState.isAllowPhone() && dialerPackage != null) {
-            tiles.add(new LauncherTile(
+            tiles.add(new DedicatedDeviceHomeTileModel(
                 getString(R.string.enterprise_home_phone_label),
                 resolveAppIcon(dialerPackage, android.R.drawable.sym_action_call),
-                view -> EnterprisePolicyController.launchPhone(this)
+                view -> dependencies.launchPhone(this)
             ));
         }
 
-        String smsPackage = managedState.resolveSmsPackage(this);
+        String smsPackage = dependencies.resolveSmsPackage(managedState, this);
 
         if (managedState.isAllowSms() && smsPackage != null) {
-            tiles.add(new LauncherTile(
+            tiles.add(new DedicatedDeviceHomeTileModel(
                 getString(R.string.enterprise_home_sms_label),
                 resolveAppIcon(smsPackage, android.R.drawable.sym_action_email),
-                view -> EnterprisePolicyController.launchSms(this)
+                view -> dependencies.launchSms(this)
             ));
         }
 
-        for (LauncherTile tile : tiles) {
-            addLauncherTile(tile);
-        }
+        tileGridRenderer.render(appGrid, tiles);
 
         emptyState.setVisibility(tiles.size() <= 1 ? View.VISIBLE : View.GONE);
-    }
-
-    private void addLauncherTile(LauncherTile tile) {
-        LinearLayout tileView = new LinearLayout(this);
-        GridLayout.LayoutParams layoutParams = new GridLayout.LayoutParams();
-
-        layoutParams.width = 0;
-        layoutParams.height = GridLayout.LayoutParams.WRAP_CONTENT;
-        layoutParams.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        layoutParams.setMargins(toPixels(8), toPixels(8), toPixels(8), toPixels(8));
-
-        tileView.setLayoutParams(layoutParams);
-        tileView.setOrientation(LinearLayout.VERTICAL);
-        tileView.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-        tileView.setBackgroundResource(R.drawable.enterprise_home_tile_background);
-        tileView.setClickable(true);
-        tileView.setFocusable(true);
-        tileView.setMinimumHeight(toPixels(132));
-        tileView.setPadding(toPixels(14), toPixels(18), toPixels(14), toPixels(14));
-        tileView.setOnClickListener(tile.getClickListener());
-
-        ImageView iconView = new AppCompatImageView(this);
-        LinearLayout.LayoutParams iconLayoutParams = new LinearLayout.LayoutParams(
-            toPixels(56),
-            toPixels(56)
-        );
-
-        iconView.setLayoutParams(iconLayoutParams);
-        iconView.setImageDrawable(tile.getIcon());
-        iconView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-
-        TextView labelView = new AppCompatTextView(this);
-        LinearLayout.LayoutParams labelLayoutParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-
-        labelLayoutParams.topMargin = toPixels(12);
-        labelView.setLayoutParams(labelLayoutParams);
-        labelView.setGravity(android.view.Gravity.CENTER);
-        labelView.setMaxLines(2);
-        labelView.setText(tile.getLabel());
-        labelView.setTextAppearance(this, android.R.style.TextAppearance_Medium);
-        labelView.setTextColor(getColor(android.R.color.white));
-
-        tileView.addView(iconView);
-        tileView.addView(labelView);
-        appGrid.addView(tileView);
     }
 
     private void openSecPal() {
@@ -192,8 +140,8 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    private int toPixels(int dp) {
-        return Math.round(dp * getResources().getDisplayMetrics().density);
+    private DedicatedDeviceHomeTileGridRenderer createTileGridRenderer() {
+        return new DedicatedDeviceHomeTileGridRenderer(LayoutInflater.from(this));
     }
 
     private Drawable resolveAppIcon(String packageName) {
@@ -215,27 +163,11 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
         return getDrawable(fallbackIconRes);
     }
 
-    private static final class LauncherTile {
-        private final String label;
-        private final Drawable icon;
-        private final View.OnClickListener clickListener;
+    static void setDependenciesForTest(DedicatedDeviceHomeDependencies testDependencies) {
+        dependencies = testDependencies;
+    }
 
-        LauncherTile(String label, Drawable icon, View.OnClickListener clickListener) {
-            this.label = label;
-            this.icon = icon;
-            this.clickListener = clickListener;
-        }
-
-        String getLabel() {
-            return label;
-        }
-
-        Drawable getIcon() {
-            return icon;
-        }
-
-        View.OnClickListener getClickListener() {
-            return clickListener;
-        }
+    static void resetDependencies() {
+        dependencies = new DedicatedDeviceHomeDependencies();
     }
 }
