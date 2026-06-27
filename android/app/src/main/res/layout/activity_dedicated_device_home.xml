@@ -13,32 +13,29 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingTop="28dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="32dp">
+        android:paddingStart="@dimen/enterprise_home_screen_padding_horizontal"
+        android:paddingTop="@dimen/enterprise_home_screen_padding_top"
+        android:paddingEnd="@dimen/enterprise_home_screen_padding_horizontal"
+        android:paddingBottom="@dimen/enterprise_home_screen_padding_bottom">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/enterprise_home_title"
-            android:textAppearance="@android:style/TextAppearance.Large"
-            android:textColor="@android:color/white"
-            android:textStyle="bold" />
+            android:textAppearance="@style/TextAppearance.SecPal.DedicatedHome.Title" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/enterprise_home_summary_margin_top"
             android:text="@string/enterprise_home_summary"
-            android:textAppearance="@android:style/TextAppearance.Medium"
-            android:textColor="#D0D5DD" />
+            android:textAppearance="@style/TextAppearance.SecPal.DedicatedHome.Body" />
 
         <GridLayout
             android:id="@+id/enterprise_home_app_grid"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="@dimen/enterprise_home_grid_margin_top"
             android:alignmentMode="alignMargins"
             android:columnCount="3"
             android:useDefaultMargins="false" />
@@ -47,11 +44,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             android:id="@+id/enterprise_home_empty_state"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/enterprise_home_empty_state_margin_top"
             android:gravity="center"
             android:text="@string/enterprise_home_empty_state"
-            android:textAppearance="@android:style/TextAppearance.Medium"
-            android:textColor="#D0D5DD"
+            android:textAppearance="@style/TextAppearance.SecPal.DedicatedHome.Body"
             android:visibility="gone" />
     </LinearLayout>
 </ScrollView>

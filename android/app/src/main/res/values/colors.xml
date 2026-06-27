@@ -5,4 +5,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 <resources>
     <color name="splash_screen_background">#FFFFFF</color>
+    <color name="enterprise_home_background_start">#111827</color>
+    <color name="enterprise_home_background_end">#0F172A</color>
+    <color name="enterprise_home_surface">#223047</color>
+    <color name="enterprise_home_surface_stroke">#334155</color>
+    <color name="enterprise_home_on_surface">#FFFFFF</color>
+    <color name="enterprise_home_on_surface_muted">#D0D5DD</color>
+    <color name="enterprise_home_tile_ripple">#33FFFFFF</color>
 </resources>

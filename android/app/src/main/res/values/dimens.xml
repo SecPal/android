@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<resources>
+    <dimen name="enterprise_home_screen_padding_horizontal">20dp</dimen>
+    <dimen name="enterprise_home_screen_padding_top">28dp</dimen>
+    <dimen name="enterprise_home_screen_padding_bottom">32dp</dimen>
+    <dimen name="enterprise_home_summary_margin_top">8dp</dimen>
+    <dimen name="enterprise_home_grid_margin_top">28dp</dimen>
+    <dimen name="enterprise_home_empty_state_margin_top">16dp</dimen>
+    <dimen name="enterprise_home_tile_margin">8dp</dimen>
+    <dimen name="enterprise_home_tile_min_height">132dp</dimen>
+    <dimen name="enterprise_home_tile_padding_horizontal">14dp</dimen>
+    <dimen name="enterprise_home_tile_padding_top">18dp</dimen>
+    <dimen name="enterprise_home_tile_padding_bottom">14dp</dimen>
+    <dimen name="enterprise_home_tile_corner_radius">22dp</dimen>
+    <dimen name="enterprise_home_tile_stroke_width">1dp</dimen>
+    <dimen name="enterprise_home_tile_icon_size">56dp</dimen>
+    <dimen name="enterprise_home_tile_label_margin_top">12dp</dimen>
+</resources>

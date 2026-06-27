@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Extracted dedicated-device home tile rendering into `DedicatedDeviceHomeTileGridRenderer` and `DedicatedDeviceHomeTileModel`, replaced inline imperative view construction with an inflated `view_dedicated_device_home_tile` layout, moved all `EnterprisePolicyController` and `EnterpriseManagedState` dispatch calls behind a swappable `DedicatedDeviceHomeDependencies` seam, promoted layout dimensions and colors to resource files, and added Robolectric unit coverage for the kiosk-inactive redirect, tile population, empty-state visibility, allowed-app click handling, and phone/SMS tile presence and click behavior.
+
 ### Security
 
 - Removed the optional `email` field from native public-passkey (`token`-mode) challenge startup so the Android wrapper, bridge, and injected plugin contract now match the discoverable-only API surface required by `SecPal/api#1101`. `SecPalNativeAuthPlugin.loginWithPasskey`, `NativeAuthHttpClient.startTokenPasskeyAuthenticationChallenge`, the typed `NativeAuthBridge.loginWithPasskey` signature, and the injected `SecPalNativeAuthBridge` no longer accept or forward an `email` argument, preventing email-scoped public passkey challenges from being issued through the Android shell (issue #225).
