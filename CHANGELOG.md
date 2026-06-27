@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Extracted dedicated-device home tile rendering into `DedicatedDeviceHomeTileGridRenderer` and `DedicatedDeviceHomeTileModel`, replaced inline imperative view construction with an inflated `view_dedicated_device_home_tile` layout, moved all `EnterprisePolicyController` and `EnterpriseManagedState` dispatch calls behind a swappable `DedicatedDeviceHomeDependencies` seam, promoted layout dimensions and colors to resource files, and added Robolectric unit coverage for the kiosk-inactive redirect, tile population, empty-state visibility, allowed-app click handling, and phone/SMS tile presence and click behavior.
+- Extracted dedicated-device home tile rendering into `DedicatedDeviceHomeTileGridRenderer` and `DedicatedDeviceHomeTileModel`, replacing inline imperative view construction with an inflated `view_dedicated_device_home_tile` layout.
+- Moved dedicated-device launcher spacing, colors, and text styling into centralized Android resources and styles.
+- Added Robolectric coverage for dedicated-device launcher redirect, tile population, empty-state visibility, allowed-app clicks, and phone/SMS tile behavior through a swappable `DedicatedDeviceHomeDependencies` seam.
 
 ### Security
 

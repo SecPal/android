@@ -46,9 +46,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="android:minHeight">@dimen/enterprise_home_tile_min_height</item>
-        <item name="android:paddingLeft">@dimen/enterprise_home_tile_padding_horizontal</item>
+        <item name="android:paddingStart">@dimen/enterprise_home_tile_padding_horizontal</item>
         <item name="android:paddingTop">@dimen/enterprise_home_tile_padding_top</item>
-        <item name="android:paddingRight">@dimen/enterprise_home_tile_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/enterprise_home_tile_padding_horizontal</item>
         <item name="android:paddingBottom">@dimen/enterprise_home_tile_padding_bottom</item>
     </style>
 </resources>

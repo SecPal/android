@@ -73,10 +73,10 @@ public final class DedicatedDeviceHomeActivityTest {
             DedicatedDeviceHomeActivity activity = controller.get();
             GridLayout appGrid = activity.findViewById(R.id.enterprise_home_app_grid);
             TextView emptyState = activity.findViewById(R.id.enterprise_home_empty_state);
-            TextView firstLabel = appGrid.getChildAt(0).findViewById(R.id.enterprise_home_tile_label);
 
             assertEquals(1, appGrid.getChildCount());
             assertEquals(View.VISIBLE, emptyState.getVisibility());
+            TextView firstLabel = appGrid.getChildAt(0).findViewById(R.id.enterprise_home_tile_label);
             assertEquals(activity.getString(R.string.enterprise_home_open_secpal), firstLabel.getText().toString());
         }
     }
@@ -97,10 +97,10 @@ public final class DedicatedDeviceHomeActivityTest {
             DedicatedDeviceHomeActivity activity = controller.get();
             GridLayout appGrid = activity.findViewById(R.id.enterprise_home_app_grid);
             TextView emptyState = activity.findViewById(R.id.enterprise_home_empty_state);
-            TextView secondLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
 
             assertEquals(2, appGrid.getChildCount());
             assertEquals(View.GONE, emptyState.getVisibility());
+            TextView secondLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
             assertEquals("Camera", secondLabel.getText().toString());
 
             appGrid.getChildAt(1).performClick();
@@ -124,10 +124,10 @@ public final class DedicatedDeviceHomeActivityTest {
             DedicatedDeviceHomeActivity activity = controller.get();
             GridLayout appGrid = activity.findViewById(R.id.enterprise_home_app_grid);
             TextView emptyState = activity.findViewById(R.id.enterprise_home_empty_state);
-            TextView phoneTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
 
             assertEquals(2, appGrid.getChildCount());
             assertEquals(View.GONE, emptyState.getVisibility());
+            TextView phoneTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
             assertEquals(activity.getString(R.string.enterprise_home_phone_label), phoneTileLabel.getText().toString());
 
             appGrid.getChildAt(1).performClick();
@@ -170,10 +170,10 @@ public final class DedicatedDeviceHomeActivityTest {
             DedicatedDeviceHomeActivity activity = controller.get();
             GridLayout appGrid = activity.findViewById(R.id.enterprise_home_app_grid);
             TextView emptyState = activity.findViewById(R.id.enterprise_home_empty_state);
-            TextView smsTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
 
             assertEquals(2, appGrid.getChildCount());
             assertEquals(View.GONE, emptyState.getVisibility());
+            TextView smsTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
             assertEquals(activity.getString(R.string.enterprise_home_sms_label), smsTileLabel.getText().toString());
 
             appGrid.getChildAt(1).performClick();

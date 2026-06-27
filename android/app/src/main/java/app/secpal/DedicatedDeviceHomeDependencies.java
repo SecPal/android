@@ -5,6 +5,8 @@
 
 package app.secpal;
 
+import androidx.annotation.Nullable;
+
 import java.util.List;
 
 class DedicatedDeviceHomeDependencies {
@@ -34,10 +36,12 @@ class DedicatedDeviceHomeDependencies {
         EnterprisePolicyController.launchSms(activity);
     }
 
+    @Nullable
     String resolveDialerPackage(EnterpriseManagedState managedState, DedicatedDeviceHomeActivity activity) {
         return managedState.resolveDialerPackage(activity);
     }
 
+    @Nullable
     String resolveSmsPackage(EnterpriseManagedState managedState, DedicatedDeviceHomeActivity activity) {
         return managedState.resolveSmsPackage(activity);
     }
