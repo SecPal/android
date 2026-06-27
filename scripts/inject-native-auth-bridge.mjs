@@ -2670,6 +2670,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       console.warn("Failed to clear the current SecPal instance.", error);
       runtimeResetBusy = false;
       syncRuntimeResetEntryCopy();
+      if (didLogoutSucceed) {
+        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+      }
       return;
     }
 

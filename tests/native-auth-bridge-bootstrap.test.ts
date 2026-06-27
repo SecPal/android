@@ -1450,7 +1450,12 @@ describe("native auth bridge bootstrap injection", () => {
       "tenant-session": "customer-a-session",
     });
     const confirm = vi.fn().mockReturnValue(true);
+    const logoutListener = vi.fn();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const windowEventListeners = new Map<
+      string,
+      Array<(event: { type: string }) => void>
+    >();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
@@ -1472,6 +1477,24 @@ describe("native auth bridge bootstrap injection", () => {
       console,
       confirm,
       location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+      Event: class MockWindowEvent {
+        constructor(readonly type: string) {}
+      },
+      addEventListener(
+        eventName: string,
+        listener: (event: { type: string }) => void
+      ) {
+        const registeredListeners = windowEventListeners.get(eventName) ?? [];
+        registeredListeners.push(listener);
+        windowEventListeners.set(eventName, registeredListeners);
+      },
+      dispatchEvent(event: { type: string }) {
+        for (const listener of windowEventListeners.get(event.type) ?? []) {
+          listener(event);
+        }
+
+        return true;
+      },
     } as Record<string, unknown>;
     sandbox.globalThis = sandbox;
 
@@ -1490,6 +1513,14 @@ describe("native auth bridge bootstrap injection", () => {
 
       expect(runtimeInfoSummary).not.toBeNull();
       authState.active = true;
+      (
+        sandbox as {
+          addEventListener(
+            eventName: string,
+            listener: (event: { type: string }) => void
+          ): void;
+        }
+      ).addEventListener("secpal:native-auth-logout", logoutListener);
 
       runtimeInfoSummary!.click();
       await flushMicrotasks();
@@ -1498,6 +1529,10 @@ describe("native auth bridge bootstrap injection", () => {
       expect(confirm).toHaveBeenCalledOnce();
       expect(plugin.logout).toHaveBeenCalledOnce();
       expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+      expect(logoutListener).toHaveBeenCalledOnce();
+      expect(logoutListener).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "secpal:native-auth-logout" })
+      );
       expect(localStorage.getItem("auth_vault_state")).toBe(
         "encrypted-user-state"
       );
