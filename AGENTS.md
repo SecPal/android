@@ -11,6 +11,7 @@ Edit this file first. Keep the focused overlay files below aligned when a rule a
 ## Focused Overlays
 
 - `.github/instructions/org-shared.instructions.md`
+- `.github/instructions/github-workflows.instructions.md`
 - `.github/instructions/react-capacitor.instructions.md`
 
 ## Core Runtime Baseline
@@ -41,10 +42,10 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
   pull requests, issues, changelogs, documentation, code comments, UI copy, or release notes unless the task
   explicitly requires documenting AI tooling behavior.
 - Keep `SPDX-FileCopyrightText` years current in edited files or companion `.license` sidecars.
-- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `changelog.secpal.app` for the public changelog site, `api.secpal.dev` for the
-  API, `app.secpal.dev` for the PWA/frontend, `secpal.dev` for dev, staging, testing, and examples, and
-  `app.secpal` only as the Android application identifier; `api.secpal.app` remains deprecated and must not be used
-  as a deployable host.
+- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `changelog.secpal.app` for the public changelog site, `apk.secpal.app` for the
+  canonical Android artifact and metadata host, `api.secpal.dev` for the API, `app.secpal.dev` for the PWA/frontend,
+  `secpal.dev` for dev, staging, testing, and examples, and `app.secpal` only as the Android application identifier;
+  `api.secpal.app` remains deprecated and must not be used as a deployable host.
 - After every merge, immediately return the local repo to a ready state:
   switch to `main`, pull with fast-forward only, delete the merged topic
   branch, prune remotes, refresh Node dependencies with `npm ci` where
