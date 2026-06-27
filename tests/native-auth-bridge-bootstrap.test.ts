@@ -3711,7 +3711,10 @@ describe("native auth bridge bootstrap injection", () => {
       Event: class MockWindowEvent {
         constructor(readonly type: string) {}
       },
-      addEventListener(eventName: string, listener: (event: { type: string }) => void) {
+      addEventListener(
+        eventName: string,
+        listener: (event: { type: string }) => void
+      ) {
         const registeredListeners = windowEventListeners.get(eventName) ?? [];
         registeredListeners.push(listener);
         windowEventListeners.set(eventName, registeredListeners);
