@@ -5574,7 +5574,10 @@ describe("native auth bridge bootstrap injection", () => {
       status: 200,
       bodyBase64: encodeBase64(
         JSON.stringify({
-          data: { installation_id: "11111111-1111-4111-8111-111111111111", revoked_at: "2026-05-25T10:00:00Z" },
+          data: {
+            installation_id: "11111111-1111-4111-8111-111111111111",
+            revoked_at: "2026-05-25T10:00:00Z",
+          },
         })
       ),
       contentType: "application/json",
