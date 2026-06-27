@@ -5518,6 +5518,86 @@ describe("native auth bridge bootstrap injection", () => {
     );
   });
 
+  it("does not dispatch the native logout event when the plugin logout call throws", async () => {
+    const { bridge, sandbox, plugin } =
+      await createAndroidPushLifecycleSandbox();
+    const logoutListener = vi.fn();
+
+    plugin.logout.mockRejectedValueOnce(
+      Object.assign(new Error("logout failed"), { code: "HTTP_500" })
+    );
+
+    (
+      sandbox as {
+        addEventListener(
+          eventName: string,
+          listener: (event: { type: string }) => void
+        ): void;
+      }
+    ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+    await expect(bridge.logout()).rejects.toThrow("logout failed");
+    await flushMicrotasks();
+
+    expect(logoutListener).not.toHaveBeenCalled();
+  });
+
+  it("dispatches the native logout event during destructive runtime reset", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, document, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox({ includeResetUi: true });
+    const logoutListener = vi.fn();
+
+    (
+      sandbox as {
+        addEventListener(
+          eventName: string,
+          listener: (event: { type: string }) => void
+        ): void;
+      }
+    ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks();
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request.mockResolvedValue({
+      status: 200,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          data: { installation_id: "11111111-1111-4111-8111-111111111111", revoked_at: "2026-05-25T10:00:00Z" },
+        })
+      ),
+      contentType: "application/json",
+    });
+
+    const runtimeInfoSummary = document.getElementById(
+      "secpal-instance-runtime-summary"
+    ) as MockElement | null;
+
+    runtimeInfoSummary!.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(plugin.logout).toHaveBeenCalledOnce();
+    expect(logoutListener).toHaveBeenCalledOnce();
+    expect(logoutListener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "secpal:native-auth-logout" })
+    );
+    expect(plugin.logout.mock.invocationCallOrder[0]).toBeLessThan(
+      logoutListener.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    );
+  });
+
   it("revokes the backend push-device registration during destructive runtime reset", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const { bridge, document, installationId, listeners, plugin } =

@@ -2632,6 +2632,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             await revokeAndroidPushRegistration();
           }
           await getPlugin().logout();
+          globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
           setAuthActive(false);
         } catch (error) {
           const code = error && typeof error === "object" ? error.code : undefined;
