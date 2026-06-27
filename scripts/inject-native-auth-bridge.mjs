@@ -32,6 +32,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
   const currentBootstrapVersion = "v1";
@@ -2619,6 +2620,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     runtimeResetBusy = true;
     syncRuntimeResetEntryCopy();
+    let didLogoutSucceed = false;
 
     try {
       if (typeof getPlugin().logout === "function") {
@@ -2631,6 +2633,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             await revokeAndroidPushRegistration();
           }
           await getPlugin().logout();
+          didLogoutSucceed = true;
           setAuthActive(false);
         } catch (error) {
           const code = error && typeof error === "object" ? error.code : undefined;
@@ -2667,6 +2670,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       console.warn("Failed to clear the current SecPal instance.", error);
       runtimeResetBusy = false;
       syncRuntimeResetEntryCopy();
+      if (didLogoutSucceed) {
+        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+      }
       return;
     }
 
@@ -2683,6 +2689,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     disconnectRuntimeResetObserver();
     removeRuntimeResetEntry();
     runtimeResetBusy = false;
+
+    if (didLogoutSucceed) {
+      globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+    }
 
     if (globalThis.location && typeof globalThis.location.reload === "function") {
       globalThis.location.reload();
@@ -3348,16 +3358,25 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     },
     async logout() {
       await ensureRuntimeConfigured();
+      let result;
+      let didLogoutSucceed = false;
       try {
         androidPushSyncState.suspended = true;
         setAuthActive(false);
         await revokeAndroidPushRegistration();
-        return await getPlugin().logout();
+        result = await getPlugin().logout();
+        didLogoutSucceed = true;
       } finally {
         setAuthActive(false);
         clearAndroidPushSyncState({ preserveCurrentToken: true });
         androidPushSyncState.suspended = false;
       }
+
+      if (didLogoutSucceed) {
+        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+      }
+
+      return result;
     },
     async getCurrentUser() {
       await ensureRuntimeConfigured();

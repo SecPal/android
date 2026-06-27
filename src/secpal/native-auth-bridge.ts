@@ -5,6 +5,8 @@
 
 import { registerPlugin } from "@capacitor/core";
 
+const NATIVE_AUTH_LOGOUT_EVENT_NAME = "secpal:native-auth-logout";
+
 export interface NativePasskeyCredentialParameter {
   type: "public-key";
   alg: number;
@@ -158,8 +160,9 @@ export function createNativeAuthBridge(): NativeAuthBridge {
         password: credentials.password,
       });
     },
-    logout() {
-      return secPalNativeAuthPlugin.logout();
+    async logout() {
+      await secPalNativeAuthPlugin.logout();
+      globalThis.dispatchEvent?.(new Event(NATIVE_AUTH_LOGOUT_EVENT_NAME));
     },
     getCurrentUser() {
       return secPalNativeAuthPlugin.getCurrentUser();

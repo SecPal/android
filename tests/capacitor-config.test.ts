@@ -186,4 +186,51 @@ describe("capacitor Android wrapper configuration", () => {
     expect(bridge.wrapVaultRootKey).toBeUndefined();
     expect(bridge.unwrapVaultRootKey).toBeUndefined();
   });
+
+  it("dispatches the native logout event after a successful typed bridge logout", async () => {
+    pluginMocks.logout.mockResolvedValue(undefined);
+    const dispatched: Event[] = [];
+    const originalDispatch = globalThis.dispatchEvent;
+    try {
+      globalThis.dispatchEvent = (event: Event) => {
+        dispatched.push(event);
+        return true;
+      };
+
+      const { createNativeAuthBridge } =
+        await import("../src/secpal/native-auth-bridge");
+      const bridge = createNativeAuthBridge();
+
+      await bridge.logout();
+
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0]?.type).toBe("secpal:native-auth-logout");
+    } finally {
+      globalThis.dispatchEvent = originalDispatch;
+    }
+  });
+
+  it("does not dispatch the native logout event when the typed bridge plugin logout throws", async () => {
+    pluginMocks.logout.mockRejectedValueOnce(
+      Object.assign(new Error("native logout failed"), { code: "HTTP_500" })
+    );
+    const dispatched: Event[] = [];
+    const originalDispatch = globalThis.dispatchEvent;
+    try {
+      globalThis.dispatchEvent = (event: Event) => {
+        dispatched.push(event);
+        return true;
+      };
+
+      const { createNativeAuthBridge } =
+        await import("../src/secpal/native-auth-bridge");
+      const bridge = createNativeAuthBridge();
+
+      await expect(bridge.logout()).rejects.toThrow("native logout failed");
+
+      expect(dispatched).toHaveLength(0);
+    } finally {
+      globalThis.dispatchEvent = originalDispatch;
+    }
+  });
 });
