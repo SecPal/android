@@ -29,7 +29,7 @@ repos:
         name: markdownlint
         entry: >-
           npx --yes --package markdownlint-cli@0.49.0 markdownlint --config
-          .markdownlint.json
+          .markdownlint.json --ignore node_modules
         language: system
         types: [markdown]
 

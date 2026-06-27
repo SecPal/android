@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- replaced the repo-local `markdownlint-cli2` pre-commit and preflight path with pinned `markdownlint-cli@0.49.0` usage so markdown validation now matches the shared `.github` governance baseline
+- Replaced the repo-local `markdownlint-cli2` pre-commit and preflight path with pinned `markdownlint-cli@0.49.0` usage so markdown validation now matches the shared `.github` governance baseline.
 - Extracted dedicated-device home tile rendering into `DedicatedDeviceHomeTileGridRenderer` and `DedicatedDeviceHomeTileModel`, replacing inline imperative view construction with an inflated `view_dedicated_device_home_tile` layout.
 - Moved dedicated-device launcher spacing, colors, and text styling into centralized Android resources and styles.
 - Added Robolectric coverage for dedicated-device launcher redirect, tile population, empty-state visibility, allowed-app clicks, and phone/SMS tile behavior through a swappable `DedicatedDeviceHomeDependencies` seam.
