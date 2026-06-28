@@ -81,12 +81,13 @@ Keep the wording aligned with the single-app strategy: one SecPal app, with mana
 
 The repo-local Fastlane metadata flow is:
 
-1. curate the source assets in `~/Downloads/SecPal`
+1. curate the source assets in `./.local/play-assets` or another dedicated local directory
 2. run `npm run fastlane:android:sync:play-assets`
 3. run `npm run fastlane:android:validate:play-assets`
 4. upload with `npm run fastlane:android:deploy:internal:with-metadata` once the internal build is ready
 
 The sync step writes the canonical Fastlane tree to `fastlane/metadata/android` and normalizes the app icon to a `512x512` Play-safe canvas. The current validator also emits warnings when screenshot aspect ratios are not close to `9:16` or `16:9`, so those warnings should be checked against the live Play Console acceptance behavior before a production listing rollout.
+By default, the sync step reads from `./.local/play-assets`. Set `SECPAL_ANDROID_PLAY_ASSETS_SOURCE` only when you want to override that local source path.
 The metadata tree now also carries localized default Play changelog templates under `fastlane/metadata/android/{locale}/changelogs/default.txt`. The metadata upload lane copies those templates to the concrete `versionCode` changelog path on demand when no version-specific file exists yet.
 
 ## 6. Policy And Compliance

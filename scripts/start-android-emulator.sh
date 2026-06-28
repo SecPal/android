@@ -52,9 +52,7 @@ esac
 export ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL="${ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL:-2}"
 mkdir -p "${runtime_dir}"
 
-# On this Fedora host, `-gpu host` is stable while SwiftShader and `-gpu off`
-# have been observed to crash qemu-system-x86_64 after ADB registration.
-# Keep ports explicit so ADB registration stays predictable for automation.
+# Keep the default renderer and explicit ports predictable for automation.
 bash ./scripts/with-android-env.sh bash -lc "
   adb disconnect ${serial} >/dev/null 2>&1 || true
   nohup env ANDROID_AVD_HOME='${android_avd_home}' emulator @${avd_name} \

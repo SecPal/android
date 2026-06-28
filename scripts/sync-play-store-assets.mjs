@@ -13,16 +13,15 @@ import {
   statSync,
 } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = resolve(scriptDir, "..");
-const defaultSourceRoot = resolve(
-  process.env.SECPAL_ANDROID_PLAY_ASSETS_SOURCE ??
-    "~/Downloads/SecPal".replace(/^~(?=\/)/, process.env.HOME ?? "~")
-);
+const defaultSourceRoot = join(defaultRepoRoot, ".local", "play-assets");
+const configuredSourceRoot =
+  process.env.SECPAL_ANDROID_PLAY_ASSETS_SOURCE?.trim() ?? defaultSourceRoot;
 
 const localeConfig = {
   "en-US": {
@@ -159,11 +158,13 @@ async function copyLocaleAssets(locale, config, { metadataRoot, sourceRoot }) {
 
 export async function syncPlayStoreAssets(options = {}) {
   const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
-  const sourceRoot = resolve(options.sourceRoot ?? defaultSourceRoot);
+  const sourceRoot = resolve(options.sourceRoot ?? configuredSourceRoot);
   const metadataRoot = join(repoRoot, "fastlane", "metadata", "android");
 
   if (!existsSync(sourceRoot)) {
-    throw new Error(`Missing source asset root: ${sourceRoot}`);
+    throw new Error(
+      `Missing source asset root: ${sourceRoot}. Place the curated Play assets there or override it with SECPAL_ANDROID_PLAY_ASSETS_SOURCE.`
+    );
   }
 
   mkdirSync(metadataRoot, { recursive: true });
