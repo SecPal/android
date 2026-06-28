@@ -60,8 +60,8 @@ public class ProvisioningBootstrapStoreTest {
                 7,
                 "Tenant 7",
                 "https://api.secpal.dev/v1",
-                "managed_device",
-                "https://secpal.dev/android/channels/managed_device/latest.json",
+                null,
+                "https://apk.secpal.app/android/latest.json",
                 profile
             )
         );
@@ -70,9 +70,9 @@ public class ProvisioningBootstrapStoreTest {
         EnterprisePolicyConfig config = EnterprisePolicyConfig.fromPreferences(preferences);
 
         assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());
-        assertEquals("managed_device", state.getUpdateChannel());
+        assertNull(state.getUpdateChannel());
         assertEquals(
-            "https://secpal.dev/android/channels/managed_device/latest.json",
+            "https://apk.secpal.app/android/latest.json",
             state.getReleaseMetadataUrl()
         );
         assertNull(tokenStorage.token);
@@ -97,8 +97,8 @@ public class ProvisioningBootstrapStoreTest {
                 7,
                 "Tenant 7",
                 "https://api.secpal.dev/v1",
-                "managed_device",
-                "https://secpal.dev/android/channels/managed_device/latest.json",
+                null,
+                "https://apk.secpal.app/android/latest.json",
                 Collections.emptyMap()
             )
         );
@@ -127,8 +127,8 @@ public class ProvisioningBootstrapStoreTest {
                 7,
                 "Tenant 7",
                 "https://api.secpal.dev/v1",
-                "managed_device",
-                "https://secpal.dev/android/channels/managed_device/latest.json",
+                null,
+                "https://apk.secpal.app/android/latest.json",
                 Collections.emptyMap()
             )
         );
@@ -141,8 +141,8 @@ public class ProvisioningBootstrapStoreTest {
                 7,
                 "Tenant 7",
                 "https://api.secpal.dev/v1",
-                "managed_device",
-                "https://secpal.dev/android/channels/managed_device/latest.json",
+                null,
+                "https://apk.secpal.app/android/latest.json",
                 Collections.emptyMap()
             )
         );
@@ -153,8 +153,8 @@ public class ProvisioningBootstrapStoreTest {
         assertEquals(7, state.getTenantId());
         assertEquals("Tenant 7", state.getTenantName());
         assertEquals("https://api.secpal.dev/v1", state.getApiBaseUrl());
-        assertEquals("managed_device", state.getUpdateChannel());
-        assertEquals("https://secpal.dev/android/channels/managed_device/latest.json", state.getReleaseMetadataUrl());
+        assertNull(state.getUpdateChannel());
+        assertEquals("https://apk.secpal.app/android/latest.json", state.getReleaseMetadataUrl());
         assertNull(state.getLastErrorCode());
         assertNull(tokenStorage.token);
     }

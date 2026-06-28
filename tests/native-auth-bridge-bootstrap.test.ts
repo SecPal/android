@@ -2996,9 +2996,8 @@ describe("native auth bridge bootstrap injection", () => {
         allowSms: true,
         distributionState: {
           bootstrapStatus: "completed",
-          updateChannel: "managed_device",
-          releaseMetadataUrl:
-            "https://apk.secpal.app/android/channels/managed_device/latest.json",
+          updateChannel: null,
+          releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
           bootstrapLastErrorCode: null,
         },
         allowedApps: [],
@@ -3064,9 +3063,8 @@ describe("native auth bridge bootstrap injection", () => {
       allowSms: true,
       distributionState: {
         bootstrapStatus: "completed",
-        updateChannel: "managed_device",
-        releaseMetadataUrl:
-          "https://apk.secpal.app/android/channels/managed_device/latest.json",
+        updateChannel: null,
+        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
         bootstrapLastErrorCode: null,
       },
       allowedApps: [],

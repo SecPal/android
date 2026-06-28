@@ -35,9 +35,8 @@ describe("native enterprise bridge", () => {
       allowSms: false,
       distributionState: {
         bootstrapStatus: "completed",
-        updateChannel: "managed_device",
-        releaseMetadataUrl:
-          "https://apk.secpal.app/android/channels/managed_device/latest.json",
+        updateChannel: null,
+        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
         bootstrapLastErrorCode: null,
       },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],
@@ -69,9 +68,8 @@ describe("native enterprise bridge", () => {
       allowSms: false,
       distributionState: {
         bootstrapStatus: "completed",
-        updateChannel: "managed_device",
-        releaseMetadataUrl:
-          "https://apk.secpal.app/android/channels/managed_device/latest.json",
+        updateChannel: null,
+        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
         bootstrapLastErrorCode: null,
       },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],

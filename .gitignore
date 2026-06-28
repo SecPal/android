@@ -3,6 +3,8 @@
 
 # Dependencies
 node_modules/
+.bundle/
+vendor/bundle/
 
 # Build artifacts
 dist/
@@ -49,6 +51,9 @@ Desktop.ini
 # Logs
 *.log
 npm-debug.log*
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/README.md
 
 # Tool caches
 .eslintcache

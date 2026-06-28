@@ -37,4 +37,16 @@ if [[ -n "${ANDROID_SDK_ROOT:-}" && -d "$ANDROID_SDK_ROOT/platform-tools" ]]; th
     export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
 fi
 
+if [[ -n "${ANDROID_SDK_ROOT:-}" && -d "$ANDROID_SDK_ROOT/emulator" ]]; then
+    export PATH="$ANDROID_SDK_ROOT/emulator:$PATH"
+fi
+
+if [[ -z "${ANDROID_AVD_HOME:-}" && -d "$HOME/.config/.android/avd" ]]; then
+    export ANDROID_AVD_HOME="$HOME/.config/.android/avd"
+fi
+
+if [[ -z "${ANDROID_EMULATOR_HOME:-}" && -d "$HOME/.config/.android" ]]; then
+    export ANDROID_EMULATOR_HOME="$HOME/.config/.android"
+fi
+
 exec "$@"

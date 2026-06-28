@@ -67,10 +67,12 @@ public class MainActivity extends BridgeActivity {
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
-        getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        );
+        if (!BuildConfig.ALLOW_SCREENSHOTS) {
+            getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            );
+        }
         super.onCreate(savedInstanceState);
         enableWebViewPasskeySupport();
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);

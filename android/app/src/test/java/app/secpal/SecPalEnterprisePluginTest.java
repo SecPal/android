@@ -23,8 +23,8 @@ public class SecPalEnterprisePluginTest {
         ProvisioningBootstrapState state = new ProvisioningBootstrapState(
             ProvisioningBootstrapState.STATUS_COMPLETED,
             "session-123",
-            "managed_device",
-            "https://apk.secpal.app/android/channels/managed_device/latest.json",
+            null,
+            "https://apk.secpal.app/android/latest.json",
             "https://api.secpal.dev/v1",
             "Tenant 7",
             7,
@@ -34,9 +34,9 @@ public class SecPalEnterprisePluginTest {
         Map<String, Object> payload = SecPalEnterprisePlugin.buildDistributionStateMap(state);
 
         assertEquals("completed", payload.get("bootstrapStatus"));
-        assertEquals("managed_device", payload.get("updateChannel"));
+        assertNull(payload.get("updateChannel"));
         assertEquals(
-            "https://apk.secpal.app/android/channels/managed_device/latest.json",
+            "https://apk.secpal.app/android/latest.json",
             payload.get("releaseMetadataUrl")
         );
         assertNull(payload.get("bootstrapLastErrorCode"));

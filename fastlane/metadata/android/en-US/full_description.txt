@@ -1,0 +1,15 @@
+SecPal helps private security companies run daily operations with less paperwork and clearer field coordination.
+
+Use SecPal to support guard teams with structured operational workflows, mobile access, and secure account handling.
+
+Key capabilities:
+- mobile access to the SecPal workspace on Android
+- secure sign-in with passkeys and hardened native session handling
+- support for Android rollout and managed-device scenarios
+- direct APK distribution and controlled update channels where required
+- a product built for German private security services and their operational reality
+
+SecPal is designed for professional use. Availability of individual workflows depends on your SecPal deployment and your organization's permissions.
+
+For more information:
+https://secpal.app/

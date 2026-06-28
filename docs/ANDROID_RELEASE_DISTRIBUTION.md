@@ -183,6 +183,76 @@ npm run native:bundle:release:signed
 
 The setup script creates both the keystore and the local env file, with file mode `600` to reduce accidental exposure on shared systems.
 
+## Fastlane For Local Build And Play Upload
+
+Fastlane should reuse the existing local signing baseline instead of introducing a second signing path.
+
+- keep the upload keystore in `~/.config/secpal/android-upload.jks`
+- keep the release env file in `~/.config/secpal/android-release.env`
+- keep the Google Play service-account JSON outside the repository as well, for example at `~/.config/secpal/google-play-service-account.json`
+
+Fastlane lanes in this repository call the existing signed Gradle build flow and expect these local prerequisites:
+
+- `bundle install`
+- `SECPAL_ANDROID_RELEASE_ENV_FILE` when you do not use the default `~/.config/secpal/android-release.env`
+- `SECPAL_ANDROID_PLAY_JSON_KEY_PATH` when uploading to Google Play
+- `SECPAL_ANDROID_DIRECT_SSH_HOST` when publishing the direct APK to a non-default SSH host
+- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
+- `SECPAL_ANDROID_DIRECT_CHANNEL` when publishing to the `beta` direct-download channel instead of `stable`
+
+For Google Play deployment, `fastlane android deploy_internal` now generates a fresh `SECPAL_ANDROID_VERSION_CODE` automatically when the caller does not provide one. If you need to force a one-off deploy value, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...`. A directly exported `SECPAL_ANDROID_VERSION_CODE=...` also overrides the baseline local env-file value when it differs from that stored release default.
+
+For direct APK publication on `apk.secpal.app`, the repository now treats the canonical machine-facing URLs as `stable` plus `beta`, while keeping `/android/...` as the stable alias:
+
+- `https://apk.secpal.app/android/latest.json`
+- `https://apk.secpal.app/android/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/SHA256SUMS.txt`
+- `https://apk.secpal.app/android/stable/latest.json`
+- `https://apk.secpal.app/android/stable/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/stable/SHA256SUMS.txt`
+- `https://apk.secpal.app/android/beta/latest.json`
+- `https://apk.secpal.app/android/beta/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/beta/SHA256SUMS.txt`
+- `https://apk.secpal.app/android/releases/{version}/metadata.json`
+- `https://apk.secpal.app/android/releases/{version}/app.secpal-{version}.apk`
+- `https://apk.secpal.app/android/releases/{version}/SHA256SUMS.txt`
+
+The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to the SecPal VPS, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
+The `fastlane android deploy_direct_apk_beta` lane publishes the same signed release APK under `/android/beta/` without replacing the stable aliases.
+
+The resulting latest-channel endpoints are:
+
+- `https://apk.secpal.app/android/stable/latest.json`
+- `https://apk.secpal.app/android/stable/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/stable/SHA256SUMS.txt`
+- `https://apk.secpal.app/android/latest.json`
+- `https://apk.secpal.app/android/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/SHA256SUMS.txt`
+- `https://apk.secpal.app/android/beta/latest.json`
+- `https://apk.secpal.app/android/beta/app.secpal-latest.apk`
+- `https://apk.secpal.app/android/beta/SHA256SUMS.txt`
+
+Example:
+
+```bash
+npm run fastlane:install
+npm run fastlane:android:build:signed-aab
+SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
+  npm run fastlane:android:deploy:internal
+```
+
+```bash
+SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+  npm run fastlane:android:deploy:direct-apk
+```
+
+```bash
+SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+  npm run fastlane:android:deploy:direct-apk:beta
+```
+
+The `deploy_internal` lane uploads the signed AAB to the Google Play internal testing track and intentionally skips metadata, screenshots, and changelog uploads so artifact delivery stays the only responsibility of the lane.
+
 ## Open Product Decisions
 
 Before the first public release, finalize at least:

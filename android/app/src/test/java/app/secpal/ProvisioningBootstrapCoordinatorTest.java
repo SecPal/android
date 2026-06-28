@@ -56,7 +56,7 @@ public class ProvisioningBootstrapCoordinatorTest {
         assertEquals(ProvisioningBootstrapState.STATUS_COMPLETED, state.getStatus());
         assertEquals("bootstrap-token-123", exchangeClient.bootstrapToken);
         assertEquals("app.secpal", exchangeClient.runtimeInfo.getPackageName());
-        assertEquals("managed_device", state.getUpdateChannel());
+        assertNull(state.getUpdateChannel());
         assertNull(tokenStorage.token);
     }
 
@@ -182,8 +182,8 @@ public class ProvisioningBootstrapCoordinatorTest {
             7,
             "Tenant 7",
             "https://api.secpal.dev/v1",
-            "managed_device",
-            "https://api.secpal.dev/v1/android/releases/channels/managed_device/latest",
+            null,
+            "https://apk.secpal.app/android/latest.json",
             profile
         );
     }

@@ -57,13 +57,26 @@ android {
         }
     }
     buildTypes {
+        debug {
+            buildConfigField "boolean", "ALLOW_SCREENSHOTS", "false"
+        }
         release {
             minifyEnabled true
             shrinkResources true
+            buildConfigField "boolean", "ALLOW_SCREENSHOTS", "false"
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
+        }
+        storeListing {
+            initWith debug
+            debuggable true
+            minifyEnabled false
+            shrinkResources false
+            applicationIdSuffix ".storelisting"
+            matchingFallbacks = ['debug']
+            buildConfigField "boolean", "ALLOW_SCREENSHOTS", "true"
         }
     }
 }
