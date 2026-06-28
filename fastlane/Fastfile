@@ -6,6 +6,7 @@
 require "digest"
 require "fileutils"
 require "json"
+require "open-uri"
 require "shellwords"
 require "time"
 require "tmpdir"
@@ -124,21 +125,53 @@ def next_deploy_version_code(json_key_path)
   generated_version_code
 end
 
+def highest_known_direct_version_code
+  APK_DIRECT_CHANNELS.filter_map do |channel|
+    metadata_url = direct_channel_metadata_url(channel)
+    metadata = JSON.parse(URI.open(metadata_url, &:read))
+    next nil unless metadata["release_available"]
+
+    version_code = metadata["version_code"]
+    next nil if version_code.nil?
+
+    version_code.to_i
+  rescue StandardError => e
+    UI.important(
+      "Skipping direct APK channel '#{channel}' while resolving the next version code: #{e.message}"
+    )
+    nil
+  end.max.to_i
+end
+
 def next_direct_deploy_version_code
+  highest_known_version_code = [
+    configured_release_version_code.to_i,
+    highest_known_direct_version_code
+  ].max
   selected_version_code = requested_deploy_version_code
 
   unless selected_version_code.to_s.empty?
+    if selected_version_code.to_i <= highest_known_version_code
+      UI.user_error!(
+        "Refusing direct APK deploy version code #{selected_version_code} because published direct metadata or the local release baseline already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
+      )
+    end
+
     ENV["SECPAL_ANDROID_VERSION_CODE"] = selected_version_code
     return selected_version_code.to_i
   end
 
   timestamp_version_code = Time.now.utc.strftime("%y%j%H%M").to_i
-  ENV["SECPAL_ANDROID_VERSION_CODE"] = timestamp_version_code.to_s
+  generated_version_code = [
+    timestamp_version_code,
+    highest_known_version_code + 1
+  ].max
+  ENV["SECPAL_ANDROID_VERSION_CODE"] = generated_version_code.to_s
   UI.message(
     "Using generated SECPAL_ANDROID_VERSION_CODE=#{ENV['SECPAL_ANDROID_VERSION_CODE']} for direct APK deployment."
   )
 
-  timestamp_version_code
+  generated_version_code
 end
 
 def release_version_name

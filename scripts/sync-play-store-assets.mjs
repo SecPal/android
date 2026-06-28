@@ -4,18 +4,25 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(scriptDir, "..");
-const sourceRoot = resolve(
-  process.env.SECPAL_ANDROID_PLAY_ASSETS_SOURCE ?? "~/Downloads/SecPal".replace(/^~(?=\/)/, process.env.HOME ?? "~")
+const defaultRepoRoot = resolve(scriptDir, "..");
+const defaultSourceRoot = resolve(
+  process.env.SECPAL_ANDROID_PLAY_ASSETS_SOURCE ??
+    "~/Downloads/SecPal".replace(/^~(?=\/)/, process.env.HOME ?? "~")
 );
-const metadataRoot = join(repoRoot, "fastlane", "metadata", "android");
 
 const localeConfig = {
   "en-US": {
@@ -49,12 +56,12 @@ const screenshotNameMap = new Map([
   ["4-about.png", "04-about.png"],
 ]);
 
-function sourcePath(relativePath) {
-  return join(sourceRoot, relativePath);
+function sourcePath(root, relativePath) {
+  return join(root, relativePath);
 }
 
-function ensureSourceFile(relativePath, description) {
-  const path = sourcePath(relativePath);
+function ensureSourceFile(root, relativePath, description) {
+  const path = sourcePath(root, relativePath);
   if (!existsSync(path)) {
     throw new Error(`Missing ${description}: ${path}`);
   }
@@ -66,9 +73,9 @@ function ensureCleanDirectory(path) {
   mkdirSync(path, { recursive: true });
 }
 
-async function copyTextAsset(sourceRelativePath, destinationPath) {
+async function copyTextAsset(sourcePathname, destinationPath) {
   await mkdir(dirname(destinationPath), { recursive: true });
-  await copyFile(ensureSourceFile(sourceRelativePath, "text asset"), destinationPath);
+  await copyFile(sourcePathname, destinationPath);
 }
 
 function normalizeIcon(sourcePathname, destinationPathname) {
@@ -93,32 +100,43 @@ function normalizeIcon(sourcePathname, destinationPathname) {
   );
 }
 
-async function copyLocaleAssets(locale, config) {
+async function copyLocaleAssets(locale, config, { metadataRoot, sourceRoot }) {
   const localeRoot = join(metadataRoot, locale);
   const imagesRoot = join(localeRoot, "images");
 
-  ensureCleanDirectory(localeRoot);
+  ensureCleanDirectory(imagesRoot);
   mkdirSync(imagesRoot, { recursive: true });
 
-  await copyTextAsset(config.title, join(localeRoot, "title.txt"));
-  await copyTextAsset(config.shortDescription, join(localeRoot, "short_description.txt"));
-  await copyTextAsset(config.fullDescription, join(localeRoot, "full_description.txt"));
+  await copyTextAsset(
+    ensureSourceFile(sourceRoot, config.title, "text asset"),
+    join(localeRoot, "title.txt")
+  );
+  await copyTextAsset(
+    ensureSourceFile(sourceRoot, config.shortDescription, "text asset"),
+    join(localeRoot, "short_description.txt")
+  );
+  await copyTextAsset(
+    ensureSourceFile(sourceRoot, config.fullDescription, "text asset"),
+    join(localeRoot, "full_description.txt")
+  );
 
   normalizeIcon(
-    ensureSourceFile("graphics/app-icon-512.png", "app icon"),
+    ensureSourceFile(sourceRoot, "graphics/app-icon-512.png", "app icon"),
     join(imagesRoot, "icon.png")
   );
 
   cpSync(
-    ensureSourceFile(config.featureGraphic, "feature graphic"),
+    ensureSourceFile(sourceRoot, config.featureGraphic, "feature graphic"),
     join(imagesRoot, "featureGraphic.png")
   );
 
-  for (const [targetDirectory, sourcePrefix] of Object.entries(config.screenshots)) {
+  for (const [targetDirectory, sourcePrefix] of Object.entries(
+    config.screenshots
+  )) {
     const destinationDirectory = join(imagesRoot, targetDirectory);
     mkdirSync(destinationDirectory, { recursive: true });
 
-    const sourceDirectory = dirname(sourcePath(sourcePrefix));
+    const sourceDirectory = dirname(sourcePath(sourceRoot, sourcePrefix));
     const sourceBasenamePrefix = sourcePrefix.split("/").at(-1);
     const matchingFiles = readdirSync(sourceDirectory)
       .filter((entry) => entry.startsWith(sourceBasenamePrefix))
@@ -131,12 +149,19 @@ async function copyLocaleAssets(locale, config) {
     for (const fileName of matchingFiles) {
       const suffix = fileName.slice(sourceBasenamePrefix.length);
       const destinationName = screenshotNameMap.get(suffix) ?? fileName;
-      cpSync(join(sourceDirectory, fileName), join(destinationDirectory, destinationName));
+      cpSync(
+        join(sourceDirectory, fileName),
+        join(destinationDirectory, destinationName)
+      );
     }
   }
 }
 
-async function main() {
+export async function syncPlayStoreAssets(options = {}) {
+  const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
+  const sourceRoot = resolve(options.sourceRoot ?? defaultSourceRoot);
+  const metadataRoot = join(repoRoot, "fastlane", "metadata", "android");
+
   if (!existsSync(sourceRoot)) {
     throw new Error(`Missing source asset root: ${sourceRoot}`);
   }
@@ -144,10 +169,13 @@ async function main() {
   mkdirSync(metadataRoot, { recursive: true });
 
   for (const [locale, config] of Object.entries(localeConfig)) {
-    await copyLocaleAssets(locale, config);
+    await copyLocaleAssets(locale, config, { metadataRoot, sourceRoot });
   }
 
-  console.log(`Synced Google Play assets into ${metadataRoot}`);
+  return { metadataRoot };
 }
 
-await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { metadataRoot } = await syncPlayStoreAssets();
+  console.log(`Synced Google Play assets into ${metadataRoot}`);
+}
