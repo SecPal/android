@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Added injected-bridge regression coverage for issue `#302` to prove Android push-device revocation failures only warn and do not block native logout or suppress the browser `secpal:native-auth-logout` event.
 - The destructive runtime-reset flow now still dispatches the browser `secpal:native-auth-logout` event when native logout succeeds but later reset teardown aborts, so the frontend can clear its own auth state even when persistence cleanup fails.
 - The injected Android native-auth bridge and the typed Capacitor bridge now dispatch a browser `secpal:native-auth-logout` event after successful native logout completion, allowing the frontend shell to clear persisted auth state and reroute protected WebView sessions back to `/login` immediately. The event is also dispatched from the destructive runtime reset path (`clearConfiguredRuntimeState`) so all logout code paths notify the frontend consistently.
 - Android push registration now uses the canonical authenticated `PUT`/`DELETE /v1/me/notification-installations/{installationId}` surface, sends the current channel-aware Android FCM payload shape (`channel`, `installation_name`, nested `registration`, and `runtime.metadata_revision`), rotates credentials with the canonical `credential_rotated` lifecycle event, and keeps the injected bridge regression suite aligned with the live SecPal contract from issue `#261`.

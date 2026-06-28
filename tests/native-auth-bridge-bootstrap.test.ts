@@ -5588,6 +5588,57 @@ describe("native auth bridge bootstrap injection", () => {
     expect(logoutListener).not.toHaveBeenCalled();
   });
 
+  it("continues native logout and dispatches the logout event when push revocation fails", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const { bridge, listeners, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const logoutListener = vi.fn();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const revocationError = new Error("push revoke failed");
+
+    try {
+      (
+        sandbox as {
+          addEventListener(
+            eventName: string,
+            listener: (event: { type: string }) => void
+          ): void;
+        }
+      ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+      await bridge.login({
+        email: "worker@customer.example",
+        password: "password123",
+      });
+      await flushMicrotasks();
+
+      listeners.androidPushTokenReceived[0]?.({
+        appName: "secpal-runtime-push",
+        provider: "fcm",
+        token: pushToken,
+      });
+      await flushMicrotasks();
+
+      plugin.request.mockRejectedValueOnce(revocationError);
+
+      await expect(bridge.logout()).resolves.toBeUndefined();
+      await flushMicrotasks();
+
+      expect(plugin.request).toHaveBeenCalledTimes(2);
+      expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
+        method: "DELETE",
+      });
+      expect(plugin.logout).toHaveBeenCalledOnce();
+      expect(logoutListener).toHaveBeenCalledOnce();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Failed to revoke Android push device registration.",
+        revocationError
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("dispatches the native logout event during destructive runtime reset", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const { bridge, document, listeners, plugin, sandbox } =
