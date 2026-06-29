@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { connectToWebViewTarget } from "./webview-cdp-client.mjs";
+
 const debuggerListUrl =
   process.env.SECPAL_WEBVIEW_DEVTOOLS_URL ?? "http://127.0.0.1:9223/json/list";
 const targetPattern = new RegExp(
@@ -11,50 +13,6 @@ const targetPattern = new RegExp(
 );
 const email = process.env.SECPAL_TEST_EMAIL ?? "test@example.com";
 const password = process.env.SECPAL_TEST_PASSWORD ?? "password";
-
-const list = await fetch(debuggerListUrl).then((response) => response.json());
-const target = list.find(
-  (entry) => entry?.type === "page" && targetPattern.test(entry.url ?? "")
-);
-
-if (!target?.webSocketDebuggerUrl) {
-  throw new Error("No WebView target found");
-}
-
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-
-await new Promise((resolve, reject) => {
-  ws.onopen = resolve;
-  ws.onerror = reject;
-});
-
-let nextId = 1;
-
-const send = (method, params = {}) =>
-  new Promise((resolve, reject) => {
-    const id = nextId++;
-    const handler = (event) => {
-      const payload = JSON.parse(event.data);
-
-      if (payload.id !== id) {
-        return;
-      }
-
-      ws.removeEventListener("message", handler);
-
-      if (payload.error) {
-        reject(new Error(payload.error.message || method));
-        return;
-      }
-
-      resolve(payload.result);
-    };
-
-    ws.addEventListener("message", handler);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-await send("Runtime.enable");
 
 const expression = `(() => {
   const getRequiredElement = (id) => {
@@ -99,11 +57,21 @@ const expression = `(() => {
   };
 })()`;
 
-const result = await send("Runtime.evaluate", {
-  expression,
-  awaitPromise: true,
-  returnByValue: true,
+const webView = await connectToWebViewTarget({
+  debuggerListUrl,
+  targetPattern,
 });
 
-console.log(JSON.stringify(result.result.value, null, 2));
-ws.close();
+try {
+  await webView.send("Runtime.enable");
+
+  const result = await webView.send("Runtime.evaluate", {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+
+  console.log(JSON.stringify(result.result.value, null, 2));
+} finally {
+  webView.close();
+}

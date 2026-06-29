@@ -98,15 +98,14 @@ function validateTextFile(path, label, maxLength) {
 }
 
 function validateAspectRatio(path, width, height) {
-  const portraitRatio = width / height;
-  const landscapeRatio = height / width;
+  const ratio = width / height;
   const exactPortrait = 9 / 16;
   const exactLandscape = 16 / 9;
   const tolerance = 0.02;
 
   if (
-    Math.abs(portraitRatio - exactPortrait) > tolerance &&
-    Math.abs(landscapeRatio - exactLandscape) > tolerance
+    Math.abs(ratio - exactPortrait) > tolerance &&
+    Math.abs(ratio - exactLandscape) > tolerance
   ) {
     addWarning(
       `Screenshot aspect ratio is not close to 9:16 or 16:9: ${path} (${width}x${height})`

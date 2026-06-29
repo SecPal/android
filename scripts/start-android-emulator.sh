@@ -27,9 +27,17 @@ serial="emulator-${console_port}"
 runtime_dir="${TMPDIR:-/tmp}/secpal-android-emulators"
 log_path="${runtime_dir}/${avd_name}-${console_port}.log"
 pid_path="${runtime_dir}/${avd_name}-${console_port}.pid"
-android_avd_home="${ANDROID_AVD_HOME:-$HOME/.config/.android/avd}"
+android_avd_home="${ANDROID_AVD_HOME:-}"
 gpu_mode="${SECPAL_ANDROID_EMULATOR_GPU_MODE:-host}"
 window_mode="${SECPAL_ANDROID_EMULATOR_WINDOW_MODE:-qt-hide-window}"
+
+if [[ -z "$android_avd_home" ]]; then
+    if [[ -d "$HOME/.config/.android/avd" ]]; then
+        android_avd_home="$HOME/.config/.android/avd"
+    else
+        android_avd_home="$HOME/.android/avd"
+    fi
+fi
 
 if [[ ! -f "${android_avd_home}/${avd_name}.ini" ]]; then
     echo "AVD metadata not found: ${android_avd_home}/${avd_name}.ini" >&2

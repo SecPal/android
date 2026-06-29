@@ -58,14 +58,69 @@ def ensure_local_file!(path, description)
 end
 
 def configured_release_version_code
+  release_env_assignment_value("SECPAL_ANDROID_VERSION_CODE")
+end
+
+def release_env_assignment_value(key)
   return nil unless File.exist?(DEFAULT_RELEASE_ENV_FILE)
 
-  env_line = File.readlines(DEFAULT_RELEASE_ENV_FILE).find do |line|
-    line.start_with?("SECPAL_ANDROID_VERSION_CODE=")
-  end
-  return nil if env_line.nil?
+  File.readlines(DEFAULT_RELEASE_ENV_FILE).each do |line|
+    line = line.strip
+    next if line.empty? || line.start_with?("#")
 
-  env_line.split("=", 2).last.to_s.strip
+    match = line.match(/\A(?:export\s+)?#{Regexp.escape(key)}=(.*)\z/)
+    next if match.nil?
+
+    values = Shellwords.split(match[1].strip)
+    return values.first.to_s.strip unless values.empty?
+  end
+
+  nil
+rescue ArgumentError => e
+  UI.user_error!(
+    "Invalid shell assignment for #{key} in #{DEFAULT_RELEASE_ENV_FILE}: #{e.message}"
+  )
+end
+
+def configured_release_version_code_value
+  version_code = configured_release_version_code
+  return 0 if version_code.to_s.empty?
+
+  parse_android_version_code!(version_code, "configured SECPAL_ANDROID_VERSION_CODE")
+end
+
+def parse_android_version_code!(version_code, description)
+  parsed_version_code = Integer(version_code.to_s.strip, 10)
+
+  if parsed_version_code <= 0
+    UI.user_error!("#{description} must be a positive integer.")
+  end
+
+  parsed_version_code
+rescue ArgumentError
+  UI.user_error!(
+    "Invalid #{description}: #{version_code}. Expected a positive integer."
+  )
+end
+
+def persist_configured_release_version_code!(version_code)
+  return unless File.exist?(DEFAULT_RELEASE_ENV_FILE)
+
+  ensure_local_file!(DEFAULT_RELEASE_ENV_FILE, "Android release env file")
+
+  replacement = "SECPAL_ANDROID_VERSION_CODE=#{Shellwords.escape(version_code.to_s)}"
+  found_version_code = false
+  lines = File.readlines(DEFAULT_RELEASE_ENV_FILE, chomp: true).map do |line|
+    if line.strip.match(/\A(?:export\s+)?SECPAL_ANDROID_VERSION_CODE=/)
+      found_version_code = true
+      replacement
+    else
+      line
+    end
+  end
+  lines << replacement unless found_version_code
+
+  File.write(DEFAULT_RELEASE_ENV_FILE, "#{lines.join("\n")}\n")
 end
 
 def requested_deploy_version_code
@@ -101,18 +156,25 @@ def highest_known_play_version_code(json_key_path)
 end
 
 def next_deploy_version_code(json_key_path)
-  highest_known_version_code = highest_known_play_version_code(json_key_path)
+  highest_known_version_code = highest_known_android_version_code(
+    json_key_path: json_key_path
+  )
   selected_version_code = requested_deploy_version_code
 
   unless selected_version_code.to_s.empty?
-    if selected_version_code.to_i <= highest_known_version_code
+    parsed_version_code = parse_android_version_code!(
+      selected_version_code,
+      "deploy version code"
+    )
+
+    if parsed_version_code <= highest_known_version_code
       UI.user_error!(
-        "Refusing deploy version code #{selected_version_code} because Google Play already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
+        "Refusing deploy version code #{selected_version_code} because the known Android release baseline already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
       )
     end
 
     ENV["SECPAL_ANDROID_VERSION_CODE"] = selected_version_code
-    return selected_version_code.to_i
+    return parsed_version_code
   end
 
   timestamp_version_code = Time.now.utc.strftime("%y%j%H%M").to_i
@@ -123,6 +185,21 @@ def next_deploy_version_code(json_key_path)
   )
 
   generated_version_code
+end
+
+def optional_play_json_key_path
+  json_key_path = ENV["SECPAL_ANDROID_PLAY_JSON_KEY_PATH"]&.strip
+  return nil if json_key_path.to_s.empty?
+
+  ensure_local_file!(json_key_path, "Google Play service-account JSON")
+end
+
+def highest_known_android_version_code(json_key_path: nil)
+  [
+    configured_release_version_code_value,
+    highest_known_direct_version_code,
+    json_key_path.to_s.empty? ? 0 : highest_known_play_version_code(json_key_path)
+  ].max.to_i
 end
 
 def highest_known_direct_version_code
@@ -144,21 +221,26 @@ def highest_known_direct_version_code
 end
 
 def next_direct_deploy_version_code
-  highest_known_version_code = [
-    configured_release_version_code.to_i,
-    highest_known_direct_version_code
-  ].max
+  play_json_key_path = optional_play_json_key_path
+  highest_known_version_code = highest_known_android_version_code(
+    json_key_path: play_json_key_path
+  )
   selected_version_code = requested_deploy_version_code
 
   unless selected_version_code.to_s.empty?
-    if selected_version_code.to_i <= highest_known_version_code
+    parsed_version_code = parse_android_version_code!(
+      selected_version_code,
+      "direct APK deploy version code"
+    )
+
+    if parsed_version_code <= highest_known_version_code
       UI.user_error!(
         "Refusing direct APK deploy version code #{selected_version_code} because published direct metadata or the local release baseline already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
       )
     end
 
     ENV["SECPAL_ANDROID_VERSION_CODE"] = selected_version_code
-    return selected_version_code.to_i
+    return parsed_version_code
   end
 
   timestamp_version_code = Time.now.utc.strftime("%y%j%H%M").to_i
@@ -464,7 +546,7 @@ platform :android do
       ENV["SECPAL_ANDROID_PLAY_JSON_KEY_PATH"],
       "Google Play service-account JSON"
     )
-    next_deploy_version_code(json_key_path)
+    version_code = next_deploy_version_code(json_key_path)
 
     build_signed_aab
 
@@ -478,6 +560,7 @@ platform :android do
       skip_upload_screenshots: true,
       skip_upload_changelogs: true
     )
+    persist_configured_release_version_code!(version_code)
   end
 
   desc "Upload the signed SecPal release AAB and the Fastlane Play metadata to the Google Play internal track"
@@ -498,20 +581,23 @@ platform :android do
       track: PLAY_INTERNAL_TRACK,
       metadata_path: ensure_play_metadata!
     )
+    persist_configured_release_version_code!(version_code)
   end
 
   desc "Build the signed SecPal release APK and publish it to apk.secpal.app"
   lane :deploy_direct_apk do
-    next_direct_deploy_version_code
+    version_code = next_direct_deploy_version_code
     build_signed_apk
     upload_direct_apk_artifacts(signed_apk_path)
+    persist_configured_release_version_code!(version_code)
   end
 
   desc "Build the signed SecPal release APK and publish it to the beta direct-download channel on apk.secpal.app"
   lane :deploy_direct_apk_beta do
     ENV["SECPAL_ANDROID_DIRECT_CHANNEL"] = "beta"
-    next_direct_deploy_version_code
+    version_code = next_direct_deploy_version_code
     build_signed_apk
     upload_direct_apk_artifacts(signed_apk_path)
+    persist_configured_release_version_code!(version_code)
   end
 end

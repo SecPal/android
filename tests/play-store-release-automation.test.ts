@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -33,6 +34,52 @@ async function loadPlayStoreSyncModule(): Promise<{
 function writeFile(path: string, content: string) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+function writePngHeader(path: string, width: number, height: number) {
+  const buffer = Buffer.alloc(24);
+
+  buffer[0] = 0x89;
+  buffer[1] = 0x50;
+  buffer[2] = 0x4e;
+  buffer[3] = 0x47;
+  buffer[4] = 0x0d;
+  buffer[5] = 0x0a;
+  buffer[6] = 0x1a;
+  buffer[7] = 0x0a;
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, buffer);
+}
+
+function createValidPlayMetadataTree(root: string) {
+  for (const locale of locales) {
+    const localeRoot = join(root, locale);
+    const imagesRoot = join(localeRoot, "images");
+
+    writeFile(join(localeRoot, "title.txt"), "SecPal");
+    writeFile(join(localeRoot, "short_description.txt"), "Secure operations");
+    writeFile(join(localeRoot, "full_description.txt"), "Secure operations");
+    writeFile(join(localeRoot, "changelogs", "default.txt"), "Release notes");
+    writePngHeader(join(imagesRoot, "icon.png"), 512, 512);
+    writePngHeader(join(imagesRoot, "featureGraphic.png"), 1024, 500);
+
+    for (let index = 1; index <= 4; index += 1) {
+      writePngHeader(
+        join(imagesRoot, "phoneScreenshots", `${index}.png`),
+        1920,
+        1080
+      );
+    }
+
+    writePngHeader(
+      join(imagesRoot, "sevenInchScreenshots", "1.png"),
+      1920,
+      1080
+    );
+    writePngHeader(join(imagesRoot, "tenInchScreenshots", "1.png"), 1920, 1080);
+  }
 }
 
 function installFakeMagick(root: string) {
@@ -163,7 +210,65 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("def highest_known_direct_version_code");
     expect(fastfile).toContain("APK_DIRECT_CHANNELS.filter_map");
     expect(fastfile).toContain("direct_channel_metadata_url(channel)");
-    expect(fastfile).toContain("configured_release_version_code.to_i");
+    expect(fastfile).toContain("configured_release_version_code_value");
+    expect(fastfile).toContain("highest_known_android_version_code");
     expect(fastfile).toContain("highest_known_version_code + 1");
+  });
+
+  it("keeps generated Android version codes monotonic across Play and direct APK releases", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toContain("def highest_known_android_version_code");
+    expect(fastfile).toMatch(
+      /def next_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: json_key_path[\s\S]*\)/
+    );
+    expect(fastfile).toMatch(
+      /def next_direct_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: play_json_key_path[\s\S]*\)/
+    );
+    expect(fastfile).toContain("persist_configured_release_version_code!");
+  });
+
+  it("parses shell-compatible release env assignments before using the configured version baseline", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toContain("def release_env_assignment_value");
+    expect(fastfile).toContain(
+      "line.match(/\\A(?:export\\s+)?#{Regexp.escape(key)}=(.*)\\z/)"
+    );
+    expect(fastfile).toContain("Shellwords.split");
+  });
+
+  it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "play-store-validate-"));
+
+    try {
+      createValidPlayMetadataTree(tempRoot);
+
+      const result = spawnSync(
+        "node",
+        [resolve(repoRoot, "scripts", "validate-play-store-assets.mjs")],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_PLAY_METADATA_PATH: tempRoot,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("PLAY_ASSET_VALIDATION_OK");
+      expect(result.stdout).not.toContain("not close to 9:16 or 16:9");
+      expect(result.stderr).not.toContain("not close to 9:16 or 16:9");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });

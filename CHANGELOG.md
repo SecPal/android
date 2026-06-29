@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `scripts/load-android-release-env.sh` now preserves a shell-provided `SECPAL_ANDROID_DIRECT_CHANNEL` override when reloading `android-release.env`, so `npm run fastlane:android:deploy:direct-apk:beta` cannot be redirected back onto the stable direct-download channel by a local release env file.
+- Android release automation now keeps generated `versionCode` values monotonic across Google Play and direct APK channels, accepts standard `~/.android/avd` emulator layouts, avoids false 16:9 Play screenshot warnings, and prevents WebView CDP helper commands from hanging forever when a target closes mid-request.
 - Added injected-bridge regression coverage for issue `#302` to prove Android push-device revocation failures only warn and do not block native logout or suppress the browser `secpal:native-auth-logout` event.
 - `scripts/sync-play-store-assets.mjs` now refreshes only locale image trees so committed Play changelog templates and versioned changelog files remain available for sync-then-validate and metadata deploy flows.
 - Direct APK Fastlane deploys now derive generated `SECPAL_ANDROID_VERSION_CODE` values from both the local release baseline and the highest published direct-download channel version, preventing same-minute version collisions from reusing an existing `apk.secpal.app` release path.

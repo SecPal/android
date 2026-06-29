@@ -43,10 +43,14 @@ fi
 
 if [[ -z "${ANDROID_AVD_HOME:-}" && -d "$HOME/.config/.android/avd" ]]; then
     export ANDROID_AVD_HOME="$HOME/.config/.android/avd"
+elif [[ -z "${ANDROID_AVD_HOME:-}" && -d "$HOME/.android/avd" ]]; then
+    export ANDROID_AVD_HOME="$HOME/.android/avd"
 fi
 
 if [[ -z "${ANDROID_EMULATOR_HOME:-}" && -d "$HOME/.config/.android" ]]; then
     export ANDROID_EMULATOR_HOME="$HOME/.config/.android"
+elif [[ -z "${ANDROID_EMULATOR_HOME:-}" && -d "$HOME/.android" ]]; then
+    export ANDROID_EMULATOR_HOME="$HOME/.android"
 fi
 
 exec "$@"
