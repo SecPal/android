@@ -147,7 +147,7 @@ async function copyLocaleAssets(locale, config, { metadataRoot, sourceRoot }) {
 
     for (const fileName of matchingFiles) {
       const suffix = fileName.slice(sourceBasenamePrefix.length);
-      const destinationName = screenshotNameMap.get(suffix) ?? fileName;
+      const destinationName = screenshotNameMap.get(suffix) ?? suffix;
       cpSync(
         join(sourceDirectory, fileName),
         join(destinationDirectory, destinationName)

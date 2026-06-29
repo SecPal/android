@@ -17,14 +17,18 @@ if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || (( timeout_seconds <= 0 )); then
     exit 64
 fi
 
+run_adb() {
+    bash ./scripts/with-android-env.sh adb "$@"
+}
+
 deadline=$((SECONDS + timeout_seconds))
 
 while (( SECONDS < deadline )); do
-    bash ./scripts/with-android-env.sh bash -lc "adb start-server" >/dev/null 2>&1 || true
-    state="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} get-state" 2>/dev/null || true)"
+    run_adb start-server >/dev/null 2>&1 || true
+    state="$(run_adb -s "$serial" get-state 2>/dev/null || true)"
 
     if [[ "$state" == "offline" ]]; then
-        bash ./scripts/with-android-env.sh bash -lc "adb reconnect offline" >/dev/null 2>&1 || true
+        run_adb reconnect offline >/dev/null 2>&1 || true
         sleep 2
         continue
     fi
@@ -35,11 +39,11 @@ while (( SECONDS < deadline )); do
         continue
     fi
 
-    wm_size="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} shell wm size" 2>/dev/null | tr -d '\r' || true)"
-    wm_density="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} shell wm density" 2>/dev/null | tr -d '\r' || true)"
-    boot_completed="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} shell getprop sys.boot_completed" 2>/dev/null | tr -d '\r' || true)"
-    boot_animation="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} shell getprop init.svc.bootanim" 2>/dev/null | tr -d '\r' || true)"
-    home_activity="$(bash ./scripts/with-android-env.sh bash -lc "adb -s ${serial} shell cmd package resolve-activity --brief android.intent.action.MAIN android.intent.category.HOME" 2>/dev/null | tr -d '\r' || true)"
+    wm_size="$(run_adb -s "$serial" shell wm size 2>/dev/null | tr -d '\r' || true)"
+    wm_density="$(run_adb -s "$serial" shell wm density 2>/dev/null | tr -d '\r' || true)"
+    boot_completed="$(run_adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    boot_animation="$(run_adb -s "$serial" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true)"
+    home_activity="$(run_adb -s "$serial" shell cmd package resolve-activity --brief android.intent.action.MAIN android.intent.category.HOME 2>/dev/null | tr -d '\r' || true)"
 
     if [[ -n "$wm_size" && -n "$wm_density" ]]; then
         if [[ "$boot_completed" == "1" || "$boot_animation" == "stopped" || "$home_activity" == */* ]]; then

@@ -200,6 +200,65 @@ describe("Play Store release automation", () => {
     }
   });
 
+  it("falls back to stripped screenshot suffixes for unmapped Play asset names", async () => {
+    const { syncPlayStoreAssets } = await loadPlayStoreSyncModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "play-store-sync-"));
+    const isolatedRepoRoot = join(tempRoot, "repo");
+    const isolatedSourceRoot = join(tempRoot, "source");
+    const previousPath = process.env.PATH ?? "";
+
+    try {
+      createPlayAssetSourceTree(isolatedSourceRoot);
+      writeFile(
+        join(
+          isolatedSourceRoot,
+          "screenshots",
+          "phone",
+          "phone-en-5-settings.png"
+        ),
+        "phone-en-settings"
+      );
+      process.env.PATH = `${installFakeMagick(tempRoot)}:${previousPath}`;
+
+      await syncPlayStoreAssets({
+        repoRoot: isolatedRepoRoot,
+        sourceRoot: isolatedSourceRoot,
+      });
+
+      expect(
+        existsSync(
+          join(
+            isolatedRepoRoot,
+            "fastlane",
+            "metadata",
+            "android",
+            "en-US",
+            "images",
+            "phoneScreenshots",
+            "5-settings.png"
+          )
+        )
+      ).toBe(true);
+      expect(
+        existsSync(
+          join(
+            isolatedRepoRoot,
+            "fastlane",
+            "metadata",
+            "android",
+            "en-US",
+            "images",
+            "phoneScreenshots",
+            "phone-en-5-settings.png"
+          )
+        )
+      ).toBe(false);
+    } finally {
+      process.env.PATH = previousPath;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps direct APK version generation aware of configured and published baselines", () => {
     const fastfile = readFileSync(
       resolve(repoRoot, "fastlane", "Fastfile"),
