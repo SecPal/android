@@ -6,10 +6,7 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 export type EnterpriseBootstrapStatus =
-  | "none"
-  | "pending"
-  | "completed"
-  | "failed";
+  "none" | "pending" | "completed" | "failed";
 
 export interface EnterpriseDistributionState {
   bootstrapStatus: EnterpriseBootstrapStatus;
