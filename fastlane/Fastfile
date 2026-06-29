@@ -213,10 +213,9 @@ def highest_known_direct_version_code
 
     version_code.to_i
   rescue StandardError => e
-    UI.important(
-      "Skipping direct APK channel '#{channel}' while resolving the next version code: #{e.message}"
+    UI.user_error!(
+      "Failed to resolve the highest known direct APK version code from channel '#{channel}': #{e.message}"
     )
-    nil
   end.max.to_i
 end
 
@@ -409,30 +408,11 @@ end
 def direct_signing_certificate_sha256
   return @direct_signing_certificate_sha256 if defined?(@direct_signing_certificate_sha256)
 
-  keystore_path = ensure_local_file!(
-    ENV["SECPAL_ANDROID_KEYSTORE_PATH"]&.strip,
-    "Android release keystore"
-  )
-  keystore_password = ENV["SECPAL_ANDROID_KEYSTORE_PASSWORD"]&.strip
-  key_alias = ENV["SECPAL_ANDROID_KEY_ALIAS"]&.strip
-  key_password = ENV["SECPAL_ANDROID_KEY_PASSWORD"]&.strip
-
-  UI.user_error!("Missing Android release keystore password.") if keystore_password.to_s.empty?
-  UI.user_error!("Missing Android release key alias.") if key_alias.to_s.empty?
-  UI.user_error!("Missing Android release key password.") if key_password.to_s.empty?
-
   stdout, stderr, status = Open3.capture3(
-    "keytool",
-    "-list",
-    "-v",
-    "-keystore",
-    keystore_path,
-    "-storepass",
-    keystore_password,
-    "-alias",
-    key_alias,
-    "-keypass",
-    key_password
+    "apksigner",
+    "verify",
+    "--print-certs",
+    signed_apk_path
   )
   unless status.success?
     error_output = stderr.to_s.strip
@@ -442,10 +422,10 @@ def direct_signing_certificate_sha256
     )
   end
 
-  fingerprint = stdout[/SHA256:\s*([0-9A-F:]+)/i, 1]
+  fingerprint = stdout[/SHA-256\s+digest:\s*([0-9A-F:]+)/i, 1]
   if fingerprint.to_s.empty?
     UI.user_error!(
-      "Failed to parse the Android signing certificate SHA-256 fingerprint from keytool output."
+      "Failed to parse the Android signing certificate SHA-256 fingerprint from apksigner output."
     )
   end
 
@@ -552,7 +532,7 @@ def upload_direct_apk_artifacts(apk_path)
     sh(
       "ssh",
       APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_release_root)}/#{Shellwords.escape(versioned_apk_name)} #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt"
+      "cp #{Shellwords.escape(remote_release_root)}/#{Shellwords.escape(versioned_apk_name)} #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.next.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.next.txt && mv #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.next.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt && mv #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.next.apk #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk"
     )
     sh(
       "scp",
@@ -565,7 +545,7 @@ def upload_direct_apk_artifacts(apk_path)
     sh(
       "ssh",
       APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk #{Shellwords.escape(remote_android_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.txt && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
+      "cp #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk #{Shellwords.escape(remote_android_root)}/app.secpal-latest.next.apk && cp #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.next.txt && mv #{Shellwords.escape(remote_android_root)}/SHA256SUMS.next.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.txt && mv #{Shellwords.escape(remote_android_root)}/app.secpal-latest.next.apk #{Shellwords.escape(remote_android_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
     )
     sh(
       "scp",

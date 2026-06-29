@@ -36,8 +36,13 @@ function writeFile(path: string, content: string) {
   writeFileSync(path, content);
 }
 
-function writePngHeader(path: string, width: number, height: number) {
-  const buffer = Buffer.alloc(24);
+function writePngHeader(
+  path: string,
+  width: number,
+  height: number,
+  colorType = 2
+) {
+  const buffer = Buffer.alloc(26);
 
   buffer[0] = 0x89;
   buffer[1] = 0x50;
@@ -49,6 +54,8 @@ function writePngHeader(path: string, width: number, height: number) {
   buffer[7] = 0x0a;
   buffer.writeUInt32BE(width, 16);
   buffer.writeUInt32BE(height, 20);
+  buffer[24] = 8;
+  buffer[25] = colorType;
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, buffer);
 }
@@ -62,23 +69,30 @@ function createValidPlayMetadataTree(root: string) {
     writeFile(join(localeRoot, "short_description.txt"), "Secure operations");
     writeFile(join(localeRoot, "full_description.txt"), "Secure operations");
     writeFile(join(localeRoot, "changelogs", "default.txt"), "Release notes");
-    writePngHeader(join(imagesRoot, "icon.png"), 512, 512);
-    writePngHeader(join(imagesRoot, "featureGraphic.png"), 1024, 500);
+    writePngHeader(join(imagesRoot, "icon.png"), 512, 512, 6);
+    writePngHeader(join(imagesRoot, "featureGraphic.png"), 1024, 500, 2);
 
     for (let index = 1; index <= 4; index += 1) {
       writePngHeader(
         join(imagesRoot, "phoneScreenshots", `${index}.png`),
+        1080,
         1920,
-        1080
+        2
       );
     }
 
     writePngHeader(
       join(imagesRoot, "sevenInchScreenshots", "1.png"),
       1920,
-      1080
+      1080,
+      2
     );
-    writePngHeader(join(imagesRoot, "tenInchScreenshots", "1.png"), 1920, 1080);
+    writePngHeader(
+      join(imagesRoot, "tenInchScreenshots", "1.png"),
+      1920,
+      1080,
+      2
+    );
   }
 }
 
@@ -310,20 +324,30 @@ describe("Play Store release automation", () => {
     );
 
     expect(fastfile).toContain("def direct_signing_certificate_sha256");
-    expect(fastfile).toContain('ENV["SECPAL_ANDROID_KEYSTORE_PATH"]');
-    expect(fastfile).toContain('"keytool"');
+    expect(fastfile).toContain('"apksigner"');
     expect(fastfile).toContain(
       "app_signing_certificate_sha256: direct_signing_certificate_sha256"
     );
-    expect(fastfile).not.toContain(
-      'APK_SIGNING_CERTIFICATE_SHA256 = "C3:E9:FD:07:69:F3:34:9B:B0:B0:56:BA:E6:69:47:23:40:E1:CB:28:66:26:DE:30:C9:C9:FA:F9:5F:1E:47:B5"'
-    );
+    expect(fastfile).not.toContain('"keytool"');
+    expect(fastfile).not.toContain('"SECPAL_ANDROID_KEYSTORE_PASSWORD"');
+    expect(fastfile).not.toContain('"SECPAL_ANDROID_KEY_PASSWORD"');
     expect(fastfile).toContain("SHA256SUMS-latest.txt");
-    expect(fastfile).toContain(
-      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/SHA256SUMS-latest.txt"
+    expect(fastfile).toContain("SHA256SUMS.next.txt");
+    expect(fastfile).toContain("app.secpal-latest.next.apk");
+    expect(fastfile).toContain("mv #{Shellwords.escape(remote_channel_root)}");
+  });
+
+  it("fails closed when direct-release metadata cannot be read", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
     );
+
     expect(fastfile).toContain(
-      "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt"
+      "Failed to resolve the highest known direct APK version code"
+    );
+    expect(fastfile).not.toContain(
+      "Skipping direct APK channel '#{channel}' while resolving the next version code"
     );
   });
 
@@ -350,6 +374,76 @@ describe("Play Store release automation", () => {
       expect(result.stdout).toContain("PLAY_ASSET_VALIDATION_OK");
       expect(result.stdout).not.toContain("not close to 9:16 or 16:9");
       expect(result.stderr).not.toContain("not close to 9:16 or 16:9");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects Play preview assets that contain alpha channels", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "play-store-validate-"));
+
+    try {
+      createValidPlayMetadataTree(tempRoot);
+      writePngHeader(
+        join(tempRoot, "en-US", "images", "featureGraphic.png"),
+        1024,
+        500,
+        6
+      );
+
+      const result = spawnSync(
+        "node",
+        [resolve(repoRoot, "scripts", "validate-play-store-assets.mjs")],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_PLAY_METADATA_PATH: tempRoot,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("must not contain an alpha channel");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects screenshots whose longest side exceeds twice the shortest side", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "play-store-validate-"));
+
+    try {
+      createValidPlayMetadataTree(tempRoot);
+      writePngHeader(
+        join(tempRoot, "en-US", "images", "phoneScreenshots", "1.png"),
+        1080,
+        2408,
+        2
+      );
+      writePngHeader(
+        join(tempRoot, "en-US", "images", "phoneScreenshots", "2.png"),
+        1080,
+        2408,
+        2
+      );
+
+      const result = spawnSync(
+        "node",
+        [resolve(repoRoot, "scripts", "validate-play-store-assets.mjs")],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_PLAY_METADATA_PATH: tempRoot,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("must not exceed a 2:1 aspect ratio");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

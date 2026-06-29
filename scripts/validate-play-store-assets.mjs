@@ -48,6 +48,7 @@ function readImageInfo(path) {
       format: "png",
       width: buffer.readUInt32BE(16),
       height: buffer.readUInt32BE(20),
+      colorType: buffer[25],
       sizeBytes,
     };
   }
@@ -99,9 +100,17 @@ function validateTextFile(path, label, maxLength) {
 
 function validateAspectRatio(path, width, height) {
   const ratio = width / height;
+  const longestToShortestRatio =
+    Math.max(width, height) / Math.min(width, height);
   const exactPortrait = 9 / 16;
   const exactLandscape = 16 / 9;
   const tolerance = 0.02;
+
+  if (longestToShortestRatio > 2) {
+    addError(
+      `Screenshot must not exceed a 2:1 aspect ratio: ${path} (${width}x${height})`
+    );
+  }
 
   if (
     Math.abs(ratio - exactPortrait) > tolerance &&
@@ -110,6 +119,12 @@ function validateAspectRatio(path, width, height) {
     addWarning(
       `Screenshot aspect ratio is not close to 9:16 or 16:9: ${path} (${width}x${height})`
     );
+  }
+}
+
+function validatePreviewImage(path, label, imageInfo) {
+  if (imageInfo.format === "png" && [4, 6].includes(imageInfo.colorType)) {
+    addError(`${label} must not contain an alpha channel: ${path}`);
   }
 }
 
@@ -128,7 +143,8 @@ function validateScreenshotSet(directory, label, rules) {
 
   for (const file of files) {
     const path = join(directory, file);
-    const { width, height, sizeBytes } = readImageInfo(path);
+    const imageInfo = readImageInfo(path);
+    const { width, height, sizeBytes } = imageInfo;
 
     if (sizeBytes > 8 * 1024 * 1024) {
       addError(`${label} exceeds 8 MB: ${path}`);
@@ -142,6 +158,7 @@ function validateScreenshotSet(directory, label, rules) {
       imagesAt1080 += 1;
     }
 
+    validatePreviewImage(path, label, imageInfo);
     validateAspectRatio(path, width, height);
   }
 
@@ -192,6 +209,11 @@ for (const locale of locales) {
       `${locale} feature graphic exceeds 15 MB: ${join(imagesRoot, "featureGraphic.png")}`
     );
   }
+  validatePreviewImage(
+    join(imagesRoot, "featureGraphic.png"),
+    `${locale} feature graphic`,
+    feature
+  );
 
   for (const [directoryName, rules] of Object.entries(screenshotSets)) {
     validateScreenshotSet(

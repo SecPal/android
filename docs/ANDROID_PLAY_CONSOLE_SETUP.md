@@ -86,7 +86,7 @@ The repo-local Fastlane metadata flow is:
 3. run `npm run fastlane:android:validate:play-assets`
 4. upload with `npm run fastlane:android:deploy:internal:with-metadata` once the internal build is ready
 
-The sync step writes the canonical Fastlane tree to `fastlane/metadata/android` and normalizes the app icon to a `512x512` Play-safe canvas. The current validator also emits warnings when screenshot aspect ratios are not close to `9:16` or `16:9`, so those warnings should be checked against the live Play Console acceptance behavior before a production listing rollout.
+The sync step writes the canonical Fastlane tree to `fastlane/metadata/android` and normalizes the app icon to a `512x512` Play-safe canvas. The validator now also rejects Play preview assets with alpha channels and screenshots that exceed the 2:1 aspect-ratio limit, so `npm run fastlane:android:validate:play-assets` should stay green before any metadata rollout.
 By default, the sync step reads from `./.local/play-assets`. Set `SECPAL_ANDROID_PLAY_ASSETS_SOURCE` only when you want to override that local source path.
 The metadata tree now also carries localized default Play changelog templates under `fastlane/metadata/android/{locale}/changelogs/default.txt`. The metadata upload lane copies those templates to the concrete `versionCode` changelog path on demand when no version-specific file exists yet.
 
