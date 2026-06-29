@@ -51,6 +51,8 @@ describe("Android emulator scripts", () => {
       };
       delete env.ANDROID_AVD_HOME;
       delete env.ANDROID_EMULATOR_HOME;
+      delete env.ANDROID_SDK_ROOT;
+      delete env.ANDROID_HOME;
 
       const result = spawnSync(
         "bash",
@@ -99,6 +101,8 @@ describe("Android emulator scripts", () => {
         PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
         SECPAL_ANDROID_EMULATOR_GPU_MODE: `host; touch "${injectionPath}"`,
       };
+      delete env.ANDROID_SDK_ROOT;
+      delete env.ANDROID_HOME;
 
       const gpuModeResult = spawnSync(
         "bash",
@@ -201,6 +205,8 @@ exit 1
             ...process.env,
             HOME: tempRoot,
             PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
           },
           encoding: "utf8",
         }

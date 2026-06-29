@@ -7,6 +7,7 @@ require "digest"
 require "fileutils"
 require "json"
 require "open-uri"
+require "open3"
 require "shellwords"
 require "time"
 require "tmpdir"
@@ -22,7 +23,6 @@ APK_ARTIFACT_HOST = "https://apk.secpal.app"
 APK_LANDING_URL = "https://secpal.app/android/"
 APK_UPDATE_CHANNEL = "stable"
 APK_DIRECT_CHANNELS = %w[stable beta].freeze
-APK_SIGNING_CERTIFICATE_SHA256 = "C3:E9:FD:07:69:F3:34:9B:B0:B0:56:BA:E6:69:47:23:40:E1:CB:28:66:26:DE:30:C9:C9:FA:F9:5F:1E:47:B5"
 APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY = true
 APK_DIRECT_SSH_HOST = ENV.fetch("SECPAL_ANDROID_DIRECT_SSH_HOST", "secpal")
 APK_DIRECT_ROOT = ENV.fetch(
@@ -401,9 +401,55 @@ def direct_release_metadata_payload(
     versioned_metadata_url: urls.fetch(:versioned_metadata_url),
     versioned_apk_url: urls.fetch(:versioned_apk_url),
     versioned_checksum_url: urls.fetch(:versioned_checksum_url),
-    app_signing_certificate_sha256: APK_SIGNING_CERTIFICATE_SHA256,
+    app_signing_certificate_sha256: direct_signing_certificate_sha256,
     signing_key_shared_with_google_play: APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY
   }
+end
+
+def direct_signing_certificate_sha256
+  return @direct_signing_certificate_sha256 if defined?(@direct_signing_certificate_sha256)
+
+  keystore_path = ensure_local_file!(
+    ENV["SECPAL_ANDROID_KEYSTORE_PATH"]&.strip,
+    "Android release keystore"
+  )
+  keystore_password = ENV["SECPAL_ANDROID_KEYSTORE_PASSWORD"]&.strip
+  key_alias = ENV["SECPAL_ANDROID_KEY_ALIAS"]&.strip
+  key_password = ENV["SECPAL_ANDROID_KEY_PASSWORD"]&.strip
+
+  UI.user_error!("Missing Android release keystore password.") if keystore_password.to_s.empty?
+  UI.user_error!("Missing Android release key alias.") if key_alias.to_s.empty?
+  UI.user_error!("Missing Android release key password.") if key_password.to_s.empty?
+
+  stdout, stderr, status = Open3.capture3(
+    "keytool",
+    "-list",
+    "-v",
+    "-keystore",
+    keystore_path,
+    "-storepass",
+    keystore_password,
+    "-alias",
+    key_alias,
+    "-keypass",
+    key_password
+  )
+  unless status.success?
+    error_output = stderr.to_s.strip
+    error_output = stdout.to_s.strip if error_output.empty?
+    UI.user_error!(
+      "Failed to derive the Android signing certificate fingerprint: #{error_output}"
+    )
+  end
+
+  fingerprint = stdout[/SHA256:\s*([0-9A-F:]+)/i, 1]
+  if fingerprint.to_s.empty?
+    UI.user_error!(
+      "Failed to parse the Android signing certificate SHA-256 fingerprint from keytool output."
+    )
+  end
+
+  @direct_signing_certificate_sha256 = fingerprint.upcase
 end
 
 def direct_latest_metadata_document(published_at: Time.now.utc.iso8601)
@@ -495,23 +541,23 @@ def upload_direct_apk_artifacts(apk_path)
     )
     sh(
       "scp",
+      latest_checksum_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/SHA256SUMS-latest.txt"
+    )
+    sh(
+      "scp",
       versioned_metadata_path,
       "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/metadata.json"
     )
     sh(
       "ssh",
       APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_release_root)}/#{Shellwords.escape(versioned_apk_name)} #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt"
+      "cp #{Shellwords.escape(remote_release_root)}/#{Shellwords.escape(versioned_apk_name)} #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt"
     )
     sh(
       "scp",
       latest_metadata_path,
       "#{APK_DIRECT_SSH_HOST}:#{remote_channel_root}/latest.json"
-    )
-    sh(
-      "scp",
-      latest_checksum_path,
-      "#{APK_DIRECT_SSH_HOST}:#{remote_channel_root}/SHA256SUMS.txt"
     )
 
     return unless stable_direct_channel?(channel)

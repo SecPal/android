@@ -27,6 +27,8 @@ describe("WebView CDP helper scripts", () => {
     expect(helper).toContain("setTimeout");
     expect(helper).toContain('addEventListener("close"');
     expect(helper).toContain('addEventListener("error"');
+    expect(helper).toContain("exceptionDetails");
+    expect(helper).toContain("unwrapEvaluationResult");
 
     for (const scriptName of webviewScripts) {
       const script = readFileSync(
@@ -38,5 +40,26 @@ describe("WebView CDP helper scripts", () => {
       expect(script).not.toContain("new WebSocket");
       expect(script).not.toContain("let nextId");
     }
+  });
+
+  it("fails fast when CDP evaluation throws or required navigation targets are missing", () => {
+    const loginScript = readFileSync(
+      resolve(repoRoot, "scripts", "webview-login.mjs"),
+      "utf8"
+    );
+    const aboutScript = readFileSync(
+      resolve(repoRoot, "scripts", "webview-open-about.mjs"),
+      "utf8"
+    );
+
+    expect(loginScript).toContain("unwrapEvaluationResult");
+    expect(loginScript).toContain("Runtime.evaluate");
+    expect(loginScript).toContain("throw new Error");
+    expect(loginScript).toContain("login form submission");
+
+    expect(aboutScript).toContain("unwrapEvaluationResult");
+    expect(aboutScript).toContain("throw new Error");
+    expect(aboutScript).toContain("clicked: false");
+    expect(aboutScript).toContain("Missing About navigation target");
   });
 });

@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { connectToWebViewTarget } from "./webview-cdp-client.mjs";
+import {
+  connectToWebViewTarget,
+  unwrapEvaluationResult,
+} from "./webview-cdp-client.mjs";
 
 const debuggerListUrl =
   process.env.SECPAL_WEBVIEW_DEVTOOLS_URL ?? "http://127.0.0.1:9223/json/list";
@@ -42,7 +45,14 @@ try {
     returnByValue: true,
   });
 
-  console.log(JSON.stringify(result.result.value, null, 2));
+  const value = unwrapEvaluationResult(result, "About navigation");
+  if (value?.clicked !== true) {
+    throw new Error(
+      `Missing About navigation target: ${JSON.stringify(value ?? {})}`
+    );
+  }
+
+  console.log(JSON.stringify(value, null, 2));
 } finally {
   webView.close();
 }

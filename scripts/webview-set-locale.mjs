@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { connectToWebViewTarget } from "./webview-cdp-client.mjs";
+import {
+  connectToWebViewTarget,
+  unwrapEvaluationResult,
+} from "./webview-cdp-client.mjs";
 
 const language = process.argv[2] ?? "en";
 const debuggerListUrl =
@@ -31,7 +34,8 @@ try {
     returnByValue: true,
   });
 
-  console.log(JSON.stringify(result.result.value, null, 2));
+  const value = unwrapEvaluationResult(result, "locale switch");
+  console.log(JSON.stringify(value, null, 2));
 } finally {
   webView.close();
 }

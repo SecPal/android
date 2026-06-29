@@ -127,3 +127,15 @@ export async function connectToWebViewTarget({
     close: () => ws.close(),
   };
 }
+
+export function unwrapEvaluationResult(result, action) {
+  if (result?.exceptionDetails) {
+    const description =
+      result.exceptionDetails.exception?.description ??
+      result.exceptionDetails.text ??
+      `CDP Runtime.evaluate failed for ${action}`;
+    throw new Error(description);
+  }
+
+  return result?.result?.value;
+}

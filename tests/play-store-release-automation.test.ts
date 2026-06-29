@@ -303,6 +303,30 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("Shellwords.split");
   });
 
+  it("keeps direct APK metadata aligned with the actual signing key and latest checksum name", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toContain("def direct_signing_certificate_sha256");
+    expect(fastfile).toContain('ENV["SECPAL_ANDROID_KEYSTORE_PATH"]');
+    expect(fastfile).toContain('"keytool"');
+    expect(fastfile).toContain(
+      "app_signing_certificate_sha256: direct_signing_certificate_sha256"
+    );
+    expect(fastfile).not.toContain(
+      'APK_SIGNING_CERTIFICATE_SHA256 = "C3:E9:FD:07:69:F3:34:9B:B0:B0:56:BA:E6:69:47:23:40:E1:CB:28:66:26:DE:30:C9:C9:FA:F9:5F:1E:47:B5"'
+    );
+    expect(fastfile).toContain("SHA256SUMS-latest.txt");
+    expect(fastfile).toContain(
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/SHA256SUMS-latest.txt"
+    );
+    expect(fastfile).toContain(
+      "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt"
+    );
+  });
+
   it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "play-store-validate-"));
 
