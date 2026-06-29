@@ -61,7 +61,12 @@ function readImageInfo(path) {
       }
 
       const marker = buffer[offset + 1];
-      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+      if (
+        [
+          0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd,
+          0xce, 0xcf,
+        ].includes(marker)
+      ) {
         return {
           format: "jpeg",
           height: buffer.readUInt16BE(offset + 5),
@@ -115,7 +120,9 @@ function validateScreenshotSet(directory, label, rules) {
     .sort();
 
   if (files.length < rules.min || files.length > rules.max) {
-    addError(`${label} requires ${rules.min}-${rules.max} images, found ${files.length}: ${directory}`);
+    addError(
+      `${label} requires ${rules.min}-${rules.max} images, found ${files.length}: ${directory}`
+    );
   }
 
   let imagesAt1080 = 0;
@@ -128,7 +135,9 @@ function validateScreenshotSet(directory, label, rules) {
       addError(`${label} exceeds 8 MB: ${path}`);
     }
     if (width < 320 || height < 320 || width > 3840 || height > 3840) {
-      addError(`${label} must stay within 320-3840 px per side: ${path} (${width}x${height})`);
+      addError(
+        `${label} must stay within 320-3840 px per side: ${path} (${width}x${height})`
+      );
     }
     if (Math.min(width, height) >= 1080) {
       imagesAt1080 += 1;
@@ -149,9 +158,21 @@ for (const locale of locales) {
   const imagesRoot = join(localeRoot, "images");
 
   validateTextFile(join(localeRoot, "title.txt"), `${locale} title`, 30);
-  validateTextFile(join(localeRoot, "short_description.txt"), `${locale} short description`, 80);
-  validateTextFile(join(localeRoot, "full_description.txt"), `${locale} full description`, 4000);
-  validateTextFile(join(localeRoot, "changelogs", "default.txt"), `${locale} default changelog`, 500);
+  validateTextFile(
+    join(localeRoot, "short_description.txt"),
+    `${locale} short description`,
+    80
+  );
+  validateTextFile(
+    join(localeRoot, "full_description.txt"),
+    `${locale} full description`,
+    4000
+  );
+  validateTextFile(
+    join(localeRoot, "changelogs", "default.txt"),
+    `${locale} default changelog`,
+    500
+  );
 
   const icon = readImageInfo(join(imagesRoot, "icon.png"));
   if (icon.width !== 512 || icon.height !== 512) {
@@ -163,14 +184,22 @@ for (const locale of locales) {
 
   const feature = readImageInfo(join(imagesRoot, "featureGraphic.png"));
   if (feature.width !== 1024 || feature.height !== 500) {
-    addError(`${locale} feature graphic must be 1024x500: ${join(imagesRoot, "featureGraphic.png")}`);
+    addError(
+      `${locale} feature graphic must be 1024x500: ${join(imagesRoot, "featureGraphic.png")}`
+    );
   }
   if (feature.sizeBytes > 15 * 1024 * 1024) {
-    addError(`${locale} feature graphic exceeds 15 MB: ${join(imagesRoot, "featureGraphic.png")}`);
+    addError(
+      `${locale} feature graphic exceeds 15 MB: ${join(imagesRoot, "featureGraphic.png")}`
+    );
   }
 
   for (const [directoryName, rules] of Object.entries(screenshotSets)) {
-    validateScreenshotSet(join(imagesRoot, directoryName), `${locale} ${directoryName}`, rules);
+    validateScreenshotSet(
+      join(imagesRoot, directoryName),
+      `${locale} ${directoryName}`,
+      rules
+    );
   }
 }
 
