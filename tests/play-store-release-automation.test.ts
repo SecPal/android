@@ -334,7 +334,23 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("SHA256SUMS-latest.txt");
     expect(fastfile).toContain("SHA256SUMS.next.txt");
     expect(fastfile).toContain("app.secpal-latest.next.apk");
-    expect(fastfile).toContain("mv #{Shellwords.escape(remote_channel_root)}");
+    expect(fastfile).toContain("safely_replace_remote_latest_files!(");
+  });
+
+  it("keeps latest artifact swaps rollback-safe when remote renames fail", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toContain("def safely_replace_remote_latest_files!");
+    expect(fastfile).toContain("app.secpal-latest.previous.apk");
+    expect(fastfile).toContain("SHA256SUMS.previous.txt");
+    expect(fastfile).toContain("cleanup() {");
+    expect(fastfile).toContain("rollback() {");
+    expect(fastfile).toContain('mv "$latest_apk_path" "$previous_apk_path"');
+    expect(fastfile).toContain('mv "$next_checksum_path" "$checksum_path"');
+    expect(fastfile).toContain('mv "$previous_apk_path" "$latest_apk_path"');
   });
 
   it("fails closed when direct-release metadata cannot be read", () => {

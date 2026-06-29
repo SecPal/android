@@ -325,6 +325,68 @@ def write_file(path, content)
   path
 end
 
+def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_checksum_path:)
+  latest_apk_path = "#{remote_root}/app.secpal-latest.apk"
+  next_apk_path = "#{remote_root}/app.secpal-latest.next.apk"
+  previous_apk_path = "#{remote_root}/app.secpal-latest.previous.apk"
+  checksum_path = "#{remote_root}/SHA256SUMS.txt"
+  next_checksum_path = "#{remote_root}/SHA256SUMS.next.txt"
+  previous_checksum_path = "#{remote_root}/SHA256SUMS.previous.txt"
+
+  remote_script = <<~SH
+    set -eu
+
+    latest_apk_path=#{Shellwords.escape(latest_apk_path)}
+    next_apk_path=#{Shellwords.escape(next_apk_path)}
+    previous_apk_path=#{Shellwords.escape(previous_apk_path)}
+    checksum_path=#{Shellwords.escape(checksum_path)}
+    next_checksum_path=#{Shellwords.escape(next_checksum_path)}
+    previous_checksum_path=#{Shellwords.escape(previous_checksum_path)}
+
+    cleanup() {
+      rm -f "$next_apk_path" "$next_checksum_path"
+    }
+
+    rollback() {
+      if [ -f "$previous_apk_path" ]; then
+        mv "$previous_apk_path" "$latest_apk_path"
+      fi
+      if [ -f "$previous_checksum_path" ]; then
+        mv "$previous_checksum_path" "$checksum_path"
+      fi
+      cleanup
+    }
+
+    trap 'rollback' EXIT HUP INT TERM
+
+    cp #{Shellwords.escape(source_apk_path)} "$next_apk_path"
+    cp #{Shellwords.escape(source_checksum_path)} "$next_checksum_path"
+
+    if [ -f "$latest_apk_path" ]; then
+      mv "$latest_apk_path" "$previous_apk_path"
+    fi
+    if [ -f "$checksum_path" ]; then
+      mv "$checksum_path" "$previous_checksum_path"
+    fi
+
+    mv "$next_checksum_path" "$checksum_path"
+    mv "$next_apk_path" "$latest_apk_path"
+
+    rm -f "$previous_apk_path" "$previous_checksum_path"
+    trap - EXIT HUP INT TERM
+    cleanup
+  SH
+
+  sh(
+    "ssh",
+    APK_DIRECT_SSH_HOST,
+    "sh",
+    "-eu",
+    "-c",
+    remote_script
+  )
+end
+
 def direct_deploy_channel
   selected_channel =
     ENV.fetch("SECPAL_ANDROID_DIRECT_CHANNEL", APK_UPDATE_CHANNEL).strip
@@ -529,10 +591,10 @@ def upload_direct_apk_artifacts(apk_path)
       versioned_metadata_path,
       "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/metadata.json"
     )
-    sh(
-      "ssh",
-      APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_release_root)}/#{Shellwords.escape(versioned_apk_name)} #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.next.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS-latest.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.next.txt && mv #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.next.txt #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt && mv #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.next.apk #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk"
+    safely_replace_remote_latest_files!(
+      remote_root: remote_channel_root,
+      source_apk_path: "#{remote_release_root}/#{versioned_apk_name}",
+      source_checksum_path: "#{remote_release_root}/SHA256SUMS-latest.txt"
     )
     sh(
       "scp",
@@ -542,10 +604,15 @@ def upload_direct_apk_artifacts(apk_path)
 
     return unless stable_direct_channel?(channel)
 
+    safely_replace_remote_latest_files!(
+      remote_root: remote_android_root,
+      source_apk_path: "#{remote_channel_root}/app.secpal-latest.apk",
+      source_checksum_path: "#{remote_channel_root}/SHA256SUMS.txt"
+    )
     sh(
       "ssh",
       APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_channel_root)}/app.secpal-latest.apk #{Shellwords.escape(remote_android_root)}/app.secpal-latest.next.apk && cp #{Shellwords.escape(remote_channel_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.next.txt && mv #{Shellwords.escape(remote_android_root)}/SHA256SUMS.next.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.txt && mv #{Shellwords.escape(remote_android_root)}/app.secpal-latest.next.apk #{Shellwords.escape(remote_android_root)}/app.secpal-latest.apk && cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
+      "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
     )
     sh(
       "scp",
