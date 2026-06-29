@@ -166,10 +166,9 @@ public class NativeAuthHttpClientTest {
         response.put("tenant_id", 7);
         response.put("tenant_name", "Tenant 7");
         response.put("api_base_url", "https://api.secpal.dev/v1");
-        response.put("update_channel", "managed_device");
         response.put(
             "release_metadata_url",
-            "https://api.secpal.dev/v1/android/releases/channels/managed_device/latest"
+            "https://apk.secpal.app/android/latest.json"
         );
         response.put("provisioning_profile", provisioningProfile);
 
@@ -180,9 +179,9 @@ public class NativeAuthHttpClientTest {
         assertEquals(7, result.getTenantId());
         assertEquals("Tenant 7", result.getTenantName());
         assertEquals("https://api.secpal.dev/v1", result.getApiBaseUrl());
-        assertEquals("managed_device", result.getUpdateChannel());
+        assertEquals(null, result.getUpdateChannel());
         assertEquals(
-            "https://api.secpal.dev/v1/android/releases/channels/managed_device/latest",
+            "https://apk.secpal.app/android/latest.json",
             result.getReleaseMetadataUrl()
         );
         assertTrue((Boolean) result.getProvisioningProfile().get("secpal_kiosk_mode_enabled"));
@@ -199,7 +198,6 @@ public class NativeAuthHttpClientTest {
         response.put("enrollment_session_id", "session-456");
         response.put("tenant_name", "Fallback Tenant");
         response.put("api_base_url", "https://api.secpal.dev/v1");
-        response.put("update_channel", "managed_device");
 
         ProvisioningBootstrapExchangeResult result =
             NativeAuthHttpClient.parseBootstrapExchangePayload(response);

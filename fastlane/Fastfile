@@ -1,0 +1,696 @@
+#
+# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+
+require "digest"
+require "fileutils"
+require "json"
+require "open-uri"
+require "open3"
+require "shellwords"
+require "time"
+require "tmpdir"
+
+default_platform(:android)
+
+REPO_ROOT = File.expand_path("..", __dir__)
+PLAY_PACKAGE_NAME = "app.secpal"
+PLAY_INTERNAL_TRACK = "internal"
+PLAY_METADATA_ROOT = File.expand_path("fastlane/metadata/android", REPO_ROOT)
+PLAY_VERSION_CODE_TRACKS = %w[internal alpha beta production].freeze
+APK_ARTIFACT_HOST = "https://apk.secpal.app"
+APK_LANDING_URL = "https://secpal.app/android/"
+APK_UPDATE_CHANNEL = "stable"
+APK_DIRECT_CHANNELS = %w[stable beta].freeze
+APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY = true
+APK_DIRECT_SSH_HOST = ENV.fetch("SECPAL_ANDROID_DIRECT_SSH_HOST", "secpal")
+APK_DIRECT_ROOT = ENV.fetch(
+  "SECPAL_ANDROID_DIRECT_ROOT",
+  "/home/secpal/www/apk.secpal.app"
+)
+DEFAULT_RELEASE_ENV_FILE = File.expand_path(
+  ENV.fetch(
+    "SECPAL_ANDROID_RELEASE_ENV_FILE",
+    "~/.config/secpal/android-release.env"
+  )
+)
+
+def ensure_local_file!(path, description)
+  UI.user_error!("Missing #{description}.") if path.to_s.empty?
+  UI.user_error!("Missing #{description}: #{path}") unless File.exist?(path)
+  UI.user_error!("Refusing symlinked #{description}: #{path}") if File.symlink?(path)
+
+  stat = File.stat(path)
+  if stat.uid != Process.uid
+    UI.user_error!(
+      "Refusing #{description} not owned by the current user: #{path}"
+    )
+  end
+
+  if (stat.mode & 0o077) != 0
+    UI.user_error!(
+      "Refusing #{description} with overly permissive permissions: #{path}"
+    )
+  end
+
+  path
+end
+
+def configured_release_version_code
+  release_env_assignment_value("SECPAL_ANDROID_VERSION_CODE")
+end
+
+def release_env_assignment_value(key)
+  return nil unless File.exist?(DEFAULT_RELEASE_ENV_FILE)
+
+  File.readlines(DEFAULT_RELEASE_ENV_FILE).each do |line|
+    line = line.strip
+    next if line.empty? || line.start_with?("#")
+
+    match = line.match(/\A(?:export\s+)?#{Regexp.escape(key)}=(.*)\z/)
+    next if match.nil?
+
+    values = Shellwords.split(match[1].strip)
+    return values.first.to_s.strip unless values.empty?
+  end
+
+  nil
+rescue ArgumentError => e
+  UI.user_error!(
+    "Invalid shell assignment for #{key} in #{DEFAULT_RELEASE_ENV_FILE}: #{e.message}"
+  )
+end
+
+def configured_release_version_code_value
+  version_code = configured_release_version_code
+  return 0 if version_code.to_s.empty?
+
+  parse_android_version_code!(version_code, "configured SECPAL_ANDROID_VERSION_CODE")
+end
+
+def parse_android_version_code!(version_code, description)
+  parsed_version_code = Integer(version_code.to_s.strip, 10)
+
+  if parsed_version_code <= 0
+    UI.user_error!("#{description} must be a positive integer.")
+  end
+
+  parsed_version_code
+rescue ArgumentError
+  UI.user_error!(
+    "Invalid #{description}: #{version_code}. Expected a positive integer."
+  )
+end
+
+def persist_configured_release_version_code!(version_code)
+  return unless File.exist?(DEFAULT_RELEASE_ENV_FILE)
+
+  ensure_local_file!(DEFAULT_RELEASE_ENV_FILE, "Android release env file")
+
+  replacement = "SECPAL_ANDROID_VERSION_CODE=#{Shellwords.escape(version_code.to_s)}"
+  found_version_code = false
+  lines = File.readlines(DEFAULT_RELEASE_ENV_FILE, chomp: true).map do |line|
+    if line.strip.match(/\A(?:export\s+)?SECPAL_ANDROID_VERSION_CODE=/)
+      found_version_code = true
+      replacement
+    else
+      line
+    end
+  end
+  lines << replacement unless found_version_code
+
+  File.write(DEFAULT_RELEASE_ENV_FILE, "#{lines.join("\n")}\n")
+end
+
+def requested_deploy_version_code
+  deploy_override_version_code = ENV["SECPAL_ANDROID_DEPLOY_VERSION_CODE"]&.strip
+  explicit_version_code = ENV["SECPAL_ANDROID_VERSION_CODE"]&.strip
+  configured_version_code = configured_release_version_code
+
+  if !deploy_override_version_code.to_s.empty?
+    return deploy_override_version_code
+  end
+
+  if !explicit_version_code.to_s.empty? &&
+      explicit_version_code != configured_version_code
+    return explicit_version_code
+  end
+
+  nil
+end
+
+def highest_known_play_version_code(json_key_path)
+  PLAY_VERSION_CODE_TRACKS.flat_map do |track|
+    google_play_track_version_codes(
+      package_name: PLAY_PACKAGE_NAME,
+      track: track,
+      json_key: json_key_path
+    )
+  rescue StandardError => e
+    UI.important(
+      "Skipping Google Play track '#{track}' while resolving the next version code: #{e.message}"
+    )
+    []
+  end.max.to_i
+end
+
+def next_deploy_version_code(json_key_path)
+  highest_known_version_code = highest_known_android_version_code(
+    json_key_path: json_key_path
+  )
+  selected_version_code = requested_deploy_version_code
+
+  unless selected_version_code.to_s.empty?
+    parsed_version_code = parse_android_version_code!(
+      selected_version_code,
+      "deploy version code"
+    )
+
+    if parsed_version_code <= highest_known_version_code
+      UI.user_error!(
+        "Refusing deploy version code #{selected_version_code} because the known Android release baseline already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
+      )
+    end
+
+    ENV["SECPAL_ANDROID_VERSION_CODE"] = selected_version_code
+    return parsed_version_code
+  end
+
+  timestamp_version_code = Time.now.utc.strftime("%y%j%H%M").to_i
+  generated_version_code = [timestamp_version_code, highest_known_version_code + 1].max
+  ENV["SECPAL_ANDROID_VERSION_CODE"] = generated_version_code.to_s
+  UI.message(
+    "Using generated SECPAL_ANDROID_VERSION_CODE=#{ENV['SECPAL_ANDROID_VERSION_CODE']} for Google Play deployment."
+  )
+
+  generated_version_code
+end
+
+def optional_play_json_key_path
+  json_key_path = ENV["SECPAL_ANDROID_PLAY_JSON_KEY_PATH"]&.strip
+  return nil if json_key_path.to_s.empty?
+
+  ensure_local_file!(json_key_path, "Google Play service-account JSON")
+end
+
+def highest_known_android_version_code(json_key_path: nil)
+  [
+    configured_release_version_code_value,
+    highest_known_direct_version_code,
+    json_key_path.to_s.empty? ? 0 : highest_known_play_version_code(json_key_path)
+  ].max.to_i
+end
+
+def highest_known_direct_version_code
+  APK_DIRECT_CHANNELS.filter_map do |channel|
+    metadata_url = direct_channel_metadata_url(channel)
+    metadata = JSON.parse(URI.open(metadata_url, &:read))
+    next nil unless metadata["release_available"]
+
+    version_code = metadata["version_code"]
+    next nil if version_code.nil?
+
+    version_code.to_i
+  rescue StandardError => e
+    UI.user_error!(
+      "Failed to resolve the highest known direct APK version code from channel '#{channel}': #{e.message}"
+    )
+  end.max.to_i
+end
+
+def next_direct_deploy_version_code
+  play_json_key_path = optional_play_json_key_path
+  highest_known_version_code = highest_known_android_version_code(
+    json_key_path: play_json_key_path
+  )
+  selected_version_code = requested_deploy_version_code
+
+  unless selected_version_code.to_s.empty?
+    parsed_version_code = parse_android_version_code!(
+      selected_version_code,
+      "direct APK deploy version code"
+    )
+
+    if parsed_version_code <= highest_known_version_code
+      UI.user_error!(
+        "Refusing direct APK deploy version code #{selected_version_code} because published direct metadata or the local release baseline already uses #{highest_known_version_code}. Set SECPAL_ANDROID_DEPLOY_VERSION_CODE to a higher value."
+      )
+    end
+
+    ENV["SECPAL_ANDROID_VERSION_CODE"] = selected_version_code
+    return parsed_version_code
+  end
+
+  timestamp_version_code = Time.now.utc.strftime("%y%j%H%M").to_i
+  generated_version_code = [
+    timestamp_version_code,
+    highest_known_version_code + 1
+  ].max
+  ENV["SECPAL_ANDROID_VERSION_CODE"] = generated_version_code.to_s
+  UI.message(
+    "Using generated SECPAL_ANDROID_VERSION_CODE=#{ENV['SECPAL_ANDROID_VERSION_CODE']} for direct APK deployment."
+  )
+
+  generated_version_code
+end
+
+def release_version_name
+  (ENV["SECPAL_ANDROID_VERSION_NAME"] || "1.0.0").strip
+end
+
+def release_path_version
+  "#{release_version_name}-#{ENV.fetch('SECPAL_ANDROID_VERSION_CODE')}".gsub(
+    /[^A-Za-z0-9._-]+/,
+    "-"
+  )
+end
+
+def run_signed_gradle(task)
+  sh(
+    "bash",
+    File.expand_path("scripts/load-android-release-env.sh", REPO_ROOT),
+    "bash",
+    "-lc",
+    "cd #{File.expand_path('android', REPO_ROOT)} && ./gradlew #{task}"
+  )
+end
+
+def signed_aab_path
+  File.expand_path(
+    "android/app/build/outputs/bundle/release/app-release.aab",
+    REPO_ROOT
+  )
+end
+
+def signed_apk_path
+  File.expand_path(
+    "android/app/build/outputs/apk/release/app-release.apk",
+    REPO_ROOT
+  )
+end
+
+def ensure_play_metadata!
+  UI.user_error!(
+    "Missing Fastlane Play metadata root: #{PLAY_METADATA_ROOT}"
+  ) unless Dir.exist?(PLAY_METADATA_ROOT)
+
+  PLAY_METADATA_ROOT
+end
+
+def prepare_play_changelogs!(version_code)
+  metadata_root = ensure_play_metadata!
+  locale_roots = Dir.children(metadata_root).map { |entry| File.join(metadata_root, entry) }
+    .select { |path| File.directory?(path) }
+
+  locale_roots.each do |locale_root|
+    changelog_root = File.join(locale_root, "changelogs")
+    default_changelog_path = File.join(changelog_root, "default.txt")
+    versioned_changelog_path = File.join(changelog_root, "#{version_code}.txt")
+
+    UI.user_error!(
+      "Missing default Play changelog template: #{default_changelog_path}"
+    ) unless File.exist?(default_changelog_path)
+
+    next if File.exist?(versioned_changelog_path)
+
+    FileUtils.mkdir_p(changelog_root)
+    FileUtils.cp(default_changelog_path, versioned_changelog_path)
+    UI.message("Prepared Play changelog #{versioned_changelog_path}")
+  end
+end
+
+def write_file(path, content)
+  File.write(path, content)
+  path
+end
+
+def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_checksum_path:)
+  latest_apk_path = "#{remote_root}/app.secpal-latest.apk"
+  next_apk_path = "#{remote_root}/app.secpal-latest.next.apk"
+  previous_apk_path = "#{remote_root}/app.secpal-latest.previous.apk"
+  checksum_path = "#{remote_root}/SHA256SUMS.txt"
+  next_checksum_path = "#{remote_root}/SHA256SUMS.next.txt"
+  previous_checksum_path = "#{remote_root}/SHA256SUMS.previous.txt"
+
+  remote_script = <<~SH
+    set -eu
+
+    latest_apk_path=#{Shellwords.escape(latest_apk_path)}
+    next_apk_path=#{Shellwords.escape(next_apk_path)}
+    previous_apk_path=#{Shellwords.escape(previous_apk_path)}
+    checksum_path=#{Shellwords.escape(checksum_path)}
+    next_checksum_path=#{Shellwords.escape(next_checksum_path)}
+    previous_checksum_path=#{Shellwords.escape(previous_checksum_path)}
+
+    cleanup() {
+      rm -f "$next_apk_path" "$next_checksum_path"
+    }
+
+    rollback() {
+      if [ -f "$previous_apk_path" ]; then
+        mv "$previous_apk_path" "$latest_apk_path"
+      fi
+      if [ -f "$previous_checksum_path" ]; then
+        mv "$previous_checksum_path" "$checksum_path"
+      fi
+      cleanup
+    }
+
+    trap 'rollback' EXIT HUP INT TERM
+
+    cp #{Shellwords.escape(source_apk_path)} "$next_apk_path"
+    cp #{Shellwords.escape(source_checksum_path)} "$next_checksum_path"
+
+    if [ -f "$latest_apk_path" ]; then
+      mv "$latest_apk_path" "$previous_apk_path"
+    fi
+    if [ -f "$checksum_path" ]; then
+      mv "$checksum_path" "$previous_checksum_path"
+    fi
+
+    mv "$next_checksum_path" "$checksum_path"
+    mv "$next_apk_path" "$latest_apk_path"
+
+    rm -f "$previous_apk_path" "$previous_checksum_path"
+    trap - EXIT HUP INT TERM
+    cleanup
+  SH
+
+  sh(
+    "ssh",
+    APK_DIRECT_SSH_HOST,
+    "sh",
+    "-eu",
+    "-c",
+    remote_script
+  )
+end
+
+def direct_deploy_channel
+  selected_channel =
+    ENV.fetch("SECPAL_ANDROID_DIRECT_CHANNEL", APK_UPDATE_CHANNEL).strip
+
+  return selected_channel if APK_DIRECT_CHANNELS.include?(selected_channel)
+
+  UI.user_error!(
+    "Unsupported direct APK channel '#{selected_channel}'. Expected one of: #{APK_DIRECT_CHANNELS.join(', ')}."
+  )
+end
+
+def stable_direct_channel?(channel)
+  channel == APK_UPDATE_CHANNEL
+end
+
+def direct_channel_root_url(channel, alias_path: false)
+  return "#{APK_ARTIFACT_HOST}/android" if alias_path
+
+  "#{APK_ARTIFACT_HOST}/android/#{channel}"
+end
+
+def direct_channel_metadata_url(channel, alias_path: false)
+  "#{direct_channel_root_url(channel, alias_path: alias_path)}/latest.json"
+end
+
+def direct_channel_latest_apk_url(channel, alias_path: false)
+  "#{direct_channel_root_url(channel, alias_path: alias_path)}/app.secpal-latest.apk"
+end
+
+def direct_channel_checksum_url(channel, alias_path: false)
+  "#{direct_channel_root_url(channel, alias_path: alias_path)}/SHA256SUMS.txt"
+end
+
+def direct_release_urls(version = nil, channel:, alias_path: false)
+  versioned_release_root =
+    version.nil? ? nil : "#{APK_ARTIFACT_HOST}/android/releases/#{version}"
+
+  {
+    artifact_host: APK_ARTIFACT_HOST,
+    human_landing_url: APK_LANDING_URL,
+    metadata_url: direct_channel_metadata_url(channel, alias_path: alias_path),
+    latest_apk_url: direct_channel_latest_apk_url(channel, alias_path: alias_path),
+    checksum_url: direct_channel_checksum_url(channel, alias_path: alias_path),
+    versioned_metadata_url: versioned_release_root&.+("/metadata.json"),
+    versioned_apk_url: versioned_release_root&.+("/app.secpal-#{version}.apk"),
+    versioned_checksum_url: versioned_release_root&.+("/SHA256SUMS.txt")
+  }
+end
+
+def direct_release_metadata_payload(
+  release_available:,
+  channel:,
+  alias_path: false,
+  metadata_url: nil,
+  published_at: nil
+)
+  version = release_available ? release_path_version : nil
+  urls = direct_release_urls(version, channel: channel, alias_path: alias_path)
+
+  {
+    package_name: PLAY_PACKAGE_NAME,
+    update_channel: channel,
+    release_available: release_available,
+    version: version,
+    version_name: release_available ? release_version_name : nil,
+    version_code: release_available ? ENV.fetch("SECPAL_ANDROID_VERSION_CODE").to_i : nil,
+    published_at: published_at,
+    artifact_host: urls.fetch(:artifact_host),
+    human_landing_url: urls.fetch(:human_landing_url),
+    metadata_url: metadata_url || urls.fetch(:metadata_url),
+    latest_apk_url: urls.fetch(:latest_apk_url),
+    checksum_url: urls.fetch(:checksum_url),
+    versioned_metadata_url: urls.fetch(:versioned_metadata_url),
+    versioned_apk_url: urls.fetch(:versioned_apk_url),
+    versioned_checksum_url: urls.fetch(:versioned_checksum_url),
+    app_signing_certificate_sha256: direct_signing_certificate_sha256,
+    signing_key_shared_with_google_play: APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY
+  }
+end
+
+def direct_signing_certificate_sha256
+  return @direct_signing_certificate_sha256 if defined?(@direct_signing_certificate_sha256)
+
+  stdout, stderr, status = Open3.capture3(
+    "apksigner",
+    "verify",
+    "--print-certs",
+    signed_apk_path
+  )
+  unless status.success?
+    error_output = stderr.to_s.strip
+    error_output = stdout.to_s.strip if error_output.empty?
+    UI.user_error!(
+      "Failed to derive the Android signing certificate fingerprint: #{error_output}"
+    )
+  end
+
+  fingerprint = stdout[/SHA-256\s+digest:\s*([0-9A-F:]+)/i, 1]
+  if fingerprint.to_s.empty?
+    UI.user_error!(
+      "Failed to parse the Android signing certificate SHA-256 fingerprint from apksigner output."
+    )
+  end
+
+  @direct_signing_certificate_sha256 = fingerprint.upcase
+end
+
+def direct_latest_metadata_document(published_at: Time.now.utc.iso8601)
+  JSON.pretty_generate(
+    direct_release_metadata_payload(
+      release_available: true,
+      channel: direct_deploy_channel,
+      published_at: published_at
+    )
+  )
+end
+
+def direct_unavailable_latest_metadata_document(published_at: Time.now.utc.iso8601)
+  JSON.pretty_generate(
+    direct_release_metadata_payload(
+      release_available: false,
+      channel: direct_deploy_channel,
+      published_at: published_at
+    )
+  )
+end
+
+def direct_versioned_metadata_document(channel:, published_at:)
+  version = release_path_version
+
+  JSON.pretty_generate(
+    direct_release_metadata_payload(
+      release_available: true,
+      channel: channel,
+      metadata_url: "#{APK_ARTIFACT_HOST}/android/releases/#{version}/metadata.json",
+      published_at: published_at
+    )
+  )
+end
+
+def upload_direct_apk_artifacts(apk_path)
+  sha256_hex = Digest::SHA256.file(apk_path).hexdigest
+  channel = direct_deploy_channel
+  version = release_path_version
+  versioned_apk_name = "app.secpal-#{version}.apk"
+  remote_android_root = "#{APK_DIRECT_ROOT}/android"
+  remote_channel_root = "#{remote_android_root}/#{channel}"
+  remote_release_root = "#{remote_android_root}/releases/#{version}"
+  published_at = Time.now.utc.iso8601
+
+  Dir.mktmpdir("secpal-direct-apk") do |tmpdir|
+    latest_checksum_path = write_file(
+      File.join(tmpdir, "SHA256SUMS-latest.txt"),
+      "#{sha256_hex}  app.secpal-latest.apk\n"
+    )
+    versioned_checksum_path = write_file(
+      File.join(tmpdir, "SHA256SUMS-versioned.txt"),
+      "#{sha256_hex}  #{versioned_apk_name}\n"
+    )
+    latest_metadata_path = write_file(
+      File.join(tmpdir, "latest.json"),
+      direct_latest_metadata_document(published_at: published_at)
+    )
+    stable_alias_metadata_path = write_file(
+      File.join(tmpdir, "stable-latest.json"),
+      JSON.pretty_generate(
+        direct_release_metadata_payload(
+          release_available: true,
+          channel: APK_UPDATE_CHANNEL,
+          alias_path: true,
+          published_at: published_at
+        )
+      )
+    )
+    versioned_metadata_path = write_file(
+      File.join(tmpdir, "metadata.json"),
+      direct_versioned_metadata_document(channel: channel, published_at: published_at)
+    )
+
+    sh(
+      "ssh",
+      APK_DIRECT_SSH_HOST,
+      "mkdir -p #{Shellwords.escape(remote_android_root)} #{Shellwords.escape(remote_channel_root)} #{Shellwords.escape(remote_release_root)}"
+    )
+    sh(
+      "scp",
+      apk_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/#{versioned_apk_name}"
+    )
+    sh(
+      "scp",
+      versioned_checksum_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/SHA256SUMS.txt"
+    )
+    sh(
+      "scp",
+      latest_checksum_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/SHA256SUMS-latest.txt"
+    )
+    sh(
+      "scp",
+      versioned_metadata_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_release_root}/metadata.json"
+    )
+    safely_replace_remote_latest_files!(
+      remote_root: remote_channel_root,
+      source_apk_path: "#{remote_release_root}/#{versioned_apk_name}",
+      source_checksum_path: "#{remote_release_root}/SHA256SUMS-latest.txt"
+    )
+    sh(
+      "scp",
+      latest_metadata_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_channel_root}/latest.json"
+    )
+
+    return unless stable_direct_channel?(channel)
+
+    safely_replace_remote_latest_files!(
+      remote_root: remote_android_root,
+      source_apk_path: "#{remote_channel_root}/app.secpal-latest.apk",
+      source_checksum_path: "#{remote_channel_root}/SHA256SUMS.txt"
+    )
+    sh(
+      "ssh",
+      APK_DIRECT_SSH_HOST,
+      "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
+    )
+    sh(
+      "scp",
+      stable_alias_metadata_path,
+      "#{APK_DIRECT_SSH_HOST}:#{remote_android_root}/latest.json"
+    )
+  end
+end
+
+platform :android do
+  desc "Build the signed SecPal release APK with the local upload key"
+  lane :build_signed_apk do
+    run_signed_gradle("assembleRelease")
+  end
+
+  desc "Build the signed SecPal release AAB with the local upload key"
+  lane :build_signed_aab do
+    run_signed_gradle("bundleRelease")
+  end
+
+  desc "Upload the signed SecPal release AAB to the Google Play internal track"
+  lane :deploy_internal do
+    json_key_path = ensure_local_file!(
+      ENV["SECPAL_ANDROID_PLAY_JSON_KEY_PATH"],
+      "Google Play service-account JSON"
+    )
+    version_code = next_deploy_version_code(json_key_path)
+
+    build_signed_aab
+
+    upload_to_play_store(
+      aab: signed_aab_path,
+      json_key: json_key_path,
+      package_name: PLAY_PACKAGE_NAME,
+      track: PLAY_INTERNAL_TRACK,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
+    )
+    persist_configured_release_version_code!(version_code)
+  end
+
+  desc "Upload the signed SecPal release AAB and the Fastlane Play metadata to the Google Play internal track"
+  lane :deploy_internal_with_metadata do
+    json_key_path = ensure_local_file!(
+      ENV["SECPAL_ANDROID_PLAY_JSON_KEY_PATH"],
+      "Google Play service-account JSON"
+    )
+    version_code = next_deploy_version_code(json_key_path)
+
+    build_signed_aab
+    prepare_play_changelogs!(version_code)
+
+    upload_to_play_store(
+      aab: signed_aab_path,
+      json_key: json_key_path,
+      package_name: PLAY_PACKAGE_NAME,
+      track: PLAY_INTERNAL_TRACK,
+      metadata_path: ensure_play_metadata!
+    )
+    persist_configured_release_version_code!(version_code)
+  end
+
+  desc "Build the signed SecPal release APK and publish it to apk.secpal.app"
+  lane :deploy_direct_apk do
+    version_code = next_direct_deploy_version_code
+    build_signed_apk
+    upload_direct_apk_artifacts(signed_apk_path)
+    persist_configured_release_version_code!(version_code)
+  end
+
+  desc "Build the signed SecPal release APK and publish it to the beta direct-download channel on apk.secpal.app"
+  lane :deploy_direct_apk_beta do
+    ENV["SECPAL_ANDROID_DIRECT_CHANNEL"] = "beta"
+    version_code = next_direct_deploy_version_code
+    build_signed_apk
+    upload_direct_apk_artifacts(signed_apk_path)
+    persist_configured_release_version_code!(version_code)
+  end
+end

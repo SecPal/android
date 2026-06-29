@@ -421,6 +421,134 @@ describe("Android native hardening", () => {
     expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
   });
 
+  it("keeps Android fastlane release automation on the local signing flow", () => {
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const readme = readRepoFile("README.md");
+    const distributionDoc = readRepoFile(
+      "docs",
+      "ANDROID_RELEASE_DISTRIBUTION.md"
+    );
+    const fastfile = readRepoFile("fastlane", "Fastfile");
+    const releaseEnvLoader = readRepoFile(
+      "scripts",
+      "load-android-release-env.sh"
+    );
+    const gemfilePath = resolve(repoRoot, "Gemfile");
+    const appfilePath = resolve(repoRoot, "fastlane", "Appfile");
+    const fastfilePath = resolve(repoRoot, "fastlane", "Fastfile");
+
+    expect(existsSync(gemfilePath)).toBe(true);
+    expect(existsSync(appfilePath)).toBe(true);
+    expect(existsSync(fastfilePath)).toBe(true);
+    expect(packageJson.scripts["fastlane:install"]).toContain("bundle install");
+    expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
+      "./gradlew assembleStoreListing"
+    );
+    expect(packageJson.scripts["fastlane:android:build:signed-aab"]).toContain(
+      "bundle exec fastlane android build_signed_aab"
+    );
+    expect(packageJson.scripts["fastlane:android:build:signed-apk"]).toContain(
+      "bundle exec fastlane android build_signed_apk"
+    );
+    expect(packageJson.scripts["fastlane:android:deploy:internal"]).toContain(
+      "bundle exec fastlane android deploy_internal"
+    );
+    expect(packageJson.scripts["fastlane:android:deploy:direct-apk"]).toContain(
+      "bundle exec fastlane android deploy_direct_apk"
+    );
+    expect(
+      packageJson.scripts["fastlane:android:deploy:direct-apk:beta"]
+    ).toContain("SECPAL_ANDROID_DIRECT_CHANNEL=beta");
+    expect(packageJson.scripts["fastlane:android:deploy:beta-apk"]).toContain(
+      "bundle exec fastlane android deploy_direct_apk_beta"
+    );
+    expect(readme).toContain("Fastlane");
+    expect(readme).toContain("npm run fastlane:android:build:signed-aab");
+    expect(readme).toContain("npm run fastlane:android:deploy:internal");
+    expect(readme).toContain("npm run fastlane:android:deploy:direct-apk");
+    expect(readme).toContain("apk.secpal.app");
+    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
+    expect(readme).toContain(
+      "https://apk.secpal.app/android/stable/latest.json"
+    );
+    expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
+    expect(distributionDoc).toContain("Fastlane");
+    expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
+    expect(distributionDoc).toContain("internal testing track");
+    expect(distributionDoc).toContain("apk.secpal.app");
+    expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(distributionDoc).toContain(
+      "https://apk.secpal.app/android/beta/latest.json"
+    );
+    expect(fastfile).toContain('File.expand_path("..", __dir__)');
+    expect(fastfile).toContain("deploy_direct_apk");
+    expect(fastfile).toContain("deploy_direct_apk_beta");
+    expect(fastfile).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(fastfile).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(fastfile).toContain("APK_DIRECT_CHANNELS = %w[stable beta].freeze");
+    expect(fastfile).toContain('APK_UPDATE_CHANNEL = "stable"');
+    expect(fastfile).toContain("stable_direct_channel?");
+    expect(fastfile).toContain("direct_channel_root_url");
+    expect(fastfile).toContain("Unsupported direct APK channel");
+    expect(fastfile).toContain("scp");
+    expect(fastfile).toContain("Digest::SHA256.file");
+    expect(fastfile).toContain('APK_UPDATE_CHANNEL = "stable"');
+    expect(fastfile).toContain("app_signing_certificate_sha256");
+    expect(fastfile).toContain("signing_key_shared_with_google_play");
+    expect(fastfile).toContain("versioned_checksum_url");
+    expect(fastfile).toContain("release_available: false");
+    expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
+    expect(fastfile).toContain("next_deploy_version_code");
+    expect(fastfile).toContain("configured_release_version_code");
+    expect(fastfile).toContain("SECPAL_ANDROID_DEPLOY_VERSION_CODE");
+    expect(fastfile).toContain("google_play_track_version_codes");
+    expect(fastfile).toContain("PLAY_VERSION_CODE_TRACKS");
+    expect(fastfile).toContain("Time.now.utc.strftime");
+    expect(fastfile).toContain('ENV["SECPAL_ANDROID_VERSION_CODE"]');
+    expect(fastfile).toContain("load-android-release-env.sh");
+    expect(releaseEnvLoader).toContain('$(dirname "${BASH_SOURCE[0]}")');
+    expect(releaseEnvLoader).toContain('overrides+=("$key=${!key}")');
+    expect(releaseEnvLoader).toContain('exec env "${overrides[@]}"');
+    expect(releaseEnvLoader).toContain("with-android-env.sh");
+  });
+
+  it("keeps a dedicated store-listing build path separate from hardened release builds", () => {
+    const buildGradle = readRepoFile("android", "app", "build.gradle");
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const dedicatedHomeActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "DedicatedDeviceHomeActivity.java"
+    );
+
+    expect(buildGradle).toContain("storeListing");
+    expect(buildGradle).toContain(
+      'buildConfigField "boolean", "ALLOW_SCREENSHOTS", "true"'
+    );
+    expect(buildGradle).toContain('applicationIdSuffix ".storelisting"');
+    expect(mainActivity).toContain("BuildConfig.ALLOW_SCREENSHOTS");
+    expect(dedicatedHomeActivity).toContain("BuildConfig.ALLOW_SCREENSHOTS");
+  });
+
   it("exposes app-controlled gesture-navigation settings through the enterprise bridge", () => {
     const plugin = readRepoFile(
       "android",

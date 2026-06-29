@@ -30,9 +30,24 @@ SPDX-FileCopyrightText = "2026 SecPal"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
+path = ["Gemfile", "Gemfile.lock"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
 path = "scripts/**"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["fastlane/Appfile", "fastlane/Fastfile"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ["fastlane/metadata/android/**/*.txt", "fastlane/metadata/android/**/*.png"]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = ["android/gradlew", "android/gradlew.bat", "android/gradle/wrapper/**"]

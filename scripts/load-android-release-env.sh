@@ -4,7 +4,20 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_ENV_FILE="${SECPAL_ANDROID_RELEASE_ENV_FILE:-$HOME/.config/secpal/android-release.env}"
+OVERRIDABLE_KEYS=(
+    SECPAL_ANDROID_DIRECT_CHANNEL
+    SECPAL_ANDROID_VERSION_CODE
+    SECPAL_ANDROID_VERSION_NAME
+    SECPAL_ANDROID_KEYSTORE_PATH
+    SECPAL_ANDROID_KEYSTORE_PASSWORD
+    SECPAL_ANDROID_KEY_ALIAS
+    SECPAL_ANDROID_KEY_PASSWORD
+    SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA
+    SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA
+)
+overrides=()
 
 if [[ ! -f "$RELEASE_ENV_FILE" ]]; then
     echo "Missing Android release env file: $RELEASE_ENV_FILE" >&2
@@ -32,8 +45,15 @@ if (( file_mode_octal & 0177 )); then
     exit 1
 fi
 
+for key in "${OVERRIDABLE_KEYS[@]}"; do
+    if [[ -v "$key" ]]; then
+        overrides+=("$key=${!key}")
+    fi
+done
+
 set -a
+# shellcheck source=/dev/null
 source "$RELEASE_ENV_FILE"
 set +a
 
-exec bash ./scripts/with-android-env.sh "$@"
+exec env "${overrides[@]}" bash "$SCRIPT_DIR/with-android-env.sh" "$@"

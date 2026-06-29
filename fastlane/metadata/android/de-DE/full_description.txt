@@ -1,0 +1,15 @@
+SecPal unterstuetzt private Sicherheitsunternehmen bei ihren taeglichen Ablaeufen mit weniger Papierarbeit und klarerer Einsatzkoordination.
+
+Mit SecPal erhalten Sicherheitsdienste mobilen Zugriff auf strukturierte Arbeitsablaeufe, sichere Anmeldung und eine Android-App fuer den professionellen Einsatz.
+
+Wichtige Punkte:
+- mobiler Zugriff auf den SecPal-Arbeitsbereich unter Android
+- sichere Anmeldung mit Passkeys und gehaerteter nativer Sitzungsverwaltung
+- Unterstuetzung fuer Android-Rollout und verwaltete Geraetepfade
+- direkter APK-Download und kontrollierte Update-Kanaele bei Bedarf
+- entwickelt fuer die Anforderungen deutscher privater Sicherheitsdienste
+
+SecPal ist fuer den professionellen Einsatz gedacht. Welche Funktionen verfuegbar sind, haengt von Ihrem SecPal-Deployment und den Berechtigungen Ihrer Organisation ab.
+
+Weitere Informationen:
+https://secpal.app/
