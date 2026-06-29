@@ -3623,8 +3623,7 @@ describe("native auth bridge bootstrap injection", () => {
     payload: Record<string, unknown>
   ) {
     const registration = payload.registration as
-      | { push_token?: string }
-      | undefined;
+      { push_token?: string } | undefined;
 
     return registration?.push_token;
   }
@@ -5011,8 +5010,7 @@ describe("native auth bridge bootstrap injection", () => {
     vm.runInNewContext(instrumentedScript, sandbox);
 
     const decodeBase64Text = sandbox.__testDecodeBase64Text as
-      | ((value: string) => string)
-      | undefined;
+      ((value: string) => string) | undefined;
     const messagePayload = JSON.stringify({ message: "Grüße aus Köln 🦊" });
 
     expect(typeof decodeBase64Text).toBe("function");
