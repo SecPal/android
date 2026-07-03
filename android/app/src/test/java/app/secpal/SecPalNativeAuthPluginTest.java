@@ -102,6 +102,19 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void vaultRootKeyWrapperAvailabilityStaysDisabledForWebViewJavascript() {
+        assertTrue(
+            SecPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailableForWebView(true, true)
+        );
+        assertFalse(
+            SecPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailableForWebView(false, true)
+        );
+        assertFalse(
+            SecPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailableForWebView(true, false)
+        );
+    }
+
+    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",

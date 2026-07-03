@@ -421,7 +421,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void isVaultDeviceBoundWrapperAvailable(PluginCall call) {
         JSObject payload = new JSObject();
-        payload.put("available", vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable());
+        payload.put(
+            "available",
+            isVaultDeviceBoundWrapperAvailableForWebView(
+                isVaultRootKeyBridgeEnabledForWebView(),
+                vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable()
+            )
+        );
         call.resolve(payload);
     }
 
@@ -510,6 +516,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean isVaultRootKeyBridgeEnabledForWebView() {
         return false;
+    }
+
+    static boolean isVaultDeviceBoundWrapperAvailableForWebView(
+        boolean vaultRootKeyBridgeEnabledForWebView,
+        boolean wrapperAvailable
+    ) {
+        return vaultRootKeyBridgeEnabledForWebView && wrapperAvailable;
     }
 
     private void rejectVaultRootKeyBridgeCall(PluginCall call) {
