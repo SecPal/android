@@ -143,7 +143,9 @@ describe("capacitor Android wrapper configuration", () => {
     expect("wrapVaultRootKey" in bridge).toBe(false);
     expect("unwrapVaultRootKey" in bridge).toBe(false);
 
-    expect(pluginMocks.isVaultDeviceBoundWrapperAvailable).not.toHaveBeenCalled();
+    expect(
+      pluginMocks.isVaultDeviceBoundWrapperAvailable
+    ).not.toHaveBeenCalled();
     expect(pluginMocks.wrapVaultRootKey).not.toHaveBeenCalled();
     expect(pluginMocks.unwrapVaultRootKey).not.toHaveBeenCalled();
   });
