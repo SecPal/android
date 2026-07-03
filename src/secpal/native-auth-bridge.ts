@@ -51,6 +51,16 @@ export interface AuthCredentials {
   password: string;
 }
 
+export interface NativeVaultRootKeyWrapOptions {
+  rootKeyBase64: string;
+  subjectHash: string;
+}
+
+export interface NativeVaultRootKeyWrapResult {
+  wrappedRootKey: string;
+  metadata?: string;
+}
+
 export interface AndroidPushRegistrationDisabledError {
   apiOrigin: string | null;
   code: string;
@@ -71,6 +81,10 @@ export interface NativeAuthBridge {
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<boolean>;
+  isVaultDeviceBoundWrapperAvailable?(): Promise<boolean>;
+  wrapVaultRootKey?(
+    options: NativeVaultRootKeyWrapOptions
+  ): Promise<NativeVaultRootKeyWrapResult>;
   getAndroidPushRegistrationState(): Promise<AndroidPushRegistrationState>;
   request(
     request: NativeAuthenticatedRequest
@@ -100,6 +114,10 @@ interface SecPalNativeAuthPlugin {
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<{ available?: boolean }>;
+  isVaultDeviceBoundWrapperAvailable?(): Promise<{ available?: boolean }>;
+  wrapVaultRootKey?(
+    options: NativeVaultRootKeyWrapOptions
+  ): Promise<NativeVaultRootKeyWrapResult>;
   request(options: {
     method: string;
     path: string;
@@ -167,6 +185,22 @@ export function createNativeAuthBridge(): NativeAuthBridge {
 
       return result.credential;
     };
+  }
+
+  if (
+    typeof secPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailable ===
+      "function" &&
+    typeof secPalNativeAuthPlugin.wrapVaultRootKey === "function"
+  ) {
+    const isVaultDeviceBoundWrapperAvailable =
+      secPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailable;
+    const wrapVaultRootKey = secPalNativeAuthPlugin.wrapVaultRootKey;
+    bridge.isVaultDeviceBoundWrapperAvailable = async () => {
+      const result = await isVaultDeviceBoundWrapperAvailable();
+
+      return result.available === true;
+    };
+    bridge.wrapVaultRootKey = (options) => wrapVaultRootKey(options);
   }
 
   return bridge;
