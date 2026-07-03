@@ -60,6 +60,7 @@ fastlane/README.md
 .prettiercache
 *.tsbuildinfo
 .local/
+.context/
 
 # Preflight overrides (local only)
 .preflight-allow-large-pr
