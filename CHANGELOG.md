@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- security: disabled the WebView-accessible Android offline-vault root-key bridge so JavaScript can neither wrap nor unwrap device-bound vault root keys, forcing the app to fall back to non-native vault wrapping paths instead of creating unusable native-device-bound vault state.
 - Added a repo-local Fastlane baseline for Android so signed APK/AAB builds and Google Play internal-track uploads can reuse the existing local keystore and `android-release.env` flow without moving signing material into the repository; the Play deploy lane now auto-generates a fresh `SECPAL_ANDROID_VERSION_CODE` when needed, supports one-off `SECPAL_ANDROID_DEPLOY_VERSION_CODE` overrides, explicit shell-provided signing overrides win over the values stored in the local env file, and the direct APK lanes now publish versioned artifacts plus the public `stable` and `beta` latest endpoints on `apk.secpal.app/android/...`, with `/android/...` remaining the stable alias.
 - Replaced the repo-local `markdownlint-cli2` pre-commit and preflight path with pinned `markdownlint-cli@0.49.0` usage so markdown validation now matches the shared `.github` governance baseline.
 - Extracted dedicated-device home tile rendering into `DedicatedDeviceHomeTileGridRenderer` and `DedicatedDeviceHomeTileModel`, replacing inline imperative view construction with an inflated `view_dedicated_device_home_tile` layout.
@@ -23,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- disabled the WebView-accessible Android offline-vault root-key unwrap bridge so JavaScript can no longer unwrap device-bound vault root keys, while native availability checks and wrapping remain available for non-exfiltrating device-bound vault creation
 - Added `android-release.env` to the repo-local ignore rules so Android signing environment files are not accidentally staged from developer machines.
 - Removed the optional `email` field from native public-passkey (`token`-mode) challenge startup so the Android wrapper, bridge, and injected plugin contract now match the discoverable-only API surface required by `SecPal/api#1101`. `SecPalNativeAuthPlugin.loginWithPasskey`, `NativeAuthHttpClient.startTokenPasskeyAuthenticationChallenge`, the typed `NativeAuthBridge.loginWithPasskey` signature, and the injected `SecPalNativeAuthBridge` no longer accept or forward an `email` argument, preventing email-scoped public passkey challenges from being issued through the Android shell (issue #225).
 - refreshed the npm lockfile so the shared `minimatch` chain used by `eslint`, `@typescript-eslint`, and `@capacitor/cli` now resolves transitive `brace-expansion@5.0.6` instead of the GHSA-jxxr-4gwj-5jf2 vulnerable `5.0.5` release tracked in issue `#258`

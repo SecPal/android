@@ -97,11 +97,6 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void vaultRootKeyBridgeStaysDisabledForWebViewJavascript() {
-        assertFalse(SecPalNativeAuthPlugin.isVaultRootKeyBridgeEnabledForWebView());
-    }
-
-    @Test
     public void resolveConfiguredApiBaseUrlNormalizesConfiguredOrigin() {
         assertEquals(
             "https://api.secpal.dev",
