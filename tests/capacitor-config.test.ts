@@ -124,7 +124,7 @@ describe("capacitor Android wrapper configuration", () => {
     });
   });
 
-  it("exposes the optional vault wrapper bridge methods when the native plugin supports them", async () => {
+  it("keeps the optional vault wrapper bridge methods undefined even when the native plugin supports them", async () => {
     pluginMocks.isVaultDeviceBoundWrapperAvailable = vi
       .fn()
       .mockResolvedValue({ available: true });
@@ -139,38 +139,15 @@ describe("capacitor Android wrapper configuration", () => {
       await import("../src/secpal/native-auth-bridge");
     const bridge = createNativeAuthBridge();
 
-    await expect(bridge.isVaultDeviceBoundWrapperAvailable?.()).resolves.toBe(
-      true
-    );
-    await expect(
-      bridge.wrapVaultRootKey?.({
-        rootKeyBase64: "cm9vdC1rZXk=",
-        subjectHash: "subject-hash",
-      })
-    ).resolves.toEqual({
-      wrappedRootKey: "wrapped-root-key",
-    });
-    await expect(
-      bridge.unwrapVaultRootKey?.({
-        wrappedRootKey: "wrapped-root-key",
-        subjectHash: "subject-hash",
-      })
-    ).resolves.toEqual({
-      rootKeyBase64: "cm9vdC1rZXk=",
-    });
+    expect("isVaultDeviceBoundWrapperAvailable" in bridge).toBe(false);
+    expect("wrapVaultRootKey" in bridge).toBe(false);
+    expect("unwrapVaultRootKey" in bridge).toBe(false);
 
     expect(
       pluginMocks.isVaultDeviceBoundWrapperAvailable
-    ).toHaveBeenCalledOnce();
-    expect(pluginMocks.wrapVaultRootKey).toHaveBeenCalledWith({
-      rootKeyBase64: "cm9vdC1rZXk=",
-      subjectHash: "subject-hash",
-    });
-    expect(pluginMocks.unwrapVaultRootKey).toHaveBeenCalledWith({
-      wrappedRootKey: "wrapped-root-key",
-      subjectHash: "subject-hash",
-      metadata: undefined,
-    });
+    ).not.toHaveBeenCalled();
+    expect(pluginMocks.wrapVaultRootKey).not.toHaveBeenCalled();
+    expect(pluginMocks.unwrapVaultRootKey).not.toHaveBeenCalled();
   });
 
   it("keeps the optional vault wrapper bridge methods undefined when the native plugin does not support them", async () => {
@@ -182,9 +159,9 @@ describe("capacitor Android wrapper configuration", () => {
       await import("../src/secpal/native-auth-bridge");
     const bridge = createNativeAuthBridge();
 
-    expect(bridge.isVaultDeviceBoundWrapperAvailable).toBeUndefined();
-    expect(bridge.wrapVaultRootKey).toBeUndefined();
-    expect(bridge.unwrapVaultRootKey).toBeUndefined();
+    expect("isVaultDeviceBoundWrapperAvailable" in bridge).toBe(false);
+    expect("wrapVaultRootKey" in bridge).toBe(false);
+    expect("unwrapVaultRootKey" in bridge).toBe(false);
   });
 
   it("dispatches the native logout event after a successful typed bridge logout", async () => {

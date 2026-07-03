@@ -30,6 +30,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
     private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
     private static final String ANDROID_PUSH_TOKEN_ERROR_EVENT = "androidPushTokenError";
+    private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_MESSAGE =
+        "Android offline vault root keys cannot be bridged into WebView JavaScript";
+    private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE =
+        "VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED";
 
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
@@ -417,7 +421,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @PluginMethod
     public void isVaultDeviceBoundWrapperAvailable(PluginCall call) {
         JSObject payload = new JSObject();
-        payload.put("available", vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable());
+        payload.put(
+            "available",
+            isVaultDeviceBoundWrapperAvailableForWebView(
+                isVaultRootKeyBridgeEnabledForWebView(),
+                vaultRootKeyWrapper != null && vaultRootKeyWrapper.isAvailable()
+            )
+        );
         call.resolve(payload);
     }
 
@@ -482,42 +492,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void wrapVaultRootKey(PluginCall call) {
-        String rootKeyBase64 = requireValue(call, "rootKeyBase64");
-        String subjectHash = requireValue(call, "subjectHash");
-
-        if (rootKeyBase64 == null || subjectHash == null) {
-            return;
-        }
-
-        runAsync(call, () -> {
-            try {
-                JSObject payload = new JSObject();
-                payload.put("wrappedRootKey", vaultRootKeyWrapper.wrap(rootKeyBase64, subjectHash));
-                call.resolve(payload);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to wrap Android offline vault root key", "TOKEN_STORAGE_ERROR", exception);
-            }
-        });
+        rejectVaultRootKeyBridgeCall(call);
     }
 
     @PluginMethod
     public void unwrapVaultRootKey(PluginCall call) {
-        String wrappedRootKey = requireValue(call, "wrappedRootKey");
-        String subjectHash = requireValue(call, "subjectHash");
-
-        if (wrappedRootKey == null || subjectHash == null) {
-            return;
-        }
-
-        runAsync(call, () -> {
-            try {
-                JSObject payload = new JSObject();
-                payload.put("rootKeyBase64", vaultRootKeyWrapper.unwrap(wrappedRootKey, subjectHash));
-                call.resolve(payload);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to unwrap Android offline vault root key", "TOKEN_STORAGE_ERROR", exception);
-            }
-        });
+        rejectVaultRootKeyBridgeCall(call);
     }
 
     private void runAsync(PluginCall call, Runnable job) {
@@ -532,6 +512,24 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     interface PushEventNotifier {
         void notifyRetained(String event, JSObject payload);
+    }
+
+    static boolean isVaultRootKeyBridgeEnabledForWebView() {
+        return false;
+    }
+
+    static boolean isVaultDeviceBoundWrapperAvailableForWebView(
+        boolean vaultRootKeyBridgeEnabledForWebView,
+        boolean wrapperAvailable
+    ) {
+        return vaultRootKeyBridgeEnabledForWebView && wrapperAvailable;
+    }
+
+    private void rejectVaultRootKeyBridgeCall(PluginCall call) {
+        call.reject(
+            VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_MESSAGE,
+            VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE
+        );
     }
 
     private AndroidPushRuntimeManager.MessagingListener createAndroidPushMessagingListener() {
