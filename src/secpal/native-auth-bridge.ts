@@ -56,19 +56,9 @@ export interface NativeVaultRootKeyWrapOptions {
   subjectHash: string;
 }
 
-export interface NativeVaultRootKeyUnwrapOptions {
-  wrappedRootKey: string;
-  subjectHash: string;
-  metadata?: string;
-}
-
 export interface NativeVaultRootKeyWrapResult {
   wrappedRootKey: string;
   metadata?: string;
-}
-
-export interface NativeVaultRootKeyUnwrapResult {
-  rootKeyBase64: string;
 }
 
 export interface AndroidPushRegistrationDisabledError {
@@ -95,9 +85,6 @@ export interface NativeAuthBridge {
   wrapVaultRootKey?(
     options: NativeVaultRootKeyWrapOptions
   ): Promise<NativeVaultRootKeyWrapResult>;
-  unwrapVaultRootKey?(
-    options: NativeVaultRootKeyUnwrapOptions
-  ): Promise<NativeVaultRootKeyUnwrapResult>;
   getAndroidPushRegistrationState(): Promise<AndroidPushRegistrationState>;
   request(
     request: NativeAuthenticatedRequest
@@ -131,9 +118,6 @@ interface SecPalNativeAuthPlugin {
   wrapVaultRootKey?(
     options: NativeVaultRootKeyWrapOptions
   ): Promise<NativeVaultRootKeyWrapResult>;
-  unwrapVaultRootKey?(
-    options: NativeVaultRootKeyUnwrapOptions
-  ): Promise<NativeVaultRootKeyUnwrapResult>;
   request(options: {
     method: string;
     path: string;
@@ -206,26 +190,17 @@ export function createNativeAuthBridge(): NativeAuthBridge {
   if (
     typeof secPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailable ===
       "function" &&
-    typeof secPalNativeAuthPlugin.wrapVaultRootKey === "function" &&
-    typeof secPalNativeAuthPlugin.unwrapVaultRootKey === "function"
+    typeof secPalNativeAuthPlugin.wrapVaultRootKey === "function"
   ) {
     const isVaultDeviceBoundWrapperAvailable =
       secPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailable;
     const wrapVaultRootKey = secPalNativeAuthPlugin.wrapVaultRootKey;
-    const unwrapVaultRootKey = secPalNativeAuthPlugin.unwrapVaultRootKey;
-
     bridge.isVaultDeviceBoundWrapperAvailable = async () => {
       const result = await isVaultDeviceBoundWrapperAvailable();
 
       return result.available === true;
     };
     bridge.wrapVaultRootKey = (options) => wrapVaultRootKey(options);
-    bridge.unwrapVaultRootKey = (options) =>
-      unwrapVaultRootKey({
-        wrappedRootKey: options.wrappedRootKey,
-        subjectHash: options.subjectHash,
-        metadata: options.metadata,
-      });
   }
 
   return bridge;
