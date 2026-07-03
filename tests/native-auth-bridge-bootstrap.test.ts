@@ -2740,7 +2740,7 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("installs the native bridge and routes authenticated /v1/ fetch traffic through the native plugin", async () => {
+  it("installs the native bridge, keeps vault wrapper methods off the bootstrap bridge, and routes authenticated /v1/ fetch traffic through the native plugin", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
@@ -2811,17 +2811,8 @@ describe("native auth bridge bootstrap injection", () => {
         user: { id: string; name: string; display_name: string };
         pub_key_cred_params: Array<{ type: "public-key"; alg: number }>;
       }): Promise<unknown>;
-      isVaultDeviceBoundWrapperAvailable?(): Promise<boolean>;
-      wrapVaultRootKey?(options: {
-        rootKeyBase64: string;
-        subjectHash: string;
-      }): Promise<{ wrappedRootKey: string; metadata?: string }>;
-      unwrapVaultRootKey?(options: {
-        wrappedRootKey: string;
-        subjectHash: string;
-        metadata?: string;
-      }): Promise<{ rootKeyBase64: string }>;
     };
+    const vaultBridge = bridge as Record<string, unknown>;
 
     await bridge.login({ email: "worker@secpal.dev", password: "password123" });
     await bridge.loginWithPasskey?.();
@@ -2835,16 +2826,9 @@ describe("native auth bridge bootstrap injection", () => {
       },
       pub_key_cred_params: [{ type: "public-key", alg: -7 }],
     });
-    await expect(bridge.isVaultDeviceBoundWrapperAvailable?.()).resolves.toBe(
-      true
-    );
-    await expect(
-      bridge.wrapVaultRootKey?.({
-        rootKeyBase64: "cm9vdC1rZXk=",
-        subjectHash: "subject-hash",
-      })
-    ).resolves.toEqual({ wrappedRootKey: "wrapped-root-key" });
-    expect(bridge.unwrapVaultRootKey).toBeUndefined();
+    expect("isVaultDeviceBoundWrapperAvailable" in vaultBridge).toBe(false);
+    expect("wrapVaultRootKey" in vaultBridge).toBe(false);
+    expect("unwrapVaultRootKey" in vaultBridge).toBe(false);
 
     const response = await (sandbox.fetch as typeof fetch)(
       "https://api.secpal.dev/v1/customers",
@@ -2875,11 +2859,8 @@ describe("native auth bridge bootstrap injection", () => {
         pub_key_cred_params: [{ type: "public-key", alg: -7 }],
       },
     });
-    expect(plugin.isVaultDeviceBoundWrapperAvailable).toHaveBeenCalledOnce();
-    expect(plugin.wrapVaultRootKey).toHaveBeenCalledWith({
-      rootKeyBase64: "cm9vdC1rZXk=",
-      subjectHash: "subject-hash",
-    });
+    expect(plugin.isVaultDeviceBoundWrapperAvailable).not.toHaveBeenCalled();
+    expect(plugin.wrapVaultRootKey).not.toHaveBeenCalled();
     expect(plugin.unwrapVaultRootKey).not.toHaveBeenCalled();
     expect(plugin.request).toHaveBeenCalledWith({
       method: "POST",

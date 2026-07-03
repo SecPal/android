@@ -3421,17 +3421,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     };
   }
 
-  if (
-    typeof getPlugin().isVaultDeviceBoundWrapperAvailable === "function" &&
-    typeof getPlugin().wrapVaultRootKey === "function"
-  ) {
-    bridge.isVaultDeviceBoundWrapperAvailable = async () => {
-      const result = await getPlugin().isVaultDeviceBoundWrapperAvailable();
-      return result && typeof result === "object" ? result.available === true : result === true;
-    };
-    bridge.wrapVaultRootKey = (options) => getPlugin().wrapVaultRootKey(options);
-  }
-
   const enterpriseBridge = {
     getManagedState() {
       return getEnterprisePlugin().getManagedState();
