@@ -502,22 +502,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void unwrapVaultRootKey(PluginCall call) {
-        String wrappedRootKey = requireValue(call, "wrappedRootKey");
-        String subjectHash = requireValue(call, "subjectHash");
-
-        if (wrappedRootKey == null || subjectHash == null) {
-            return;
-        }
-
-        runAsync(call, () -> {
-            try {
-                JSObject payload = new JSObject();
-                payload.put("rootKeyBase64", vaultRootKeyWrapper.unwrap(wrappedRootKey, subjectHash));
-                call.resolve(payload);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to unwrap Android offline vault root key", "TOKEN_STORAGE_ERROR", exception);
-            }
-        });
+        call.reject(
+            "Android offline vault root keys cannot be unwrapped into WebView JavaScript",
+            "VAULT_ROOT_KEY_UNWRAP_UNSUPPORTED"
+        );
     }
 
     private void runAsync(PluginCall call, Runnable job) {

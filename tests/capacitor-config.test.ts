@@ -124,7 +124,7 @@ describe("capacitor Android wrapper configuration", () => {
     });
   });
 
-  it("exposes the optional vault wrapper bridge methods when the native plugin supports them", async () => {
+  it("exposes only non-exfiltrating optional vault wrapper bridge methods when the native plugin supports them", async () => {
     pluginMocks.isVaultDeviceBoundWrapperAvailable = vi
       .fn()
       .mockResolvedValue({ available: true });
@@ -150,14 +150,7 @@ describe("capacitor Android wrapper configuration", () => {
     ).resolves.toEqual({
       wrappedRootKey: "wrapped-root-key",
     });
-    await expect(
-      bridge.unwrapVaultRootKey?.({
-        wrappedRootKey: "wrapped-root-key",
-        subjectHash: "subject-hash",
-      })
-    ).resolves.toEqual({
-      rootKeyBase64: "cm9vdC1rZXk=",
-    });
+    expect("unwrapVaultRootKey" in bridge).toBe(false);
 
     expect(
       pluginMocks.isVaultDeviceBoundWrapperAvailable
@@ -166,11 +159,7 @@ describe("capacitor Android wrapper configuration", () => {
       rootKeyBase64: "cm9vdC1rZXk=",
       subjectHash: "subject-hash",
     });
-    expect(pluginMocks.unwrapVaultRootKey).toHaveBeenCalledWith({
-      wrappedRootKey: "wrapped-root-key",
-      subjectHash: "subject-hash",
-      metadata: undefined,
-    });
+    expect(pluginMocks.unwrapVaultRootKey).not.toHaveBeenCalled();
   });
 
   it("keeps the optional vault wrapper bridge methods undefined when the native plugin does not support them", async () => {
@@ -184,7 +173,7 @@ describe("capacitor Android wrapper configuration", () => {
 
     expect(bridge.isVaultDeviceBoundWrapperAvailable).toBeUndefined();
     expect(bridge.wrapVaultRootKey).toBeUndefined();
-    expect(bridge.unwrapVaultRootKey).toBeUndefined();
+    expect("unwrapVaultRootKey" in bridge).toBe(false);
   });
 
   it("dispatches the native logout event after a successful typed bridge logout", async () => {

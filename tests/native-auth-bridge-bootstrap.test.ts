@@ -2844,12 +2844,7 @@ describe("native auth bridge bootstrap injection", () => {
         subjectHash: "subject-hash",
       })
     ).resolves.toEqual({ wrappedRootKey: "wrapped-root-key" });
-    await expect(
-      bridge.unwrapVaultRootKey?.({
-        wrappedRootKey: "wrapped-root-key",
-        subjectHash: "subject-hash",
-      })
-    ).resolves.toEqual({ rootKeyBase64: "cm9vdC1rZXk=" });
+    expect(bridge.unwrapVaultRootKey).toBeUndefined();
 
     const response = await (sandbox.fetch as typeof fetch)(
       "https://api.secpal.dev/v1/customers",
@@ -2885,11 +2880,7 @@ describe("native auth bridge bootstrap injection", () => {
       rootKeyBase64: "cm9vdC1rZXk=",
       subjectHash: "subject-hash",
     });
-    expect(plugin.unwrapVaultRootKey).toHaveBeenCalledWith({
-      wrappedRootKey: "wrapped-root-key",
-      subjectHash: "subject-hash",
-      metadata: undefined,
-    });
+    expect(plugin.unwrapVaultRootKey).not.toHaveBeenCalled();
     expect(plugin.request).toHaveBeenCalledWith({
       method: "POST",
       path: "/v1/customers",
