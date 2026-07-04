@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: 2026 SecPal
- * SPDX-License-Identifier: AGPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 SecPal Contributors
+ * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
 /// <reference types="node" />
@@ -12,6 +12,8 @@ import { describe, expect, it, vi } from "vitest";
 
 const CANONICAL_API_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const DEFAULT_ATTRIBUTION_TERMS_URL =
+  "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt";
 
 function expectCanonicalApiTimestamp(
   value: string | null
@@ -205,13 +207,37 @@ function appendMockLoginFooter(document: MockDocument) {
   };
 }
 
-async function loadInjectorModule(): Promise<{
+async function loadInjectorModule({
+  attributionTermsUrl,
+}: {
+  attributionTermsUrl?: string;
+} = {}): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
   injectNativeAuthBridgeBootstrap: (html: string, apiBaseUrl: string) => string;
   readApiBaseUrlFromStringsXml: (stringsXml: string) => string;
 }> {
-  // @ts-expect-error The injector intentionally remains a Node-executable .mjs helper and is exercised directly here.
-  return import("../scripts/inject-native-auth-bridge.mjs");
+  const previousAttributionTermsUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+
+  if (attributionTermsUrl === undefined) {
+    delete process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+  } else {
+    process.env.SECPAL_ATTRIBUTION_TERMS_URL = attributionTermsUrl;
+  }
+
+  const moduleUrl = new URL(
+    `../scripts/inject-native-auth-bridge.mjs?test=${Math.random().toString(16).slice(2)}`,
+    import.meta.url
+  );
+
+  try {
+    return await import(moduleUrl.href);
+  } finally {
+    if (previousAttributionTermsUrl === undefined) {
+      delete process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+    } else {
+      process.env.SECPAL_ATTRIBUTION_TERMS_URL = previousAttributionTermsUrl;
+    }
+  }
 }
 
 function encodeBase64(value: string): string {
@@ -467,6 +493,12 @@ describe("native auth bridge bootstrap injection", () => {
     const footerPoweredLink = document.getElementById(
       "secpal-instance-discovery-footer-powered"
     ) as MockElement | null;
+    const footerLicenseLink = document.getElementById(
+      "secpal-instance-discovery-footer-license"
+    ) as MockElement | null;
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
     const styles = document.getElementById(
       "secpal-instance-discovery-styles"
     ) as MockElement | null;
@@ -499,6 +531,15 @@ describe("native auth bridge bootstrap injection", () => {
     expect(footerPoweredLink?.textContent).toBe(
       "Powered by SecPal – A guard's best friend"
     );
+    expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
+    expect(footerLicenseLink?.attributes.href).toBe(
+      "https://www.gnu.org/licenses/agpl-3.0.html"
+    );
+    expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
+    expect(footerAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
 
     expect(localeSelect).not.toBeNull();
     localeSelect!.value = "en";
@@ -515,6 +556,138 @@ describe("native auth bridge bootstrap injection", () => {
     expect(footerPoweredLink?.textContent).toBe(
       "Powered by SecPal – A guard's best friend"
     );
+    expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
+    expect(footerLicenseLink?.attributes.href).toBe(
+      "https://www.gnu.org/licenses/agpl-3.0.html"
+    );
+    expect(footerAttributionLink?.textContent).toBe("Attribution terms");
+    expect(footerAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
+
+    localeSelect!.value = "de";
+    localeSelect!.change();
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
+    expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
+  });
+
+  it("uses a configured attribution terms URL without breaking the injected bootstrap script", async () => {
+    const configuredAttributionTermsUrl =
+      "https://example.com/terms?</script><script>globalThis.__broken = true</script>";
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule({
+      attributionTermsUrl: configuredAttributionTermsUrl,
+    });
+    const script = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    );
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage: createMockStorage(),
+      sessionStorage: createMockStorage(),
+      navigator: { language: "en-US" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(script).not.toContain("</script><script>");
+
+    expect(() => vm.runInNewContext(script, sandbox)).not.toThrow();
+
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
+
+    expect(footerAttributionLink?.attributes.href).toBe(
+      configuredAttributionTermsUrl
+    );
+    expect((sandbox as { __broken?: boolean }).__broken).toBeUndefined();
+  });
+
+  it("escapes script end tags with whitespace in configured attribution URLs", async () => {
+    const configuredAttributionTermsUrl =
+      "https://example.com/terms?</script ><script>globalThis.__brokenWhitespace = true</script>";
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule({
+      attributionTermsUrl: configuredAttributionTermsUrl,
+    });
+    const script = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    );
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage: createMockStorage(),
+      sessionStorage: createMockStorage(),
+      navigator: { language: "en-US" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(script).not.toContain("</script ><script>");
+
+    expect(() => vm.runInNewContext(script, sandbox)).not.toThrow();
+
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
+
+    expect(footerAttributionLink?.attributes.href).toBe(
+      configuredAttributionTermsUrl
+    );
+    expect(
+      (sandbox as { __brokenWhitespace?: boolean }).__brokenWhitespace
+    ).toBeUndefined();
   });
 
   it("keeps bootstrap initialization alive when locale persistence fails", async () => {
@@ -1800,6 +1973,13 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       document.getElementById("secpal-instance-runtime-info")
     ).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-runtime-attribution")
+    ).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-runtime-attribution")?.attributes
+        .href
+    ).toBe(DEFAULT_ATTRIBUTION_TERMS_URL);
     expect(form.children[1]).toBe(passkeyButton);
     expect(form.children[2]).toBe(
       document.getElementById("secpal-instance-runtime-info")
@@ -1819,6 +1999,64 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       document.getElementById("secpal-instance-runtime-info")
     ).not.toBeNull();
+  });
+
+  it("exposes the attribution terms link on the configured about route", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage: createMockStorage({ "secpal-locale": "en" }),
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      }),
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/about" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const aboutAttributionLink = document.getElementById(
+      "secpal-about-attribution-link"
+    ) as MockElement | null;
+
+    expect(aboutAttributionLink).not.toBeNull();
+    expect(aboutAttributionLink?.textContent).toBe("Attribution terms");
+    expect(aboutAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
   });
 
   it("does not restore a legacy configured API origin from the native plugin on startup", async () => {

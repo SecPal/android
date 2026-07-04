@@ -1,10 +1,32 @@
 #!/usr/bin/env node
-// SPDX-FileCopyrightText: 2026 SecPal
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
 import { readFileSync, writeFileSync } from "node:fs";
 
 const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
+const DEFAULT_ATTRIBUTION_TERMS_URL =
+  "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt";
+
+function resolveAttributionTermsUrl() {
+  const configuredUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  return DEFAULT_ATTRIBUTION_TERMS_URL;
+}
+
+function serializeInlineScriptString(value) {
+  return JSON.stringify(value).replace(
+    /<\/script(?=[\t\n\f\r />])/gi,
+    "<\\/script"
+  );
+}
+
+const ATTRIBUTION_TERMS_URL = resolveAttributionTermsUrl();
+
 export function readApiBaseUrlFromStringsXml(stringsXml) {
   const match = stringsXml.match(
     /<string\s+name="api_base_url">([^<]+)<\/string>/
@@ -20,9 +42,9 @@ export function readApiBaseUrlFromStringsXml(stringsXml) {
 }
 
 export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
-  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl).replace(
-    /<\/script>/gi,
-    "<\\/script>"
+  const serializedApiBaseUrl = serializeInlineScriptString(apiBaseUrl);
+  const serializedAttributionTermsUrl = serializeInlineScriptString(
+    ATTRIBUTION_TERMS_URL
   );
 
   return `
@@ -32,6 +54,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const attributionTermsUrl = ${serializedAttributionTermsUrl};
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
@@ -56,9 +79,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryErrorId = "secpal-instance-discovery-error";
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
   const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
+  const discoveryFooterAttributionId =
+    "secpal-instance-discovery-footer-attribution";
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
   const runtimeResetEntryId = "secpal-instance-runtime-info";
   const runtimeResetSummaryId = "secpal-instance-runtime-summary";
+  const runtimeResetAttributionId = "secpal-instance-runtime-attribution";
+  const aboutAttributionEntryId = "secpal-about-attribution";
+  const aboutAttributionLinkId = "secpal-about-attribution-link";
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
@@ -273,6 +301,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         "Instance switching is unavailable because this device cannot show confirmation prompts.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
+      footerAttribution: "Attribution terms",
       footerSource: "Source Code",
       errorBootstrapResponse:
         "This instance could not be verified. Contact your administrator.",
@@ -328,6 +357,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
       footerLicense: "AGPL v3+",
+      footerAttribution: "Attributionsbedingungen",
       footerSource: "Quellcode",
       errorBootstrapResponse:
         "Diese Instanz konnte nicht verifiziert werden. Wenden Sie sich an Ihre Administration.",
@@ -540,14 +570,19 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       "#" + discoveryGateId + " .secpal-discovery-footer-link{display:inline-flex;align-items:center;justify-content:center;color:var(--secpal-discovery-subtle);text-decoration:none;}",
       "#" + discoveryGateId + " .secpal-discovery-footer-link:hover{color:var(--secpal-discovery-fg);}",
       "#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(113,113,122,0.45);}",
-      "#" + runtimeResetEntryId + "{padding-top:0.5rem;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;}",
+      "#" + runtimeResetEntryId + "{padding-top:0.5rem;display:flex;flex-direction:column;align-items:center;gap:0.375rem;font-family:Inter,system-ui,sans-serif;}",
       "#" + runtimeResetEntryId + ",#" + runtimeResetEntryId + " *{box-sizing:border-box;}",
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{appearance:none;margin:0;border:0;background:transparent;padding:0;color:#71717a;font-size:11px;line-height:1.5;text-align:center;word-break:break-word;cursor:pointer;}",
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{text-decoration:underline;color:#52525b;}",
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:disabled{cursor:wait;opacity:0.7;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-attribution{color:#71717a;font-size:11px;line-height:1.5;text-decoration:none;}",
+      "#" + runtimeResetEntryId + " .secpal-runtime-reset-attribution:hover{text-decoration:underline;color:#52525b;}",
+      "#" + aboutAttributionEntryId + "{display:flex;justify-content:center;padding:0.75rem 1rem 0;font-family:Inter,system-ui,sans-serif;}",
+      "#" + aboutAttributionEntryId + " .secpal-about-attribution-link{color:#71717a;font-size:11px;line-height:1.5;text-decoration:none;}",
+      "#" + aboutAttributionEntryId + " .secpal-about-attribution-link:hover{text-decoration:underline;color:#52525b;}",
       "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
       "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
-      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover{color:#d4d4d8;}}",
+      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution, #" + aboutAttributionEntryId + " .secpal-about-attribution-link{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution:hover, #" + aboutAttributionEntryId + " .secpal-about-attribution-link:hover{color:#d4d4d8;}}",
     ].join("\\n");
 
     const parent = globalThis.document.head ?? globalThis.document.body;
@@ -2512,6 +2547,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     );
     discoveryUi.footerPoweredLink.textContent = translateDiscovery("footerPoweredBy");
     discoveryUi.footerLicenseLink.textContent = translateDiscovery("footerLicense");
+    discoveryUi.footerAttributionLink.textContent = translateDiscovery(
+      "footerAttribution"
+    );
     discoveryUi.footerSourceLink.textContent = translateDiscovery("footerSource");
     discoveryUi.validateButton.textContent =
       runtimeState.discoveryBusyAction === "validate"
@@ -2591,6 +2629,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const isAboutRoute = () => {
+    try {
+      const locationHref =
+        globalThis.location && typeof globalThis.location.href === "string"
+          ? globalThis.location.href
+          : fallbackApiOrigin;
+      const currentUrl = new URL(locationHref, fallbackApiOrigin);
+
+      return (
+        currentUrl.pathname === "/about" ||
+        currentUrl.pathname.startsWith("/about/")
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const getLoginPasskeyButtonContext = () => {
     if (!globalThis.document?.body || !isLoginRoute()) {
       return null;
@@ -2643,6 +2698,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     runtimeResetUi = null;
   };
 
+  const removeAboutAttributionEntry = () => {
+    const existing = globalThis.document?.getElementById?.(aboutAttributionEntryId);
+
+    if (existing && typeof existing.remove === "function") {
+      existing.remove();
+    }
+  };
+
   const syncRuntimeResetEntryCopy = () => {
     if (!runtimeResetUi) {
       return;
@@ -2666,6 +2729,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     runtimeResetUi.summary.disabled = runtimeResetBusy || !canConfirmReset;
+    runtimeResetUi.attribution.textContent = translateDiscovery("footerAttribution");
   };
 
   const resetConfiguredRuntime = async () => {
@@ -2781,6 +2845,42 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const syncAboutAttributionEntry = () => {
+    if (!runtimeState.configured || !isAboutRoute() || !globalThis.document?.body) {
+      removeAboutAttributionEntry();
+      return true;
+    }
+
+    applyDiscoveryLocale(detectDiscoveryLocale());
+    ensureDiscoveryStyles();
+
+    const existing = globalThis.document.getElementById(aboutAttributionEntryId);
+
+    if (existing) {
+      const link = globalThis.document.getElementById(aboutAttributionLinkId);
+      if (link) {
+        link.textContent = translateDiscovery("footerAttribution");
+      }
+      return true;
+    }
+
+    const root = globalThis.document.createElement("div");
+    root.id = aboutAttributionEntryId;
+
+    const link = globalThis.document.createElement("a");
+    link.id = aboutAttributionLinkId;
+    link.className = "secpal-about-attribution-link";
+    link.setAttribute("href", attributionTermsUrl);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+    link.textContent = translateDiscovery("footerAttribution");
+
+    root.appendChild(link);
+    globalThis.document.body.appendChild(root);
+
+    return true;
+  };
+
   const renderRuntimeResetEntry = (passkeyButtonParent, passkeyButton) => {
     if (
       !globalThis.document ||
@@ -2820,7 +2920,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       void resetConfiguredRuntime();
     });
 
+    const attribution = globalThis.document.createElement("a");
+    attribution.id = runtimeResetAttributionId;
+    attribution.className = "secpal-runtime-reset-attribution";
+    attribution.setAttribute("href", attributionTermsUrl);
+    attribution.setAttribute("target", "_blank");
+    attribution.setAttribute("rel", "noopener noreferrer");
+
     root.appendChild(summary);
+    root.appendChild(attribution);
 
     const siblings = getElementChildren(passkeyButtonParent);
     const passkeyButtonIndex = siblings.indexOf(passkeyButton);
@@ -2834,6 +2942,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     runtimeResetUi = {
       root,
       summary,
+      attribution,
     };
 
     syncRuntimeResetEntryCopy();
@@ -2866,7 +2975,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const scheduleLoginRuntimeResetSync = () => {
     clearRuntimeResetSyncTimeout();
 
-    if (syncLoginRuntimeResetState()) {
+    const loginSynced = syncLoginRuntimeResetState();
+    const aboutSynced = syncAboutAttributionEntry();
+
+    if (loginSynced && aboutSynced) {
       return;
     }
 
@@ -3171,10 +3283,22 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     footerLicenseLink.setAttribute("target", "_blank");
     footerLicenseLink.setAttribute("rel", "noopener noreferrer");
 
+    const footerAttributionLink = globalThis.document.createElement("a");
+    footerAttributionLink.id = discoveryFooterAttributionId;
+    footerAttributionLink.className = "secpal-discovery-footer-link";
+    footerAttributionLink.setAttribute("href", attributionTermsUrl);
+    footerAttributionLink.setAttribute("target", "_blank");
+    footerAttributionLink.setAttribute("rel", "noopener noreferrer");
+
     const footerSeparator = globalThis.document.createElement("span");
     footerSeparator.className = "secpal-discovery-footer-separator";
     footerSeparator.setAttribute("aria-hidden", "true");
     footerSeparator.textContent = "|";
+
+    const footerAttributionSeparator = globalThis.document.createElement("span");
+    footerAttributionSeparator.className = "secpal-discovery-footer-separator";
+    footerAttributionSeparator.setAttribute("aria-hidden", "true");
+    footerAttributionSeparator.textContent = "|";
 
     const footerSourceLink = globalThis.document.createElement("a");
     footerSourceLink.id = discoveryFooterSourceId;
@@ -3210,6 +3334,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     form.appendChild(actions);
     footerMeta.appendChild(footerLicenseLink);
     footerMeta.appendChild(footerSeparator);
+    footerMeta.appendChild(footerAttributionLink);
+    footerMeta.appendChild(footerAttributionSeparator);
     footerMeta.appendChild(footerSourceLink);
     footer.appendChild(footerPoweredLink);
     footer.appendChild(footerMeta);
@@ -3243,6 +3369,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirmButton,
       footerPoweredLink,
       footerLicenseLink,
+      footerAttributionLink,
       footerSourceLink,
     };
 
