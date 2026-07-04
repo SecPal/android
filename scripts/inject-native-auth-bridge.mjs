@@ -1,10 +1,38 @@
 #!/usr/bin/env node
-// SPDX-FileCopyrightText: 2026 SecPal
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+function resolveAttributionTermsUrl() {
+  const configuredUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const revision = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  }).trim();
+
+  if (!/^[0-9a-f]{40}$/u.test(revision)) {
+    throw new Error(
+      "Unable to resolve immutable git revision for attribution terms URL"
+    );
+  }
+
+  return `https://github.com/SecPal/android/blob/${revision}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
+}
+
+const ATTRIBUTION_TERMS_URL = resolveAttributionTermsUrl();
+
 export function readApiBaseUrlFromStringsXml(stringsXml) {
   const match = stringsXml.match(
     /<string\s+name="api_base_url">([^<]+)<\/string>/
@@ -3183,7 +3211,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     footerAttributionLink.className = "secpal-discovery-footer-link";
     footerAttributionLink.setAttribute(
       "href",
-      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
+      ${JSON.stringify(ATTRIBUTION_TERMS_URL)}
     );
     footerAttributionLink.setAttribute("target", "_blank");
     footerAttributionLink.setAttribute("rel", "noopener noreferrer");

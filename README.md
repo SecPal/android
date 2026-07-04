@@ -233,7 +233,7 @@ The preflight script blocks direct pushes from `main`, runs formatting and gover
 
 ## Licensing
 
-SecPal-owned AGPL-covered parts of this repository are licensed under `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`.
+Where this repository applies the SecPal attribution addendum, the affected SecPal-owned AGPL-covered files use `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`.
 
 The additional attribution terms live in [LICENSES/LicenseRef-SecPal-Attribution.txt](LICENSES/LicenseRef-SecPal-Attribution.txt) and are applied as AGPLv3 section 7(b) and 7(c) terms. They require preserving a visible SecPal attribution notice such as `Powered by SecPal` in appropriate legal notices, credits, or about surfaces where those notices exist.
 

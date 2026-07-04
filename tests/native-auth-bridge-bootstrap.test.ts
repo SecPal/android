@@ -7,11 +7,17 @@
 /// <reference lib="dom" />
 
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 const CANONICAL_API_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const ATTRIBUTION_TERMS_URL = `https://github.com/SecPal/android/blob/${execFileSync(
+  "git",
+  ["rev-parse", "HEAD"],
+  { encoding: "utf8" }
+).trim()}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
 
 function expectCanonicalApiTimestamp(
   value: string | null
@@ -511,9 +517,7 @@ describe("native auth bridge bootstrap injection", () => {
       "https://www.gnu.org/licenses/agpl-3.0.html"
     );
     expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
-    expect(footerAttributionLink?.attributes.href).toBe(
-      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
-    );
+    expect(footerAttributionLink?.attributes.href).toBe(ATTRIBUTION_TERMS_URL);
 
     expect(localeSelect).not.toBeNull();
     localeSelect!.value = "en";
@@ -536,9 +540,7 @@ describe("native auth bridge bootstrap injection", () => {
       "https://www.gnu.org/licenses/agpl-3.0.html"
     );
     expect(footerAttributionLink?.textContent).toBe("Attribution terms");
-    expect(footerAttributionLink?.attributes.href).toBe(
-      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
-    );
+    expect(footerAttributionLink?.attributes.href).toBe(ATTRIBUTION_TERMS_URL);
 
     localeSelect!.value = "de";
     localeSelect!.change();

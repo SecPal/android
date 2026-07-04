@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025 SecPal Contributors
+SPDX-FileCopyrightText: 2025-2026 SecPal
 SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 -->
 
@@ -414,7 +414,7 @@ All files must include SPDX license headers. **SecPal uses different licenses de
 | **Helper Scripts**   | `MIT`                                                 | Standalone shell/setup utilities and small build helpers |
 | **Documentation**    | `CC0-1.0`                                             | Markdown files (except LICENSE itself)                   |
 
-Repository scripts that implement shipped application behavior, bridge behavior, or runtime logic remain application code and use `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`, even when they live under `scripts/`.
+Most repository helper scripts remain MIT. Scripts that ship, inject, or generate application runtime behavior remain application code and use `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`, even when they live under `scripts/`.
 
 ### SPDX Header Examples
 
@@ -439,7 +439,7 @@ Repository scripts that implement shipped application behavior, bridge behavior,
 **For configuration files (CC0-1.0):**
 
 ```yaml
-# SPDX-FileCopyrightText: 2025 SecPal Contributors
+# SPDX-FileCopyrightText: 2025 SecPal
 # SPDX-License-Identifier: CC0-1.0
 ```
 
@@ -447,7 +447,7 @@ Repository scripts that implement shipped application behavior, bridge behavior,
 
 ```json
 {
-  "_comment": "SPDX-FileCopyrightText: 2025 SecPal Contributors",
+  "_comment": "SPDX-FileCopyrightText: 2025 SecPal",
   "_license": "SPDX-License-Identifier: CC0-1.0"
 }
 ```
@@ -466,7 +466,7 @@ Repository scripts that implement shipped application behavior, bridge behavior,
 
 ```markdown
 <!--
-SPDX-FileCopyrightText: 2025 SecPal Contributors
+SPDX-FileCopyrightText: 2025 SecPal
 SPDX-License-Identifier: CC0-1.0
 -->
 ```
