@@ -153,6 +153,24 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void buildBootstrapExchangeRequestBodyPreservesLongPackageVersionCode() throws Exception {
+        JSONObject body = NativeAuthHttpClient.buildBootstrapExchangeRequestBody(
+            "bootstrap-token-123",
+            new ProvisioningBootstrapRuntimeInfo(
+                "app.secpal",
+                "2147483648.0",
+                2147483648L,
+                "SM-G556B reception tablet",
+                "samsung",
+                "SM-G556B",
+                "16"
+            )
+        );
+
+        assertEquals(2147483648L, body.getLong("package_version_code"));
+    }
+
+    @Test
     public void parseBootstrapExchangeResponseMapsMetadataAndProvisioningProfile() throws Exception {
         Map<String, Object> provisioningProfile = new HashMap<>();
 

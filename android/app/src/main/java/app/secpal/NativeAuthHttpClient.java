@@ -96,6 +96,16 @@ class NativeAuthHttpClient {
         String bootstrapToken,
         ProvisioningBootstrapRuntimeInfo runtimeInfo
     ) throws IOException, JSONException, NativeAuthHttpException {
+        JSONObject requestBody = buildBootstrapExchangeRequestBody(bootstrapToken, runtimeInfo);
+        JSONObject response = sendJsonRequest(baseUrl, "/v1/android/bootstrap/exchange", "POST", requestBody, null);
+
+        return parseBootstrapExchangeResponse(response);
+    }
+
+    static JSONObject buildBootstrapExchangeRequestBody(
+        String bootstrapToken,
+        ProvisioningBootstrapRuntimeInfo runtimeInfo
+    ) throws JSONException {
         JSONObject requestBody = new JSONObject()
             .put("bootstrap_token", bootstrapToken)
             .put("package_name", runtimeInfo.getPackageName());
@@ -130,9 +140,7 @@ class NativeAuthHttpClient {
             requestBody.put("device", device);
         }
 
-        JSONObject response = sendJsonRequest(baseUrl, "/v1/android/bootstrap/exchange", "POST", requestBody, null);
-
-        return parseBootstrapExchangeResponse(response);
+        return requestBody;
     }
 
     JSObject getCurrentUser(String baseUrl, String token) throws IOException, JSONException, NativeAuthHttpException {

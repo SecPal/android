@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Removed the dead pre-Android-M connectivity fallback from `NetworkState` now that the wrapper targets `minSdkVersion 23`, added an explicit `native:compile:debug:deprecations` Gradle path for deprecation triage, and marked AndroidX DataStore's shipped `libdatastore_shared_counter.so` as an intentional keep-debug-symbols library so `npm run native:assemble:debug` no longer leaves those warnings untracked.
+- Preserved Android bootstrap package version codes larger than `Integer.MAX_VALUE` in the native provisioning exchange payload.
 - `scripts/load-android-release-env.sh` now preserves a shell-provided `SECPAL_ANDROID_DIRECT_CHANNEL` override when reloading `android-release.env`, so `npm run fastlane:android:deploy:direct-apk:beta` cannot be redirected back onto the stable direct-download channel by a local release env file.
 - `SecPalNativeAuthPlugin.isVaultDeviceBoundWrapperAvailable()` now reports `available: false` to WebView callers while the offline-vault root-key bridge remains disabled, preventing capability probes from contradicting the blocked wrap/unwrap contract.
 - the injected Android auth bootstrap now clears persisted `native-device-bound` offline-vault browser state before restoring a configured runtime, preventing upgraded devices from reopening an unreadable offline-vault state after the WebView unwrap bridge removal.
