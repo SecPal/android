@@ -416,7 +416,6 @@ describe("Android native hardening", () => {
     expect(readme).toContain("debug build");
     expect(readme).toContain("remove-active-admin");
     expect(readme).toContain("native provisioning flow");
-    expect(readme).not.toContain("SecPalEnterpriseBridge");
     expect(readme).not.toContain("openGestureNavigationSettings");
     expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
     expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
@@ -581,6 +580,16 @@ describe("Android native hardening", () => {
     );
     expect(navigationController).toContain(
       "maybeCompleteProvisioningGestureNavigation"
+    );
+    expect(navigationController).toContain("managedState.isDeviceOwner()");
+    expect(navigationController).toContain(
+      "managedState.isPreferGestureNavigation()"
+    );
+    expect(navigationController).toContain(
+      "EnterprisePolicyController.temporarilyExitLockTask(activity)"
+    );
+    expect(navigationController).toContain(
+      "EnterprisePolicyController.maybeEnterLockTask(activity)"
     );
     expect(navigationController).toContain("setSecureSetting(");
     expect(navigationController).toContain("setGlobalSetting(");

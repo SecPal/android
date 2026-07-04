@@ -3045,7 +3045,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.isNetworkAvailable).toHaveBeenCalledOnce();
   });
 
-  it("exposes an enterprise bridge for managed-state reads and gesture-navigation settings", async () => {
+  it("exposes an enterprise bridge for managed-state reads without gesture-navigation settings", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const enterprisePlugin = {
       getManagedState: vi.fn().mockResolvedValue({
@@ -3107,8 +3107,10 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalEnterpriseBridge as {
       getManagedState(): Promise<unknown>;
+      openGestureNavigationSettings?: unknown;
     };
 
+    expect(bridge.openGestureNavigationSettings).toBeUndefined();
     await expect(bridge.getManagedState()).resolves.toEqual({
       managed: true,
       mode: "device_owner",
