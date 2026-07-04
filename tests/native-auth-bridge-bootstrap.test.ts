@@ -3045,7 +3045,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.isNetworkAvailable).toHaveBeenCalledOnce();
   });
 
-  it("exposes an enterprise bridge for managed-state reads and gesture-navigation settings", async () => {
+  it("exposes an enterprise bridge for managed-state reads without gesture-navigation settings", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const enterprisePlugin = {
       getManagedState: vi.fn().mockResolvedValue({
@@ -3068,11 +3068,6 @@ describe("native auth bridge bootstrap injection", () => {
       launchPhone: vi.fn().mockResolvedValue(undefined),
       launchSms: vi.fn().mockResolvedValue(undefined),
       launchAllowedApp: vi.fn().mockResolvedValue(undefined),
-      openGestureNavigationSettings: vi.fn().mockResolvedValue({
-        opened: true,
-        gestureNavigationEnabled: false,
-        willReenterLockTaskOnResume: true,
-      }),
     };
     const sandbox = {
       Capacitor: {
@@ -3112,9 +3107,10 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalEnterpriseBridge as {
       getManagedState(): Promise<unknown>;
-      openGestureNavigationSettings(): Promise<unknown>;
+      openGestureNavigationSettings?: unknown;
     };
 
+    expect(bridge.openGestureNavigationSettings).toBeUndefined();
     await expect(bridge.getManagedState()).resolves.toEqual({
       managed: true,
       mode: "device_owner",
@@ -3132,15 +3128,7 @@ describe("native auth bridge bootstrap injection", () => {
       },
       allowedApps: [],
     });
-    await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({
-      opened: true,
-      gestureNavigationEnabled: false,
-      willReenterLockTaskOnResume: true,
-    });
     expect(enterprisePlugin.getManagedState).toHaveBeenCalledOnce();
-    expect(
-      enterprisePlugin.openGestureNavigationSettings
-    ).toHaveBeenCalledOnce();
   });
 
   it("registers enterprise hardware-button listeners and routes short and long presses", async () => {
@@ -6044,11 +6032,6 @@ describe("native auth bridge bootstrap injection", () => {
       launchPhone: vi.fn().mockResolvedValue(undefined),
       launchSms: vi.fn().mockResolvedValue(undefined),
       launchAllowedApp: vi.fn().mockResolvedValue(undefined),
-      openGestureNavigationSettings: vi.fn().mockResolvedValue({
-        opened: true,
-        gestureNavigationEnabled: true,
-        willReenterLockTaskOnResume: true,
-      }),
     };
     const sandbox = {
       Capacitor: {
@@ -6130,11 +6113,6 @@ describe("native auth bridge bootstrap injection", () => {
       launchPhone: vi.fn().mockResolvedValue(undefined),
       launchSms: vi.fn().mockResolvedValue(undefined),
       launchAllowedApp: vi.fn().mockResolvedValue(undefined),
-      openGestureNavigationSettings: vi.fn().mockResolvedValue({
-        opened: true,
-        gestureNavigationEnabled: false,
-        willReenterLockTaskOnResume: true,
-      }),
     };
     const sandbox = {
       Capacitor: {

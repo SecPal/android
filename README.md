@@ -299,12 +299,6 @@ adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
     app.secpal
 ```
 
-When the Android wrapper runs as device owner, the web layer can also trigger the supported system gesture-navigation flow through the injected enterprise bridge:
-
-```js
-await globalThis.SecPalEnterpriseBridge?.openGestureNavigationSettings();
-```
-
-That path opens the device's official navigation-mode settings screen from SecPal itself. On managed devices, SecPal temporarily leaves lock task so the settings page can open and then re-enters lock task automatically when the user returns to SecPal. The final switch to gesture navigation still happens inside the system settings UI; Android does not offer a portable public API that lets SecPal silently force that OEM-specific system setting by itself.
+The Android wrapper keeps the gesture-navigation settings hand-off inside the native provisioning flow instead of exposing lock-task exit to WebView JavaScript. Android does not offer a portable public API that lets SecPal silently force that OEM-specific system setting by itself, so devices that require the OEM settings UI are handled only during the provisioning hand-off.
 
 During dedicated-device provisioning, SecPal now also tries to apply the gesture-navigation preference automatically as part of the provisioning flow itself. On devices where Android accepts the managed secure/global settings directly, no extra user step is required. On devices that still insist on the OEM navigation settings UI, SecPal marks that setup as pending and opens the official gesture-navigation screen automatically on the first managed launch after provisioning so the remaining step still happens inside the provisioning hand-off instead of later from an app menu.

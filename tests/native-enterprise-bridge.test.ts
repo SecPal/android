@@ -10,7 +10,6 @@ const pluginMocks = vi.hoisted(() => ({
   launchPhone: vi.fn(),
   launchSms: vi.fn(),
   launchAllowedApp: vi.fn(),
-  openGestureNavigationSettings: vi.fn(),
   addListener: vi.fn(),
 }));
 
@@ -44,11 +43,6 @@ describe("native enterprise bridge", () => {
     pluginMocks.launchPhone.mockResolvedValue(undefined);
     pluginMocks.launchSms.mockResolvedValue(undefined);
     pluginMocks.launchAllowedApp.mockResolvedValue(undefined);
-    pluginMocks.openGestureNavigationSettings.mockResolvedValue({
-      opened: true,
-      gestureNavigationEnabled: false,
-      willReenterLockTaskOnResume: true,
-    });
 
     const { installNativeEnterpriseBridge } =
       await import("../src/secpal/native-enterprise-bridge");
@@ -79,12 +73,6 @@ describe("native enterprise bridge", () => {
     await expect(
       bridge.launchAllowedApp({ packageName: "com.android.settings" })
     ).resolves.toBeUndefined();
-    await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({
-      opened: true,
-      gestureNavigationEnabled: false,
-      willReenterLockTaskOnResume: true,
-    });
-
     expect(target.SecPalEnterpriseBridge).toBe(bridge);
     expect(pluginMocks.getManagedState).toHaveBeenCalledOnce();
     expect(pluginMocks.launchPhone).toHaveBeenCalledWith();
@@ -92,30 +80,6 @@ describe("native enterprise bridge", () => {
     expect(pluginMocks.launchAllowedApp).toHaveBeenCalledWith({
       packageName: "com.android.settings",
     });
-    expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
-  });
-
-  it("returns a failed gesture navigation settings result when settings cannot be opened", async () => {
-    pluginMocks.openGestureNavigationSettings.mockResolvedValue({
-      opened: false,
-      gestureNavigationEnabled: false,
-      willReenterLockTaskOnResume: false,
-    });
-
-    const { installNativeEnterpriseBridge } =
-      await import("../src/secpal/native-enterprise-bridge");
-    const target = {} as typeof globalThis & {
-      SecPalEnterpriseBridge?: unknown;
-    };
-    const bridge = installNativeEnterpriseBridge(target);
-
-    await expect(bridge.openGestureNavigationSettings()).resolves.toEqual({
-      opened: false,
-      gestureNavigationEnabled: false,
-      willReenterLockTaskOnResume: false,
-    });
-
-    expect(pluginMocks.openGestureNavigationSettings).toHaveBeenCalledOnce();
   });
 
   it("forwards hardware button listener registrations to the native enterprise plugin", async () => {

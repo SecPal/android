@@ -452,8 +452,8 @@ describe("Android native hardening", () => {
     expect(readme).toContain("secpal_prefer_gesture_navigation");
     expect(readme).toContain("debug build");
     expect(readme).toContain("remove-active-admin");
-    expect(readme).toContain("SecPalEnterpriseBridge");
-    expect(readme).toContain("openGestureNavigationSettings");
+    expect(readme).toContain("native provisioning flow");
+    expect(readme).not.toContain("openGestureNavigationSettings");
     expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
     expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
   });
@@ -586,7 +586,8 @@ describe("Android native hardening", () => {
     expect(dedicatedHomeActivity).toContain("BuildConfig.ALLOW_SCREENSHOTS");
   });
 
-  it("exposes app-controlled gesture-navigation settings through the enterprise bridge", () => {
+  it("does not expose lock-task exit settings through the WebView enterprise bridge", () => {
+    const changelog = readRepoFile("CHANGELOG.md");
     const plugin = readRepoFile(
       "android",
       "app",
@@ -609,7 +610,10 @@ describe("Android native hardening", () => {
     );
     const injector = readRepoFile("scripts", "inject-native-auth-bridge.mjs");
 
-    expect(plugin).toContain("openGestureNavigationSettings");
+    expect(changelog).not.toContain(
+      "SecPalEnterprisePlugin` and the injected `SecPalEnterpriseBridge` can now open the device's official navigation-mode settings screen from SecPal itself"
+    );
+    expect(plugin).not.toContain("openGestureNavigationSettings");
     expect(plugin).toContain("gestureNavigationEnabled");
     expect(plugin).toContain("gestureNavigationSettingsAvailable");
     expect(navigationController).toContain(
@@ -617,6 +621,16 @@ describe("Android native hardening", () => {
     );
     expect(navigationController).toContain(
       "maybeCompleteProvisioningGestureNavigation"
+    );
+    expect(navigationController).toContain("managedState.isDeviceOwner()");
+    expect(navigationController).toContain(
+      "managedState.isPreferGestureNavigation()"
+    );
+    expect(navigationController).toContain(
+      "EnterprisePolicyController.temporarilyExitLockTask(activity)"
+    );
+    expect(navigationController).toContain(
+      "EnterprisePolicyController.maybeEnterLockTask(activity)"
     );
     expect(navigationController).toContain("setSecureSetting(");
     expect(navigationController).toContain("setGlobalSetting(");
@@ -627,7 +641,7 @@ describe("Android native hardening", () => {
       "com.android.settings.GESTURE_NAVIGATION_SETTINGS"
     );
     expect(injector).toContain("SecPalEnterpriseBridge");
-    expect(injector).toContain("openGestureNavigationSettings");
+    expect(injector).not.toContain("openGestureNavigationSettings");
   });
 
   it("keeps the enterprise launcher implementation vendor-neutral", () => {
