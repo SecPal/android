@@ -407,12 +407,12 @@ All files must include SPDX license headers. **SecPal uses different licenses de
 
 ### License Selection Guide
 
-| File Type            | License             | Use For                                         |
-| -------------------- | ------------------- | ----------------------------------------------- |
+| File Type            | License                                               | Use For                                         |
+| -------------------- | ----------------------------------------------------- | ----------------------------------------------- |
 | **Application Code** | `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution` | PHP, TypeScript, JavaScript, React components   |
-| **Configuration**    | `CC0-1.0`           | YAML, JSON, TOML, `.gitignore`, `.editorconfig` |
-| **Helper Scripts**   | `MIT`               | Standalone bash/shell scripts, build utilities  |
-| **Documentation**    | `CC0-1.0`           | Markdown files (except LICENSE itself)          |
+| **Configuration**    | `CC0-1.0`                                             | YAML, JSON, TOML, `.gitignore`, `.editorconfig` |
+| **Helper Scripts**   | `MIT`                                                 | Standalone bash/shell scripts, build utilities  |
+| **Documentation**    | `CC0-1.0`                                             | Markdown files (except LICENSE itself)          |
 
 ### SPDX Header Examples
 
