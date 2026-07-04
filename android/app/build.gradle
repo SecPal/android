@@ -79,6 +79,17 @@ android {
             buildConfigField "boolean", "ALLOW_SCREENSHOTS", "true"
         }
     }
+    packaging {
+        jniLibs {
+            keepDebugSymbols += ['**/libdatastore_shared_counter.so']
+        }
+    }
+}
+
+tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+    if ((findProperty('secpalJavaDeprecationLint') ?: 'false').toBoolean()) {
+        options.compilerArgs += ['-Xlint:deprecation']
+    }
 }
 
 dependencies {

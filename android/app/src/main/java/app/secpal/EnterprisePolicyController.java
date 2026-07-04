@@ -151,7 +151,7 @@ public final class EnterprisePolicyController {
 
         if (extras != null && !extras.isEmpty()) {
             for (String key : extras.keySet()) {
-                values.put(key, extras.get(key));
+                values.put(key, getBundleValue(extras, key));
             }
         }
 
@@ -348,7 +348,7 @@ public final class EnterprisePolicyController {
             );
         }
 
-        return intent.getParcelableExtra(DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE);
+        return getProvisioningAdminExtrasLegacy(intent);
     }
 
     static String resolveManagedMode(boolean deviceOwner, boolean profileOwner) {
@@ -833,6 +833,16 @@ public final class EnterprisePolicyController {
             newState,
             PackageManager.DONT_KILL_APP
         );
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Object getBundleValue(Bundle bundle, String key) {
+        return bundle.get(key);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static PersistableBundle getProvisioningAdminExtrasLegacy(Intent intent) {
+        return intent.getParcelableExtra(DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE);
     }
 
     public static final class AllowedLaunchApp {
