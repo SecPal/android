@@ -630,6 +630,66 @@ describe("native auth bridge bootstrap injection", () => {
     expect((sandbox as { __broken?: boolean }).__broken).toBeUndefined();
   });
 
+  it("escapes script end tags with whitespace in configured attribution URLs", async () => {
+    const configuredAttributionTermsUrl =
+      "https://example.com/terms?</script ><script>globalThis.__brokenWhitespace = true</script>";
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule({
+      attributionTermsUrl: configuredAttributionTermsUrl,
+    });
+    const script = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    );
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage: createMockStorage(),
+      sessionStorage: createMockStorage(),
+      navigator: { language: "en-US" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(script).not.toContain("</script ><script>");
+
+    expect(() => vm.runInNewContext(script, sandbox)).not.toThrow();
+
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
+
+    expect(footerAttributionLink?.attributes.href).toBe(
+      configuredAttributionTermsUrl
+    );
+    expect(
+      (sandbox as { __brokenWhitespace?: boolean }).__brokenWhitespace
+    ).toBeUndefined();
+  });
+
   it("keeps bootstrap initialization alive when locale persistence fails", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const document = new MockDocument();
@@ -1913,6 +1973,13 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       document.getElementById("secpal-instance-runtime-info")
     ).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-runtime-attribution")
+    ).not.toBeNull();
+    expect(
+      document.getElementById("secpal-instance-runtime-attribution")?.attributes
+        .href
+    ).toBe(DEFAULT_ATTRIBUTION_TERMS_URL);
     expect(form.children[1]).toBe(passkeyButton);
     expect(form.children[2]).toBe(
       document.getElementById("secpal-instance-runtime-info")
