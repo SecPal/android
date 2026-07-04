@@ -470,6 +470,9 @@ describe("native auth bridge bootstrap injection", () => {
     const footerLicenseLink = document.getElementById(
       "secpal-instance-discovery-footer-license"
     ) as MockElement | null;
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
     const styles = document.getElementById(
       "secpal-instance-discovery-styles"
     ) as MockElement | null;
@@ -503,8 +506,12 @@ describe("native auth bridge bootstrap injection", () => {
       "Powered by SecPal – A guard's best friend"
     );
     expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
-    expect(footerLicenseLink?.textContent).toBe("AGPL v3+ terms");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
     expect(footerLicenseLink?.attributes.href).toBe(
+      "https://www.gnu.org/licenses/agpl-3.0.html"
+    );
+    expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
+    expect(footerAttributionLink?.attributes.href).toBe(
       "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
     );
 
@@ -524,10 +531,19 @@ describe("native auth bridge bootstrap injection", () => {
       "Powered by SecPal – A guard's best friend"
     );
     expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
-    expect(footerLicenseLink?.textContent).toBe("AGPL v3+ terms");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
     expect(footerLicenseLink?.attributes.href).toBe(
+      "https://www.gnu.org/licenses/agpl-3.0.html"
+    );
+    expect(footerAttributionLink?.textContent).toBe("Attribution terms");
+    expect(footerAttributionLink?.attributes.href).toBe(
       "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
     );
+
+    localeSelect!.value = "de";
+    localeSelect!.change();
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
+    expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
   });
 
   it("keeps bootstrap initialization alive when locale persistence fails", async () => {

@@ -56,6 +56,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const discoveryErrorId = "secpal-instance-discovery-error";
   const discoveryFooterPoweredId = "secpal-instance-discovery-footer-powered";
   const discoveryFooterLicenseId = "secpal-instance-discovery-footer-license";
+  const discoveryFooterAttributionId =
+    "secpal-instance-discovery-footer-attribution";
   const discoveryFooterSourceId = "secpal-instance-discovery-footer-source";
   const runtimeResetEntryId = "secpal-instance-runtime-info";
   const runtimeResetSummaryId = "secpal-instance-runtime-summary";
@@ -272,7 +274,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetUnavailable:
         "Instance switching is unavailable because this device cannot show confirmation prompts.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
-      footerLicense: "AGPL v3+ terms",
+      footerLicense: "AGPL v3+",
+      footerAttribution: "Attribution terms",
       footerSource: "Source Code",
       errorBootstrapResponse:
         "This instance could not be verified. Contact your administrator.",
@@ -327,7 +330,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetUnavailable:
         "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
-      footerLicense: "AGPL v3+ terms",
+      footerLicense: "AGPL v3+",
+      footerAttribution: "Attributionsbedingungen",
       footerSource: "Quellcode",
       errorBootstrapResponse:
         "Diese Instanz konnte nicht verifiziert werden. Wenden Sie sich an Ihre Administration.",
@@ -2512,6 +2516,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     );
     discoveryUi.footerPoweredLink.textContent = translateDiscovery("footerPoweredBy");
     discoveryUi.footerLicenseLink.textContent = translateDiscovery("footerLicense");
+    discoveryUi.footerAttributionLink.textContent = translateDiscovery(
+      "footerAttribution"
+    );
     discoveryUi.footerSourceLink.textContent = translateDiscovery("footerSource");
     discoveryUi.validateButton.textContent =
       runtimeState.discoveryBusyAction === "validate"
@@ -3166,15 +3173,30 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     footerLicenseLink.className = "secpal-discovery-footer-link";
     footerLicenseLink.setAttribute(
       "href",
-      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
+      "https://www.gnu.org/licenses/agpl-3.0.html"
     );
     footerLicenseLink.setAttribute("target", "_blank");
     footerLicenseLink.setAttribute("rel", "noopener noreferrer");
+
+    const footerAttributionLink = globalThis.document.createElement("a");
+    footerAttributionLink.id = discoveryFooterAttributionId;
+    footerAttributionLink.className = "secpal-discovery-footer-link";
+    footerAttributionLink.setAttribute(
+      "href",
+      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
+    );
+    footerAttributionLink.setAttribute("target", "_blank");
+    footerAttributionLink.setAttribute("rel", "noopener noreferrer");
 
     const footerSeparator = globalThis.document.createElement("span");
     footerSeparator.className = "secpal-discovery-footer-separator";
     footerSeparator.setAttribute("aria-hidden", "true");
     footerSeparator.textContent = "|";
+
+    const footerAttributionSeparator = globalThis.document.createElement("span");
+    footerAttributionSeparator.className = "secpal-discovery-footer-separator";
+    footerAttributionSeparator.setAttribute("aria-hidden", "true");
+    footerAttributionSeparator.textContent = "|";
 
     const footerSourceLink = globalThis.document.createElement("a");
     footerSourceLink.id = discoveryFooterSourceId;
@@ -3210,6 +3232,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     form.appendChild(actions);
     footerMeta.appendChild(footerLicenseLink);
     footerMeta.appendChild(footerSeparator);
+    footerMeta.appendChild(footerAttributionLink);
+    footerMeta.appendChild(footerAttributionSeparator);
     footerMeta.appendChild(footerSourceLink);
     footer.appendChild(footerPoweredLink);
     footer.appendChild(footerMeta);
@@ -3243,6 +3267,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       confirmButton,
       footerPoweredLink,
       footerLicenseLink,
+      footerAttributionLink,
       footerSourceLink,
     };
 
