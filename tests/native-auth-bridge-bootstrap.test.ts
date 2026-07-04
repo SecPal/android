@@ -13,11 +13,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const CANONICAL_API_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-const ATTRIBUTION_TERMS_URL = `https://github.com/SecPal/android/blob/${execFileSync(
-  "git",
-  ["rev-parse", "HEAD"],
-  { encoding: "utf8" }
-).trim()}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
+const ATTRIBUTION_TERMS_URL =
+  process.env.SECPAL_ATTRIBUTION_TERMS_URL?.trim() ||
+  `https://github.com/SecPal/android/blob/${execFileSync(
+    "git",
+    ["rev-parse", "HEAD"],
+    { encoding: "utf8" }
+  ).trim()}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
 
 function expectCanonicalApiTimestamp(
   value: string | null
