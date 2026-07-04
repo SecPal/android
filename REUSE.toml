@@ -7,7 +7,7 @@ SPDX-FileCopyrightText = "SecPal Contributors"
 [[annotations]]
 path = "tests/**"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
 path = "package.json"
@@ -42,12 +42,12 @@ SPDX-License-Identifier = "MIT"
 [[annotations]]
 path = ["fastlane/Appfile", "fastlane/Fastfile"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
 path = ["fastlane/metadata/android/**/*.txt", "fastlane/metadata/android/**/*.png"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
 path = ["android/gradlew", "android/gradlew.bat", "android/gradle/wrapper/**"]
@@ -62,4 +62,4 @@ SPDX-License-Identifier = "MIT"
 [[annotations]]
 path = ["android/app/src/main/assets/capacitor.config.json", "android/app/src/main/assets/capacitor.plugins.json", "android/app/src/main/assets/public/**"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"

@@ -272,7 +272,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetUnavailable:
         "Instance switching is unavailable because this device cannot show confirmation prompts.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
-      footerLicense: "AGPL v3+",
+      footerLicense: "AGPL v3+ terms",
       footerSource: "Source Code",
       errorBootstrapResponse:
         "This instance could not be verified. Contact your administrator.",
@@ -327,7 +327,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       resetUnavailable:
         "Der Instanzwechsel ist nicht verfügbar, weil dieses Gerät keine Bestätigungsdialoge anzeigen kann.",
       footerPoweredBy: "Powered by SecPal – A guard's best friend",
-      footerLicense: "AGPL v3+",
+      footerLicense: "AGPL v3+ terms",
       footerSource: "Quellcode",
       errorBootstrapResponse:
         "Diese Instanz konnte nicht verifiziert werden. Wenden Sie sich an Ihre Administration.",
@@ -3166,7 +3166,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     footerLicenseLink.className = "secpal-discovery-footer-link";
     footerLicenseLink.setAttribute(
       "href",
-      "https://www.gnu.org/licenses/agpl-3.0.html"
+      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
     );
     footerLicenseLink.setAttribute("target", "_blank");
     footerLicenseLink.setAttribute("rel", "noopener noreferrer");

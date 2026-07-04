@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "author": "SecPal",
-  "license": "AGPL-3.0-or-later",
+  "license": "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution",
   "repository": {
     "type": "git",
     "url": "https://github.com/SecPal/android.git"

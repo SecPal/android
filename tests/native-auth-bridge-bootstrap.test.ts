@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: 2026 SecPal
- * SPDX-License-Identifier: AGPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 SecPal Contributors
+ * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
 /// <reference types="node" />
@@ -467,6 +467,9 @@ describe("native auth bridge bootstrap injection", () => {
     const footerPoweredLink = document.getElementById(
       "secpal-instance-discovery-footer-powered"
     ) as MockElement | null;
+    const footerLicenseLink = document.getElementById(
+      "secpal-instance-discovery-footer-license"
+    ) as MockElement | null;
     const styles = document.getElementById(
       "secpal-instance-discovery-styles"
     ) as MockElement | null;
@@ -499,6 +502,11 @@ describe("native auth bridge bootstrap injection", () => {
     expect(footerPoweredLink?.textContent).toBe(
       "Powered by SecPal – A guard's best friend"
     );
+    expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+ terms");
+    expect(footerLicenseLink?.attributes.href).toBe(
+      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
+    );
 
     expect(localeSelect).not.toBeNull();
     localeSelect!.value = "en";
@@ -514,6 +522,11 @@ describe("native auth bridge bootstrap injection", () => {
     expect(localStorage.getItem("secpal-locale")).toBe("en");
     expect(footerPoweredLink?.textContent).toBe(
       "Powered by SecPal – A guard's best friend"
+    );
+    expect(footerPoweredLink?.attributes.href).toBe("https://secpal.app");
+    expect(footerLicenseLink?.textContent).toBe("AGPL v3+ terms");
+    expect(footerLicenseLink?.attributes.href).toBe(
+      "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt"
     );
   });
 
