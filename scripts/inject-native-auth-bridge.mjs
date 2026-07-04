@@ -3514,13 +3514,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     launchAllowedApp(options) {
       return getEnterprisePlugin().launchAllowedApp(options);
     },
-    openGestureNavigationSettings() {
-      const plugin = getEnterprisePlugin();
-      if (typeof plugin.openGestureNavigationSettings !== "function") {
-        throw new Error("SecPal gesture navigation settings are unavailable");
-      }
-      return plugin.openGestureNavigationSettings();
-    },
     addHardwareButtonListener(listener) {
       const plugin = getEnterprisePlugin();
       if (typeof plugin.addListener !== "function") {

@@ -5,7 +5,6 @@
 
 package app.secpal;
 
-import android.app.Activity;
 import android.view.KeyEvent;
 
 import com.getcapacitor.JSArray;
@@ -569,46 +568,4 @@ public class SecPalEnterprisePlugin extends Plugin {
         call.reject("Allowed app launch is not available", "ENTERPRISE_ACTION_NOT_ALLOWED");
     }
 
-    @PluginMethod
-    public void openGestureNavigationSettings(PluginCall call) {
-        Activity activity = getActivity();
-
-        if (activity == null) {
-            call.reject("Gesture navigation settings require an active Android activity", "ACTIVITY_UNAVAILABLE");
-            return;
-        }
-
-        if (!SystemNavigationController.canOpenGestureNavigationSettings(getContext())) {
-            call.reject(
-                "Gesture navigation settings are unavailable on this device",
-                "ENTERPRISE_ACTION_NOT_ALLOWED"
-            );
-            return;
-        }
-
-        if (!EnterprisePolicyController.temporarilyExitLockTask(activity)) {
-            call.reject(
-                "SecPal could not leave lock task to open gesture navigation settings",
-                "LOCK_TASK_EXIT_FAILED"
-            );
-            return;
-        }
-
-        if (!SystemNavigationController.openGestureNavigationSettings(activity)) {
-            EnterprisePolicyController.maybeEnterLockTask(activity);
-            call.reject(
-                "Gesture navigation settings could not be opened",
-                "ENTERPRISE_ACTION_NOT_ALLOWED"
-            );
-            return;
-        }
-
-        JSObject payload = new JSObject();
-
-        payload.put("opened", true);
-        payload.put("gestureNavigationEnabled", SystemNavigationController.isGestureNavigationEnabled(getContext()));
-        payload.put("willReenterLockTaskOnResume", true);
-
-        call.resolve(payload);
-    }
 }

@@ -35,12 +35,6 @@ export interface EnterpriseManagedState {
   allowedApps: EnterpriseAllowedApp[];
 }
 
-export interface OpenGestureNavigationSettingsResult {
-  opened: boolean;
-  gestureNavigationEnabled: boolean;
-  willReenterLockTaskOnResume: boolean;
-}
-
 export interface LaunchAllowedAppOptions {
   packageName: string;
 }
@@ -85,7 +79,6 @@ export interface NativeEnterpriseBridge {
   launchPhone(): Promise<void>;
   launchSms(): Promise<void>;
   launchAllowedApp(options: LaunchAllowedAppOptions): Promise<void>;
-  openGestureNavigationSettings(): Promise<OpenGestureNavigationSettingsResult>;
   addHardwareButtonListener(
     listener: (event: HardwareButtonPressedEvent) => void
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
@@ -102,7 +95,6 @@ interface SecPalEnterprisePlugin {
   launchPhone(): Promise<void>;
   launchSms(): Promise<void>;
   launchAllowedApp(options: LaunchAllowedAppOptions): Promise<void>;
-  openGestureNavigationSettings(): Promise<OpenGestureNavigationSettingsResult>;
   addListener(
     eventName: "hardwareButtonPressed",
     listener: (event: HardwareButtonPressedEvent) => void
@@ -133,9 +125,6 @@ export function createNativeEnterpriseBridge(): NativeEnterpriseBridge {
     },
     launchAllowedApp(options) {
       return secPalEnterprisePlugin.launchAllowedApp(options);
-    },
-    openGestureNavigationSettings() {
-      return secPalEnterprisePlugin.openGestureNavigationSettings();
     },
     addHardwareButtonListener(listener) {
       return secPalEnterprisePlugin.addListener(
