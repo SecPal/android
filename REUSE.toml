@@ -25,12 +25,32 @@ SPDX-FileCopyrightText = "2026 SecPal"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["README.md", "CHANGELOG.md", "docs/**", ".github/**", ".markdownlint*", ".prettier*", ".yamllint.yml", ".preflight-exclude", ".gitignore"]
+path = [
+  "README.md",
+  "CHANGELOG.md",
+  "docs/**",
+  ".github/**",
+  ".markdownlint*",
+  ".prettier*",
+  ".yamllint.yml",
+  ".preflight-exclude",
+  ".gitignore",
+]
 SPDX-FileCopyrightText = "2026 SecPal"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["Gemfile", "Gemfile.lock"]
+path = ".github/copilot-instructions.md"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+
+[[annotations]]
+path = "Gemfile"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+
+[[annotations]]
+path = "Gemfile.lock"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "CC0-1.0"
 
@@ -38,6 +58,16 @@ SPDX-License-Identifier = "CC0-1.0"
 path = "scripts/**"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "scripts/inject-native-auth-bridge.mjs",
+  "scripts/normalize-cordova-config.mjs",
+  "scripts/sync-play-store-assets.mjs",
+  "scripts/validate-play-store-assets.mjs",
+]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
 path = ["fastlane/Appfile", "fastlane/Fastfile"]
@@ -56,10 +86,11 @@ SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
 path = [
-  "android/**/*.gradle",
-  "android/**/*.java",
-  "android/**/*.xml",
-  "android/**/*.pro",
+  "android/app/build.gradle",
+  "android/app/proguard-rules.pro",
+  "android/app/src/**/*.java",
+  "android/app/src/**/*.xml",
+  "android/app/src/**/*.pro",
   "android/app/src/main/res/**",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
@@ -68,6 +99,14 @@ SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 [[annotations]]
 path = [
   "android/**/*.properties",
+  "android/build.gradle",
+  "android/settings.gradle",
+  "android/capacitor.settings.gradle",
+  "android/variables.gradle",
+  "android/app/capacitor.build.gradle",
+  "android/capacitor-cordova-android-plugins/build.gradle",
+  "android/capacitor-cordova-android-plugins/cordova.variables.gradle",
+  "android/capacitor-cordova-android-plugins/src/main/AndroidManifest.xml",
   "android/.gitignore",
   "android/app/.gitignore",
   "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep",
