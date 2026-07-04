@@ -244,6 +244,7 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    @SuppressWarnings("deprecation")
     private void requestHardwareTriggerWakeState() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
@@ -265,6 +266,7 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    @SuppressWarnings("deprecation")
     private void clearHardwareTriggerWakeState() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(false);

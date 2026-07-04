@@ -68,7 +68,7 @@ public final class EnterprisePolicyConfig {
         Map<String, Object> values = new LinkedHashMap<>();
 
         for (String key : bundle.keySet()) {
-            values.put(key, bundle.get(key));
+            values.put(key, getBundleValue(bundle, key));
         }
 
         return fromMap(values);
@@ -82,7 +82,7 @@ public final class EnterprisePolicyConfig {
         Map<String, Object> values = new LinkedHashMap<>();
 
         for (String key : bundle.keySet()) {
-            values.put(key, bundle.get(key));
+            values.put(key, getPersistableBundleValue(bundle, key));
         }
 
         return fromMap(values);
@@ -218,6 +218,16 @@ public final class EnterprisePolicyConfig {
         Boolean value = readOptionalBoolean(values, keys);
 
         return value != null && value;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Object getBundleValue(Bundle bundle, String key) {
+        return bundle.get(key);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Object getPersistableBundleValue(PersistableBundle bundle, String key) {
+        return bundle.get(key);
     }
 
     private static Boolean readOptionalBoolean(Map<String, ?> values, String... keys) {

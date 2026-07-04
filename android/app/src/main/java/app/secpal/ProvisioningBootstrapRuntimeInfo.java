@@ -10,6 +10,8 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
+import androidx.core.content.pm.PackageInfoCompat;
+
 final class ProvisioningBootstrapRuntimeInfo {
     private final String packageName;
     private final String packageVersionName;
@@ -56,11 +58,7 @@ final class ProvisioningBootstrapRuntimeInfo {
             }
 
             versionName = packageInfo.versionName;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                versionCode = (int) packageInfo.getLongVersionCode();
-            } else {
-                versionCode = packageInfo.versionCode;
-            }
+            versionCode = (int) PackageInfoCompat.getLongVersionCode(packageInfo);
         } catch (PackageManager.NameNotFoundException ignored) {
             // Fall back to package name only when package metadata is unavailable.
         }
