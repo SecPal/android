@@ -54,6 +54,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   }
 
   const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const attributionTermsUrl = ${serializedAttributionTermsUrl};
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
   const runtimeStorageKey = "runtimeBootstrapState";
@@ -84,6 +85,8 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const runtimeResetEntryId = "secpal-instance-runtime-info";
   const runtimeResetSummaryId = "secpal-instance-runtime-summary";
   const runtimeResetAttributionId = "secpal-instance-runtime-attribution";
+  const aboutAttributionEntryId = "secpal-about-attribution";
+  const aboutAttributionLinkId = "secpal-about-attribution-link";
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
@@ -574,9 +577,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:disabled{cursor:wait;opacity:0.7;}",
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-attribution{color:#71717a;font-size:11px;line-height:1.5;text-decoration:none;}",
       "#" + runtimeResetEntryId + " .secpal-runtime-reset-attribution:hover{text-decoration:underline;color:#52525b;}",
+      "#" + aboutAttributionEntryId + "{display:flex;justify-content:center;padding:0.75rem 1rem 0;font-family:Inter,system-ui,sans-serif;}",
+      "#" + aboutAttributionEntryId + " .secpal-about-attribution-link{color:#71717a;font-size:11px;line-height:1.5;text-decoration:none;}",
+      "#" + aboutAttributionEntryId + " .secpal-about-attribution-link:hover{text-decoration:underline;color:#52525b;}",
       "@media (min-width: 1024px){#" + discoveryGateId + "{background:var(--secpal-discovery-bg-lg);}#" + discoveryGateId + " .secpal-discovery-shell{padding:2rem;}#" + discoveryGateId + " .secpal-discovery-panel{border-radius:0.5rem;background:var(--secpal-discovery-panel-bg);border:1px solid var(--secpal-discovery-panel-border);box-shadow:var(--secpal-discovery-panel-shadow);padding:3rem;}#" + discoveryGateId + " .secpal-discovery-spacer--top{display:none;}#" + discoveryGateId + " .secpal-discovery-title{font-size:1.875rem;}}",
       "@media (prefers-color-scheme: dark){#" + discoveryGateId + "{color-scheme:dark;background:#18181b;color:#f4f4f5;--secpal-discovery-bg:#18181b;--secpal-discovery-bg-lg:#09090b;--secpal-discovery-panel-bg:#18181b;--secpal-discovery-panel-border:rgba(255,255,255,0.1);--secpal-discovery-panel-shadow:0 1px 2px rgba(0,0,0,0.3),0 28px 80px rgba(0,0,0,0.45);--secpal-discovery-fg:#f4f4f5;--secpal-discovery-muted:#d4d4d8;--secpal-discovery-subtle:#a1a1aa;--secpal-discovery-control-bg:rgba(255,255,255,0.04);--secpal-discovery-control-border:rgba(255,255,255,0.12);--secpal-discovery-control-border-hover:rgba(255,255,255,0.22);--secpal-discovery-control-shadow:none;--secpal-discovery-note-bg:rgba(39,39,42,0.92);--secpal-discovery-note-border:rgba(255,255,255,0.1);--secpal-discovery-summary-bg:rgba(20,83,45,0.35);--secpal-discovery-summary-border:rgba(134,239,172,0.28);--secpal-discovery-summary-fg:#dcfce7;--secpal-discovery-error-bg:rgba(127,29,29,0.28);--secpal-discovery-error-border:rgba(248,113,113,0.25);--secpal-discovery-error-fg:#fecaca;--secpal-discovery-primary-bg:#fafafa;--secpal-discovery-primary-border:rgba(255,255,255,0.92);--secpal-discovery-primary-fg:#18181b;--secpal-discovery-primary-hover:rgba(24,24,27,0.08);--secpal-discovery-secondary-border:rgba(255,255,255,0.12);--secpal-discovery-secondary-hover:rgba(255,255,255,0.06);}#" + discoveryGateId + " .secpal-discovery-logo-image--light{display:none;}#" + discoveryGateId + " .secpal-discovery-logo-image--dark{display:block;}#" + discoveryGateId + " .secpal-discovery-control::before{display:none;}#" + discoveryGateId + " .secpal-discovery-footer-separator{color:rgba(161,161,170,0.4);}}",
-      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution:hover{color:#d4d4d8;}}",
+      "@media (prefers-color-scheme: dark){#" + runtimeResetEntryId + " .secpal-runtime-reset-summary, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution, #" + aboutAttributionEntryId + " .secpal-about-attribution-link{color:#a1a1aa;}#" + runtimeResetEntryId + " .secpal-runtime-reset-summary:not(:disabled):hover, #" + runtimeResetEntryId + " .secpal-runtime-reset-attribution:hover, #" + aboutAttributionEntryId + " .secpal-about-attribution-link:hover{color:#d4d4d8;}}",
     ].join("\\n");
 
     const parent = globalThis.document.head ?? globalThis.document.body;
@@ -2623,6 +2629,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const isAboutRoute = () => {
+    try {
+      const locationHref =
+        globalThis.location && typeof globalThis.location.href === "string"
+          ? globalThis.location.href
+          : fallbackApiOrigin;
+      const currentUrl = new URL(locationHref, fallbackApiOrigin);
+
+      return (
+        currentUrl.pathname === "/about" ||
+        currentUrl.pathname.startsWith("/about/")
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const getLoginPasskeyButtonContext = () => {
     if (!globalThis.document?.body || !isLoginRoute()) {
       return null;
@@ -2673,6 +2696,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
 
     runtimeResetUi = null;
+  };
+
+  const removeAboutAttributionEntry = () => {
+    const existing = globalThis.document?.getElementById?.(aboutAttributionEntryId);
+
+    if (existing && typeof existing.remove === "function") {
+      existing.remove();
+    }
   };
 
   const syncRuntimeResetEntryCopy = () => {
@@ -2814,6 +2845,42 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
+  const syncAboutAttributionEntry = () => {
+    if (!runtimeState.configured || !isAboutRoute() || !globalThis.document?.body) {
+      removeAboutAttributionEntry();
+      return true;
+    }
+
+    applyDiscoveryLocale(detectDiscoveryLocale());
+    ensureDiscoveryStyles();
+
+    const existing = globalThis.document.getElementById(aboutAttributionEntryId);
+
+    if (existing) {
+      const link = globalThis.document.getElementById(aboutAttributionLinkId);
+      if (link) {
+        link.textContent = translateDiscovery("footerAttribution");
+      }
+      return true;
+    }
+
+    const root = globalThis.document.createElement("div");
+    root.id = aboutAttributionEntryId;
+
+    const link = globalThis.document.createElement("a");
+    link.id = aboutAttributionLinkId;
+    link.className = "secpal-about-attribution-link";
+    link.setAttribute("href", attributionTermsUrl);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+    link.textContent = translateDiscovery("footerAttribution");
+
+    root.appendChild(link);
+    globalThis.document.body.appendChild(root);
+
+    return true;
+  };
+
   const renderRuntimeResetEntry = (passkeyButtonParent, passkeyButton) => {
     if (
       !globalThis.document ||
@@ -2856,7 +2923,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const attribution = globalThis.document.createElement("a");
     attribution.id = runtimeResetAttributionId;
     attribution.className = "secpal-runtime-reset-attribution";
-    attribution.setAttribute("href", ${serializedAttributionTermsUrl});
+    attribution.setAttribute("href", attributionTermsUrl);
     attribution.setAttribute("target", "_blank");
     attribution.setAttribute("rel", "noopener noreferrer");
 
@@ -2908,7 +2975,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const scheduleLoginRuntimeResetSync = () => {
     clearRuntimeResetSyncTimeout();
 
-    if (syncLoginRuntimeResetState()) {
+    const loginSynced = syncLoginRuntimeResetState();
+    const aboutSynced = syncAboutAttributionEntry();
+
+    if (loginSynced && aboutSynced) {
       return;
     }
 
@@ -3216,7 +3286,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const footerAttributionLink = globalThis.document.createElement("a");
     footerAttributionLink.id = discoveryFooterAttributionId;
     footerAttributionLink.className = "secpal-discovery-footer-link";
-    footerAttributionLink.setAttribute("href", ${serializedAttributionTermsUrl});
+    footerAttributionLink.setAttribute("href", attributionTermsUrl);
     footerAttributionLink.setAttribute("target", "_blank");
     footerAttributionLink.setAttribute("rel", "noopener noreferrer");
 

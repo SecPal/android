@@ -2001,6 +2001,64 @@ describe("native auth bridge bootstrap injection", () => {
     ).not.toBeNull();
   });
 
+  it("exposes the attribution terms link on the configured about route", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue(),
+      }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage: createMockStorage({ "secpal-locale": "en" }),
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      }),
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/about" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    await flushMicrotasks();
+
+    const aboutAttributionLink = document.getElementById(
+      "secpal-about-attribution-link"
+    ) as MockElement | null;
+
+    expect(aboutAttributionLink).not.toBeNull();
+    expect(aboutAttributionLink?.textContent).toBe("Attribution terms");
+    expect(aboutAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
+  });
+
   it("does not restore a legacy configured API origin from the native plugin on startup", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

@@ -55,7 +55,23 @@ SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
-path = ["android/**/*.gradle", "android/**/*.java", "android/**/*.xml", "android/**/*.properties", "android/**/*.pro", "android/.gitignore", "android/app/.gitignore", "android/app/src/main/res/**", "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep"]
+path = [
+  "android/**/*.gradle",
+  "android/**/*.java",
+  "android/**/*.xml",
+  "android/**/*.pro",
+  "android/app/src/main/res/**",
+]
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+
+[[annotations]]
+path = [
+  "android/**/*.properties",
+  "android/.gitignore",
+  "android/app/.gitignore",
+  "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep",
+]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "MIT"
 
