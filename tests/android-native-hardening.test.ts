@@ -587,6 +587,7 @@ describe("Android native hardening", () => {
   });
 
   it("does not expose lock-task exit settings through the WebView enterprise bridge", () => {
+    const changelog = readRepoFile("CHANGELOG.md");
     const plugin = readRepoFile(
       "android",
       "app",
@@ -609,7 +610,10 @@ describe("Android native hardening", () => {
     );
     const injector = readRepoFile("scripts", "inject-native-auth-bridge.mjs");
 
-    expect(plugin).not.toContain("public void openGestureNavigationSettings");
+    expect(changelog).not.toContain(
+      "SecPalEnterprisePlugin` and the injected `SecPalEnterpriseBridge` can now open the device's official navigation-mode settings screen from SecPal itself"
+    );
+    expect(plugin).not.toContain("openGestureNavigationSettings");
     expect(plugin).toContain("gestureNavigationEnabled");
     expect(plugin).toContain("gestureNavigationSettingsAvailable");
     expect(navigationController).toContain(
