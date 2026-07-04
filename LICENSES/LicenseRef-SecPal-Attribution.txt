@@ -27,7 +27,7 @@ original SecPal version and should use an attribution notice such as:
 
 or:
 
-  Based on SecPal – modified by [name/entity]
+  Based on SecPal - modified by [name/entity]
 
 A modified version must not use "Powered by SecPal" in a way that implies that
 the modified version is the original SecPal version or is endorsed by the
@@ -37,11 +37,11 @@ SecPal project maintainers.
 
 The preferred full attribution notice is:
 
-  Powered by SecPal – A guard's best friend
+  Powered by SecPal - A guard's best friend
 
 For modified versions, the preferred attribution notice is:
 
-  Based on SecPal – A guard's best friend
+  Based on SecPal - A guard's best friend
 
 The SecPal project website is:
 
