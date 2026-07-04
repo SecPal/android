@@ -223,7 +223,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         ProvisioningBootstrapRuntimeInfo runtimeInfo =
             ProvisioningBootstrapRuntimeInfo.fromContext(getContext());
         String appVersion = runtimeInfo.getPackageVersionName();
-        int appBuild = runtimeInfo.getPackageVersionCode();
+        long appBuild = runtimeInfo.getPackageVersionCode();
 
         if (appVersion == null || appVersion.trim().isEmpty() || appBuild <= 0) {
             call.reject(

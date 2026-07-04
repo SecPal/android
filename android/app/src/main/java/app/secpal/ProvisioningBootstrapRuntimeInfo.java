@@ -10,10 +10,12 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
+import androidx.core.content.pm.PackageInfoCompat;
+
 final class ProvisioningBootstrapRuntimeInfo {
     private final String packageName;
     private final String packageVersionName;
-    private final int packageVersionCode;
+    private final long packageVersionCode;
     private final String deviceName;
     private final String deviceManufacturer;
     private final String deviceModel;
@@ -22,7 +24,7 @@ final class ProvisioningBootstrapRuntimeInfo {
     ProvisioningBootstrapRuntimeInfo(
         String packageName,
         String packageVersionName,
-        int packageVersionCode,
+        long packageVersionCode,
         String deviceName,
         String deviceManufacturer,
         String deviceModel,
@@ -40,7 +42,7 @@ final class ProvisioningBootstrapRuntimeInfo {
     static ProvisioningBootstrapRuntimeInfo fromContext(Context context) {
         String packageName = context.getPackageName();
         String versionName = null;
-        int versionCode = 0;
+        long versionCode = 0;
 
         try {
             PackageManager packageManager = context.getPackageManager();
@@ -56,11 +58,7 @@ final class ProvisioningBootstrapRuntimeInfo {
             }
 
             versionName = packageInfo.versionName;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                versionCode = (int) packageInfo.getLongVersionCode();
-            } else {
-                versionCode = packageInfo.versionCode;
-            }
+            versionCode = PackageInfoCompat.getLongVersionCode(packageInfo);
         } catch (PackageManager.NameNotFoundException ignored) {
             // Fall back to package name only when package metadata is unavailable.
         }
@@ -84,7 +82,7 @@ final class ProvisioningBootstrapRuntimeInfo {
         return packageVersionName;
     }
 
-    int getPackageVersionCode() {
+    long getPackageVersionCode() {
         return packageVersionCode;
     }
 

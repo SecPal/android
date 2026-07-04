@@ -112,6 +112,43 @@ describe("Android native hardening", () => {
     expect(proguardRules).toContain("app.secpal.SecPalNativeAuthPlugin");
   });
 
+  it("tracks native warning triage in the Android build configuration", () => {
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const buildGradle = readRepoFile("android", "app", "build.gradle");
+
+    expect(packageJson.scripts["native:compile:debug:deprecations"]).toContain(
+      "./gradlew :app:compileDebugJavaWithJavac"
+    );
+    expect(packageJson.scripts["native:compile:debug:deprecations"]).toContain(
+      "-PsecpalJavaDeprecationLint=true"
+    );
+    expect(buildGradle).toContain("packaging {");
+    expect(buildGradle).toContain("jniLibs {");
+    expect(buildGradle).toContain("keepDebugSymbols");
+    expect(buildGradle).toContain("libdatastore_shared_counter.so");
+  });
+
+  it("does not keep deprecated pre-Marshmallow network compatibility code when minSdk is 23", () => {
+    const variablesGradle = readRepoFile("android", "variables.gradle");
+    const networkState = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "NetworkState.java"
+    );
+
+    expect(variablesGradle).toMatch(/minSdkVersion\s*=\s*23/);
+    expect(networkState).not.toContain('SuppressWarnings("deprecation")');
+    expect(networkState).not.toContain("NetworkInfo");
+    expect(networkState).not.toContain("getActiveNetworkInfo");
+  });
+
   it("locks file sharing to dedicated subdirectories and disables cleartext traffic", () => {
     const manifest = readRepoFile(
       "android",
