@@ -230,7 +230,6 @@ async function loadInjectorModule({
   );
 
   try {
-    // @ts-expect-error The injector intentionally remains a Node-executable .mjs helper and is exercised directly here.
     return await import(moduleUrl.href);
   } finally {
     if (previousAttributionTermsUrl === undefined) {
