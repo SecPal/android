@@ -7,19 +7,13 @@
 /// <reference lib="dom" />
 
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 const CANONICAL_API_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-const ATTRIBUTION_TERMS_URL =
-  process.env.SECPAL_ATTRIBUTION_TERMS_URL?.trim() ||
-  `https://github.com/SecPal/android/blob/${execFileSync(
-    "git",
-    ["rev-parse", "HEAD"],
-    { encoding: "utf8" }
-  ).trim()}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
+const DEFAULT_ATTRIBUTION_TERMS_URL =
+  "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt";
 
 function expectCanonicalApiTimestamp(
   value: string | null
@@ -213,13 +207,38 @@ function appendMockLoginFooter(document: MockDocument) {
   };
 }
 
-async function loadInjectorModule(): Promise<{
+async function loadInjectorModule({
+  attributionTermsUrl,
+}: {
+  attributionTermsUrl?: string;
+} = {}): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
   injectNativeAuthBridgeBootstrap: (html: string, apiBaseUrl: string) => string;
   readApiBaseUrlFromStringsXml: (stringsXml: string) => string;
 }> {
-  // @ts-expect-error The injector intentionally remains a Node-executable .mjs helper and is exercised directly here.
-  return import("../scripts/inject-native-auth-bridge.mjs");
+  const previousAttributionTermsUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+
+  if (attributionTermsUrl === undefined) {
+    delete process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+  } else {
+    process.env.SECPAL_ATTRIBUTION_TERMS_URL = attributionTermsUrl;
+  }
+
+  const moduleUrl = new URL(
+    `../scripts/inject-native-auth-bridge.mjs?test=${Math.random().toString(16).slice(2)}`,
+    import.meta.url
+  );
+
+  try {
+    // @ts-expect-error The injector intentionally remains a Node-executable .mjs helper and is exercised directly here.
+    return await import(moduleUrl.href);
+  } finally {
+    if (previousAttributionTermsUrl === undefined) {
+      delete process.env.SECPAL_ATTRIBUTION_TERMS_URL;
+    } else {
+      process.env.SECPAL_ATTRIBUTION_TERMS_URL = previousAttributionTermsUrl;
+    }
+  }
 }
 
 function encodeBase64(value: string): string {
@@ -519,7 +538,9 @@ describe("native auth bridge bootstrap injection", () => {
       "https://www.gnu.org/licenses/agpl-3.0.html"
     );
     expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
-    expect(footerAttributionLink?.attributes.href).toBe(ATTRIBUTION_TERMS_URL);
+    expect(footerAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
 
     expect(localeSelect).not.toBeNull();
     localeSelect!.value = "en";
@@ -542,12 +563,72 @@ describe("native auth bridge bootstrap injection", () => {
       "https://www.gnu.org/licenses/agpl-3.0.html"
     );
     expect(footerAttributionLink?.textContent).toBe("Attribution terms");
-    expect(footerAttributionLink?.attributes.href).toBe(ATTRIBUTION_TERMS_URL);
+    expect(footerAttributionLink?.attributes.href).toBe(
+      DEFAULT_ATTRIBUTION_TERMS_URL
+    );
 
     localeSelect!.value = "de";
     localeSelect!.change();
     expect(footerLicenseLink?.textContent).toBe("AGPL v3+");
     expect(footerAttributionLink?.textContent).toBe("Attributionsbedingungen");
+  });
+
+  it("uses a configured attribution terms URL without breaking the injected bootstrap script", async () => {
+    const configuredAttributionTermsUrl =
+      "https://example.com/terms?</script><script>globalThis.__broken = true</script>";
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule({
+      attributionTermsUrl: configuredAttributionTermsUrl,
+    });
+    const script = buildNativeAuthBridgeBootstrapScript(
+      runtimeBootstrapPlaceholderOrigin
+    );
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            getCurrentUser: vi.fn(),
+            isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+            request: vi.fn(),
+          },
+        },
+      },
+      document,
+      localStorage: createMockStorage(),
+      sessionStorage: createMockStorage(),
+      navigator: { language: "en-US" },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    expect(script).not.toContain("</script><script>");
+
+    expect(() => vm.runInNewContext(script, sandbox)).not.toThrow();
+
+    const footerAttributionLink = document.getElementById(
+      "secpal-instance-discovery-footer-attribution"
+    ) as MockElement | null;
+
+    expect(footerAttributionLink?.attributes.href).toBe(
+      configuredAttributionTermsUrl
+    );
+    expect((sandbox as { __broken?: boolean }).__broken).toBeUndefined();
   });
 
   it("keeps bootstrap initialization alive when locale persistence fails", async () => {

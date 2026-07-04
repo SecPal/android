@@ -2,13 +2,11 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const DEFAULT_ATTRIBUTION_TERMS_URL =
+  "https://github.com/SecPal/android/blob/main/LICENSES/LicenseRef-SecPal-Attribution.txt";
 
 function resolveAttributionTermsUrl() {
   const configuredUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL?.trim();
@@ -17,18 +15,11 @@ function resolveAttributionTermsUrl() {
     return configuredUrl;
   }
 
-  const revision = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  }).trim();
+  return DEFAULT_ATTRIBUTION_TERMS_URL;
+}
 
-  if (!/^[0-9a-f]{40}$/u.test(revision)) {
-    throw new Error(
-      "Unable to resolve immutable git revision for attribution terms URL"
-    );
-  }
-
-  return `https://github.com/SecPal/android/blob/${revision}/LICENSES/LicenseRef-SecPal-Attribution.txt`;
+function serializeInlineScriptString(value) {
+  return JSON.stringify(value).replace(/<\/script>/gi, "<\\/script>");
 }
 
 const ATTRIBUTION_TERMS_URL = resolveAttributionTermsUrl();
@@ -48,9 +39,9 @@ export function readApiBaseUrlFromStringsXml(stringsXml) {
 }
 
 export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
-  const serializedApiBaseUrl = JSON.stringify(apiBaseUrl).replace(
-    /<\/script>/gi,
-    "<\\/script>"
+  const serializedApiBaseUrl = serializeInlineScriptString(apiBaseUrl);
+  const serializedAttributionTermsUrl = serializeInlineScriptString(
+    ATTRIBUTION_TERMS_URL
   );
 
   return `
@@ -3209,10 +3200,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const footerAttributionLink = globalThis.document.createElement("a");
     footerAttributionLink.id = discoveryFooterAttributionId;
     footerAttributionLink.className = "secpal-discovery-footer-link";
-    footerAttributionLink.setAttribute(
-      "href",
-      ${JSON.stringify(ATTRIBUTION_TERMS_URL)}
-    );
+    footerAttributionLink.setAttribute("href", ${serializedAttributionTermsUrl});
     footerAttributionLink.setAttribute("target", "_blank");
     footerAttributionLink.setAttribute("rel", "noopener noreferrer");
 
