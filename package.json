@@ -76,7 +76,7 @@
     "@types/node": "^26.1.0",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.61.1",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "markdownlint-cli": "0.49.0",
