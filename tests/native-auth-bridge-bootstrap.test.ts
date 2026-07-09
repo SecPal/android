@@ -6470,6 +6470,89 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(response.text()).resolves.toBe('{"ok":true}');
   });
 
+  it("exposes runtime bootstrap methods on the injected bridge for the shared frontend facade", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeInfo: vi.fn().mockResolvedValue({
+        clientPlatform: "android",
+        appVersion: "0.0.1",
+        appBuild: 1,
+      }),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: false,
+      }),
+      setRuntimeBootstrap: vi
+        .fn()
+        .mockResolvedValue({ bootstrap: runtimeBootstrap }),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      getRuntimeInfo(): Promise<unknown>;
+      getRuntimeBootstrap(): Promise<unknown>;
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+      clearRuntimeBootstrap(): Promise<void>;
+    };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    await expect(bridge.getRuntimeInfo()).resolves.toEqual({
+      clientPlatform: "android",
+      appVersion: "0.0.1",
+      appBuild: 1,
+    });
+    await expect(bridge.getRuntimeBootstrap()).resolves.toEqual({
+      configured: false,
+    });
+    await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
+      "https://customer-api.example"
+    );
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(runtimeBootstrap);
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+
+    await expect(bridge.clearRuntimeBootstrap()).resolves.toBeUndefined();
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+  });
+
   it("does not mark runtime as configured until setApiBaseUrl resolves during bootstrap confirmation", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     let resolveSetApiBaseUrl!: (value: unknown) => void;

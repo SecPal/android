@@ -3606,6 +3606,29 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     async getAndroidPushRegistrationState() {
       return getAndroidPushRegistrationState();
     },
+    async getRuntimeInfo() {
+      return getPlugin().getRuntimeInfo();
+    },
+    async getRuntimeBootstrap() {
+      return getPlugin().getRuntimeBootstrap();
+    },
+    async setRuntimeBootstrap(bootstrap) {
+      return applyRuntimeBootstrap(bootstrap);
+    },
+    async clearRuntimeBootstrap() {
+      await clearPersistedBootstrap();
+      runtimeState.configured = false;
+      runtimeState.bootstrap = null;
+      runtimeState.apiOrigin = null;
+      runtimeState.pendingBootstrap = null;
+      runtimeState.discoveryBusyAction = null;
+      runtimeState.discoveryErrorMessage = "";
+      runtimeState.nativeConfigPromise = Promise.resolve();
+      clearAndroidPushSyncState();
+      disconnectRuntimeResetObserver();
+      removeRuntimeResetEntry();
+      mountDiscoveryGate();
+    },
     async request(request) {
       return sendAuthenticatedNativeRequest(request, {
         markAuthenticatedOnSuccess: false,
