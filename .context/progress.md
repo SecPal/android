@@ -9,6 +9,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 - Runtime-contract audits should compare the shared frontend facade, injected WebView bridge, native Capacitor plugin, persisted payload shape, and reset/logout side effects together; missing injected bridge methods can break a frontend facade even when the native plugin already implements them.
 - Obsolete Android bootstrap compatibility paths should be removed only after checking the shared frontend facade for live callers; keep tenant-state and push-token cleanup separate from removed bootstrap persistence shims.
 - Frontend-facing Android runtime clear methods must clear native bootstrap persistence and tenant-scoped browser state together; otherwise shared instance-switch flows can return to discovery with stale customer storage.
+- Operator-facing Android runtime docs should describe restore/apply/clear as native runtime-bootstrap bridge behavior and name removed compatibility paths explicitly so stale baked-origin assumptions do not reappear.
 
 ## US-001: Audit Android runtime-discovery story state
 
@@ -80,3 +81,22 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
     - Frontend facade methods need the same cleanup guarantees as the in-page reset flow because the shared frontend can call the injected bridge directly.
   - Gotchas encountered
     - Existing reset-button tests covered tenant cleanup through `clearConfiguredRuntimeState`, but not the public `clearRuntimeBootstrap()` method used by the shared frontend instance-switch path.
+
+## US-005: Align Android docs and changelog with the final runtime-bootstrap behavior
+
+- What was implemented
+  - Updated Android runtime-bootstrap contract documentation to describe the final native restore/apply/clear behavior and the removed baked-in-origin, `setApiBaseUrl(...)`, legacy `apiOrigin`-only, and session-storage compatibility paths.
+  - Updated operator-facing README and Android release distribution docs so deployment binding, restart restore, instance switching, and invalid-runtime clearing match the final runtime-bootstrap contract.
+  - Updated `CHANGELOG.md` for the documentation alignment.
+- Files changed
+  - `docs/ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md`
+  - `docs/ANDROID_RELEASE_DISTRIBUTION.md`
+  - `docs/ANDROID_RUNTIME_DISCOVERY_AUDIT.md`
+  - `README.md`
+  - `CHANGELOG.md`
+  - `.context/progress.md`
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Final runtime-bootstrap documentation needs to cover operator-facing binding docs and contract audit docs together because stale compatibility assumptions can live outside the code-level contract.
+  - Gotchas encountered
+    - The native plugin still exposes `setApiBaseUrl(...)`, but the injected bridge no longer uses it for frontend runtime confirmation; docs must distinguish the removed injected compatibility path from remaining native plugin code.

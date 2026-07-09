@@ -56,8 +56,8 @@ Open Android issues at audit time:
 
 ## Conclusion
 
-The Android runtime-discovery/bootstrap implementation and follow-up hardening
+The Android runtime-discovery/bootstrap implementation and subsequent hardening
 work represented by PRs `#233`, `#234`, `#235`, `#236`, `#240`, `#242`, `#247`,
 `#256`, `#259`, and `#262` is merged, linked story issues are closed, and review
 threads are resolved. No open Android PR, issue, branch, or review thread found
-in this audit remains in scope for this runtime-discovery follow-up.
+in this audit remains in scope for this runtime-discovery cleanup topic.

@@ -31,20 +31,39 @@ frontend behavior and must be kept while the shared flow depends on it.
 
 ## Native Methods To Keep
 
-| Frontend-required method                                          | Android implementation                                                                                                                                                     | Keep rationale                                                                                                            |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `SecPalNativeAuthBridge.getRuntimeInfo()`                         | Injected bridge delegates to `SecPalNativeAuth.getRuntimeInfo()`, which returns `clientPlatform`, `appVersion`, and `appBuild`.                                            | Required before discovery so the frontend can call `/v1/bootstrap?client_platform=android&app_version=...&app_build=...`. |
-| `SecPalNativeAuthBridge.getRuntimeBootstrap()`                    | Injected bridge delegates to `SecPalNativeAuth.getRuntimeBootstrap()`, which returns `{ configured: false }` or `{ configured: true, bootstrap }`.                         | Required on startup so the merged frontend can restore an already selected runtime without reopening discovery.           |
-| `SecPalNativeAuthBridge.setRuntimeBootstrap(bootstrap)`           | Injected bridge applies runtime state and delegates persistence to `SecPalNativeAuth.setRuntimeBootstrap(...)`.                                                            | Required after discovery confirmation; the frontend fails closed when the bridge exists but this method is absent.        |
-| `SecPalNativeAuthBridge.clearRuntimeBootstrap()`                  | Injected bridge clears persisted bootstrap state through `SecPalNativeAuth.clearRuntimeBootstrap()` and resets injected runtime state.                                     | Required when the frontend clears an invalid, incompatible, or user-reset runtime.                                        |
-| `SecPalNativeAuthBridge.logout()` and `SecPalNativeAuth.logout()` | Injected bridge revokes Android push registration, calls native logout, clears push sync state, and dispatches `secpal:native-auth-logout` after successful native logout. | Required so runtime reset and shared logout flows clear frontend auth state after native token teardown.                  |
-| `SecPalNativeAuthBridge.request(...)`                             | Injected bridge routes authenticated `/v1/...` requests to `SecPalNativeAuth.request(...)`.                                                                                | Required by Android push registration and revocation flows that must not expose bearer tokens to JavaScript.              |
-| `SecPalNativeAuthBridge.getAndroidPushRegistrationState()`        | Injected bridge returns the Android push registration disablement state.                                                                                                   | Required so frontend-visible Android push state remains recoverable when secure UUID generation is unavailable.           |
+| Frontend-required method                                          | Android implementation                                                                                                                                                                                          | Keep rationale                                                                                                                           |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `SecPalNativeAuthBridge.getRuntimeInfo()`                         | Injected bridge delegates to `SecPalNativeAuth.getRuntimeInfo()`, which returns `clientPlatform`, `appVersion`, and `appBuild`.                                                                                 | Required before discovery so the frontend can call `/v1/bootstrap?client_platform=android&app_version=...&app_build=...`.                |
+| `SecPalNativeAuthBridge.getRuntimeBootstrap()`                    | Injected bridge delegates to `SecPalNativeAuth.getRuntimeBootstrap()`, which returns `{ configured: false }` or `{ configured: true, bootstrap }`.                                                              | Required on startup so the merged frontend can restore an already selected runtime without reopening discovery.                          |
+| `SecPalNativeAuthBridge.setRuntimeBootstrap(bootstrap)`           | Injected bridge applies runtime state and delegates persistence to `SecPalNativeAuth.setRuntimeBootstrap(...)`.                                                                                                 | Required after discovery confirmation; the frontend fails closed when the bridge exists but this method is absent.                       |
+| `SecPalNativeAuthBridge.clearRuntimeBootstrap()`                  | Injected bridge clears persisted bootstrap state through `SecPalNativeAuth.clearRuntimeBootstrap()`, clears tenant-scoped browser state, resets injected runtime state, and clears retained Android push state. | Required when the frontend clears an invalid, incompatible, or user-reset runtime without carrying customer storage back into discovery. |
+| `SecPalNativeAuthBridge.logout()` and `SecPalNativeAuth.logout()` | Injected bridge revokes Android push registration, calls native logout, clears push sync state, and dispatches `secpal:native-auth-logout` after successful native logout.                                      | Required so runtime reset and shared logout flows clear frontend auth state after native token teardown.                                 |
+| `SecPalNativeAuthBridge.request(...)`                             | Injected bridge routes authenticated `/v1/...` requests to `SecPalNativeAuth.request(...)`.                                                                                                                     | Required by Android push registration and revocation flows that must not expose bearer tokens to JavaScript.                             |
+| `SecPalNativeAuthBridge.getAndroidPushRegistrationState()`        | Injected bridge returns the Android push registration disablement state.                                                                                                                                        | Required so frontend-visible Android push state remains recoverable when secure UUID generation is unavailable.                          |
 
 The legacy direct injected fallback to `SecPalNativeAuth.setApiBaseUrl(...)`
 and session-storage bootstrap persistence is not part of the merged frontend
 facade contract and has been removed from the injected bridge. Runtime
 confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
+
+## Final Runtime Behavior
+
+- Startup restore reads only the structured native runtime-bootstrap payload
+  through `SecPalNativeAuthBridge.getRuntimeBootstrap()`. Legacy
+  `apiOrigin`-only state and JavaScript session-storage bootstrap state do not
+  restore a configured runtime.
+- Discovery confirmation applies only through
+  `SecPalNativeAuthBridge.setRuntimeBootstrap(...)`. The injected bridge no
+  longer confirms deployments by calling `SecPalNativeAuth.setApiBaseUrl(...)`
+  or by writing a browser-owned bootstrap fallback.
+- Runtime clearing through the public bridge method and the in-page reset flow
+  both clear native bootstrap persistence, tenant-scoped browser storage,
+  injected runtime state, and retained Android push state before discovery
+  resumes.
+- The baked-in Android resource value is a placeholder guardrail for native
+  code paths that run before runtime binding. It is not a deployable fallback
+  origin for login, authenticated requests, bootstrap restore, or push
+  registration.
 
 ## Bootstrap Payload Mapping
 
@@ -72,7 +91,7 @@ confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
 The following Android bridge/runtime code is explicitly in scope to keep:
 
 - `scripts/inject-native-auth-bridge.mjs`: runtime discovery validation,
-  persisted bootstrap restore, `applyRuntimeBootstrap`, runtime reset,
+  native persisted-bootstrap restore, `applyRuntimeBootstrap`, runtime reset,
   Android push registration/revocation, and the `SecPalNativeAuthBridge`
   runtime-bootstrap methods.
 - `android/app/src/main/java/app/secpal/SecPalNativeAuthPlugin.java`:

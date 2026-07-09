@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Aligned Android runtime-bootstrap and deployment-binding documentation with the final native restore/apply/clear behavior, including the intentionally removed baked-in-origin, `setApiBaseUrl(...)`, legacy `apiOrigin`-only, and session-storage compatibility paths.
 - Documented the Android runtime-bootstrap contract required by the merged shared frontend flow, including native runtime info, persisted bootstrap read/apply/clear, reset/logout behavior, payload field mapping, and bridge/runtime code that must be kept.
 - Documented the Android runtime-discovery/bootstrap branch, PR, issue, and review-thread audit so the cleanup story has a current scoped baseline.
 - Added `LicenseRef-SecPal-Attribution` for SecPal-owned AGPL-covered code, fastlane assets, and related metadata, linked the repo docs to the new AGPL section 7(b)/(c) terms, and tightened the Android discovery/about legal footer so it exposes the SecPal attribution terms alongside the existing `Powered by SecPal` notice.

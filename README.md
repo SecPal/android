@@ -55,6 +55,8 @@ To bind the app to a customer-hosted deployment:
 
 The app stores the canonical API origin returned by bootstrap only after this confirmation step. If the deployment must be changed later, use the instance hint below the passkey button on the login screen. Confirming that reset clears local sign-in state, offline data, and cached tenant state on the device before returning to discovery.
 
+After a deployment is confirmed, restart restore is driven by the native runtime-bootstrap payload through `SecPalNativeAuthBridge.getRuntimeBootstrap()`. The Android WebView no longer restores or confirms a deployment from browser session storage, a legacy `apiOrigin`-only payload, `SecPalNativeAuth.setApiBaseUrl(...)`, or a baked-in production origin. Clearing the runtime through the shared frontend bridge or `Log out and switch instance` removes native bootstrap persistence, tenant-scoped browser state, retained Android push state, and injected runtime state before discovery appears again.
+
 Use the customer-facing instance URL that the user received, not a copied API path such as `/v1/...`. If onboarding links are distributed centrally, the Android discovery gate can also consume `instance_url`, `server_url`, or `bootstrap_url` query parameters, but the same bootstrap validation and confirmation still happens before login.
 
 For the current SecPal live deployment, the bootstrap/input host is `https://api.secpal.dev`. `https://app.secpal.dev` remains the browser frontend host and does not currently expose `GET /v1/bootstrap` for Android runtime binding.
