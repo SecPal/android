@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed the obsolete injected Android runtime-bootstrap compatibility path that restored or confirmed deployments through `SecPalNativeAuth.setApiBaseUrl(...)` plus session storage; the bridge now requires the merged frontend `getRuntimeBootstrap`/`setRuntimeBootstrap` native contract and fails closed when it is unavailable.
 - Exposed runtime-bootstrap read/apply/clear and runtime-info methods on the injected `SecPalNativeAuthBridge`, keeping the Android WebView bridge aligned with the merged shared frontend `SecPalRuntimeBootstrap` facade.
 - Removed the dead pre-Android-M connectivity fallback from `NetworkState` now that the wrapper targets `minSdkVersion 23`, added an explicit `native:compile:debug:deprecations` Gradle path for deprecation triage, and marked AndroidX DataStore's shipped `libdatastore_shared_counter.so` as an intentional keep-debug-symbols library so `npm run native:assemble:debug` no longer leaves those warnings untracked.
 - Preserved Android bootstrap package version codes larger than `Integer.MAX_VALUE` in the native provisioning exchange payload.

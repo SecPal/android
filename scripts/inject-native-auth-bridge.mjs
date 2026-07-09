@@ -57,7 +57,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const attributionTermsUrl = ${serializedAttributionTermsUrl};
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
-  const runtimeStorageKey = "runtimeBootstrapState";
   const authVaultStateStorageKey = "auth_vault_state";
   const incompatibleVaultWrapperKind = "native-device-bound";
   const currentBootstrapVersion = "v1";
@@ -605,27 +604,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     const plugin = getPlugin();
     if (typeof plugin.clearRuntimeBootstrap === "function") {
       await plugin.clearRuntimeBootstrap();
-      return;
-    }
-
-    const storage = getSessionStorage();
-    if (storage) {
-      try {
-        storage.removeItem(runtimeStorageKey);
-      } catch {
-        // Cleanup is best-effort when web storage is unavailable.
-      }
-    }
-  };
-
-  const persistBootstrapToSessionStorage = (bootstrap) => {
-    const storage = getSessionStorage();
-    if (storage) {
-      try {
-        storage.setItem(runtimeStorageKey, JSON.stringify(bootstrap));
-      } catch {
-        // Native persistence already succeeded, so skip transient web storage failures.
-      }
     }
   };
 
@@ -978,23 +956,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return bootstrap ? normalizeLoadedBootstrapState(bootstrap) : null;
     }
 
-    const storage = getSessionStorage();
-
-    if (!storage) {
-      return null;
-    }
-
-    const rawValue = storage.getItem(runtimeStorageKey);
-
-    if (!rawValue) {
-      return null;
-    }
-
-    const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
-    return {
-      apiOrigin: bootstrap.apiOrigin,
-      bootstrap,
-    };
+    return null;
   };
 
   const persistBootstrap = async (bootstrap) => {
@@ -1005,11 +967,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    if (typeof plugin.setApiBaseUrl === "function") {
-      await plugin.setApiBaseUrl({ apiBaseUrl: bootstrap.apiOrigin });
-    }
-
-    persistBootstrapToSessionStorage(bootstrap);
+    throw new Error("Android runtime-bootstrap persistence is unavailable.");
   };
 
   const toErrorMessage = (error, fallback) => {
@@ -1482,46 +1440,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         }
 
         return;
-      }
-
-      const storage = getSessionStorage();
-
-      if (!storage) {
-        return;
-      }
-
-      const rawValue = storage.getItem(runtimeStorageKey);
-
-      if (!rawValue) {
-        return;
-      }
-
-      try {
-        const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
-        const restored = {
-          apiOrigin: bootstrap.apiOrigin,
-          bootstrap,
-        };
-
-        runtimeState.pendingBootstrap = null;
-
-        if (typeof plugin.setApiBaseUrl === "function") {
-          await plugin.setApiBaseUrl({ apiBaseUrl: restored.apiOrigin });
-        }
-
-        runtimeState.configured = true;
-        runtimeState.bootstrap = restored.bootstrap;
-        runtimeState.apiOrigin = restored.apiOrigin;
-        hydrateRetainedPushTokenState(restored.apiOrigin);
-        removeDiscoveryGate();
-      } catch (error) {
-        await clearPersistedBootstrap().catch(() => {});
-        runtimeState.configured = false;
-        runtimeState.bootstrap = null;
-        runtimeState.apiOrigin = null;
-        runtimeState.pendingBootstrap = null;
-        mountDiscoveryGate();
-        console.warn("Failed to restore persisted SecPal bootstrap.", error);
       }
     })();
   };

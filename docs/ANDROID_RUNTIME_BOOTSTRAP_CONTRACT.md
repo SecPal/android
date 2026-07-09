@@ -43,8 +43,8 @@ frontend behavior and must be kept while the shared flow depends on it.
 
 The legacy direct injected fallback to `SecPalNativeAuth.setApiBaseUrl(...)`
 and session-storage bootstrap persistence is not part of the merged frontend
-facade contract. It remains an injected-bridge compatibility path only for
-older Android WebView bootstrap behavior until no live caller requires it.
+facade contract and has been removed from the injected bridge. Runtime
+confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
 
 ## Bootstrap Payload Mapping
 
