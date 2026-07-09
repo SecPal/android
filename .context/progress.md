@@ -8,6 +8,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 - Story audit artifacts belong in `docs/` with the repo's SPDX HTML comment header and concise GitHub links rather than copied PR content.
 - Runtime-contract audits should compare the shared frontend facade, injected WebView bridge, native Capacitor plugin, persisted payload shape, and reset/logout side effects together; missing injected bridge methods can break a frontend facade even when the native plugin already implements them.
 - Obsolete Android bootstrap compatibility paths should be removed only after checking the shared frontend facade for live callers; keep tenant-state and push-token cleanup separate from removed bootstrap persistence shims.
+- Frontend-facing Android runtime clear methods must clear native bootstrap persistence and tenant-scoped browser state together; otherwise shared instance-switch flows can return to discovery with stale customer storage.
 
 ## US-001: Audit Android runtime-discovery story state
 
@@ -62,3 +63,20 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
     - The merged frontend facade has no live `setApiBaseUrl` caller; Android-side confirmation should fail closed when the explicit runtime-bootstrap persistence method is missing.
   - Gotchas encountered
     - Several tests used the old `runtimeBootstrapState` session-storage shim as a shortcut for a configured runtime; those fixtures needed to restore via `getRuntimeBootstrap` instead.
+
+## US-004: Fix remaining review findings with focused regression coverage
+
+- What was implemented
+  - Proved a remaining Android runtime-bootstrap cleanup defect with a focused failing bridge regression: the frontend-facing `SecPalNativeAuthBridge.clearRuntimeBootstrap()` method cleared native runtime persistence but left tenant-scoped browser storage behind.
+  - Updated the injected bridge clear method to reuse tenant-scoped browser cleanup after native bootstrap persistence clears, preserving the locale while removing stale customer storage before returning to discovery.
+  - Updated `CHANGELOG.md` for the runtime cleanup behavior fix.
+- Files changed
+  - `scripts/inject-native-auth-bridge.mjs`
+  - `tests/native-auth-bridge-bootstrap.test.ts`
+  - `CHANGELOG.md`
+  - `.context/progress.md`
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Frontend facade methods need the same cleanup guarantees as the in-page reset flow because the shared frontend can call the injected bridge directly.
+  - Gotchas encountered
+    - Existing reset-button tests covered tenant cleanup through `clearConfiguredRuntimeState`, but not the public `clearRuntimeBootstrap()` method used by the shared frontend instance-switch path.

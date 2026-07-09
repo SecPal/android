@@ -6237,9 +6237,18 @@ describe("native auth bridge bootstrap injection", () => {
         .mockResolvedValue({ bootstrap: runtimeBootstrap }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
+    const localStorage = createMockStorage({
+      "secpal-locale": "de",
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
-      sessionStorage: createMockStorage(),
+      localStorage,
+      sessionStorage,
       fetch: vi.fn(),
       Request,
       Response,
@@ -6293,6 +6302,10 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
   });
 
   it("rejects runtime confirmation when the native runtime-bootstrap method is missing", async () => {

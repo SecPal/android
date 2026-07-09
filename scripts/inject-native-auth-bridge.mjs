@@ -3535,6 +3535,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     },
     async clearRuntimeBootstrap() {
       await clearPersistedBootstrap();
+      await clearTenantScopedBrowserState();
       runtimeState.configured = false;
       runtimeState.bootstrap = null;
       runtimeState.apiOrigin = null;
