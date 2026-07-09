@@ -57,7 +57,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const attributionTermsUrl = ${serializedAttributionTermsUrl};
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const localeStorageKey = "secpal-locale";
-  const runtimeStorageKey = "runtimeBootstrapState";
   const authVaultStateStorageKey = "auth_vault_state";
   const incompatibleVaultWrapperKind = "native-device-bound";
   const currentBootstrapVersion = "v1";
@@ -216,6 +215,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
+  runtimeState.bootstrapEpoch = Number.isSafeInteger(runtimeState.bootstrapEpoch)
+    ? runtimeState.bootstrapEpoch
+    : 0;
+  runtimeState.bootstrapMutationPromise = runtimeState.bootstrapMutationPromise ?? Promise.resolve();
   androidPushSyncState.currentToken =
     typeof androidPushSyncState.currentToken === "string" &&
     androidPushSyncState.currentToken.trim().length >= minAndroidPushTokenLength
@@ -608,25 +611,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    const storage = getSessionStorage();
-    if (storage) {
-      try {
-        storage.removeItem(runtimeStorageKey);
-      } catch {
-        // Cleanup is best-effort when web storage is unavailable.
-      }
-    }
-  };
-
-  const persistBootstrapToSessionStorage = (bootstrap) => {
-    const storage = getSessionStorage();
-    if (storage) {
-      try {
-        storage.setItem(runtimeStorageKey, JSON.stringify(bootstrap));
-      } catch {
-        // Native persistence already succeeded, so skip transient web storage failures.
-      }
-    }
+    throw new Error("Android runtime-bootstrap clearing is unavailable.");
   };
 
   const clearSessionStorage = () => {
@@ -843,7 +828,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     }
   };
 
-  const clearIncompatibleNativeDeviceBoundVaultStateOnStartup = async () => {
+  const clearIncompatibleNativeDeviceBoundVaultStateOnStartup = async (bootstrapEpoch) => {
     if (!hasIncompatibleNativeDeviceBoundVaultState()) {
       return false;
     }
@@ -857,7 +842,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       );
     }
 
+    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+      return false;
+    }
+
     await clearTenantScopedBrowserState();
+    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+      return false;
+    }
     runtimeState.configured = false;
     runtimeState.bootstrap = null;
     runtimeState.apiOrigin = null;
@@ -978,23 +970,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return bootstrap ? normalizeLoadedBootstrapState(bootstrap) : null;
     }
 
-    const storage = getSessionStorage();
-
-    if (!storage) {
-      return null;
-    }
-
-    const rawValue = storage.getItem(runtimeStorageKey);
-
-    if (!rawValue) {
-      return null;
-    }
-
-    const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
-    return {
-      apiOrigin: bootstrap.apiOrigin,
-      bootstrap,
-    };
+    return null;
   };
 
   const persistBootstrap = async (bootstrap) => {
@@ -1005,12 +981,23 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
-    if (typeof plugin.setApiBaseUrl === "function") {
-      await plugin.setApiBaseUrl({ apiBaseUrl: bootstrap.apiOrigin });
-    }
-
-    persistBootstrapToSessionStorage(bootstrap);
+    throw new Error("Android runtime-bootstrap persistence is unavailable.");
   };
+
+  const queueRuntimeBootstrapMutation = (operation) => {
+    const previous = runtimeState.bootstrapMutationPromise.catch(() => {});
+    const next = previous.then(operation);
+    runtimeState.bootstrapMutationPromise = next.catch(() => {});
+    return next;
+  };
+
+  const beginRuntimeBootstrapMutation = () => {
+    runtimeState.bootstrapEpoch += 1;
+    return runtimeState.bootstrapEpoch;
+  };
+
+  const createSupersededBootstrapMutationError = () =>
+    new Error("Android runtime-bootstrap mutation was superseded.");
 
   const toErrorMessage = (error, fallback) => {
     if (
@@ -1412,17 +1399,26 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return message || translateDiscovery("errorBootstrapResponse");
   };
 
-  const applyRuntimeBootstrap = async (bootstrap) => {
+  const applyRuntimeBootstrap = async (bootstrap, bootstrapEpoch) => {
+    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+      throw createSupersededBootstrapMutationError();
+    }
     runtimeState.pendingBootstrap = null;
 
     runtimeState.nativeConfigPromise = (async () => {
       try {
         await persistBootstrap(bootstrap);
+        if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+          throw createSupersededBootstrapMutationError();
+        }
         runtimeState.configured = true;
         runtimeState.bootstrap = bootstrap;
         runtimeState.apiOrigin = bootstrap.apiOrigin;
         hydrateRetainedPushTokenState(bootstrap.apiOrigin);
       } catch (error) {
+        if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+          throw error;
+        }
         await clearPersistedBootstrap().catch(() => {});
         runtimeState.configured = false;
         runtimeState.bootstrap = null;
@@ -1436,8 +1432,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const restorePersistedBootstrap = () => {
-    runtimeState.nativeConfigPromise = (async () => {
-      if (await clearIncompatibleNativeDeviceBoundVaultStateOnStartup()) {
+    const bootstrapEpoch = runtimeState.bootstrapEpoch;
+    runtimeState.nativeConfigPromise = queueRuntimeBootstrapMutation(async () => {
+      if (await clearIncompatibleNativeDeviceBoundVaultStateOnStartup(bootstrapEpoch)) {
+        return;
+      }
+
+      if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
         return;
       }
 
@@ -1461,6 +1462,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         try {
           const restored = await loadPersistedBootstrap();
 
+          if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+            return;
+          }
+
           if (!restored) {
             return;
           }
@@ -1472,6 +1477,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           hydrateRetainedPushTokenState(restored.apiOrigin);
           removeDiscoveryGate();
         } catch (error) {
+          if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+            return;
+          }
+
           await clearPersistedBootstrap().catch(() => {});
           runtimeState.configured = false;
           runtimeState.bootstrap = null;
@@ -1483,47 +1492,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
         return;
       }
-
-      const storage = getSessionStorage();
-
-      if (!storage) {
-        return;
-      }
-
-      const rawValue = storage.getItem(runtimeStorageKey);
-
-      if (!rawValue) {
-        return;
-      }
-
-      try {
-        const bootstrap = normalizeStoredBootstrap(JSON.parse(rawValue));
-        const restored = {
-          apiOrigin: bootstrap.apiOrigin,
-          bootstrap,
-        };
-
-        runtimeState.pendingBootstrap = null;
-
-        if (typeof plugin.setApiBaseUrl === "function") {
-          await plugin.setApiBaseUrl({ apiBaseUrl: restored.apiOrigin });
-        }
-
-        runtimeState.configured = true;
-        runtimeState.bootstrap = restored.bootstrap;
-        runtimeState.apiOrigin = restored.apiOrigin;
-        hydrateRetainedPushTokenState(restored.apiOrigin);
-        removeDiscoveryGate();
-      } catch (error) {
-        await clearPersistedBootstrap().catch(() => {});
-        runtimeState.configured = false;
-        runtimeState.bootstrap = null;
-        runtimeState.apiOrigin = null;
-        runtimeState.pendingBootstrap = null;
-        mountDiscoveryGate();
-        console.warn("Failed to restore persisted SecPal bootstrap.", error);
-      }
-    })();
+    });
   };
 
   const ensureRuntimeConfigured = async () => {
@@ -3518,7 +3487,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     syncDiscoveryGateCopy();
 
     try {
-      await applyRuntimeBootstrap(runtimeState.pendingBootstrap);
+      const bootstrap = runtimeState.pendingBootstrap;
+      const bootstrapEpoch = beginRuntimeBootstrapMutation();
+      await queueRuntimeBootstrapMutation(() =>
+        applyRuntimeBootstrap(bootstrap, bootstrapEpoch)
+      );
       removeDiscoveryGate();
       if (globalThis.location && typeof globalThis.location.reload === "function") {
         globalThis.location.reload();
@@ -3605,6 +3578,50 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     },
     async getAndroidPushRegistrationState() {
       return getAndroidPushRegistrationState();
+    },
+    async getRuntimeInfo() {
+      return getPlugin().getRuntimeInfo();
+    },
+    async getRuntimeBootstrap() {
+      return getPlugin().getRuntimeBootstrap();
+    },
+    async setRuntimeBootstrap(bootstrap) {
+      const normalizedBootstrap = normalizeStoredBootstrap(bootstrap);
+      const bootstrapEpoch = beginRuntimeBootstrapMutation();
+      const apiOrigin = await queueRuntimeBootstrapMutation(() =>
+        applyRuntimeBootstrap(normalizedBootstrap, bootstrapEpoch)
+      );
+      removeDiscoveryGate();
+      observeLoginRuntimeReset();
+      scheduleLoginRuntimeResetSync();
+      return apiOrigin;
+    },
+    async clearRuntimeBootstrap() {
+      beginRuntimeBootstrapMutation();
+      await queueRuntimeBootstrapMutation(async () => {
+        let clearError = null;
+        try {
+          await clearPersistedBootstrap();
+        } catch (error) {
+          clearError = error;
+        }
+        await clearTenantScopedBrowserState();
+        runtimeState.configured = false;
+        runtimeState.bootstrap = null;
+        runtimeState.apiOrigin = null;
+        runtimeState.pendingBootstrap = null;
+        runtimeState.discoveryBusyAction = null;
+        runtimeState.discoveryErrorMessage = "";
+        runtimeState.nativeConfigPromise = Promise.resolve();
+        setAuthActive(false);
+        clearAndroidPushSyncState();
+        disconnectRuntimeResetObserver();
+        removeRuntimeResetEntry();
+        mountDiscoveryGate();
+        if (clearError) {
+          throw clearError;
+        }
+      });
     },
     async request(request) {
       return sendAuthenticatedNativeRequest(request, {

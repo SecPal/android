@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented the review-ready validation set for the Android runtime-discovery/bootstrap cleanup branch.
+- Aligned Android runtime-bootstrap and deployment-binding documentation with the final native restore/apply/clear behavior, including the intentionally removed baked-in-origin, `setApiBaseUrl(...)`, legacy `apiOrigin`-only, and session-storage compatibility paths.
+- Documented the Android runtime-bootstrap contract required by the merged shared frontend flow, including native runtime info, persisted bootstrap read/apply/clear, reset/logout behavior, payload field mapping, and bridge/runtime code that must be kept.
+- Documented the Android runtime-discovery/bootstrap branch, PR, issue, and review-thread audit so the cleanup story has a current scoped baseline.
 - Added `LicenseRef-SecPal-Attribution` for SecPal-owned AGPL-covered code, fastlane assets, and related metadata, linked the repo docs to the new AGPL section 7(b)/(c) terms, and tightened the Android discovery/about legal footer so it exposes the SecPal attribution terms alongside the existing `Powered by SecPal` notice.
 - Added a repo-local Fastlane baseline for Android so signed APK/AAB builds and Google Play internal-track uploads can reuse the existing local keystore and `android-release.env` flow without moving signing material into the repository; the Play deploy lane now auto-generates a fresh `SECPAL_ANDROID_VERSION_CODE` when needed, supports one-off `SECPAL_ANDROID_DEPLOY_VERSION_CODE` overrides, explicit shell-provided signing overrides win over the values stored in the local env file, and the direct APK lanes now publish versioned artifacts plus the public `stable` and `beta` latest endpoints on `apk.secpal.app/android/...`, with `/android/...` remaining the stable alias.
 - Replaced the repo-local `markdownlint-cli2` pre-commit and preflight path with pinned `markdownlint-cli@0.49.0` usage so markdown validation now matches the shared `.github` governance baseline.
@@ -31,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Serialized injected Android runtime-bootstrap apply/clear mutations, rejected stale applies, canonicalized shared-frontend payloads at the bridge boundary, failed closed when native clear support is unavailable, and reset the in-memory native-auth flag during runtime clearing.
+- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and still clear tenant browser state when native persistence cleanup reports a failure.
+- The injected Android `clearRuntimeBootstrap()` bridge method now clears tenant-scoped browser storage alongside native runtime persistence, preventing shared frontend instance-switch flows from carrying stale customer state into discovery.
+- Removed the obsolete injected Android runtime-bootstrap compatibility path that restored or confirmed deployments through `SecPalNativeAuth.setApiBaseUrl(...)` plus session storage; the bridge now requires the merged frontend `getRuntimeBootstrap`/`setRuntimeBootstrap` native contract and fails closed when it is unavailable.
+- Exposed runtime-bootstrap read/apply/clear and runtime-info methods on the injected `SecPalNativeAuthBridge`, keeping the Android WebView bridge aligned with the merged shared frontend `SecPalRuntimeBootstrap` facade.
 - Removed the dead pre-Android-M connectivity fallback from `NetworkState` now that the wrapper targets `minSdkVersion 23`, added an explicit `native:compile:debug:deprecations` Gradle path for deprecation triage, and marked AndroidX DataStore's shipped `libdatastore_shared_counter.so` as an intentional keep-debug-symbols library so `npm run native:assemble:debug` no longer leaves those warnings untracked.
 - Preserved Android bootstrap package version codes larger than `Integer.MAX_VALUE` in the native provisioning exchange payload.
 - `scripts/load-android-release-env.sh` now preserves a shell-provided `SECPAL_ANDROID_DIRECT_CHANNEL` override when reloading `android-release.env`, so `npm run fastlane:android:deploy:direct-apk:beta` cannot be redirected back onto the stable direct-download channel by a local release env file.

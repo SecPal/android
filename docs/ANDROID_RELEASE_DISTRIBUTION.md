@@ -102,6 +102,8 @@ If the customer-facing instance URL and the canonical API host differ, keep `GET
 
 If bootstrap is missing, incompatible, or unreachable, the Android app stays on the discovery gate and does not fall back to `https://api.secpal.dev` or any other fixed production origin.
 
+Confirmed deployments are restored only from the structured native runtime-bootstrap payload returned by `SecPalNativeAuthBridge.getRuntimeBootstrap()`. Updated builds intentionally removed the obsolete injected bridge path that confirmed or restored deployments through `SecPalNativeAuth.setApiBaseUrl(...)`, JavaScript session-storage bootstrap state, legacy `apiOrigin`-only state, or a baked-in production origin.
+
 ## Customer-Owned Android Push Runtime
 
 When a validated bootstrap enables Android push, the generic Android app uses that deployment metadata as the only source of truth for native push runtime behavior.
@@ -128,6 +130,8 @@ For operator rollout validation on a real Android device, verify at least:
 SecPal Android is still on the current `0.x` line. Breaking changes are therefore permitted when they remove obsolete or unsafe runtime-bootstrap compatibility paths.
 
 For this rollout, SecPal intentionally preserves no backward-compatibility shim for the old baked-in-origin model. Customer-hosted deployments must expose the bootstrap contract before updated Android builds are distributed.
+
+The same no-shim rule applies to superseded Android runtime-bootstrap follow-up paths. Operators should expect updated builds to fail closed at discovery when the native runtime-bootstrap bridge methods are unavailable, and to clear native bootstrap persistence plus tenant-scoped browser storage when the user switches instance or the frontend clears an invalid runtime.
 
 The same `0.x` rule applies to Android push runtime behavior. Updated builds intentionally preserve no compatibility fallback to old SecPal-owned push assumptions, bundled Firebase defaults, or foreign Firebase app token events once customer-owned runtime push is configured.
 
