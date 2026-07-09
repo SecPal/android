@@ -10,6 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 - Obsolete Android bootstrap compatibility paths should be removed only after checking the shared frontend facade for live callers; keep tenant-state and push-token cleanup separate from removed bootstrap persistence shims.
 - Frontend-facing Android runtime clear methods must clear native bootstrap persistence and tenant-scoped browser state together; otherwise shared instance-switch flows can return to discovery with stale customer storage.
 - Operator-facing Android runtime docs should describe restore/apply/clear as native runtime-bootstrap bridge behavior and name removed compatibility paths explicitly so stale baked-origin assumptions do not reappear.
+- Review-ready validation for Android runtime-bootstrap bridge work should pair the focused native-auth bridge Vitest file with repo `lint`, repo `typecheck`, and targeted Gradle unit tests for `ProvisioningBootstrapStoreTest`, `ProvisioningBootstrapCoordinatorTest`, `AndroidPushRuntimeManagerTest`, and `SecPalNativeAuthPluginTest`.
 
 ## US-001: Audit Android runtime-discovery story state
 
@@ -100,3 +101,18 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
     - Final runtime-bootstrap documentation needs to cover operator-facing binding docs and contract audit docs together because stale compatibility assumptions can live outside the code-level contract.
   - Gotchas encountered
     - The native plugin still exposes `setApiBaseUrl(...)`, but the injected bridge no longer uses it for frontend runtime confirmation; docs must distinguish the removed injected compatibility path from remaining native plugin code.
+
+## US-006: Validate the touched Android runtime surfaces and leave review-ready state
+
+- What was implemented
+  - Validated the touched Android runtime-discovery/bootstrap surfaces without requiring production or test code changes.
+  - Confirmed the focused native-auth bridge Vitest coverage, repo TypeScript checks, repo ESLint checks, and targeted Android runtime-bootstrap unit tests all pass.
+  - Documented that no additional Android runtime fixes were required, but the governed push was blocked by the repo PR-size guard and tracked in issue `#330`.
+- Files changed
+  - `.context/progress.md`
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - The smallest useful review-ready validation set for this runtime-bootstrap cleanup is the focused bridge Vitest file, repo lint/typecheck, and targeted native runtime unit tests rather than a full Android assemble.
+  - Gotchas encountered
+    - The branch touches only injected bridge/docs/tests, but the native runtime-bootstrap unit tests are still relevant because the injected bridge delegates to the native plugin contract.
+    - The accumulated six-story branch exceeds the repo's 600-line PR-size guard, so it must be split or explicitly approved outside the normal automated path before review.

@@ -54,6 +54,25 @@ Open Android issues at audit time:
   - Scope: license and REUSE compliance.
   - Story decision: excluded from runtime-discovery cleanup scope.
 
+## Review-Ready Validation
+
+Validation date: 2026-07-09.
+
+The review-ready branch state after the runtime-bootstrap cleanup passed the
+smallest relevant validation set for the touched Android runtime surfaces:
+
+- `npm run test:run -- tests/native-auth-bridge-bootstrap.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+- `bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:testDebugUnitTest --tests app.secpal.ProvisioningBootstrapStoreTest --tests app.secpal.ProvisioningBootstrapCoordinatorTest --tests app.secpal.AndroidPushRuntimeManagerTest --tests app.secpal.SecPalNativeAuthPluginTest'`
+
+No additional Android runtime fixes were required by these checks.
+
+The follow-up push attempt was blocked by the repo pre-push size guard because
+the accumulated branch diff was 884 lines against the 600-line PR limit. The
+required split-PR follow-up is tracked in
+[#330](https://github.com/SecPal/android/issues/330).
+
 ## Conclusion
 
 The Android runtime-discovery/bootstrap implementation and subsequent hardening

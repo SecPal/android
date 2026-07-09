@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented the review-ready validation set for the Android runtime-discovery/bootstrap cleanup branch.
 - Aligned Android runtime-bootstrap and deployment-binding documentation with the final native restore/apply/clear behavior, including the intentionally removed baked-in-origin, `setApiBaseUrl(...)`, legacy `apiOrigin`-only, and session-storage compatibility paths.
 - Documented the Android runtime-bootstrap contract required by the merged shared frontend flow, including native runtime info, persisted bootstrap read/apply/clear, reset/logout behavior, payload field mapping, and bridge/runtime code that must be kept.
 - Documented the Android runtime-discovery/bootstrap branch, PR, issue, and review-thread audit so the cleanup story has a current scoped baseline.
