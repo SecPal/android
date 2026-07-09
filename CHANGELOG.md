@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and still clear tenant browser state when native persistence cleanup reports a failure.
 - The injected Android `clearRuntimeBootstrap()` bridge method now clears tenant-scoped browser storage alongside native runtime persistence, preventing shared frontend instance-switch flows from carrying stale customer state into discovery.
 - Removed the obsolete injected Android runtime-bootstrap compatibility path that restored or confirmed deployments through `SecPalNativeAuth.setApiBaseUrl(...)` plus session storage; the bridge now requires the merged frontend `getRuntimeBootstrap`/`setRuntimeBootstrap` native contract and fails closed when it is unavailable.
 - Exposed runtime-bootstrap read/apply/clear and runtime-info methods on the injected `SecPalNativeAuthBridge`, keeping the Android WebView bridge aligned with the merged shared frontend `SecPalRuntimeBootstrap` facade.

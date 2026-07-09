@@ -215,6 +215,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   runtimeState.discoveryBusyAction = runtimeState.discoveryBusyAction ?? null;
   runtimeState.discoveryErrorMessage = runtimeState.discoveryErrorMessage ?? "";
   runtimeState.discoveryLocale = runtimeState.discoveryLocale ?? null;
+  runtimeState.bootstrapEpoch = Number.isSafeInteger(runtimeState.bootstrapEpoch)
+    ? runtimeState.bootstrapEpoch
+    : 0;
   androidPushSyncState.currentToken =
     typeof androidPushSyncState.currentToken === "string" &&
     androidPushSyncState.currentToken.trim().length >= minAndroidPushTokenLength
@@ -1371,17 +1374,25 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const applyRuntimeBootstrap = async (bootstrap) => {
+    const bootstrapEpoch = runtimeState.bootstrapEpoch + 1;
+    runtimeState.bootstrapEpoch = bootstrapEpoch;
     runtimeState.pendingBootstrap = null;
 
     runtimeState.nativeConfigPromise = (async () => {
       try {
         await persistBootstrap(bootstrap);
+        if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+          return;
+        }
         runtimeState.configured = true;
         runtimeState.bootstrap = bootstrap;
         runtimeState.apiOrigin = bootstrap.apiOrigin;
         hydrateRetainedPushTokenState(bootstrap.apiOrigin);
       } catch (error) {
         await clearPersistedBootstrap().catch(() => {});
+        if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+          throw error;
+        }
         runtimeState.configured = false;
         runtimeState.bootstrap = null;
         runtimeState.apiOrigin = null;
@@ -1394,8 +1405,13 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   };
 
   const restorePersistedBootstrap = () => {
+    const bootstrapEpoch = runtimeState.bootstrapEpoch;
     runtimeState.nativeConfigPromise = (async () => {
       if (await clearIncompatibleNativeDeviceBoundVaultStateOnStartup()) {
+        return;
+      }
+
+      if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
         return;
       }
 
@@ -1419,6 +1435,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         try {
           const restored = await loadPersistedBootstrap();
 
+          if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+            return;
+          }
+
           if (!restored) {
             return;
           }
@@ -1430,6 +1450,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           hydrateRetainedPushTokenState(restored.apiOrigin);
           removeDiscoveryGate();
         } catch (error) {
+          if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+            return;
+          }
+
           await clearPersistedBootstrap().catch(() => {});
           runtimeState.configured = false;
           runtimeState.bootstrap = null;
@@ -3531,10 +3555,20 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return getPlugin().getRuntimeBootstrap();
     },
     async setRuntimeBootstrap(bootstrap) {
-      return applyRuntimeBootstrap(bootstrap);
+      const apiOrigin = await applyRuntimeBootstrap(bootstrap);
+      removeDiscoveryGate();
+      observeLoginRuntimeReset();
+      scheduleLoginRuntimeResetSync();
+      return apiOrigin;
     },
     async clearRuntimeBootstrap() {
-      await clearPersistedBootstrap();
+      runtimeState.bootstrapEpoch += 1;
+      let clearError = null;
+      try {
+        await clearPersistedBootstrap();
+      } catch (error) {
+        clearError = error;
+      }
       await clearTenantScopedBrowserState();
       runtimeState.configured = false;
       runtimeState.bootstrap = null;
@@ -3547,6 +3581,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       disconnectRuntimeResetObserver();
       removeRuntimeResetEntry();
       mountDiscoveryGate();
+      if (clearError) {
+        throw clearError;
+      }
     },
     async request(request) {
       return sendAuthenticatedNativeRequest(request, {
