@@ -6291,6 +6291,10 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(bridge.getRuntimeBootstrap()).resolves.toEqual({
       configured: false,
     });
+    await expect(
+      bridge.setRuntimeBootstrap({ apiOrigin: "http://invalid.example" })
+    ).rejects.toThrow();
+    expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
     await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
       "https://customer-api.example"
     );
@@ -6298,14 +6302,23 @@ describe("native auth bridge bootstrap injection", () => {
     expect(runtimeState.configured).toBe(true);
     expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
 
+    (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
     await expect(bridge.clearRuntimeBootstrap()).resolves.toBeUndefined();
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
+    expect(
+      (sandbox.__SecPalNativeAuthState as { active: boolean }).active
+    ).toBe(false);
     expect(localStorage.getItem("secpal-locale")).toBe("de");
     expect(localStorage.getItem("tenant-cache")).toBeNull();
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
+
+    Reflect.deleteProperty(plugin, "clearRuntimeBootstrap");
+    await expect(bridge.clearRuntimeBootstrap()).rejects.toThrow(
+      /runtime-bootstrap clearing is unavailable/i
+    );
   });
 
   it("removes the injected discovery gate after the shared frontend applies a runtime bootstrap", async () => {
@@ -6432,6 +6445,83 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
+    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(
+      document.getElementById("secpal-instance-discovery-gate")
+    ).not.toBeNull();
+  });
+
+  it("serializes a shared frontend clear after an in-flight runtime bootstrap apply", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    let resolvePersist!: () => void;
+    const persistPromise = new Promise<void>((resolve) => {
+      resolvePersist = resolve;
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      setRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
+      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const document = new MockDocument();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+      clearRuntimeBootstrap(): Promise<void>;
+    };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    const apply = bridge.setRuntimeBootstrap(runtimeBootstrap);
+    await flushMicrotasks();
+    const clear = bridge.clearRuntimeBootstrap();
+    await flushMicrotasks();
+    expect(plugin.clearRuntimeBootstrap).not.toHaveBeenCalled();
+
+    resolvePersist();
+    await expect(apply).rejects.toThrow(/superseded/i);
+    await expect(clear).resolves.toBeUndefined();
+
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
