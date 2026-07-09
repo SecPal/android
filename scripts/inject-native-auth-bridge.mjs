@@ -3586,10 +3586,10 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return getPlugin().getRuntimeBootstrap();
     },
     async setRuntimeBootstrap(bootstrap) {
-      normalizeStoredBootstrap(bootstrap);
+      const normalizedBootstrap = normalizeStoredBootstrap(bootstrap);
       const bootstrapEpoch = beginRuntimeBootstrapMutation();
       const apiOrigin = await queueRuntimeBootstrapMutation(() =>
-        applyRuntimeBootstrap(bootstrap, bootstrapEpoch)
+        applyRuntimeBootstrap(normalizedBootstrap, bootstrapEpoch)
       );
       removeDiscoveryGate();
       observeLoginRuntimeReset();

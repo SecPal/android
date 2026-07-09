@@ -6281,6 +6281,7 @@ describe("native auth bridge bootstrap injection", () => {
     const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
       configured: boolean;
       apiOrigin: string | null;
+      bootstrap: unknown;
     };
 
     await expect(bridge.getRuntimeInfo()).resolves.toEqual({
@@ -6298,9 +6299,58 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
       "https://customer-api.example"
     );
-    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(runtimeBootstrap);
+    const normalizedRuntimeBootstrap = { ...runtimeBootstrap };
+    Reflect.deleteProperty(normalizedRuntimeBootstrap, "androidPush");
+    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(
+      normalizedRuntimeBootstrap
+    );
     expect(runtimeState.configured).toBe(true);
     expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+
+    const nativeFormattedRuntimeBootstrap = {
+      ...runtimeBootstrap,
+      androidPush: {
+        provider: "fcm",
+        metadata_revision: 3,
+        public_client_metadata: {
+          api_key: "public-client-api-key-demo-1234567890",
+          project_id: "secpal-demo-push",
+          application_id: "1:1234567890:android:abcdef1234567890",
+          sender_id: "1234567890",
+        },
+      },
+    };
+    await expect(
+      bridge.setRuntimeBootstrap(nativeFormattedRuntimeBootstrap)
+    ).resolves.toBe("https://customer-api.example");
+    expect(runtimeState.bootstrap).toEqual(
+      expect.objectContaining({
+        androidPush: {
+          provider: "fcm",
+          metadataRevision: 3,
+          publicClientMetadata: {
+            apiKey: "public-client-api-key-demo-1234567890",
+            projectId: "secpal-demo-push",
+            applicationId: "1:1234567890:android:abcdef1234567890",
+            senderId: "1234567890",
+          },
+        },
+      })
+    );
+    expect(plugin.setRuntimeBootstrap).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        androidPush: {
+          provider: "fcm",
+          metadataRevision: 3,
+          publicClientMetadata: {
+            apiKey: "public-client-api-key-demo-1234567890",
+            projectId: "secpal-demo-push",
+            applicationId: "1:1234567890:android:abcdef1234567890",
+            senderId: "1234567890",
+          },
+        },
+      })
+    );
 
     (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
     await expect(bridge.clearRuntimeBootstrap()).resolves.toBeUndefined();
