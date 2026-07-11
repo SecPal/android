@@ -13,7 +13,7 @@ const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
 describe("Android OSS licenses", () => {
-  it("generates release notices and exposes them from the About route", () => {
+  it("generates release notices without adding Android WebView presentation", () => {
     const rootBuildGradle = readRepoFile("android", "build.gradle");
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
     const manifest = readRepoFile(
@@ -45,9 +45,8 @@ describe("Android OSS licenses", () => {
       "com.google.android.gms.oss.licenses.OssLicensesMenuActivity"
     );
     expect(manifest).toContain('android:exported="false"');
-    expect(bootstrap).toContain("secpal-about-oss-licenses");
-    expect(bootstrap).toContain("Open-source licenses");
-    expect(bootstrap).toContain("openOssLicenses");
+    expect(bootstrap).not.toContain("secpal-about-oss-licenses");
+    expect(bootstrap).not.toContain("Open-source licenses");
     expect(packageJson.scripts["native:verify:oss-licenses"]).toContain(
       "verify-android-oss-licenses.sh"
     );

@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added generated Google Play services/Firebase open-source notices to Android release artifacts and an About-screen entry point for reading them in the app.
+- Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.
 
 ### Changed
 

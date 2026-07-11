@@ -2013,17 +2013,9 @@ describe("native auth bridge bootstrap injection", () => {
       }),
       clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
-    const enterprisePlugin = {
-      openOssLicenses: vi.fn().mockResolvedValue(undefined),
-    };
     const document = new MockDocument();
     const sandbox = {
-      Capacitor: {
-        Plugins: {
-          SecPalNativeAuth: plugin,
-          SecPalEnterprise: enterprisePlugin,
-        },
-      },
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
       localStorage: createMockStorage({ "secpal-locale": "en" }),
       sessionStorage: createMockStorage(),
@@ -2062,13 +2054,7 @@ describe("native auth bridge bootstrap injection", () => {
       DEFAULT_ATTRIBUTION_TERMS_URL
     );
 
-    const ossLicensesButton = document.getElementById(
-      "secpal-about-oss-licenses"
-    ) as MockElement | null;
-
-    expect(ossLicensesButton?.textContent).toBe("Open-source licenses");
-    ossLicensesButton?.click();
-    expect(enterprisePlugin.openOssLicenses).toHaveBeenCalledOnce();
+    expect(document.getElementById("secpal-about-oss-licenses")).toBeNull();
   });
 
   it("does not restore a legacy configured API origin from the native plugin on startup", async () => {
