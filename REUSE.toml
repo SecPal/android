@@ -80,8 +80,18 @@ SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
-path = ["android/gradlew", "android/gradlew.bat", "android/gradle/wrapper/**"]
-SPDX-FileCopyrightText = "2026 SecPal Contributors"
+path = "android/gradlew"
+SPDX-FileCopyrightText = "2015-2021 the original authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "android/gradlew.bat"
+SPDX-FileCopyrightText = "2015 the original author or authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "android/gradle/wrapper/**"
+SPDX-FileCopyrightText = "Gradle contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
@@ -98,20 +108,46 @@ SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 
 [[annotations]]
 path = [
-  "android/**/*.properties",
   "android/build.gradle",
-  "android/settings.gradle",
-  "android/capacitor.settings.gradle",
   "android/variables.gradle",
-  "android/app/capacitor.build.gradle",
-  "android/capacitor-cordova-android-plugins/build.gradle",
-  "android/capacitor-cordova-android-plugins/cordova.variables.gradle",
-  "android/capacitor-cordova-android-plugins/src/main/AndroidManifest.xml",
-  "android/.gitignore",
-  "android/app/.gitignore",
-  "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "android/.gitignore"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "GitHub contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = [
+  "android/capacitor.settings.gradle",
+  "android/app/capacitor.build.gradle",
+  "android/capacitor-cordova-android-plugins/cordova.variables.gradle",
+  "android/capacitor-cordova-android-plugins/src/main/AndroidManifest.xml",
+  "android/capacitor-cordova-android-plugins/src/main/res/.gitkeep",
+]
+SPDX-FileCopyrightText = "2017-present Drifty Co."
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "android/capacitor-cordova-android-plugins/build.gradle"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2017-present Drifty Co."
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "android/gradle.properties",
+  "android/settings.gradle",
+  "android/app/.gitignore",
+  "android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml",
+  "android/app/src/main/res/drawable/ic_launcher_background.xml",
+  "android/app/src/main/res/layout/activity_main.xml",
+  "android/app/src/main/res/values/ic_launcher_background.xml",
+]
+SPDX-FileCopyrightText = "2017-present Drifty Co."
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
