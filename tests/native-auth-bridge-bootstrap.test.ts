@@ -2053,6 +2053,8 @@ describe("native auth bridge bootstrap injection", () => {
     expect(aboutAttributionLink?.attributes.href).toBe(
       DEFAULT_ATTRIBUTION_TERMS_URL
     );
+
+    expect(document.getElementById("secpal-about-oss-licenses")).toBeNull();
   });
 
   it("does not restore a legacy configured API origin from the native plugin on startup", async () => {
@@ -3307,6 +3309,7 @@ describe("native auth bridge bootstrap injection", () => {
       launchPhone: vi.fn().mockResolvedValue(undefined),
       launchSms: vi.fn().mockResolvedValue(undefined),
       launchAllowedApp: vi.fn().mockResolvedValue(undefined),
+      openOssLicenses: vi.fn().mockResolvedValue(undefined),
     };
     const sandbox = {
       Capacitor: {
@@ -3346,6 +3349,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     const bridge = sandbox.SecPalEnterpriseBridge as {
       getManagedState(): Promise<unknown>;
+      openOssLicenses(): Promise<void>;
       openGestureNavigationSettings?: unknown;
     };
 
@@ -3368,6 +3372,8 @@ describe("native auth bridge bootstrap injection", () => {
       allowedApps: [],
     });
     expect(enterprisePlugin.getManagedState).toHaveBeenCalledOnce();
+    await expect(bridge.openOssLicenses()).resolves.toBeUndefined();
+    expect(enterprisePlugin.openOssLicenses).toHaveBeenCalledOnce();
   });
 
   it("registers enterprise hardware-button listeners and routes short and long presses", async () => {

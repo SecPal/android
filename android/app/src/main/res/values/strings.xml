@@ -16,4 +16,5 @@
     <string name="enterprise_home_phone_label">Phone</string>
     <string name="enterprise_home_sms_label">SMS</string>
     <string name="enterprise_home_empty_state">No approved apps are currently available.</string>
+    <string name="oss_licenses_title">Open-source licenses</string>
 </resources>

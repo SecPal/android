@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.
+
 ### Changed
 
 - Corrected REUSE copyright attribution for the third-party Gradle Wrapper,

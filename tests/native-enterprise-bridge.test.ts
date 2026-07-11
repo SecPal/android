@@ -10,6 +10,7 @@ const pluginMocks = vi.hoisted(() => ({
   launchPhone: vi.fn(),
   launchSms: vi.fn(),
   launchAllowedApp: vi.fn(),
+  openOssLicenses: vi.fn(),
   addListener: vi.fn(),
 }));
 
@@ -157,9 +158,10 @@ describe("native enterprise bridge", () => {
     }
   });
 
-  it("delegates launchPhone and launchSms to the native plugin", async () => {
+  it("delegates native actions to the native plugin", async () => {
     pluginMocks.launchPhone.mockResolvedValue(undefined);
     pluginMocks.launchSms.mockResolvedValue(undefined);
+    pluginMocks.openOssLicenses.mockResolvedValue(undefined);
 
     const { installNativeEnterpriseBridge } =
       await import("../src/secpal/native-enterprise-bridge");
@@ -167,9 +169,11 @@ describe("native enterprise bridge", () => {
 
     await expect(bridge.launchPhone()).resolves.toBeUndefined();
     await expect(bridge.launchSms()).resolves.toBeUndefined();
+    await expect(bridge.openOssLicenses()).resolves.toBeUndefined();
 
     expect(pluginMocks.launchPhone).toHaveBeenCalledWith();
     expect(pluginMocks.launchSms).toHaveBeenCalledWith();
+    expect(pluginMocks.openOssLicenses).toHaveBeenCalledWith();
   });
 
   it("propagates plugin errors for rejected calls", async () => {

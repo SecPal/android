@@ -79,6 +79,7 @@ export interface NativeEnterpriseBridge {
   launchPhone(): Promise<void>;
   launchSms(): Promise<void>;
   launchAllowedApp(options: LaunchAllowedAppOptions): Promise<void>;
+  openOssLicenses(): Promise<void>;
   addHardwareButtonListener(
     listener: (event: HardwareButtonPressedEvent) => void
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
@@ -95,6 +96,7 @@ interface SecPalEnterprisePlugin {
   launchPhone(): Promise<void>;
   launchSms(): Promise<void>;
   launchAllowedApp(options: LaunchAllowedAppOptions): Promise<void>;
+  openOssLicenses(): Promise<void>;
   addListener(
     eventName: "hardwareButtonPressed",
     listener: (event: HardwareButtonPressedEvent) => void
@@ -125,6 +127,9 @@ export function createNativeEnterpriseBridge(): NativeEnterpriseBridge {
     },
     launchAllowedApp(options) {
       return secPalEnterprisePlugin.launchAllowedApp(options);
+    },
+    openOssLicenses() {
+      return secPalEnterprisePlugin.openOssLicenses();
     },
     addHardwareButtonListener(listener) {
       return secPalEnterprisePlugin.addListener(
