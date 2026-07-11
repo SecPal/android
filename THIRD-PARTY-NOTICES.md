@@ -41,6 +41,14 @@ change with the SecPal attribution terms. Its `.license` sidecar and
 provenance; unchanged Capacitor output remains MIT only. The complete MIT text
 is at [LICENSES/MIT.txt](LICENSES/MIT.txt).
 
+## GitHub Android ignore template
+
+`android/.gitignore` is based on the
+[GitHub Android ignore template](https://github.com/github/gitignore/blob/HEAD/Android.gitignore),
+which is CC0-1.0. Its local SecPal additions use a separate AGPLv3 sidecar, so
+the upstream template provenance and local changes remain distinct. The
+complete CC0 text is at [LICENSES/CC0-1.0.txt](LICENSES/CC0-1.0.txt).
+
 ## Dependencies and shipped notices
 
 npm dependencies are package-managed third-party software, not copied source;

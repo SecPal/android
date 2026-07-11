@@ -110,10 +110,15 @@ SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
 path = [
   "android/build.gradle",
   "android/variables.gradle",
-  "android/.gitignore",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "android/.gitignore"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "GitHub contributors"
+SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = [

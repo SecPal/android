@@ -20,8 +20,9 @@ information. `LICENSES/` contains the texts for every identifier REUSE uses:
 The audit corrected the attribution of the Gradle Wrapper files. `gradlew` and
 `gradlew.bat` retain their upstream copyright notices and Apache-2.0 headers;
 the wrapper JAR embeds `META-INF/LICENSE`. They must not be attributed to
-SecPal Contributors. Gradle confirms that the Wrapper is Apache-2.0 and that
-the JAR is self-attributing in its [release notes](https://docs.gradle.org/8.5/release-notes.html).
+SecPal Contributors. Gradle licenses its Build Tool under Apache-2.0 in its
+[licensing documentation](https://docs.gradle.org/current/userguide/licenses.html);
+the checked-in wrapper JAR is self-attributing through its embedded license.
 
 The committed Capacitor-generated files originate from the `@capacitor/cli`
 package and retain its `2017-present Drifty Co.` MIT provenance. The repository
@@ -29,8 +30,12 @@ normalizes `android/capacitor-cordova-android-plugins/build.gradle`; its
 sidecar records that local change under AGPLv3 with the SecPal attribution
 terms, alongside the upstream MIT provenance. Unmodified Android template
 files remain MIT only. No Tailwind-derived material, copied third-party
-snippets, or replaced third-party notices were found outside the Gradle Wrapper
-and Capacitor template provenance above.
+snippets, or replaced third-party notices were found outside the Gradle Wrapper,
+Capacitor template, and GitHub Android ignore-template provenance above.
+
+`android/.gitignore` retains the upstream GitHub Android ignore template's CC0
+provenance. Its local SecPal rules are recorded separately in an AGPLv3
+sidecar, so neither source is relicensed by the other.
 
 `LicenseRef-SecPal-Attribution` is used only with the existing SecPal-owned
 AGPL material. This audit neither adds it to third-party material nor changes
@@ -66,8 +71,8 @@ Reproduce with:
 
 ```sh
 npm ci --ignore-scripts
-npx license-checker-rseidelsohn --production --json
-npx license-checker-rseidelsohn --json
+npx --yes license-checker-rseidelsohn@5.0.1 --production --json
+npx --yes license-checker-rseidelsohn@5.0.1 --json
 ```
 
 ## Android/Gradle inventory and distribution obligations

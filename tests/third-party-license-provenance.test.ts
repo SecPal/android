@@ -9,7 +9,35 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
+function annotationBlockFor(path: string): string {
+  const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
+  const annotationBlock = reuseConfig
+    .split("[[annotations]]")
+    .find((block) => block.includes(`path = "${path}"`));
+
+  if (!annotationBlock) {
+    throw new Error(`Missing REUSE annotation for ${path}`);
+  }
+
+  return annotationBlock;
+}
+
 describe("third-party license provenance", () => {
+  it("keeps GitHub's CC0 template and SecPal changes distinct", () => {
+    const sidecarPath = resolve(repoRoot, "android/.gitignore.license");
+    expect(existsSync(sidecarPath)).toBe(true);
+    expect(readFileSync(sidecarPath, "utf8")).toContain(
+      "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+    );
+
+    const annotationBlock = annotationBlockFor("android/.gitignore");
+    expect(annotationBlock).toMatch(/precedence\s*=\s*"aggregate"/);
+    expect(annotationBlock).toMatch(
+      /SPDX-FileCopyrightText\s*=\s*"GitHub contributors"/
+    );
+    expect(annotationBlock).toMatch(/SPDX-License-Identifier\s*=\s*"CC0-1\.0"/);
+  });
+
   it("assigns unchanged Capacitor templates to one REUSE annotation", () => {
     const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
     const unchangedTemplatePaths = [
@@ -40,9 +68,25 @@ describe("third-party license provenance", () => {
       "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
     );
 
-    const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
-    expect(reuseConfig).toContain(
-      'path = "android/capacitor-cordova-android-plugins/build.gradle"\nprecedence = "aggregate"\nSPDX-FileCopyrightText = "2017-present Drifty Co."\nSPDX-License-Identifier = "MIT"'
+    const annotationBlock = annotationBlockFor(
+      "android/capacitor-cordova-android-plugins/build.gradle"
+    );
+    expect(annotationBlock).toMatch(/precedence\s*=\s*"aggregate"/);
+    expect(annotationBlock).toMatch(
+      /SPDX-FileCopyrightText\s*=\s*"2017-present Drifty Co\."/
+    );
+    expect(annotationBlock).toMatch(/SPDX-License-Identifier\s*=\s*"MIT"/);
+  });
+
+  it("pins the audit tool and uses version-agnostic Gradle licensing evidence", () => {
+    const audit = readFileSync(
+      resolve(repoRoot, "docs/THIRD_PARTY_LICENSE_AUDIT.md"),
+      "utf8"
+    );
+
+    expect(audit).toContain("license-checker-rseidelsohn@5.0.1");
+    expect(audit).toContain(
+      "https://docs.gradle.org/current/userguide/licenses.html"
     );
   });
 });
