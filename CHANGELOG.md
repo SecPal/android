@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Corrected REUSE copyright attribution for the third-party Gradle Wrapper,
   retained Capacitor MIT provenance while placing the local Cordova Gradle
-  normalization under AGPLv3, and added third-party notices plus the remaining
-  Android OSS notices follow-up.
+  normalization under AGPLv3, removed overlapping template annotations, and
+  added third-party notices plus the remaining Android OSS notices follow-up.
 - Documented the review-ready validation set for the Android runtime-discovery/bootstrap cleanup branch.
 - Aligned Android runtime-bootstrap and deployment-binding documentation with the final native restore/apply/clear behavior, including the intentionally removed baked-in-origin, `setApiBaseUrl(...)`, legacy `apiOrigin`-only, and session-storage compatibility paths.
 - Documented the Android runtime-bootstrap contract required by the merged shared frontend flow, including native runtime info, persisted bootstrap read/apply/clear, reset/logout behavior, payload field mapping, and bridge/runtime code that must be kept.

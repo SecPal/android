@@ -10,6 +10,20 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(import.meta.dirname, "..");
 
 describe("third-party license provenance", () => {
+  it("assigns unchanged Capacitor templates to one REUSE annotation", () => {
+    const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
+    const unchangedTemplatePaths = [
+      "android/gradle.properties",
+      "android/settings.gradle",
+      "android/app/.gitignore",
+    ];
+
+    for (const templatePath of unchangedTemplatePaths) {
+      const quotedPath = `"${templatePath}"`;
+      expect(reuseConfig.split(quotedPath)).toHaveLength(2);
+    }
+  });
+
   it("keeps SecPal's Cordova Gradle normalization under AGPL terms", () => {
     const sidecarPath = resolve(
       repoRoot,
