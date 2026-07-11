@@ -3658,6 +3658,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     launchAllowedApp(options) {
       return getEnterprisePlugin().launchAllowedApp(options);
     },
+    openOssLicenses() {
+      return getEnterprisePlugin().openOssLicenses();
+    },
     addHardwareButtonListener(listener) {
       const plugin = getEnterprisePlugin();
       if (typeof plugin.addListener !== "function") {

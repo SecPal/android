@@ -23,7 +23,13 @@ test -f "${aab_path}"
 aapt2_path="$(find "${ANDROID_HOME:?ANDROID_HOME must be set}/build-tools" -type f -name aapt2 | sort -V | tail -n 1)"
 test -n "${aapt2_path}"
 
-"${aapt2_path}" dump resources "${apk_path}" | grep -Fq "raw/third_party_license_metadata"
-"${aapt2_path}" dump resources "${apk_path}" | grep -Fq "raw/third_party_licenses"
-unzip -l "${aab_path}" | grep -Fq "base/res/raw/third_party_license_metadata"
-unzip -l "${aab_path}" | grep -Fq "base/res/raw/third_party_licenses"
+verification_dir="$(mktemp -d)"
+trap 'rm -rf "${verification_dir}"' EXIT
+
+"${aapt2_path}" dump resources "${apk_path}" >"${verification_dir}/apk-resources.txt"
+unzip -l "${aab_path}" >"${verification_dir}/aab-contents.txt"
+
+grep -Fq "raw/third_party_license_metadata" "${verification_dir}/apk-resources.txt"
+grep -Fq "raw/third_party_licenses" "${verification_dir}/apk-resources.txt"
+grep -Fq "base/res/raw/third_party_license_metadata" "${verification_dir}/aab-contents.txt"
+grep -Fq "base/res/raw/third_party_licenses" "${verification_dir}/aab-contents.txt"

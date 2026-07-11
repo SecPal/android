@@ -53,5 +53,6 @@ describe("Android OSS licenses", () => {
     expect(verification).toContain("releaseRuntimeClasspath");
     expect(verification).toContain("third_party_license_metadata");
     expect(verification).toContain("third_party_licenses");
+    expect(verification).not.toMatch(/\|\s*grep\s+-Fq/);
   });
 });
