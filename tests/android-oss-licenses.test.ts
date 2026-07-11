@@ -44,15 +44,21 @@ describe("Android OSS licenses", () => {
     expect(manifest).toContain(
       "com.google.android.gms.oss.licenses.OssLicensesMenuActivity"
     );
+    expect(manifest).toContain(
+      "com.google.android.gms.oss.licenses.OssLicensesActivity"
+    );
     expect(manifest).toContain('android:exported="false"');
     expect(bootstrap).not.toContain("secpal-about-oss-licenses");
     expect(bootstrap).not.toContain("Open-source licenses");
     expect(packageJson.scripts["native:verify:oss-licenses"]).toContain(
-      "verify-android-oss-licenses.sh"
+      "with-android-env.sh bash ./scripts/verify-android-oss-licenses.sh"
     );
     expect(verification).toContain("releaseRuntimeClasspath");
     expect(verification).toContain("third_party_license_metadata");
     expect(verification).toContain("third_party_licenses");
+    expect(verification).toContain("app-release.apk");
+    expect(verification).toContain("app-release-unsigned.apk");
+    expect(verification).not.toContain("sort -V");
     expect(verification).not.toMatch(/\|\s*grep\s+-Fq/);
   });
 });

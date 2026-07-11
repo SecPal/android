@@ -6,6 +6,7 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
 
@@ -15,6 +16,11 @@ import org.robolectric.RobolectricTestRunner;
 
 @RunWith(RobolectricTestRunner.class)
 public final class OssLicensesActivityTest {
+    @Test
+    public void noticesActivityIsUnavailableWithoutAnAttachedActivity() {
+        assertFalse(SecPalEnterprisePlugin.canOpenOssLicenses(null));
+    }
+
     @Test
     public void noticesIntentTargetsTheGeneratedNoticesActivity() {
         assertEquals(

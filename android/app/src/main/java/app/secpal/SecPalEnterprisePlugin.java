@@ -5,6 +5,7 @@
 
 package app.secpal;
 
+import android.app.Activity;
 import android.content.Intent;
 import android.view.KeyEvent;
 
@@ -573,11 +574,25 @@ public class SecPalEnterprisePlugin extends Plugin {
 
     @PluginMethod
     public void openOssLicenses(PluginCall call) {
+        Activity activity = getActivity();
+
+        if (!canOpenOssLicenses(activity)) {
+            call.reject(
+                "Open-source licenses are unavailable because no activity is attached.",
+                "OSS_LICENSES_UNAVAILABLE"
+            );
+            return;
+        }
+
         OssLicensesMenuActivity.setActivityTitle(
             getContext().getString(R.string.oss_licenses_title)
         );
-        getActivity().startActivity(buildOssLicensesIntent());
+        activity.startActivity(buildOssLicensesIntent());
         call.resolve();
+    }
+
+    static boolean canOpenOssLicenses(Activity activity) {
+        return activity != null;
     }
 
     static Intent buildOssLicensesIntent() {
