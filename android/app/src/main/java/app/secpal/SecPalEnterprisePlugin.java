@@ -5,7 +5,10 @@
 
 package app.secpal;
 
+import android.content.Intent;
 import android.view.KeyEvent;
+
+import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -566,6 +569,22 @@ public class SecPalEnterprisePlugin extends Plugin {
         }
 
         call.reject("Allowed app launch is not available", "ENTERPRISE_ACTION_NOT_ALLOWED");
+    }
+
+    @PluginMethod
+    public void openOssLicenses(PluginCall call) {
+        OssLicensesMenuActivity.setActivityTitle(
+            getContext().getString(R.string.oss_licenses_title)
+        );
+        getActivity().startActivity(buildOssLicensesIntent());
+        call.resolve();
+    }
+
+    static Intent buildOssLicensesIntent() {
+        return new Intent().setClassName(
+            BuildConfig.APPLICATION_ID,
+            OssLicensesMenuActivity.class.getName()
+        );
     }
 
 }

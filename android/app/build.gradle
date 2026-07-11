@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
 apply plugin: 'com.android.application'
+apply plugin: 'com.google.android.gms.oss-licenses-plugin'
 
 def releaseVersionCodeEnv = System.getenv('SECPAL_ANDROID_VERSION_CODE')
 def releaseVersionCodeString = (releaseVersionCodeEnv && releaseVersionCodeEnv.trim()) ? releaseVersionCodeEnv.trim() : '1'
@@ -97,6 +98,9 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:34.12.0')
     implementation 'com.google.firebase:firebase-common'
     implementation 'com.google.firebase:firebase-messaging'
+    // This XML-view release is compatible with the Android 35/AGP 8.7
+    // release toolchain used by this app; issue #336 tracks the toolchain upgrade.
+    implementation 'com.google.android.gms:play-services-oss-licenses:17.2.2'
     implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
