@@ -26,6 +26,7 @@
     "build": "npm run cap:sync",
     "frontend:build": "bash ./scripts/build-frontend-web.sh",
     "brand:sync": "node ./scripts/sync-frontend-brand-assets.mjs",
+    "native:patch:capacitor-android": "node ./scripts/patch-capacitor-android-unchecked.mjs",
     "native:normalize:cordova-config": "node ./scripts/normalize-cordova-config.mjs ./android/app/src/main/res/xml/config.xml",
     "native:normalize:cordova-gradle": "node ./scripts/normalize-capacitor-cordova-gradle.mjs ./android/capacitor-cordova-android-plugins/build.gradle",
     "lint": "eslint . --ext ts,js --max-warnings 0",
@@ -37,9 +38,9 @@
     "format": "prettier --write --cache '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",
-    "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",
+    "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",
     "cap:copy": "npm run frontend:build && npx cap copy android",
-    "cap:add:android": "npx cap add android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle && npm run native:verify",
+    "cap:add:android": "npx cap add android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle && npm run native:verify",
     "cap:open:android": "npx cap open android",
     "native:compile:debug:deprecations": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:compileDebugJavaWithJavac -PsecpalJavaDeprecationLint=true'",
     "native:assemble:debug": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleDebug'",
@@ -66,7 +67,8 @@
     "fastlane:android:deploy:internal:with-metadata": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_internal_with_metadata",
     "fastlane:android:deploy:direct-apk": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk",
     "fastlane:android:deploy:direct-apk:beta": "SECPAL_ANDROID_DIRECT_CHANNEL=beta bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk",
-    "fastlane:android:deploy:beta-apk": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk_beta"
+    "fastlane:android:deploy:beta-apk": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk_beta",
+    "postinstall": "npm run native:patch:capacitor-android"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

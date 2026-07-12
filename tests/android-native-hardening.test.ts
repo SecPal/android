@@ -37,6 +37,25 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("patches Capacitor's unchecked Java generics after installation and sync", () => {
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(packageJson.scripts["native:patch:capacitor-android"]).toContain(
+      "patch-capacitor-android-unchecked.mjs"
+    );
+    expect(packageJson.scripts.postinstall).toContain(
+      "native:patch:capacitor-android"
+    );
+    expect(packageJson.scripts["cap:sync"]).toContain(
+      "native:patch:capacitor-android"
+    );
+    expect(packageJson.scripts["cap:add:android"]).toContain(
+      "native:patch:capacitor-android"
+    );
+  });
+
   it("pins a patched xmldom version for Capacitor CLI tooling", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       overrides?: Record<string, unknown>;
