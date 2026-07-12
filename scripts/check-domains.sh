@@ -25,29 +25,37 @@ echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
-matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
-    --include="*.md" \
-    --include="*.yaml" \
-    --include="*.yml" \
-    --include="*.json" \
-    --include="*.sh" \
-    --include="*.ts" \
-    --include="*.tsx" \
-    --include="*.js" \
-    --include="*.jsx" \
-    --include="*.html" \
-    --include="*.kt" \
-    --include="*.java" \
-    --include="*.xml" \
-    --include="*.gradle" \
-    --include="*.kts" \
-    --include="*.properties" \
-    --exclude-dir=".git" \
-    --exclude-dir=".gradle" \
-    --exclude-dir="build" \
-    --exclude-dir="node_modules" \
-    --exclude-dir="vendor" \
-    . 2>/dev/null | \
+if ! command -v perl >/dev/null 2>&1; then
+    echo "Perl is required to validate domain usage." >&2
+    exit 1
+fi
+
+# shellcheck disable=SC2016
+matches=$(find . \
+    -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
+    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) -print0 | \
+    xargs -0 perl -0ne '
+        s{
+            (?<![A-Za-z0-9_$.])
+            (?:(?:window|globalThis)\.)?
+            (?:localStorage|sessionStorage)
+            \.(?:getItem|setItem|removeItem)
+            \(\s*
+            (["\x27])
+            secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+
+            \1
+            (?=\s*[,)] )
+        }{
+            my $storage_key = $&;
+            $storage_key =~ s/secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/__secpal_storage_identifier__/;
+            $storage_key;
+        }gex;
+        my $line_number = 0;
+        for my $line (split /\n/, $_, -1) {
+            ++$line_number;
+            print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
+        }
+    ' | \
     grep -v -- "check-domains.sh" | \
     grep -v -- "Forbidden:" | \
     grep -v -- "FORBIDDEN:" | \
@@ -62,6 +70,9 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
 # This prevents domain-like strings (e.g. app.secpal.com) from passing as approved.
 # This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
+# Hyphenated SecPal storage identifiers are only allowed when the complete
+# quoted value is passed as a literal key to a browser storage API. This
+# preserves detection of a domain-like value such as secpal.invalid-host.com.
 regex_prefix='(^|[^A-Za-z0-9.-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
 regex_identifier_suffix='([^A-Za-z0-9._-]|$)'

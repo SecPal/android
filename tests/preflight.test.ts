@@ -5,9 +5,12 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -109,5 +112,170 @@ describe("preflight", () => {
     expect(hookRunner).toContain(
       "package-lock.json -nt node_modules/.package-lock.json"
     );
+  });
+
+  it("allows SecPal storage keys while rejecting unapproved SecPal hostnames", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      writeFileSync(
+        join(tempRoot, "theme-color.js"),
+        'localStorage.setItem("secpal.asset-load-recovery", "1");\n'
+      );
+
+      const storageKeyResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageKeyResult.status).toBe(0);
+
+      writeFileSync(
+        join(tempRoot, "storage-variants.js"),
+        [
+          "sessionStorage.getItem('secpal.asset-load-recovery');",
+          'localStorage.removeItem("secpal.asset-load-recovery");',
+          'localStorage.setItem("secpal.first-key", "1"); sessionStorage.setItem("secpal.second-key", "1");',
+          'window.localStorage.setItem("secpal.window-key", "1");',
+          'globalThis.sessionStorage.getItem("secpal.global-key");',
+        ].join("\n")
+      );
+
+      const storageVariantsResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageVariantsResult.status).toBe(0);
+
+      const storageKey = "secpal" + ".asset-load-recovery";
+      writeFileSync(
+        join(tempRoot, "multiline-storage-key.js"),
+        ["localStorage.setItem(", `  "${storageKey}",`, '  "1"', ");"].join(
+          "\n"
+        )
+      );
+
+      const multilineStorageResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(multilineStorageResult.status).toBe(0);
+
+      const customStorageHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "custom-storage-helper.js"),
+        [
+          `notlocalStorage.setItem("${customStorageHostname}", "1");`,
+          `storage.localStorage.setItem("${customStorageHostname}", "1");`,
+        ].join("\n")
+      );
+
+      const customStorageHelperResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(customStorageHelperResult.status).toBe(1);
+      expect(customStorageHelperResult.stdout).toContain(customStorageHostname);
+
+      unlinkSync(join(tempRoot, "custom-storage-helper.js"));
+
+      const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
+      writeFileSync(
+        join(tempRoot, "domain-like-storage-key.js"),
+        `localStorage.setItem("${forbiddenStorageHostname}", "1");\n`
+      );
+
+      const storageHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageHostnameResult.status).toBe(1);
+      expect(storageHostnameResult.stdout).toContain(forbiddenStorageHostname);
+
+      unlinkSync(join(tempRoot, "domain-like-storage-key.js"));
+
+      const concatenatedStorageHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "concatenated-storage-key.js"),
+        `localStorage.setItem("${concatenatedStorageHostname}" + ".com", "1");\n`
+      );
+
+      const concatenatedStorageHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(concatenatedStorageHostnameResult.status).toBe(1);
+      expect(concatenatedStorageHostnameResult.stdout).toContain(
+        concatenatedStorageHostname
+      );
+
+      unlinkSync(join(tempRoot, "concatenated-storage-key.js"));
+
+      const forbiddenHostname = "secpal" + ".invalid";
+      writeFileSync(
+        join(tempRoot, "unapproved-host.js"),
+        `const endpoint = "https://${forbiddenHostname}/api";\n`
+      );
+
+      const hostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(hostnameResult.status).toBe(1);
+      expect(hostnameResult.stdout).toContain(forbiddenHostname);
+
+      unlinkSync(join(tempRoot, "unapproved-host.js"));
+
+      const hyphenatedForbiddenHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "unapproved-hyphenated-host.js"),
+        `const endpoint = "https://${hyphenatedForbiddenHostname}/api";\n`
+      );
+
+      const hyphenatedHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(hyphenatedHostnameResult.status).toBe(1);
+      expect(hyphenatedHostnameResult.stdout).toContain(
+        hyphenatedForbiddenHostname
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the domain checker cannot run its parser", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const toolsDirectory = join(tempRoot, "without-perl-bin");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      mkdirSync(toolsDirectory);
+      for (const command of ["find", "grep", "xargs"]) {
+        symlinkSync(`/usr/bin/${command}`, join(toolsDirectory, command));
+      }
+
+      const result = spawnSync("/bin/bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: { ...process.env, PATH: toolsDirectory },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Perl is required");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
