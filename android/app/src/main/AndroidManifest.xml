@@ -70,6 +70,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             android:theme="@style/AppTheme"
             tools:replace="android:theme" />
 
+        <activity
+            android:name="com.google.android.gms.oss.licenses.OssLicensesMenuActivity"
+            tools:node="remove" />
+
+        <activity
+            android:name="com.google.android.gms.oss.licenses.OssLicensesActivity"
+            tools:node="remove" />
+
         <activity-alias
             android:name=".SamsungEmergencyShortPressAlias"
             android:enabled="true"

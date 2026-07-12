@@ -47,10 +47,14 @@ describe("Android OSS licenses", () => {
     );
     expect(manifest).toContain('tools:replace="android:theme"');
     expect(manifest).not.toContain(
-      "com.google.android.gms.oss.licenses.OssLicenses"
-    );
-    expect(manifest).not.toContain(
       "com.google.android.gms.oss.licenses.v2.OssLicensesActivity"
+    );
+    expect(manifest).toContain(
+      'android:name="com.google.android.gms.oss.licenses.OssLicensesMenuActivity"'
+    );
+    expect(manifest).toContain('tools:node="remove"');
+    expect(manifest).toContain(
+      'android:name="com.google.android.gms.oss.licenses.OssLicensesActivity"'
     );
     const variablesGradle = readRepoFile("android", "variables.gradle");
     expect(variablesGradle).toContain("compileSdkVersion = 36");
