@@ -54,7 +54,7 @@ export function patchCapacitorAndroidSources(repoRoot) {
     ],
   ];
 
-  for (const [sourcePath, expectedReplacements] of sourceFiles) {
+  const patchedFiles = sourceFiles.map(([sourcePath, expectedReplacements]) => {
     const absolutePath = resolve(repoRoot, sourcePath);
     const source = readFileSync(absolutePath, "utf8");
     const patchedSource = patchCapacitorAndroidSource(
@@ -62,6 +62,10 @@ export function patchCapacitorAndroidSources(repoRoot) {
       expectedReplacements
     );
 
+    return { absolutePath, source, patchedSource };
+  });
+
+  for (const { absolutePath, source, patchedSource } of patchedFiles) {
     if (patchedSource !== source) {
       writeFileSync(absolutePath, patchedSource, "utf8");
     }
