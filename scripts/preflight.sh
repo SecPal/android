@@ -70,14 +70,35 @@ if [ -f scripts/check-conflict-markers.sh ]; then
   bash scripts/check-conflict-markers.sh
 fi
 
+# Install locked Node dependencies before lockfile-provided validation tools run.
+if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
+  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules ]; then
+    pnpm install --frozen-lockfile
+  else
+    echo "ℹ️  Skipping pnpm install (dependencies up-to-date)" >&2
+  fi
+elif [ -f package-lock.json ] && command -v npm >/dev/null 2>&1; then
+  if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+    npm ci
+  else
+    echo "Dependencies up to date, skipping npm ci"
+  fi
+elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then
+  if [ ! -d node_modules ] || [ yarn.lock -nt node_modules ]; then
+    yarn install --frozen-lockfile
+  else
+    echo "ℹ️  Skipping yarn install (dependencies up-to-date)" >&2
+  fi
+fi
+
 # 0) Formatting & Compliance
 FORMAT_EXIT=0
-if command -v npx >/dev/null 2>&1; then
-  npx --no-install prettier --check --cache '**/*.{md,yml,yaml,json,ts,js,css,html}' || FORMAT_EXIT=1
+if [ -x node_modules/.bin/prettier ]; then
+  ./node_modules/.bin/prettier --check --cache '**/*.{md,yml,yaml,json,ts,js,css,html}' || FORMAT_EXIT=1
 
   # Only run markdownlint if .md files changed
   if echo "$CHANGED_FILES" | grep -q '\.md$'; then
-    npx --no-install markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git || FORMAT_EXIT=1
+    ./node_modules/.bin/markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git || FORMAT_EXIT=1
   else
     echo "ℹ️  No markdown files changed, skipping markdownlint"
   fi
@@ -137,30 +158,14 @@ fi
 
 # 1) Node / Capacitor wrapper
 if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
-  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules ]; then
-    pnpm install --frozen-lockfile
-  else
-    echo "ℹ️  Skipping pnpm install (dependencies up-to-date)" >&2
-  fi
   pnpm run --if-present lint
   pnpm run --if-present typecheck
   pnpm run --if-present test:run
 elif [ -f package-lock.json ] && command -v npm >/dev/null 2>&1; then
-  if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
-    npm ci
-  else
-    echo "Dependencies up to date, skipping npm ci"
-  fi
-
   npm run --if-present lint
   npm run --if-present typecheck
   npm run --if-present test:run
 elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then
-  if [ ! -d node_modules ] || [ yarn.lock -nt node_modules ]; then
-    yarn install --frozen-lockfile
-  else
-    echo "ℹ️  Skipping yarn install (dependencies up-to-date)" >&2
-  fi
   if command -v jq >/dev/null 2>&1; then
     jq -e '.scripts.lint' package.json >/dev/null 2>&1 && yarn lint
     jq -e '.scripts.typecheck' package.json >/dev/null 2>&1 && yarn typecheck
