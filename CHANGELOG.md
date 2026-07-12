@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgraded the Android build toolchain to compile SDK 36 and Android Gradle Plugin 8.9.1, raised the minimum SDK to 24, and moved the native open-source notices UI to Google Play services OSS licenses 17.5.1 and its v2 activity.
 - Removed the injected Android WebView discovery, login-reset, and About presentation so the shared frontend exclusively owns those screens; retained the native runtime-bootstrap, authentication, push, and enterprise capability bridges.
 - Corrected REUSE copyright attribution for the third-party Gradle Wrapper,
   retained Capacitor MIT provenance while placing the local Cordova Gradle

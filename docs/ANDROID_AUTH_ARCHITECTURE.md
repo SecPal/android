@@ -140,9 +140,9 @@ The following approaches are explicitly out of scope and must not be introduced:
 
 ## Passkey Compatibility
 
-Android API 23 through 33 remain supported for the application, including password authentication where the tenant policy permits it, token storage, runtime bootstrap, push, and other non-passkey features. The Google Play services Credential Manager provider is intentionally not packaged because its FIDO dependency ships vulnerable generated Tink protobuf code.
+Android API 24 through 33 remain supported for the application, including password authentication where the tenant policy permits it, token storage, runtime bootstrap, push, and other non-passkey features. The Google Play services Credential Manager provider is intentionally not packaged because its FIDO dependency ships vulnerable generated Tink protobuf code.
 
-Passkey sign-in and registration therefore require Android 14 (API 34) or newer. The native `SecPalNativeAuth` plugin exposes `getPasskeyCapabilities()`, which returns `passkeysAvailable` and, when unavailable, a stable `reason`. On API 23 through 33 the reason is `PASSKEY_ANDROID_VERSION_UNSUPPORTED`. The shared frontend must query this method before presenting passkey controls, hide or disable those controls when unavailable, and retain password sign-in when the tenant permits it. It must not silently replace a passkey-required tenant policy with password authentication; such tenants must receive a clear compatibility message.
+Passkey sign-in and registration therefore require Android 14 (API 34) or newer. The native `SecPalNativeAuth` plugin exposes `getPasskeyCapabilities()`, which returns `passkeysAvailable` and, when unavailable, a stable `reason`. On API 24 through 33 the reason is `PASSKEY_ANDROID_VERSION_UNSUPPORTED`. The shared frontend must query this method before presenting passkey controls, hide or disable those controls when unavailable, and retain password sign-in when the tenant permits it. It must not silently replace a passkey-required tenant policy with password authentication; such tenants must receive a clear compatibility message.
 
 A future restoration of pre-Android-14 passkey support requires a verified upstream Credential Manager/Google Play services FIDO dependency path that neither packages vulnerable generated protobuf code nor produces the associated release-build warning.
 

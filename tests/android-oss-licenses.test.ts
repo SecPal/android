@@ -15,6 +15,11 @@ const readRepoFile = (...segments: string[]) =>
 describe("Android OSS licenses", () => {
   it("generates release notices without adding Android WebView presentation", () => {
     const rootBuildGradle = readRepoFile("android", "build.gradle");
+    const cordovaPluginsBuildGradle = readRepoFile(
+      "android",
+      "capacitor-cordova-android-plugins",
+      "build.gradle"
+    );
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
     const manifest = readRepoFile(
       "android",
@@ -32,21 +37,41 @@ describe("Android OSS licenses", () => {
       "verify-android-oss-licenses.sh"
     );
 
+    expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
+    expect(cordovaPluginsBuildGradle).toContain(
+      "com.android.tools.build:gradle:8.9.1"
+    );
+    expect(cordovaPluginsBuildGradle).not.toContain(
+      "com.android.tools.build:gradle:8.13.0"
+    );
     expect(rootBuildGradle).toContain(
-      "com.google.android.gms:oss-licenses-plugin:0.12.0"
+      "com.google.android.gms:oss-licenses-plugin:0.13.0"
     );
     expect(appBuildGradle).toContain(
       "apply plugin: 'com.google.android.gms.oss-licenses-plugin'"
     );
     expect(appBuildGradle).toContain(
-      "com.google.android.gms:play-services-oss-licenses:17.2.2"
+      "com.google.android.gms:play-services-oss-licenses:17.5.1"
     );
     expect(manifest).toContain(
-      "com.google.android.gms.oss.licenses.OssLicensesMenuActivity"
+      "com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity"
+    );
+    expect(manifest).toMatch(
+      /<activity\s+android:name="com\.google\.android\.gms\.oss\.licenses\.v2\.OssLicensesMenuActivity"\s+android:exported="false"\s+android:theme="@style\/AppTheme"\s+tools:replace="android:theme"\s*\/>/
+    );
+    expect(manifest).not.toContain(
+      "com.google.android.gms.oss.licenses.v2.OssLicensesActivity"
     );
     expect(manifest).toContain(
-      "com.google.android.gms.oss.licenses.OssLicensesActivity"
+      'android:name="com.google.android.gms.oss.licenses.OssLicensesMenuActivity"'
     );
+    expect(manifest).toContain('tools:node="remove"');
+    expect(manifest).toContain(
+      'android:name="com.google.android.gms.oss.licenses.OssLicensesActivity"'
+    );
+    const variablesGradle = readRepoFile("android", "variables.gradle");
+    expect(variablesGradle).toContain("compileSdkVersion = 36");
+    expect(variablesGradle).toContain("minSdkVersion = 24");
     expect(manifest).toContain('android:exported="false"');
     expect(bootstrap).not.toContain("secpal-about-oss-licenses");
     expect(bootstrap).not.toContain("Open-source licenses");
