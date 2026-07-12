@@ -52,7 +52,8 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
     grep -v -- "Forbidden:" | \
     grep -v -- "FORBIDDEN:" | \
     grep -v -- '- "secpal\.' | \
-    grep -v -- '^[[:space:]]*- \[' || true)
+    grep -v -- '^[[:space:]]*- \[' | \
+    sed -E "s/((localStorage|sessionStorage)\\.(getItem|setItem|removeItem)\\([[:space:]]*[\\\"'])secpal\\.[A-Za-z0-9]+(-[A-Za-z0-9]+)+/\\1secpal_storage_identifier/g" || true)
 
 # Allowlist approach: flag any secpal.* domain not matching an approved pattern.
 # Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts.
@@ -62,6 +63,9 @@ matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
 # This prevents domain-like strings (e.g. app.secpal.com) from passing as approved.
 # This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
+# Hyphenated SecPal storage identifiers are only allowed when passed as literal
+# keys to a browser storage API. This preserves detection of a similarly shaped
+# hostname such as secpal.invalid-host.
 regex_prefix='(^|[^A-Za-z0-9.-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
 regex_identifier_suffix='([^A-Za-z0-9._-]|$)'

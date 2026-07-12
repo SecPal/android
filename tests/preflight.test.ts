@@ -5,6 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -109,5 +110,59 @@ describe("preflight", () => {
     expect(hookRunner).toContain(
       "package-lock.json -nt node_modules/.package-lock.json"
     );
+  });
+
+  it("allows SecPal storage keys while rejecting unapproved SecPal hostnames", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      writeFileSync(
+        join(tempRoot, "theme-color.js"),
+        'localStorage.setItem("secpal.asset-load-recovery", "1");\n'
+      );
+
+      const storageKeyResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageKeyResult.status).toBe(0);
+
+      const forbiddenHostname = "secpal" + ".invalid";
+      writeFileSync(
+        join(tempRoot, "unapproved-host.js"),
+        `const endpoint = "https://${forbiddenHostname}/api";\n`
+      );
+
+      const hostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(hostnameResult.status).toBe(1);
+      expect(hostnameResult.stdout).toContain(forbiddenHostname);
+
+      unlinkSync(join(tempRoot, "unapproved-host.js"));
+
+      const hyphenatedForbiddenHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "unapproved-hyphenated-host.js"),
+        `const endpoint = "https://${hyphenatedForbiddenHostname}/api";\n`
+      );
+
+      const hyphenatedHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(hyphenatedHostnameResult.status).toBe(1);
+      expect(hyphenatedHostnameResult.stdout).toContain(
+        hyphenatedForbiddenHostname
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
