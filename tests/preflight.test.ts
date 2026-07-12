@@ -17,8 +17,12 @@ describe("preflight", () => {
       "utf8"
     );
 
-    expect(config).toContain("entry: ./node_modules/.bin/prettier --write");
-    expect(config).toContain("./node_modules/.bin/markdownlint --config");
+    expect(config).toContain(
+      "entry: ./scripts/run-lockfile-tool.sh prettier --write"
+    );
+    expect(config).toContain(
+      "./scripts/run-lockfile-tool.sh markdownlint --config"
+    );
     expect(config).not.toContain("mirrors-prettier");
     expect(config).not.toContain("npx");
   });
@@ -35,5 +39,17 @@ describe("preflight", () => {
     expect(dependencyInstallIndex).toBeGreaterThan(-1);
     expect(localFormatterIndex).toBeGreaterThan(-1);
     expect(dependencyInstallIndex).toBeLessThan(localFormatterIndex);
+  });
+
+  it("bootstraps missing hook dependencies before executing the local binary", () => {
+    const hookRunner = readFileSync(
+      resolve(repoRoot, "scripts", "run-lockfile-tool.sh"),
+      "utf8"
+    );
+
+    expect(hookRunner.indexOf("npm ci")).toBeGreaterThan(-1);
+    expect(
+      hookRunner.indexOf('exec "./node_modules/.bin/$tool"')
+    ).toBeGreaterThan(hookRunner.indexOf("npm ci"));
   });
 });
