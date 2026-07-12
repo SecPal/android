@@ -5,6 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -25,6 +26,11 @@ const graphicsPathVerifier = resolve(
   repoRoot,
   "scripts",
   "verify-androidx-graphics-path.sh"
+);
+const ossLicensesVerifier = resolve(
+  repoRoot,
+  "scripts",
+  "verify-android-oss-licenses.sh"
 );
 
 const createNativeLibraryArchive = (
@@ -131,6 +137,15 @@ describe("Android OSS licenses", () => {
       "with-android-env.sh bash ./scripts/verify-android-oss-licenses.sh"
     );
     expect(verification).toContain("releaseRuntimeClasspath");
+    expect(verification).toContain(
+      "Release runtime classpath contains build-tool-only Tink dependency"
+    );
+    expect(verification).toContain(
+      'protobuf_unsafe_gencode_property="-Dcom.google.protobuf.use_unsafe_pre22_gencode=true"'
+    );
+    expect(
+      verification.match(/protobuf_unsafe_gencode_property/g)
+    ).toHaveLength(3);
     expect(verification).toContain("third_party_license_metadata");
     expect(verification).toContain("third_party_licenses");
     expect(verification).toContain("app-release.apk");
@@ -204,6 +219,45 @@ describe("Android OSS licenses", () => {
       expect(oversizedResult.status).not.toBe(0);
       expect(oversizedResult.stderr).toContain(
         "exceeds the 40000-byte release budget"
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a Tink dependency before assembling release artifacts", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-oss-tink-"));
+
+    try {
+      const scriptsDirectory = join(tempRoot, "scripts");
+      const androidDirectory = join(tempRoot, "android");
+      mkdirSync(scriptsDirectory, { recursive: true });
+      mkdirSync(androidDirectory, { recursive: true });
+      writeFileSync(
+        join(scriptsDirectory, "verify-android-oss-licenses.sh"),
+        readFileSync(ossLicensesVerifier, "utf8")
+      );
+      writeFileSync(
+        join(androidDirectory, "gradlew"),
+        `#!/usr/bin/env bash\nprintf '%s\\n' \\
+  'com.google.firebase:firebase-messaging' \\
+  'com.google.android.gms:play-services-oss-licenses' \\
+  'com.google.crypto.tink:tink:1.7.0'\n`
+      );
+      chmodSync(join(androidDirectory, "gradlew"), 0o755);
+
+      const result = spawnSync(
+        "bash",
+        [join(scriptsDirectory, "verify-android-oss-licenses.sh")],
+        {
+          encoding: "utf8",
+          env: process.env,
+        }
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Release runtime classpath contains build-tool-only Tink dependency"
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
