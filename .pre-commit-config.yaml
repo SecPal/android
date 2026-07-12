@@ -15,10 +15,12 @@ repos:
       - id: reuse
 
   # Code formatting
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+  - repo: local
     hooks:
       - id: prettier
+        name: prettier
+        entry: ./scripts/run-lockfile-tool.sh prettier --write
+        language: system
         types_or: [markdown, yaml, json]
         exclude: 'package-lock\.json|composer\.lock|yarn\.lock|pnpm-lock\.yaml'
 
@@ -28,7 +30,7 @@ repos:
       - id: markdownlint
         name: markdownlint
         entry: >-
-          npx --yes --package markdownlint-cli@0.49.0 markdownlint --config
+          ./scripts/run-lockfile-tool.sh markdownlint --config
           .markdownlint.json --ignore node_modules
         language: system
         types: [markdown]
