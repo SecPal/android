@@ -3,8 +3,16 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +47,53 @@ describe("preflight", () => {
     expect(dependencyInstallIndex).toBeGreaterThan(-1);
     expect(localFormatterIndex).toBeGreaterThan(-1);
     expect(dependencyInstallIndex).toBeLessThan(localFormatterIndex);
+  });
+
+  it("lints only YAML files tracked by Git", () => {
+    const script = readFileSync(
+      resolve(repoRoot, "scripts", "preflight.sh"),
+      "utf8"
+    );
+
+    expect(script).toContain("git ls-files -z -- '*.yml' '*.yaml'");
+    expect(script).not.toContain(
+      "-type f \\( -name '*.yml' -o -name '*.yaml' \\)"
+    );
+  });
+
+  it("omits tracked YAML files deleted from the worktree", () => {
+    const script = readFileSync(
+      resolve(repoRoot, "scripts", "preflight.sh"),
+      "utf8"
+    );
+    const functionMatch = script.match(
+      /get_tracked_yaml_files\(\) \{[\s\S]*?^\}/m
+    );
+
+    expect(functionMatch).not.toBeNull();
+
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-preflight-yaml-"));
+
+    try {
+      spawnSync("git", ["init", "--quiet"], { cwd: tempRoot });
+      writeFileSync(join(tempRoot, "kept.yaml"), "key: value\n");
+      writeFileSync(join(tempRoot, "deleted.yaml"), "key: value\n");
+      spawnSync("git", ["add", "kept.yaml", "deleted.yaml"], {
+        cwd: tempRoot,
+      });
+      unlinkSync(join(tempRoot, "deleted.yaml"));
+
+      const result = spawnSync(
+        "bash",
+        ["-c", `${functionMatch?.[0]}\nget_tracked_yaml_files`],
+        { cwd: tempRoot, encoding: "utf8" }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout.split("\0").filter(Boolean)).toEqual(["kept.yaml"]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("bootstraps missing hook dependencies before executing the local binary", () => {
