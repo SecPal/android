@@ -73,11 +73,11 @@ fi
 # 0) Formatting & Compliance
 FORMAT_EXIT=0
 if command -v npx >/dev/null 2>&1; then
-  npx --yes prettier --check --cache '**/*.{md,yml,yaml,json,ts,js,css,html}' || FORMAT_EXIT=1
+  npx --no-install prettier --check --cache '**/*.{md,yml,yaml,json,ts,js,css,html}' || FORMAT_EXIT=1
 
   # Only run markdownlint if .md files changed
   if echo "$CHANGED_FILES" | grep -q '\.md$'; then
-    npx --yes --package markdownlint-cli@0.49.0 markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git || FORMAT_EXIT=1
+    npx --no-install markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git || FORMAT_EXIT=1
   else
     echo "ℹ️  No markdown files changed, skipping markdownlint"
   fi
