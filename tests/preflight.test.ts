@@ -375,6 +375,30 @@ describe("preflight", () => {
     }
   });
 
+  it("does not filter domains next to similarly named checker text", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const forbiddenHostname = "secpal" + ".invalid";
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      writeFileSync(
+        join(tempRoot, "unapproved-host.js"),
+        `const endpoint = "https://${forbiddenHostname}/api"; // check-domainsXsh\n`
+      );
+
+      const result = spawnSync("/bin/bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(forbiddenHostname);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("does not depend on platform-specific xargs behavior", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");

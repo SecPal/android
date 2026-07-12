@@ -32,7 +32,7 @@ fi
 
 filter_out_matches() {
     grep -v -- "$1" || {
-        status=$?
+        local status=$?
         [[ "$status" -eq 1 ]]
     }
 }
@@ -63,7 +63,7 @@ if ! matches=$(find . \
             print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
         }
     ' {} + | \
-    filter_out_matches "check-domains.sh" | \
+    filter_out_matches 'check-domains\.sh' | \
     filter_out_matches "Forbidden:" | \
     filter_out_matches "FORBIDDEN:" | \
     filter_out_matches '- "secpal\.' | \
