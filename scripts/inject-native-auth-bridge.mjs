@@ -290,10 +290,28 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return;
     }
 
+    let locale = null;
+    try {
+      locale =
+        typeof storage.getItem === "function"
+          ? storage.getItem("secpal-locale")
+          : null;
+    } catch {
+      // Preserve tenant cleanup even when the locale cannot be read.
+    }
+
     try {
       storage.clear();
     } catch {
       return;
+    }
+
+    if (locale !== null && typeof storage.setItem === "function") {
+      try {
+        storage.setItem("secpal-locale", locale);
+      } catch {
+        // Locale restoration is best-effort during destructive resets.
+      }
     }
   };
 
@@ -511,6 +529,9 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
     return true;
   };
+
+  const createIncompatibleBootstrapError = () =>
+    new Error("Android runtime bootstrap is incompatible.");
 
   const normalizeStoredBootstrap = (parsed) => {
     const instanceDisplayName =
@@ -2087,7 +2108,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     };
   }
 
-  globalThis.__SecPalNativeAuthBootstrapInstalled = true;
   globalThis.__SecPalNativeAuthBootstrapInstalled = true;
 })();
 `.trim();

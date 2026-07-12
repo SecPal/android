@@ -3466,6 +3466,13 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(
       bridge.setRuntimeBootstrap({ apiOrigin: "http://invalid.example" })
     ).rejects.toThrow();
+    await expect(
+      bridge.setRuntimeBootstrap({
+        apiOrigin: "https://customer-api.example",
+        minimumSupportedAppVersion: "0.0.1",
+        minimumSupportedAppBuild: 1,
+      })
+    ).rejects.toThrow("Android runtime bootstrap is incompatible.");
     expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
     await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
       "https://customer-api.example"
@@ -3531,7 +3538,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       (sandbox.__SecPalNativeAuthState as { active: boolean }).active
     ).toBe(false);
-    expect(localStorage.getItem("secpal-locale")).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
     expect(localStorage.getItem("tenant-cache")).toBeNull();
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
@@ -3764,7 +3771,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
-    expect(localStorage.getItem("secpal-locale")).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
     expect(localStorage.getItem("tenant-cache")).toBeNull();
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
