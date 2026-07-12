@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed the Google Play services Credential Manager provider to eliminate vulnerable FIDO/Tink protobuf generated code from Android release artifacts. Passkey registration and sign-in now require Android 14 or newer; password sign-in remains available on supported older Android versions.
 - Removed the WebView-accessible gesture-navigation settings bridge so JavaScript can no longer force managed dedicated devices out of lock task into Android Settings; the OEM settings hand-off remains limited to the native provisioning flow.
 - disabled the WebView-accessible Android offline-vault root-key bridge so JavaScript can no longer create or unwrap device-bound vault root-key envelopes until a non-exfiltrating native read path exists
 - Added `android-release.env` to the repo-local ignore rules so Android signing environment files are not accidentally staged from developer machines.

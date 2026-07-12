@@ -130,6 +130,26 @@ describe("Android native hardening", () => {
     expect(buildGradle).toContain("libdatastore_shared_counter.so");
   });
 
+  it("does not package the vulnerable Google Play services FIDO backend", () => {
+    const variablesGradle = readRepoFile("android", "variables.gradle");
+    const buildGradle = readRepoFile("android", "app", "build.gradle");
+
+    expect(variablesGradle).toMatch(
+      /androidxCredentialsVersion\s*=\s*'1\.6\.0'/
+    );
+    expect(buildGradle).not.toMatch(
+      /implementation\s+["']androidx\.credentials:credentials-play-services-auth/
+    );
+    expect(buildGradle).not.toMatch(
+      /implementation\s+["']com\.google\.android\.gms:play-services-fido/
+    );
+    expect(buildGradle).toContain("verifyReleasePasskeyDependencies");
+    expect(buildGradle).toContain("releaseRuntimeClasspath");
+    expect(buildGradle).toMatch(
+      /tasks\.matching[\s\S]*preReleaseBuild[\s\S]*dependsOn[\s\S]*verifyReleasePasskeyDependencies/
+    );
+  });
+
   it("does not keep deprecated pre-Marshmallow network compatibility code when minSdk is 23", () => {
     const variablesGradle = readRepoFile("android", "variables.gradle");
     const networkState = readRepoFile(

@@ -93,6 +93,28 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("verifyReleasePasskeyDependencies") {
+    group = "verification"
+    description = "Fails when the vulnerable Google Play services FIDO dependency reaches the release classpath."
+
+    doLast {
+        def forbiddenComponents = configurations.releaseRuntimeClasspath.incoming.resolutionResult.allComponents.findAll {
+            it.moduleVersion.group == "com.google.android.gms" && it.moduleVersion.name == "play-services-fido"
+        }
+
+        if (!forbiddenComponents.isEmpty()) {
+            throw new GradleException(
+                "Release runtime classpath contains forbidden play-services-fido components: " +
+                    forbiddenComponents.collect { it.moduleVersion }.join(", ")
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn("verifyReleasePasskeyDependencies")
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation platform('com.google.firebase:firebase-bom:34.12.0')
@@ -105,7 +127,6 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.credentials:credentials:$androidxCredentialsVersion"
-    implementation "androidx.credentials:credentials-play-services-auth:$androidxCredentialsVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
