@@ -227,6 +227,7 @@ describe("Android OSS licenses", () => {
 
   it("rejects a Tink dependency before assembling release artifacts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "android-oss-tink-"));
+    const gradleInvocationsPath = join(tempRoot, "gradle-invocations.txt");
 
     try {
       const scriptsDirectory = join(tempRoot, "scripts");
@@ -239,7 +240,7 @@ describe("Android OSS licenses", () => {
       );
       writeFileSync(
         join(androidDirectory, "gradlew"),
-        `#!/usr/bin/env bash\nprintf '%s\\n' \\
+        `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "\${GRADLE_INVOCATIONS_PATH:?}"\nprintf '%s\\n' \\
   'com.google.firebase:firebase-messaging' \\
   'com.google.android.gms:play-services-oss-licenses' \\
   'com.google.crypto.tink:tink:1.7.0'\n`
@@ -251,13 +252,19 @@ describe("Android OSS licenses", () => {
         [join(scriptsDirectory, "verify-android-oss-licenses.sh")],
         {
           encoding: "utf8",
-          env: process.env,
+          env: {
+            ...process.env,
+            GRADLE_INVOCATIONS_PATH: gradleInvocationsPath,
+          },
         }
       );
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain(
         "Release runtime classpath contains build-tool-only Tink dependency"
+      );
+      expect(readFileSync(gradleInvocationsPath, "utf8")).toBe(
+        "-Dcom.google.protobuf.use_unsafe_pre22_gencode=true :app:dependencies --configuration releaseRuntimeClasspath --console=plain\n"
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
