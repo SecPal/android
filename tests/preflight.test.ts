@@ -41,6 +41,18 @@ describe("preflight", () => {
     expect(dependencyInstallIndex).toBeLessThan(localFormatterIndex);
   });
 
+  it("lints only YAML files tracked by Git", () => {
+    const script = readFileSync(
+      resolve(repoRoot, "scripts", "preflight.sh"),
+      "utf8"
+    );
+
+    expect(script).toContain("git ls-files -z -- '*.yml' '*.yaml'");
+    expect(script).not.toContain(
+      "-type f \\( -name '*.yml' -o -name '*.yaml' \\)"
+    );
+  });
+
   it("bootstraps missing hook dependencies before executing the local binary", () => {
     const hookRunner = readFileSync(
       resolve(repoRoot, "scripts", "run-lockfile-tool.sh"),

@@ -116,9 +116,7 @@ if [ -f .yamllint.yml ] && command -v yamllint >/dev/null 2>&1; then
   while IFS= read -r -d '' file; do
     YAML_FILES+=("$file")
   done < <(
-    find . \
-      \( -path './.git' -o -path './node_modules' -o -path './build' -o -path './dist' -o -path './android/app/build' -o -path './android/build' -o -path './android/.gradle' \) -prune \
-      -o -type f \( -name '*.yml' -o -name '*.yaml' \) -print0
+    git ls-files -z -- '*.yml' '*.yaml'
   )
 
   if [ "${#YAML_FILES[@]}" -gt 0 ]; then

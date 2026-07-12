@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pre-push YAML validation now checks only Git-tracked YAML files, excluding
+  ignored local workspace caches such as `.context` (issue #347).
 - Normalized hook-managed Android files so `pre-commit run --all-files` no
   longer changes a clean checkout.
 - Replaced the `mirrors-prettier` pre-commit environment with the compatible
