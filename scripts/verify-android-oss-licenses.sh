@@ -29,6 +29,9 @@ fi
 test -f "${apk_path}"
 test -f "${aab_path}"
 
+"${repo_root}/scripts/verify-androidx-graphics-path.sh" "${apk_path}" "release APK"
+"${repo_root}/scripts/verify-androidx-graphics-path.sh" "${aab_path}" "release AAB"
+
 aapt2_path=""
 aapt2_score=0
 
