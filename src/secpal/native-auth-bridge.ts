@@ -46,6 +46,11 @@ export interface NativePasskeyRegistrationCredential {
   client_extension_results?: Record<string, unknown>;
 }
 
+export interface NativePasskeyCapabilities {
+  passkeysAvailable: boolean;
+  reason?: string;
+}
+
 export interface AuthCredentials {
   email: string;
   password: string;
@@ -65,6 +70,7 @@ export interface AndroidPushRegistrationState {
 export interface NativeAuthBridge {
   login(credentials: AuthCredentials): Promise<unknown>;
   loginWithPasskey?(): Promise<unknown>;
+  getPasskeyCapabilities(): Promise<NativePasskeyCapabilities>;
   createPasskeyAttestation?(
     options: NativePasskeyRegistrationPublicKeyOptions
   ): Promise<NativePasskeyRegistrationCredential>;
@@ -94,6 +100,7 @@ export interface NativeAuthenticatedResponse {
 interface SecPalNativeAuthPlugin {
   login(options: { email: string; password: string }): Promise<unknown>;
   loginWithPasskey?(): Promise<unknown>;
+  getPasskeyCapabilities(): Promise<NativePasskeyCapabilities>;
   createPasskeyAttestation?(options: {
     publicKey: NativePasskeyRegistrationPublicKeyOptions;
   }): Promise<{ credential: NativePasskeyRegistrationCredential }>;
@@ -140,6 +147,9 @@ export function createNativeAuthBridge(): NativeAuthBridge {
     },
     async getAndroidPushRegistrationState() {
       return createEmptyAndroidPushRegistrationState();
+    },
+    getPasskeyCapabilities() {
+      return secPalNativeAuthPlugin.getPasskeyCapabilities();
     },
     request(request) {
       return secPalNativeAuthPlugin.request({

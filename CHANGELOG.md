@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Exposed the native `getPasskeyCapabilities()` contract through the typed Capacitor auth bridge, allowing the shared frontend to gate passkey actions on Android 14+ and show the Android-version guidance on Android API 24 through 33 (issue #349).
 - Patched Capacitor Android's raw Java generics after dependency installation and sync so release verification no longer emits unchecked-operation compiler notes while awaiting the upstream fix tracked in ionic-team/capacitor#8529 (issue #354).
 - Marked the pre-stripped AndroidX graphics-path native library brought in by the Google Play services OSS licenses v2 runtime as an intentional no-strip release dependency, and added APK/AAB ABI-set and 40 KB payload-budget checks.
 - Pre-push YAML validation now checks only Git-tracked YAML files that still

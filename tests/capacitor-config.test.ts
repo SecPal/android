@@ -15,6 +15,7 @@ const pluginMocks = vi.hoisted(
       login: vi.fn(),
       loginWithPasskey: undefined,
       createPasskeyAttestation: undefined,
+      getPasskeyCapabilities: undefined,
       logout: vi.fn(),
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn(),
@@ -26,6 +27,7 @@ const pluginMocks = vi.hoisted(
       login: Mock;
       loginWithPasskey: Mock | undefined;
       createPasskeyAttestation: Mock | undefined;
+      getPasskeyCapabilities: Mock | undefined;
       logout: Mock;
       getCurrentUser: Mock;
       isNetworkAvailable: Mock;
@@ -123,6 +125,36 @@ describe("capacitor Android wrapper configuration", () => {
       disabledError: null,
     });
   });
+
+  it.each([
+    {
+      capabilities: {
+        passkeysAvailable: false,
+        reason: "PASSKEY_ANDROID_VERSION_UNSUPPORTED",
+      },
+      state: "unavailable",
+    },
+    {
+      capabilities: { passkeysAvailable: true },
+      state: "available",
+    },
+  ])(
+    "maps $state native passkey capabilities onto the typed bridge",
+    async ({ capabilities }) => {
+      pluginMocks.getPasskeyCapabilities = vi
+        .fn()
+        .mockResolvedValue(capabilities);
+
+      const { createNativeAuthBridge } =
+        await import("../src/secpal/native-auth-bridge");
+      const bridge = createNativeAuthBridge();
+
+      await expect(bridge.getPasskeyCapabilities()).resolves.toEqual(
+        capabilities
+      );
+      expect(pluginMocks.getPasskeyCapabilities).toHaveBeenCalledWith();
+    }
+  );
 
   it("keeps the optional vault wrapper bridge methods undefined even when the native plugin supports them", async () => {
     pluginMocks.isVaultDeviceBoundWrapperAvailable = vi
