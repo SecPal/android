@@ -51,5 +51,8 @@ describe("preflight", () => {
     expect(
       hookRunner.indexOf('exec "./node_modules/.bin/$tool"')
     ).toBeGreaterThan(hookRunner.indexOf("npm ci"));
+    expect(hookRunner).toContain(
+      "package-lock.json -nt node_modules/.package-lock.json"
+    );
   });
 });
