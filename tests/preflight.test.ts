@@ -130,6 +130,56 @@ describe("preflight", () => {
 
       expect(storageKeyResult.status).toBe(0);
 
+      writeFileSync(
+        join(tempRoot, "storage-variants.js"),
+        [
+          "sessionStorage.getItem('secpal.asset-load-recovery');",
+          'localStorage.removeItem("secpal.asset-load-recovery");',
+          'localStorage.setItem("secpal.first-key", "1"); sessionStorage.setItem("secpal.second-key", "1");',
+        ].join("\n")
+      );
+
+      const storageVariantsResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageVariantsResult.status).toBe(0);
+
+      const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
+      writeFileSync(
+        join(tempRoot, "domain-like-storage-key.js"),
+        `localStorage.setItem("${forbiddenStorageHostname}", "1");\n`
+      );
+
+      const storageHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(storageHostnameResult.status).toBe(1);
+      expect(storageHostnameResult.stdout).toContain(forbiddenStorageHostname);
+
+      unlinkSync(join(tempRoot, "domain-like-storage-key.js"));
+
+      const concatenatedStorageHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "concatenated-storage-key.js"),
+        `localStorage.setItem("${concatenatedStorageHostname}" + ".com", "1");\n`
+      );
+
+      const concatenatedStorageHostnameResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(concatenatedStorageHostnameResult.status).toBe(1);
+      expect(concatenatedStorageHostnameResult.stdout).toContain(
+        concatenatedStorageHostname
+      );
+
+      unlinkSync(join(tempRoot, "concatenated-storage-key.js"));
+
       const forbiddenHostname = "secpal" + ".invalid";
       writeFileSync(
         join(tempRoot, "unapproved-host.js"),
