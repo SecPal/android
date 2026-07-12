@@ -333,7 +333,7 @@ describe("preflight", () => {
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       mkdirSync(toolsDirectory);
-      for (const command of ["find", "grep", "xargs"]) {
+      for (const command of ["find", "grep"]) {
         symlinkSync(`/usr/bin/${command}`, join(toolsDirectory, command));
       }
 
@@ -370,6 +370,30 @@ describe("preflight", () => {
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Failed to parse domain usage.");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not depend on platform-specific xargs behavior", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const toolsDirectory = join(tempRoot, "failing-xargs-bin");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      mkdirSync(toolsDirectory);
+      const xargsShim = join(toolsDirectory, "xargs");
+      writeFileSync(xargsShim, "#!/bin/sh\nexit 2\n");
+      chmodSync(xargsShim, 0o755);
+
+      const result = spawnSync("/bin/bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+      });
+
+      expect(result.status).toBe(0);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

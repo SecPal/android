@@ -50,7 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   setext and ATX headings no longer fail repository preflight while heading
   style enforcement remains enabled for maintained documentation (issue #360).
 - Domain-policy validation now fails closed when its parser pipeline cannot
-  execute, while still accepting empty filter results (issue #364).
+  execute, while still accepting empty filter results and avoiding
+  platform-specific `xargs` behavior (issue #364).
 - Domain-policy validation now recognizes hyphenated application and storage
   identifiers in browser storage calls without permitting similarly shaped
   forbidden hostnames (issue #361).

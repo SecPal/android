@@ -40,8 +40,8 @@ filter_out_matches() {
 # shellcheck disable=SC2016
 if ! matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
-    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) -print0 | \
-    xargs -0 perl -0ne '
+    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
+    -exec perl -0ne '
         s{
             (?<![A-Za-z0-9_$.])
             (?:(?:window|globalThis)\.)?
@@ -62,7 +62,7 @@ if ! matches=$(find . \
             ++$line_number;
             print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
         }
-    ' | \
+    ' {} + | \
     filter_out_matches "check-domains.sh" | \
     filter_out_matches "Forbidden:" | \
     filter_out_matches "FORBIDDEN:" | \
