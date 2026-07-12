@@ -111,6 +111,10 @@ tasks.register("verifyReleasePasskeyDependencies") {
     }
 }
 
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn("verifyReleasePasskeyDependencies")
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation platform('com.google.firebase:firebase-bom:34.12.0')

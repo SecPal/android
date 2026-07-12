@@ -145,6 +145,9 @@ describe("Android native hardening", () => {
     );
     expect(buildGradle).toContain("verifyReleasePasskeyDependencies");
     expect(buildGradle).toContain("releaseRuntimeClasspath");
+    expect(buildGradle).toMatch(
+      /tasks\.matching[\s\S]*preReleaseBuild[\s\S]*dependsOn[\s\S]*verifyReleasePasskeyDependencies/
+    );
   });
 
   it("does not keep deprecated pre-Marshmallow network compatibility code when minSdk is 23", () => {

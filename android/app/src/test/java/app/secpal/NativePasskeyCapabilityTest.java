@@ -10,6 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.getcapacitor.JSObject;
 import org.junit.Test;
 
 public class NativePasskeyCapabilityTest {
@@ -28,6 +29,26 @@ public class NativePasskeyCapabilityTest {
 
         assertTrue(capability.isPasskeysAvailable());
         assertEquals(null, capability.getUnavailableReason());
+    }
+
+    @Test
+    public void unsupportedCapabilityPayloadIncludesStableReason() throws Exception {
+        JSObject payload = SecPalNativeAuthPlugin.buildPasskeyCapabilities(
+            NativePasskeyCapability.forSdkInt(33)
+        );
+
+        assertFalse(payload.getBool("passkeysAvailable"));
+        assertEquals("PASSKEY_ANDROID_VERSION_UNSUPPORTED", payload.getString("reason"));
+    }
+
+    @Test
+    public void supportedCapabilityPayloadOmitsReason() throws Exception {
+        JSObject payload = SecPalNativeAuthPlugin.buildPasskeyCapabilities(
+            NativePasskeyCapability.forSdkInt(34)
+        );
+
+        assertTrue(payload.getBool("passkeysAvailable"));
+        assertFalse(payload.has("reason"));
     }
 
     @Test
