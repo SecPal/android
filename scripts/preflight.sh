@@ -48,6 +48,14 @@ get_worktree_name_status() {
   } | sed '/^$/d' | awk -F '\t' '!seen[$2]++'
 }
 
+get_tracked_yaml_files() {
+  while IFS= read -r -d '' file; do
+    if [ -f "$file" ]; then
+      printf '%s\0' "$file"
+    fi
+  done < <(git ls-files -z -- '*.yml' '*.yaml')
+}
+
 get_effective_pr_numstat() {
   local merge_base="$1"
 
@@ -116,7 +124,7 @@ if [ -f .yamllint.yml ] && command -v yamllint >/dev/null 2>&1; then
   while IFS= read -r -d '' file; do
     YAML_FILES+=("$file")
   done < <(
-    git ls-files -z -- '*.yml' '*.yaml'
+    get_tracked_yaml_files
   )
 
   if [ "${#YAML_FILES[@]}" -gt 0 ]; then
