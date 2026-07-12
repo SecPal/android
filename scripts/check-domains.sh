@@ -25,6 +25,11 @@ echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
+if ! command -v perl >/dev/null 2>&1; then
+    echo "Perl is required to validate domain usage." >&2
+    exit 1
+fi
+
 # shellcheck disable=SC2016
 matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \

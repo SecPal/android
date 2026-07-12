@@ -6,9 +6,11 @@
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -247,6 +249,31 @@ describe("preflight", () => {
       expect(hyphenatedHostnameResult.stdout).toContain(
         hyphenatedForbiddenHostname
       );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the domain checker cannot run its parser", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const toolsDirectory = join(tempRoot, "without-perl-bin");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      mkdirSync(toolsDirectory);
+      for (const command of ["find", "grep", "xargs"]) {
+        symlinkSync(`/usr/bin/${command}`, join(toolsDirectory, command));
+      }
+
+      const result = spawnSync("/bin/bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: { ...process.env, PATH: toolsDirectory },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Perl is required");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
