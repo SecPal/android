@@ -8,7 +8,7 @@ package app.secpal;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
+import com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;

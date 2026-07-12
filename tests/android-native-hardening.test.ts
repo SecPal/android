@@ -150,7 +150,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("does not keep deprecated pre-Marshmallow network compatibility code when minSdk is 23", () => {
+  it("does not keep deprecated pre-Marshmallow network compatibility code when minSdk is 24", () => {
     const variablesGradle = readRepoFile("android", "variables.gradle");
     const networkState = readRepoFile(
       "android",
@@ -163,7 +163,7 @@ describe("Android native hardening", () => {
       "NetworkState.java"
     );
 
-    expect(variablesGradle).toMatch(/minSdkVersion\s*=\s*23/);
+    expect(variablesGradle).toMatch(/minSdkVersion\s*=\s*24/);
     expect(networkState).not.toContain('SuppressWarnings("deprecation")');
     expect(networkState).not.toContain("NetworkInfo");
     expect(networkState).not.toContain("getActiveNetworkInfo");

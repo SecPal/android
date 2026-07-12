@@ -156,7 +156,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void purgeLegacyPwaState() {
-        // getDataDir() requires API 24; use getApplicationInfo().dataDir (API 1) for minSdkVersion 23 compatibility.
+        // Keep using the application-info path so cleanup also works on every supported API level.
         String dataDirPath = getApplicationInfo().dataDir;
 
         if (dataDirPath == null || dataDirPath.isEmpty()) {

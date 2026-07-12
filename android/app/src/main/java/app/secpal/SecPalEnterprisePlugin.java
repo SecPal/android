@@ -9,7 +9,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.view.KeyEvent;
 
-import com.google.android.gms.oss.licenses.OssLicensesMenuActivity;
+import com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
