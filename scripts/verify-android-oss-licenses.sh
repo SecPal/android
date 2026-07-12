@@ -29,6 +29,35 @@ fi
 test -f "${apk_path}"
 test -f "${aab_path}"
 
+androidx_graphics_path_max_bytes=40000
+
+verify_androidx_graphics_path() {
+    local artifact_path="$1"
+    local artifact_name="$2"
+    local native_library_bytes
+
+    native_library_bytes="$(unzip -l "${artifact_path}" | awk '
+        /libandroidx\.graphics\.path\.so$/ { count += 1; total += $1 }
+        END {
+            if (count != 4) {
+                exit 1
+            }
+            print total
+        }
+    ')" || {
+        echo "Expected four libandroidx.graphics.path.so ABI entries in ${artifact_name}" >&2
+        exit 1
+    }
+
+    if (( native_library_bytes > androidx_graphics_path_max_bytes )); then
+        echo "libandroidx.graphics.path.so exceeds the ${androidx_graphics_path_max_bytes}-byte release budget in ${artifact_name}" >&2
+        exit 1
+    fi
+}
+
+verify_androidx_graphics_path "${apk_path}" "release APK"
+verify_androidx_graphics_path "${aab_path}" "release AAB"
+
 aapt2_path=""
 aapt2_score=0
 

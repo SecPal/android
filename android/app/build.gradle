@@ -20,6 +20,9 @@ def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
 def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim()
 def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
+// graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
+// Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
+def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
 
 android {
     namespace "app.secpal"
@@ -83,6 +86,7 @@ android {
     packaging {
         jniLibs {
             keepDebugSymbols += ['**/libdatastore_shared_counter.so']
+            keepDebugSymbols += [preStrippedAndroidxGraphicsPath]
         }
     }
 }

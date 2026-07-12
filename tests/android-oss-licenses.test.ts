@@ -53,6 +53,10 @@ describe("Android OSS licenses", () => {
     expect(appBuildGradle).toContain(
       "com.google.android.gms:play-services-oss-licenses:17.5.1"
     );
+    expect(appBuildGradle).toContain("preStrippedAndroidxGraphicsPath");
+    expect(appBuildGradle).toContain(
+      "keepDebugSymbols += [preStrippedAndroidxGraphicsPath]"
+    );
     expect(manifest).toContain(
       "com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity"
     );
@@ -83,6 +87,8 @@ describe("Android OSS licenses", () => {
     expect(verification).toContain("third_party_licenses");
     expect(verification).toContain("app-release.apk");
     expect(verification).toContain("app-release-unsigned.apk");
+    expect(verification).toContain("androidx_graphics_path_max_bytes=40000");
+    expect(verification).toContain("libandroidx.graphics.path.so");
     expect(verification).not.toContain("sort -V");
     expect(verification).not.toMatch(/\|\s*grep\s+-Fq/);
   });

@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Marked the pre-stripped AndroidX graphics-path native library brought in by the Google Play services OSS licenses v2 runtime as an intentional no-strip release dependency, and added APK/AAB ABI-count and 40 KB payload-budget checks.
 - Pre-push YAML validation now checks only Git-tracked YAML files that still
   exist in the worktree, excluding ignored local workspace caches such as
   `.context` and avoiding failures on unrelated unstaged deletions (issue #347).
