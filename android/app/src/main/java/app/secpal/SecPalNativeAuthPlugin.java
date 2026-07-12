@@ -107,6 +107,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void loginWithPasskey(PluginCall call) {
+        NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
+
+        if (!requirePasskeyCapability(call, capability)) {
+            return;
+        }
+
         runAsync(call, () -> {
             try {
                 Activity activity = getActivity();
@@ -126,7 +132,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL)
                 );
                 String requestJson = PasskeyAuthenticationJson.buildAuthenticationRequestJson(challenge.getPublicKey());
-                String authenticationResponseJson = passkeyAuthenticator.authenticate(activity, requestJson);
+                String authenticationResponseJson = passkeyAuthenticator.authenticate(
+                    activity,
+                    requestJson,
+                    capability
+                );
                 JSObject credential = PasskeyAuthenticationJson.buildAuthenticationVerificationCredential(
                     authenticationResponseJson
                 );
@@ -157,6 +167,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void createPasskeyAttestation(PluginCall call) {
+        NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
+
+        if (!requirePasskeyCapability(call, capability)) {
+            return;
+        }
+
         JSObject publicKey = call.getObject("publicKey");
 
         if (publicKey == null) {
@@ -177,7 +193,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 }
 
                 String requestJson = PasskeyAuthenticationJson.buildRegistrationRequestJson(publicKey);
-                String registrationResponseJson = passkeyAuthenticator.register(activity, requestJson);
+                String registrationResponseJson = passkeyAuthenticator.register(
+                    activity,
+                    requestJson,
+                    capability
+                );
                 JSObject credential = PasskeyAuthenticationJson.buildRegistrationVerificationCredential(
                     registrationResponseJson
                 );
@@ -216,6 +236,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
         JSObject payload = new JSObject();
         payload.put("available", networkState.isNetworkAvailable(getContext()));
         call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void getPasskeyCapabilities(PluginCall call) {
+        call.resolve(buildPasskeyCapabilities(NativePasskeyCapability.forCurrentDevice()));
     }
 
     @PluginMethod
@@ -506,6 +531,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
+    private boolean requirePasskeyCapability(
+        PluginCall call,
+        NativePasskeyCapability capability
+    ) {
+        try {
+            capability.requirePasskeysAvailable();
+            return true;
+        } catch (PasskeyAuthenticationException exception) {
+            rejectCall(call, exception);
+            return false;
+        }
+    }
+
     interface DestroyedCheck {
         boolean isDestroyed();
     }
@@ -516,6 +554,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean isVaultRootKeyBridgeEnabledForWebView() {
         return false;
+    }
+
+    static JSObject buildPasskeyCapabilities(NativePasskeyCapability capability) {
+        JSObject payload = new JSObject();
+        payload.put("passkeysAvailable", capability.isPasskeysAvailable());
+
+        if (!capability.isPasskeysAvailable()) {
+            payload.put("reason", capability.getUnavailableReason());
+        }
+
+        return payload;
     }
 
     static boolean isVaultDeviceBoundWrapperAvailableForWebView(

@@ -452,6 +452,9 @@ describe("native auth bridge bootstrap injection", () => {
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
       loginWithPasskey: vi.fn().mockResolvedValue({ user: { id: 7 } }),
+      getPasskeyCapabilities: vi.fn().mockResolvedValue({
+        passkeysAvailable: true,
+      }),
       createPasskeyAttestation: vi.fn().mockResolvedValue({
         id: "credential-id",
         raw_id: "cmF3LWlk",
@@ -519,6 +522,10 @@ describe("native auth bridge bootstrap injection", () => {
       login(credentials: { email: string; password: string }): Promise<unknown>;
       setRuntimeBootstrap(bootstrap: Record<string, unknown>): Promise<string>;
       loginWithPasskey?(): Promise<unknown>;
+      getPasskeyCapabilities?(): Promise<{
+        passkeysAvailable: boolean;
+        reason?: string;
+      }>;
       createPasskeyAttestation?(options: {
         challenge: string;
         rp: { id: string; name: string };
@@ -539,6 +546,9 @@ describe("native auth bridge bootstrap injection", () => {
       })
     );
     await bridge.login({ email: "worker@secpal.dev", password: "password123" });
+    await expect(bridge.getPasskeyCapabilities?.()).resolves.toEqual({
+      passkeysAvailable: true,
+    });
     await bridge.loginWithPasskey?.();
     await bridge.createPasskeyAttestation?.({
       challenge: "Zm9vYmFy",
@@ -571,6 +581,7 @@ describe("native auth bridge bootstrap injection", () => {
       password: "password123",
     });
     expect(plugin.loginWithPasskey).toHaveBeenCalledWith();
+    expect(plugin.getPasskeyCapabilities).toHaveBeenCalledTimes(3);
     expect(plugin.createPasskeyAttestation).toHaveBeenCalledWith({
       publicKey: {
         challenge: "Zm9vYmFy",
@@ -635,6 +646,62 @@ describe("native auth bridge bootstrap injection", () => {
     expect(bridge.isVaultDeviceBoundWrapperAvailable).toBeUndefined();
     expect(bridge.wrapVaultRootKey).toBeUndefined();
     expect(bridge.unwrapVaultRootKey).toBeUndefined();
+  });
+
+  it("does not invoke native passkey actions when Android reports passkeys unavailable", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      createPasskeyAttestation: vi.fn(),
+      getPasskeyCapabilities: vi.fn().mockResolvedValue({
+        passkeysAvailable: false,
+        reason: "PASSKEY_ANDROID_VERSION_UNSUPPORTED",
+      }),
+      login: vi.fn(),
+      loginWithPasskey: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+    };
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      createPasskeyAttestation(
+        options: Record<string, unknown>
+      ): Promise<unknown>;
+      getPasskeyCapabilities(): Promise<unknown>;
+    };
+
+    await expect(bridge.getPasskeyCapabilities()).resolves.toEqual({
+      passkeysAvailable: false,
+      reason: "PASSKEY_ANDROID_VERSION_UNSUPPORTED",
+    });
+    await expect(bridge.createPasskeyAttestation({})).rejects.toMatchObject({
+      code: "PASSKEY_ANDROID_VERSION_UNSUPPORTED",
+    });
+    expect(plugin.createPasskeyAttestation).not.toHaveBeenCalled();
+    expect(plugin.loginWithPasskey).not.toHaveBeenCalled();
   });
 
   it("exposes native connectivity status through the injected bridge", async () => {

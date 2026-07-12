@@ -45,6 +45,7 @@
     "native:assemble:debug": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleDebug'",
     "native:assemble:store-listing": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleStoreListing'",
     "native:assemble:release": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleRelease'",
+    "native:verify:release-passkey-dependencies": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:verifyReleasePasskeyDependencies'",
     "native:verify:oss-licenses": "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-oss-licenses.sh",
     "android:emulator:start": "bash ./scripts/start-android-emulator.sh",
     "android:device:wait": "bash ./scripts/wait-for-android-device.sh",

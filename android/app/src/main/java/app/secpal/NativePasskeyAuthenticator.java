@@ -37,9 +37,27 @@ import java.util.concurrent.TimeoutException;
 
 class NativePasskeyAuthenticator {
     private static final long PASSKEY_TIMEOUT_SECONDS = 90;
+    private final CredentialManagerFactory credentialManagerFactory;
 
-    String authenticate(Activity activity, String requestJson) throws PasskeyAuthenticationException {
-        CredentialManager credentialManager = CredentialManager.create(activity);
+    interface CredentialManagerFactory {
+        CredentialManager create(Activity activity);
+    }
+
+    NativePasskeyAuthenticator() {
+        this(CredentialManager::create);
+    }
+
+    NativePasskeyAuthenticator(CredentialManagerFactory credentialManagerFactory) {
+        this.credentialManagerFactory = credentialManagerFactory;
+    }
+
+    String authenticate(
+        Activity activity,
+        String requestJson,
+        NativePasskeyCapability capability
+    ) throws PasskeyAuthenticationException {
+        capability.requirePasskeysAvailable();
+        CredentialManager credentialManager = credentialManagerFactory.create(activity);
         GetCredentialRequest request;
 
         try {
@@ -57,8 +75,13 @@ class NativePasskeyAuthenticator {
         return awaitAuthenticationResponse(activity, credentialManager, request);
     }
 
-    String register(Activity activity, String requestJson) throws PasskeyAuthenticationException {
-        CredentialManager credentialManager = CredentialManager.create(activity);
+    String register(
+        Activity activity,
+        String requestJson,
+        NativePasskeyCapability capability
+    ) throws PasskeyAuthenticationException {
+        capability.requirePasskeysAvailable();
+        CredentialManager credentialManager = credentialManagerFactory.create(activity);
         CreatePublicKeyCredentialRequest request;
 
         try {

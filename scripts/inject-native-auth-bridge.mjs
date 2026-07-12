@@ -53,6 +53,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const minAndroidPushTokenLength = 32;
   const androidPushDeviceName = "SecPal Android";
   const androidPushRuntimeAppName = "secpal-runtime-push";
+  const passkeyCapabilityUnavailableReason = "PASSKEY_CAPABILITY_UNAVAILABLE";
   function normalizeAndroidPushDisabledError(value) {
     if (!value || typeof value !== "object") {
       return null;
@@ -233,6 +234,40 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       throw new Error("SecPal native auth plugin is unavailable");
     }
     return plugin;
+  };
+
+  const getPasskeyCapabilities = async () => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.getPasskeyCapabilities !== "function") {
+      return {
+        passkeysAvailable: false,
+        reason: passkeyCapabilityUnavailableReason,
+      };
+    }
+
+    const capabilities = await plugin.getPasskeyCapabilities();
+    return capabilities && typeof capabilities === "object"
+      ? capabilities
+      : {
+          passkeysAvailable: false,
+          reason: passkeyCapabilityUnavailableReason,
+        };
+  };
+
+  const requirePasskeyCapabilities = async () => {
+    const capabilities = await getPasskeyCapabilities();
+
+    if (capabilities.passkeysAvailable === true) {
+      return;
+    }
+
+    const error = new Error("Passkeys are unavailable on this Android device.");
+    error.code =
+      typeof capabilities.reason === "string" && capabilities.reason.length > 0
+        ? capabilities.reason
+        : passkeyCapabilityUnavailableReason;
+    throw error;
   };
 
   const getEnterprisePlugin = () => {
@@ -1967,16 +2002,21 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       });
     },
     async createPasskeyAttestation(options) {
+      await requirePasskeyCapabilities();
       const result = await getPlugin().createPasskeyAttestation({ publicKey: options });
       return result && typeof result === "object" && "credential" in result
         ? result.credential
         : result;
+    },
+    async getPasskeyCapabilities() {
+      return getPasskeyCapabilities();
     },
   };
 
   if (typeof getPlugin().loginWithPasskey === "function") {
     bridge.loginWithPasskey = async () => {
       await ensureRuntimeConfigured();
+      await requirePasskeyCapabilities();
       const result = await getPlugin().loginWithPasskey();
       setAuthActive(true);
       return result;
