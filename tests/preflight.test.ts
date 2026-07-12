@@ -5,6 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
@@ -344,6 +345,31 @@ describe("preflight", () => {
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Perl is required");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the domain parser exits with an error", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const toolsDirectory = join(tempRoot, "failing-perl-bin");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      mkdirSync(toolsDirectory);
+      const perlShim = join(toolsDirectory, "perl");
+      writeFileSync(perlShim, "#!/bin/sh\nexit 2\n");
+      chmodSync(perlShim, 0o755);
+
+      const result = spawnSync("/bin/bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Failed to parse domain usage.");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

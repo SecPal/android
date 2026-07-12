@@ -30,8 +30,15 @@ if ! command -v perl >/dev/null 2>&1; then
     exit 1
 fi
 
+filter_out_matches() {
+    grep -v -- "$1" || {
+        status=$?
+        [[ "$status" -eq 1 ]]
+    }
+}
+
 # shellcheck disable=SC2016
-matches=$(find . \
+if ! matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
     -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) -print0 | \
     xargs -0 perl -0ne '
@@ -56,11 +63,14 @@ matches=$(find . \
             print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
         }
     ' | \
-    grep -v -- "check-domains.sh" | \
-    grep -v -- "Forbidden:" | \
-    grep -v -- "FORBIDDEN:" | \
-    grep -v -- '- "secpal\.' | \
-    grep -v -- '^[[:space:]]*- \[' || true)
+    filter_out_matches "check-domains.sh" | \
+    filter_out_matches "Forbidden:" | \
+    filter_out_matches "FORBIDDEN:" | \
+    filter_out_matches '- "secpal\.' | \
+    filter_out_matches '^[[:space:]]*- \['); then
+    echo "Failed to parse domain usage." >&2
+    exit 1
+fi
 
 # Allowlist approach: flag any secpal.* domain not matching an approved pattern.
 # Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts.
