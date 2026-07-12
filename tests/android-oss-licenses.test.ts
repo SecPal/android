@@ -15,6 +15,11 @@ const readRepoFile = (...segments: string[]) =>
 describe("Android OSS licenses", () => {
   it("generates release notices without adding Android WebView presentation", () => {
     const rootBuildGradle = readRepoFile("android", "build.gradle");
+    const cordovaPluginsBuildGradle = readRepoFile(
+      "android",
+      "capacitor-cordova-android-plugins",
+      "build.gradle"
+    );
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
     const manifest = readRepoFile(
       "android",
@@ -33,6 +38,12 @@ describe("Android OSS licenses", () => {
     );
 
     expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
+    expect(cordovaPluginsBuildGradle).toContain(
+      "com.android.tools.build:gradle:8.9.1"
+    );
+    expect(cordovaPluginsBuildGradle).not.toContain(
+      "com.android.tools.build:gradle:8.13.0"
+    );
     expect(rootBuildGradle).toContain(
       "com.google.android.gms:oss-licenses-plugin:0.13.0"
     );
@@ -45,7 +56,9 @@ describe("Android OSS licenses", () => {
     expect(manifest).toContain(
       "com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity"
     );
-    expect(manifest).toContain('tools:replace="android:theme"');
+    expect(manifest).toMatch(
+      /<activity\s+android:name="com\.google\.android\.gms\.oss\.licenses\.v2\.OssLicensesMenuActivity"\s+android:exported="false"\s+android:theme="@style\/AppTheme"\s+tools:replace="android:theme"\s*\/>/
+    );
     expect(manifest).not.toContain(
       "com.google.android.gms.oss.licenses.v2.OssLicensesActivity"
     );
