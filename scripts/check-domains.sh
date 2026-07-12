@@ -25,35 +25,37 @@ echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
-matches=$(grep -r -n -E "secpal\.[A-Za-z0-9.-]{1,100}" \
-    --include="*.md" \
-    --include="*.yaml" \
-    --include="*.yml" \
-    --include="*.json" \
-    --include="*.sh" \
-    --include="*.ts" \
-    --include="*.tsx" \
-    --include="*.js" \
-    --include="*.jsx" \
-    --include="*.html" \
-    --include="*.kt" \
-    --include="*.java" \
-    --include="*.xml" \
-    --include="*.gradle" \
-    --include="*.kts" \
-    --include="*.properties" \
-    --exclude-dir=".git" \
-    --exclude-dir=".gradle" \
-    --exclude-dir="build" \
-    --exclude-dir="node_modules" \
-    --exclude-dir="vendor" \
-    . 2>/dev/null | \
+# shellcheck disable=SC2016
+matches=$(find . \
+    -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
+    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) -print0 | \
+    xargs -0 perl -0ne '
+        s{
+            (?<![A-Za-z0-9_$.])
+            (?:(?:window|globalThis)\.)?
+            (?:localStorage|sessionStorage)
+            \.(?:getItem|setItem|removeItem)
+            \(\s*
+            (["\x27])
+            secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+
+            \1
+            (?=\s*[,)] )
+        }{
+            my $storage_key = $&;
+            $storage_key =~ s/secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/__secpal_storage_identifier__/;
+            $storage_key;
+        }gex;
+        my $line_number = 0;
+        for my $line (split /\n/, $_, -1) {
+            ++$line_number;
+            print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
+        }
+    ' | \
     grep -v -- "check-domains.sh" | \
     grep -v -- "Forbidden:" | \
     grep -v -- "FORBIDDEN:" | \
     grep -v -- '- "secpal\.' | \
-    grep -v -- '^[[:space:]]*- \[' | \
-    sed -E "s/((localStorage|sessionStorage)\\.(getItem|setItem|removeItem)\\([[:space:]]*([\\\"']))secpal\\.[A-Za-z0-9]+(-[A-Za-z0-9]+)+\\4([[:space:]]*[,)])/\\1secpal_storage_identifier\\4\\6/g" || true)
+    grep -v -- '^[[:space:]]*- \[' || true)
 
 # Allowlist approach: flag any secpal.* domain not matching an approved pattern.
 # Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts.

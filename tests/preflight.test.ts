@@ -136,6 +136,8 @@ describe("preflight", () => {
           "sessionStorage.getItem('secpal.asset-load-recovery');",
           'localStorage.removeItem("secpal.asset-load-recovery");',
           'localStorage.setItem("secpal.first-key", "1"); sessionStorage.setItem("secpal.second-key", "1");',
+          'window.localStorage.setItem("secpal.window-key", "1");',
+          'globalThis.sessionStorage.getItem("secpal.global-key");',
         ].join("\n")
       );
 
@@ -145,6 +147,40 @@ describe("preflight", () => {
       });
 
       expect(storageVariantsResult.status).toBe(0);
+
+      const storageKey = "secpal" + ".asset-load-recovery";
+      writeFileSync(
+        join(tempRoot, "multiline-storage-key.js"),
+        ["localStorage.setItem(", `  "${storageKey}",`, '  "1"', ");"].join(
+          "\n"
+        )
+      );
+
+      const multilineStorageResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(multilineStorageResult.status).toBe(0);
+
+      const customStorageHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "custom-storage-helper.js"),
+        [
+          `notlocalStorage.setItem("${customStorageHostname}", "1");`,
+          `storage.localStorage.setItem("${customStorageHostname}", "1");`,
+        ].join("\n")
+      );
+
+      const customStorageHelperResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+      });
+
+      expect(customStorageHelperResult.status).toBe(1);
+      expect(customStorageHelperResult.stdout).toContain(customStorageHostname);
+
+      unlinkSync(join(tempRoot, "custom-storage-helper.js"));
 
       const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
       writeFileSync(
