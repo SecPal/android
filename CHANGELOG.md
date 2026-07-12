@@ -46,9 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Configured Markdown heading validation for Fastlane's generated ATX-style
-  README so repository preflight no longer fails after Fastlane runs (issue
-  #360).
+- Excluded Fastlane's generated README from Markdown validation so its mixed
+  setext and ATX headings no longer fail repository preflight while heading
+  style enforcement remains enabled for maintained documentation (issue #360).
 - Domain-policy validation now recognizes hyphenated application and storage
   identifiers in browser storage calls without permitting similarly shaped
   forbidden hostnames (issue #361).

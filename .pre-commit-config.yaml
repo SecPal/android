@@ -31,7 +31,7 @@ repos:
         name: markdownlint
         entry: >-
           ./scripts/run-lockfile-tool.sh markdownlint --config
-          .markdownlint.json --ignore node_modules
+          .markdownlint.json --ignore node_modules --ignore fastlane/README.md
         language: system
         types: [markdown]
 

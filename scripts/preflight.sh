@@ -106,7 +106,7 @@ if [ -x node_modules/.bin/prettier ]; then
 
   # Only run markdownlint if .md files changed
   if echo "$CHANGED_FILES" | grep -q '\.md$'; then
-    ./node_modules/.bin/markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git || FORMAT_EXIT=1
+    ./node_modules/.bin/markdownlint --config .markdownlint.json '**/*.md' .github --ignore node_modules --ignore vendor --ignore storage --ignore build --ignore .git --ignore fastlane/README.md || FORMAT_EXIT=1
   else
     echo "ℹ️  No markdown files changed, skipping markdownlint"
   fi
