@@ -207,15 +207,17 @@ function functionIsCalledAfterDeclaration(
   declaration,
   declarationStart,
   identifiers,
-  checker
+  checker,
+  visiting = new Set()
 ) {
   if (!declaration.name) {
     return false;
   }
   const symbol = checker.getSymbolAtLocation(declaration.name);
-  if (!symbol) {
+  if (!symbol || visiting.has(symbol)) {
     return false;
   }
+  const nextVisiting = new Set(visiting).add(symbol);
   const references = identifiers.filter(
     (identifier) =>
       identifier !== declaration.name &&
@@ -236,10 +238,21 @@ function functionIsCalledAfterDeclaration(
   };
   return (
     references.length > 0 &&
-    references.every(
-      (identifier) =>
-        identifier.getStart() > declarationStart && isDirectCall(identifier)
-    )
+    references.every((identifier) => {
+      if (!isDirectCall(identifier)) {
+        return false;
+      }
+      const caller = containingFunctionDeclaration(identifier);
+      return caller
+        ? functionIsCalledAfterDeclaration(
+            caller,
+            declarationStart,
+            identifiers,
+            checker,
+            nextVisiting
+          )
+        : identifier.getStart() > declarationStart;
+    })
   );
 }
 

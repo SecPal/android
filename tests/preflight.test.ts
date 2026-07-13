@@ -473,6 +473,9 @@ describe("preflight", () => {
         `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\n(persist as () => void)();\n`
       );
       expectPass(
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nfunction save() { persist(); }\nconst storageKey = "${storageKey}";\nsave();\n`
+      );
+      expectPass(
         `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
       );
 
@@ -585,6 +588,7 @@ describe("preflight", () => {
       for (const source of [
         `function persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst storageKey = "${storageKey}";\n`,
         `persist();\nconst storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`,
+        `before();\nvar storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction before() { persist(); }\n`,
       ]) {
         const result = check(source);
         expect(result.status).toBe(1);
