@@ -100,6 +100,15 @@ function isReexportedSymbol(sourceFile, checker, symbol) {
   return exported;
 }
 
+function isTypeOnlyReference(identifier) {
+  for (let node = identifier.parent; node; node = node.parent) {
+    if (ts.isTypeNode(node) || ts.isJSDocTypeExpression(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function symbolAtIdentifier(checker, identifier) {
   if (
     ts.isShorthandPropertyAssignment(identifier.parent) &&
@@ -126,11 +135,11 @@ function parserExemptions(file, program, checker) {
     if (argument) {
       if (ts.isIdentifier(argument)) {
         storageUses.add(argument);
-      } else if (
-        ts.isStringLiteral(argument) &&
-        storageKeyPattern.test(argument.text)
-      ) {
-        directLiterals.push(argument);
+      } else {
+        const literal = storageKeyLiteral(argument);
+        if (literal) {
+          directLiterals.push(literal);
+        }
       }
     }
 
@@ -168,6 +177,7 @@ function parserExemptions(file, program, checker) {
     const references = identifiers.filter(
       (identifier) =>
         identifier !== candidate.declaration.name &&
+        !isTypeOnlyReference(identifier) &&
         symbolAtIdentifier(checker, identifier) === candidate.symbol
     );
     const declarationStart = candidate.declaration.name.getStart(sourceFile);

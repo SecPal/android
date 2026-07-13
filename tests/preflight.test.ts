@@ -439,6 +439,16 @@ describe("preflight", () => {
       ).toBe(0);
 
       expect(
+        check(`localStorage.setItem("${storageKey}" as const, "1");\n`).status
+      ).toBe(0);
+
+      expect(
+        check(
+          `const storageKey = "${storageKey}";\ntype StorageKey = typeof storageKey;\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
+
+      expect(
         check(
           `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
         ).status
@@ -509,6 +519,12 @@ describe("preflight", () => {
       );
       expect(reexportedStorageKey.status).toBe(1);
       expect(reexportedStorageKey.stdout).toContain(storageKey);
+
+      const defaultExportedStorageKey = check(
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nexport default storageKey;\n`
+      );
+      expect(defaultExportedStorageKey.status).toBe(1);
+      expect(defaultExportedStorageKey.stdout).toContain(storageKey);
 
       expect(
         check(
