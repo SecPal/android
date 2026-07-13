@@ -38,6 +38,7 @@ const storageMutatingMethods = new Map([
 const unreachableCodeDiagnostic = 7027;
 const unreachableRanges = new WeakMap();
 const executionHazards = new WeakMap();
+const sourceCheckers = new WeakMap();
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -96,6 +97,70 @@ function functionLikeDefersChild(functionLike, child) {
   );
 }
 
+function doBodyMaySkipCondition(statement, checker) {
+  let skipsCondition = false;
+
+  function visit(node, catchesThrows = false, nestedBreakable = false) {
+    if (skipsCondition || isCompilerUnreachable(node)) {
+      return;
+    }
+    if (node !== statement && ts.isFunctionLike(node)) {
+      return;
+    }
+    if (ts.isThrowStatement(node)) {
+      skipsCondition = !catchesThrows;
+      return;
+    }
+    if (ts.isReturnStatement(node)) {
+      skipsCondition = true;
+      return;
+    }
+    if (ts.isBreakStatement(node)) {
+      skipsCondition = Boolean(node.label) || !nestedBreakable;
+      return;
+    }
+    if (ts.isContinueStatement(node)) {
+      skipsCondition = Boolean(node.label);
+      return;
+    }
+    if (
+      ts.isExpressionStatement(node) &&
+      expressionAbruptCompletion(node.expression, checker).throws
+    ) {
+      skipsCondition = !catchesThrows;
+      return;
+    }
+    if (ts.isTryStatement(node)) {
+      if (node.finallyBlock) {
+        visit(node.finallyBlock, catchesThrows, nestedBreakable);
+      }
+      visit(
+        node.tryBlock,
+        catchesThrows || Boolean(node.catchClause),
+        nestedBreakable
+      );
+      if (node.catchClause) {
+        visit(node.catchClause.block, catchesThrows, nestedBreakable);
+      }
+      return;
+    }
+    const childIsNestedBreakable =
+      node !== statement &&
+      (ts.isSwitchStatement(node) ||
+        ts.isWhileStatement(node) ||
+        ts.isDoStatement(node) ||
+        ts.isForStatement(node) ||
+        ts.isForInStatement(node) ||
+        ts.isForOfStatement(node));
+    ts.forEachChild(node, (child) =>
+      visit(child, catchesThrows, nestedBreakable || childIsNestedBreakable)
+    );
+  }
+
+  visit(statement);
+  return skipsCondition;
+}
+
 function isConditionallyEvaluated(node) {
   let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
@@ -119,6 +184,12 @@ function isConditionallyEvaluated(node) {
         ts.isOptionalChain(ancestor) &&
         ancestor.argumentExpression === child) ||
       (ts.isWhileStatement(ancestor) && ancestor.statement === child) ||
+      (ts.isDoStatement(ancestor) &&
+        ancestor.expression === child &&
+        doBodyMaySkipCondition(
+          ancestor.statement,
+          sourceCheckers.get(node.getSourceFile())
+        )) ||
       (ts.isForStatement(ancestor) &&
         (ancestor.statement === child || ancestor.incrementor === child)) ||
       ((ts.isForInStatement(ancestor) || ts.isForOfStatement(ancestor)) &&
@@ -143,53 +214,222 @@ function isConditionallyEvaluated(node) {
   return false;
 }
 
-function abruptCompletion(statement) {
+function expressionAbruptCompletion(expression, checker, visiting = new Set()) {
+  expression = unwrapExpression(expression);
+  if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
+    if (
+      expression.arguments?.some(
+        (argument) =>
+          expressionAbruptCompletion(argument, checker, visiting).always
+      )
+    ) {
+      return { always: true, uncatchable: false, throws: true };
+    }
+    const functions = directlyCalledFunctions(expression.expression, checker);
+    if (
+      functions.length > 0 &&
+      functions.every((functionLike) => {
+        if (!functionLike.body || visiting.has(functionLike)) {
+          return false;
+        }
+        const nextVisiting = new Set(visiting).add(functionLike);
+        const completion = ts.isBlock(functionLike.body)
+          ? abruptCompletion(functionLike.body, checker, nextVisiting)
+          : expressionAbruptCompletion(
+              functionLike.body,
+              checker,
+              nextVisiting
+            );
+        return completion.always && completion.throws;
+      })
+    ) {
+      return { always: true, uncatchable: false, throws: true };
+    }
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const whenTrue = expressionAbruptCompletion(
+      expression.whenTrue,
+      checker,
+      visiting
+    );
+    const whenFalse = expressionAbruptCompletion(
+      expression.whenFalse,
+      checker,
+      visiting
+    );
+    return {
+      always: whenTrue.always && whenFalse.always,
+      uncatchable: whenTrue.uncatchable && whenFalse.uncatchable,
+      throws: whenTrue.throws && whenFalse.throws,
+    };
+  }
+  if (
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+  ) {
+    const left = expressionAbruptCompletion(expression.left, checker, visiting);
+    return left.always
+      ? left
+      : expressionAbruptCompletion(expression.right, checker, visiting);
+  }
+  return { always: false, uncatchable: false, throws: false };
+}
+
+function eagerObjectElementExpressions(element) {
+  const expressions = [];
+  if (element.name && ts.isComputedPropertyName(element.name)) {
+    expressions.push(element.name.expression);
+  }
+  if (ts.isPropertyAssignment(element)) {
+    expressions.push(element.initializer);
+  } else if (
+    ts.isShorthandPropertyAssignment(element) &&
+    element.objectAssignmentInitializer
+  ) {
+    expressions.push(element.objectAssignmentInitializer);
+  } else if (ts.isSpreadAssignment(element)) {
+    expressions.push(element.expression);
+  }
+  return expressions;
+}
+
+function precedingEvaluationExpressions(ancestor, child) {
+  if (
+    (ts.isCallExpression(ancestor) || ts.isNewExpression(ancestor)) &&
+    ancestor.arguments?.includes(child)
+  ) {
+    return ancestor.arguments.slice(0, ancestor.arguments.indexOf(child));
+  }
+  if (
+    ts.isArrayLiteralExpression(ancestor) &&
+    ancestor.elements.includes(child)
+  ) {
+    return ancestor.elements.slice(0, ancestor.elements.indexOf(child));
+  }
+  if (
+    ts.isObjectLiteralExpression(ancestor) &&
+    ancestor.properties.includes(child)
+  ) {
+    return ancestor.properties
+      .slice(0, ancestor.properties.indexOf(child))
+      .flatMap(eagerObjectElementExpressions);
+  }
+  if (
+    ts.isVariableDeclarationList(ancestor) &&
+    ancestor.declarations.includes(child)
+  ) {
+    return ancestor.declarations
+      .slice(0, ancestor.declarations.indexOf(child))
+      .flatMap((declaration) =>
+        declaration.initializer ? [declaration.initializer] : []
+      );
+  }
+  if (
+    ts.isPropertyAssignment(ancestor) &&
+    ancestor.initializer === child &&
+    ts.isComputedPropertyName(ancestor.name)
+  ) {
+    return [ancestor.name.expression];
+  }
+  if (
+    ts.isBinaryExpression(ancestor) &&
+    ancestor.operatorToken.kind === ts.SyntaxKind.CommaToken &&
+    ancestor.right === child
+  ) {
+    return [ancestor.left];
+  }
+  return [];
+}
+
+function hasPrecedingAbruptExpression(node, checker) {
+  let child = node;
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (
+      precedingEvaluationExpressions(ancestor, child).some(
+        (expression) => expressionAbruptCompletion(expression, checker).always
+      )
+    ) {
+      return true;
+    }
+    if (
+      (ts.isFunctionLike(ancestor) &&
+        functionLikeDefersChild(ancestor, child)) ||
+      ts.isSourceFile(ancestor)
+    ) {
+      return false;
+    }
+    child = ancestor;
+  }
+  return false;
+}
+
+function abruptCompletion(statement, checker, visiting = new Set()) {
   if (ts.isThrowStatement(statement)) {
-    return { always: true, uncatchable: false };
+    return { always: true, uncatchable: false, throws: true };
   }
   if (
     ts.isReturnStatement(statement) ||
     ts.isBreakStatement(statement) ||
     ts.isContinueStatement(statement)
   ) {
-    return { always: true, uncatchable: true };
+    return { always: true, uncatchable: true, throws: false };
   }
   if (ts.isBlock(statement)) {
     for (const nestedStatement of statement.statements) {
-      const completion = abruptCompletion(nestedStatement);
+      const completion = abruptCompletion(nestedStatement, checker, visiting);
       if (completion.always) {
         return completion;
       }
     }
   }
+  if (ts.isExpressionStatement(statement)) {
+    return expressionAbruptCompletion(statement.expression, checker, visiting);
+  }
   if (ts.isIfStatement(statement) && statement.elseStatement) {
-    const thenCompletion = abruptCompletion(statement.thenStatement);
-    const elseCompletion = abruptCompletion(statement.elseStatement);
+    const thenCompletion = abruptCompletion(
+      statement.thenStatement,
+      checker,
+      visiting
+    );
+    const elseCompletion = abruptCompletion(
+      statement.elseStatement,
+      checker,
+      visiting
+    );
     return {
       always: thenCompletion.always && elseCompletion.always,
       uncatchable: thenCompletion.uncatchable && elseCompletion.uncatchable,
+      throws: thenCompletion.throws && elseCompletion.throws,
     };
   }
   if (ts.isTryStatement(statement)) {
     const finallyCompletion = statement.finallyBlock
-      ? abruptCompletion(statement.finallyBlock)
-      : { always: false, uncatchable: false };
+      ? abruptCompletion(statement.finallyBlock, checker, visiting)
+      : { always: false, uncatchable: false, throws: false };
     if (finallyCompletion.always) {
       return finallyCompletion;
     }
-    const tryCompletion = abruptCompletion(statement.tryBlock);
+    const tryCompletion = abruptCompletion(
+      statement.tryBlock,
+      checker,
+      visiting
+    );
     if (!tryCompletion.always || tryCompletion.uncatchable) {
       return tryCompletion;
     }
     if (!statement.catchClause) {
       return tryCompletion;
     }
-    return abruptCompletion(statement.catchClause.block);
+    return abruptCompletion(statement.catchClause.block, checker, visiting);
   }
-  return { always: false, uncatchable: false };
+  return { always: false, uncatchable: false, throws: false };
 }
 
 function hasPrecedingAbruptCompletion(node) {
+  const checker = sourceCheckers.get(node.getSourceFile());
+  if (!checker) {
+    return false;
+  }
   let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
     if (
@@ -203,7 +443,7 @@ function hasPrecedingAbruptCompletion(node) {
         childIndex > 0 &&
         ancestor.statements
           .slice(0, childIndex)
-          .some((statement) => abruptCompletion(statement).always)
+          .some((statement) => abruptCompletion(statement, checker).always)
       ) {
         return true;
       }
@@ -253,11 +493,13 @@ function hasExecutionHazard(node, storageKind) {
 }
 
 function hasProvenExecutionAt(node, storageKind) {
+  const checker = sourceCheckers.get(node.getSourceFile());
   return (
     !ts.isOptionalChain(node) &&
     !hasWithStatementAncestor(node) &&
     !isConditionallyEvaluated(node) &&
     !hasPrecedingAbruptCompletion(node) &&
+    (!checker || !hasPrecedingAbruptExpression(node, checker)) &&
     !isCompilerUnreachable(node) &&
     !hasExecutionHazard(node, storageKind)
   );
@@ -350,6 +592,21 @@ function targetsStoragePrototype(expression, checker) {
   );
 }
 
+function storageKindsForPrototypeLookup(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (
+    !ts.isCallExpression(expression) ||
+    (!ts.isPropertyAccessExpression(expression.expression) &&
+      !ts.isElementAccessExpression(expression.expression)) ||
+    staticPropertyName(expression.expression) !== "getPrototypeOf" ||
+    !intrinsicObjectName(expression.expression.expression, checker) ||
+    !expression.arguments[0]
+  ) {
+    return [];
+  }
+  return storageKindsForMutationTarget(expression.arguments[0], checker);
+}
+
 function storageKindsForMutationTarget(expression, checker) {
   expression = unwrapExpression(expression);
   const storageKind = browserStorageKind(expression, checker);
@@ -358,6 +615,13 @@ function storageKindsForMutationTarget(expression, checker) {
   }
   if (targetsStoragePrototype(expression, checker)) {
     return browserStorageKinds;
+  }
+  const prototypeStorageKinds = storageKindsForPrototypeLookup(
+    expression,
+    checker
+  );
+  if (prototypeStorageKinds.length > 0) {
+    return prototypeStorageKinds;
   }
   if (
     ts.isPropertyAccessExpression(expression) ||
@@ -888,13 +1152,32 @@ function directCallExpression(expression) {
     : undefined;
 }
 
-function symbolIsMutated(symbol, identifiers, checker) {
+function isMutationTargetReference(identifier) {
+  let target = identifier;
+  while (
+    (isTransparentExpressionWrapper(target.parent) &&
+      target.parent.expression === target) ||
+    ((ts.isPropertyAccessExpression(target.parent) ||
+      ts.isElementAccessExpression(target.parent)) &&
+      target.parent.expression === target)
+  ) {
+    target = target.parent;
+  }
+  return (
+    ts.isAssignmentTarget(target) ||
+    (ts.isDeleteExpression(target.parent) &&
+      target.parent.expression === target)
+  );
+}
+
+function symbolIsMutatedBefore(symbol, identifiers, checker, beforeNode) {
   return Boolean(
     symbol &&
     identifiers.some(
       (identifier) =>
+        identifier.getStart() < beforeNode.getStart() &&
         identifierReferencesSymbol(checker, identifier, symbol) &&
-        (ts.isAssignmentTarget(identifier) ||
+        (isMutationTargetReference(identifier) ||
           isMutatingCallTarget(identifier, checker))
     )
   );
@@ -1052,10 +1335,10 @@ function hasProvenMethodReceiver(
     return (
       ts.isIdentifier(receiver) &&
       identifierReferencesSymbol(checker, receiver, binding.ownerSymbol) &&
-      !symbolIsMutated(binding.ownerSymbol, identifiers, checker)
+      !symbolIsMutatedBefore(binding.ownerSymbol, identifiers, checker, call)
     );
   }
-  if (symbolIsMutated(binding.ownerSymbol, identifiers, checker)) {
+  if (symbolIsMutatedBefore(binding.ownerSymbol, identifiers, checker, call)) {
     return false;
   }
   if (
@@ -1086,7 +1369,7 @@ function hasProvenMethodReceiver(
     declaration.initializer.getEnd() < call.getStart() &&
     hasProvenExecutionAt(declaration.initializer, storageKind) &&
     constructsOwner(declaration.initializer, binding.ownerSymbol, checker) &&
-    !symbolIsMutated(receiverSymbol, identifiers, checker)
+    !symbolIsMutatedBefore(receiverSymbol, identifiers, checker, call)
   );
 }
 
@@ -1143,7 +1426,6 @@ function functionExecutionIsReachable(
   const binding = functionBinding(functionLike, checker);
   if (
     !binding ||
-    symbolIsMutated(binding.ownerSymbol, identifiers, checker) ||
     (binding.initialization &&
       !hasProvenExecutionAt(binding.initialization, storageKind))
   ) {
@@ -1168,34 +1450,34 @@ function functionExecutionIsReachable(
       !isTypeOnlyReference(identifier) &&
       identifierReferencesSymbol(checker, identifier, symbol)
   );
-  return (
-    references.length > 0 &&
-    references.every((identifier) => {
-      if (
-        !isDirectCall(identifier, binding, identifiers, checker, storageKind)
-      ) {
-        return false;
-      }
-      const remainingRequirements = satisfyInitializationRequirement(
-        requiredAtCall,
-        identifier
-      );
-      if (!remainingRequirements) {
-        return false;
-      }
-      const caller = containingFunctionLike(identifier);
-      return caller
-        ? functionExecutionIsReachable(
-            caller,
-            remainingRequirements,
-            identifiers,
-            checker,
-            storageKind,
-            nextVisiting
-          )
-        : remainingRequirements.size === 0;
-    })
-  );
+  return references.some((identifier) => {
+    const call = directCallExpression(identifier);
+    if (
+      !call ||
+      symbolIsMutatedBefore(symbol, identifiers, checker, call) ||
+      !isDirectCall(identifier, binding, identifiers, checker, storageKind)
+    ) {
+      return false;
+    }
+    const remainingRequirements = satisfyInitializationRequirement(
+      requiredAtCall,
+      identifier
+    );
+    if (!remainingRequirements) {
+      return false;
+    }
+    const caller = containingFunctionLike(identifier);
+    return caller
+      ? functionExecutionIsReachable(
+          caller,
+          remainingRequirements,
+          identifiers,
+          checker,
+          storageKind,
+          nextVisiting
+        )
+      : remainingRequirements.size === 0;
+  });
 }
 
 function isReachableStorageUse(
@@ -1334,6 +1616,7 @@ function parserExemptions(file, program, checker) {
   if (!sourceFile || sourceFile.parseDiagnostics.length > 0) {
     return [];
   }
+  sourceCheckers.set(sourceFile, checker);
 
   const storageUses = new Map();
   const directLiterals = [];

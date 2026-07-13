@@ -519,6 +519,9 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\npersist();\n`
       );
       expectPass(
+        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\npersist();\nregister(persist);\n`
+      );
+      expectPass(
         `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\npersist();\n`
       );
       expectPass(
@@ -604,6 +607,15 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\ndo { localStorage.setItem(storageKey, "1"); } while (false);\n`
       );
       expectPass(
+        `const storageKey = "${storageKey}";\ndo {} while (localStorage.setItem(storageKey, "1"));\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\ndo { try { throw new Error(); } catch {} } while (localStorage.setItem(storageKey, "1"));\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\ndo { switch (0) { default: break; } } while (localStorage.setItem(storageKey, "1"));\n`
+      );
+      expectPass(
         `const storageKey = "${storageKey}";\nlocalStorage.getItem(storageKey) && consume();\n`
       );
       expectPass(
@@ -641,7 +653,13 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\ntry { throw new Error(); return; } catch {}\nlocalStorage.setItem(storageKey, "1");\n`
       );
       expectPass(
+        `function value() { return "1"; }\nconst storageKey = "${storageKey}";\nvalue();\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
         `const storageKey = "${storageKey}";\nclass Storage { static { try { throw new Error(); } catch {} } static { localStorage.setItem(storageKey, "1"); } }\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\nhelper["persist"] = replacement;\n`
       );
       expectPass(
         `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
@@ -832,6 +850,8 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nfor (;;) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist = replacement;\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper["persist"] = replacement;\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\ndelete helper["persist"];\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nObject.defineProperty(helper, "persist", { value: replacement });\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nlet other: typeof helper;\nother.persist();\n`,
         `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nlet Other: typeof Helper;\nOther.persist();\n`,
@@ -844,6 +864,8 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nlocalStorage.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nwindow.localStorage.setItem = replacement;\nwindow.localStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nStorage.prototype.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nObject.getPrototypeOf(localStorage).setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nReflect.getPrototypeOf(sessionStorage).setItem = replacement;\nsessionStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nObject.defineProperty(window, "localStorage", { value: replacement });\nwindow.localStorage.setItem(storageKey, "1");\n`,
         `function mutateStorage() { sessionStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nmutateStorage();\nsessionStorage.setItem(storageKey, "1");\n`,
         `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nregister(mutateStorage);\nlocalStorage.setItem(storageKey, "1");\n`,
@@ -865,6 +887,12 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, (() => { throw new Error(); })());\n`,
         `localStorage.setItem("${storageKey}", (() => { throw new Error(); })());\n`,
         `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, fail());\n`,
+        `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nfail();\nlocalStorage.setItem(storageKey, "1");\n`,
+        `function fail() { throw new Error(); }\nconst value = { first: fail(), second: localStorage.setItem("${storageKey}", "1") };\n`,
+        `function fail() { throw new Error(); }\nconst value = [fail(), localStorage.setItem("${storageKey}", "1")];\n`,
+        `function fail() { throw new Error(); }\nconsume(fail(), localStorage.setItem("${storageKey}", "1"));\n`,
+        `function fail() { throw new Error(); }\nconst first = fail(), second = localStorage.setItem("${storageKey}", "1");\n`,
+        `do { break; } while (localStorage.setItem("${storageKey}", "1"));\n`,
         `const storageKey = "${storageKey}";\nasync function persist() { for await (const value of pending) consume(value); localStorage.setItem(storageKey, "1"); }\npersist();\n`,
         `const storageKey = "${storageKey}";\nasync function persist() { localStorage.setItem(storageKey, await pending); }\npersist();\n`,
       ]) {
