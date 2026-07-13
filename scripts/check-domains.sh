@@ -41,28 +41,7 @@ filter_out_matches() {
 if ! matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
     -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
-    -exec perl -0ne '
-        s{
-            (?<![A-Za-z0-9_$.])
-            (?:(?:window|globalThis)\.)?
-            (?:localStorage|sessionStorage)
-            \.(?:getItem|setItem|removeItem)
-            \(\s*
-            (["\x27])
-            secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+
-            \1
-            (?=\s*[,)] )
-        }{
-            my $storage_key = $&;
-            $storage_key =~ s/secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/__secpal_storage_identifier__/;
-            $storage_key;
-        }gex;
-        my $line_number = 0;
-        for my $line (split /\n/, $_, -1) {
-            ++$line_number;
-            print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
-        }
-    ' {} + | \
+    -exec perl "$(dirname "$0")/check-domains-parser.pl" {} + | \
     filter_out_matches 'check-domains\.sh' | \
     filter_out_matches "Forbidden:" | \
     filter_out_matches "FORBIDDEN:" | \

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Replaced regex-only browser-storage key exemptions in domain-policy validation with lexer-aware JavaScript and TypeScript declaration analysis, including scope, shadowing, and template interpolation handling.
+
 ### Added
 
 - Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.

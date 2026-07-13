@@ -188,12 +188,17 @@ describe("preflight", () => {
   it("allows SecPal storage keys while rejecting unapproved SecPal hostnames", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
+    const storageKey = "secpal" + ".asset-load-recovery";
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
       writeFileSync(
         join(tempRoot, "theme-color.js"),
-        'localStorage.setItem("secpal.asset-load-recovery", "1");\n'
+        `localStorage.setItem("${storageKey}", "1");\n`
       );
 
       const storageKeyResult = spawnSync("bash", [checker], {
@@ -206,11 +211,11 @@ describe("preflight", () => {
       writeFileSync(
         join(tempRoot, "storage-variants.js"),
         [
-          "sessionStorage.getItem('secpal.asset-load-recovery');",
-          'localStorage.removeItem("secpal.asset-load-recovery");',
-          'localStorage.setItem("secpal.first-key", "1"); sessionStorage.setItem("secpal.second-key", "1");',
-          'window.localStorage.setItem("secpal.window-key", "1");',
-          'globalThis.sessionStorage.getItem("secpal.global-key");',
+          `sessionStorage.getItem('${storageKey}');`,
+          `localStorage.removeItem("${storageKey}");`,
+          `localStorage.setItem("${"secpal" + ".first-key"}", "1"); sessionStorage.setItem("${"secpal" + ".second-key"}", "1");`,
+          `window.localStorage.setItem("${"secpal" + ".window-key"}", "1");`,
+          `globalThis.sessionStorage.getItem("${"secpal" + ".global-key"}");`,
         ].join("\n")
       );
 
@@ -221,7 +226,6 @@ describe("preflight", () => {
 
       expect(storageVariantsResult.status).toBe(0);
 
-      const storageKey = "secpal" + ".asset-load-recovery";
       writeFileSync(
         join(tempRoot, "multiline-storage-key.js"),
         ["localStorage.setItem(", `  "${storageKey}",`, '  "1"', ");"].join(
@@ -325,6 +329,92 @@ describe("preflight", () => {
     }
   });
 
+  it("recognizes storage-key declarations only in reachable executable scopes", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const storageKey = "secpal" + ".asset-load-recovery";
+    const invalidHost = "secpal" + ".invalid-host.com";
+
+    const check = (source: string) => {
+      writeFileSync(join(tempRoot, "storage-key.ts"), source);
+      return spawnSync("bash", [checker], { cwd: tempRoot, encoding: "utf8" });
+    };
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
+
+      expect(
+        check(
+          `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
+
+      expect(
+        check(
+          `let storageKey: string = "${storageKey}";\nwindow.localStorage.getItem(storageKey);\n`
+        ).status
+      ).toBe(0);
+
+      expect(
+        check(
+          `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
+        ).status
+      ).toBe(0);
+
+      const continuedInitializer = check(
+        `const storageKey = "${storageKey}" + ".com";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(continuedInitializer.status).toBe(1);
+      expect(continuedInitializer.stdout).toContain(storageKey);
+
+      const dualUse = check(
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nfetch(storageKey);\n`
+      );
+      expect(dualUse.status).toBe(1);
+      expect(dualUse.stdout).toContain(storageKey);
+
+      const unreachableUse = check(
+        `{\n  const storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(unreachableUse.status).toBe(1);
+      expect(unreachableUse.stdout).toContain(storageKey);
+
+      const useBeforeDeclaration = check(
+        `localStorage.setItem(storageKey, "1");\nconst storageKey = "${storageKey}";\n`
+      );
+      expect(useBeforeDeclaration.status).toBe(1);
+      expect(useBeforeDeclaration.stdout).toContain(storageKey);
+
+      const shadowedIdentifier = check(
+        `const storageKey = "${storageKey}";\n{\n  const storageKey = "${invalidHost}";\n  localStorage.setItem(storageKey, "1");\n}\n`
+      );
+      expect(shadowedIdentifier.status).toBe(1);
+      expect(shadowedIdentifier.stdout).toContain(invalidHost);
+
+      const shadowedStorageKey = check(
+        `const storageKey = "${storageKey}";\n{\n  const storageKey = "${storageKey}";\n  localStorage.setItem(storageKey, "1");\n}\n`
+      );
+      expect(shadowedStorageKey.status).toBe(1);
+      expect(shadowedStorageKey.stdout).toContain(storageKey);
+
+      for (const source of [
+        `// const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`,
+        `/* const storageKey = "${storageKey}"; */\nlocalStorage.setItem(storageKey, "1");\n`,
+        `// localStorage.setItem("${storageKey}", "1");\n`,
+        `const storageKey = /${invalidHost}/;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = \`${"secpal" + ".asset-load-"}${"${suffix}"}\`;\nlocalStorage.setItem(storageKey, "1");\n`,
+      ]) {
+        expect(check(source).status).toBe(1);
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
@@ -332,6 +422,10 @@ describe("preflight", () => {
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
       mkdirSync(toolsDirectory);
       for (const command of ["find", "grep"]) {
         symlinkSync(`/usr/bin/${command}`, join(toolsDirectory, command));
@@ -357,6 +451,10 @@ describe("preflight", () => {
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
       mkdirSync(toolsDirectory);
       const perlShim = join(toolsDirectory, "perl");
       writeFileSync(perlShim, "#!/bin/sh\nexit 2\n");
@@ -382,6 +480,10 @@ describe("preflight", () => {
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
       writeFileSync(
         join(tempRoot, "unapproved-host.js"),
         `const endpoint = "https://${forbiddenHostname}/api"; // check-domainsXsh\n`
@@ -406,6 +508,10 @@ describe("preflight", () => {
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
+        join(tempRoot, "check-domains-parser.pl")
+      );
       mkdirSync(toolsDirectory);
       const xargsShim = join(toolsDirectory, "xargs");
       writeFileSync(xargsShim, "#!/bin/sh\nexit 2\n");
