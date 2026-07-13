@@ -89,6 +89,13 @@ function isDeferredClassFieldInitializer(node) {
   return false;
 }
 
+function functionLikeDefersChild(functionLike, child) {
+  return !(
+    (functionLike.name === child && ts.isComputedPropertyName(child)) ||
+    ts.isDecorator(child)
+  );
+}
+
 function isConditionallyEvaluated(node) {
   let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
@@ -124,7 +131,11 @@ function isConditionallyEvaluated(node) {
     ) {
       return true;
     }
-    if (ts.isFunctionLike(ancestor) || ts.isSourceFile(ancestor)) {
+    if (
+      (ts.isFunctionLike(ancestor) &&
+        functionLikeDefersChild(ancestor, child)) ||
+      ts.isSourceFile(ancestor)
+    ) {
       return false;
     }
     child = ancestor;
@@ -197,7 +208,11 @@ function hasPrecedingAbruptCompletion(node) {
         return true;
       }
     }
-    if (ts.isFunctionLike(ancestor) || ts.isSourceFile(ancestor)) {
+    if (
+      (ts.isFunctionLike(ancestor) &&
+        functionLikeDefersChild(ancestor, child)) ||
+      ts.isSourceFile(ancestor)
+    ) {
       return false;
     }
     child = ancestor;
@@ -234,10 +249,7 @@ function hasExecutionHazard(node, storageKind) {
   if (!storageKind) {
     return false;
   }
-  return (
-    hazards.unresolvedStorageMutations.has(storageKind) ||
-    hasPrecedingPosition(hazards.storageMutations.get(storageKind), node)
-  );
+  return hasPrecedingPosition(hazards.storageMutations.get(storageKind), node);
 }
 
 function hasProvenExecutionAt(node, storageKind) {
@@ -259,15 +271,27 @@ function staticPropertyName(expression) {
     ts.isElementAccessExpression(expression) &&
     expression.argumentExpression
   ) {
-    const argument = unwrapExpression(expression.argumentExpression);
-    if (
-      ts.isStringLiteral(argument) ||
-      ts.isNoSubstitutionTemplateLiteral(argument)
-    ) {
-      return argument.text;
-    }
+    return staticStringValue(expression.argumentExpression);
   }
   return undefined;
+}
+
+function staticStringValue(expression) {
+  expression = unwrapExpression(expression);
+  return ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+    ? expression.text
+    : undefined;
+}
+
+function staticDeclarationName(name) {
+  if (ts.isIdentifier(name)) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    return staticStringValue(name.expression);
+  }
+  return staticStringValue(name);
 }
 
 function browserStorageKind(expression, checker) {
@@ -353,15 +377,30 @@ function isBrowserGlobalObject(expression, checker) {
   );
 }
 
-function browserStorageProperty(expression) {
+function intrinsicObjectName(expression, checker) {
   expression = unwrapExpression(expression);
   if (
-    ts.isStringLiteral(expression) ||
-    ts.isNoSubstitutionTemplateLiteral(expression)
+    ts.isIdentifier(expression) &&
+    storageMutatingMethods.has(expression.text) &&
+    isUnshadowedGlobal(checker, expression)
   ) {
-    return browserStorageKinds.includes(expression.text)
-      ? expression.text
-      : null;
+    return expression.text;
+  }
+  if (
+    (ts.isPropertyAccessExpression(expression) ||
+      ts.isElementAccessExpression(expression)) &&
+    isBrowserGlobalObject(expression.expression, checker)
+  ) {
+    const property = staticPropertyName(expression);
+    return storageMutatingMethods.has(property) ? property : undefined;
+  }
+  return undefined;
+}
+
+function browserStorageProperty(expression) {
+  const property = staticStringValue(expression);
+  if (property !== undefined) {
+    return browserStorageKinds.includes(property) ? property : null;
   }
   return undefined;
 }
@@ -384,6 +423,101 @@ function containsImmediateAwait(node) {
   return found;
 }
 
+function directlyCalledFunctions(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (
+    (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) &&
+    !expression.asteriskToken &&
+    !(ts.getCombinedModifierFlags(expression) & ts.ModifierFlags.Async)
+  ) {
+    return [expression];
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return [
+      ...directlyCalledFunctions(expression.whenTrue, checker),
+      ...directlyCalledFunctions(expression.whenFalse, checker),
+    ];
+  }
+  if (
+    ts.isBinaryExpression(expression) &&
+    [
+      ts.SyntaxKind.CommaToken,
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      ts.SyntaxKind.BarBarToken,
+      ts.SyntaxKind.QuestionQuestionToken,
+    ].includes(expression.operatorToken.kind)
+  ) {
+    return directlyCalledFunctions(expression.right, checker);
+  }
+  const symbol = checker.getSymbolAtLocation(
+    ts.isPropertyAccessExpression(expression) ? expression.name : expression
+  );
+  const functions = [];
+  for (const declaration of symbol?.declarations ?? []) {
+    if (
+      ts.isFunctionDeclaration(declaration) ||
+      ts.isMethodDeclaration(declaration)
+    ) {
+      if (
+        !declaration.asteriskToken &&
+        !(ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Async)
+      ) {
+        functions.push(declaration);
+      }
+    } else if (
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer
+    ) {
+      const initializer = unwrapExpression(declaration.initializer);
+      if (
+        (ts.isArrowFunction(initializer) ||
+          ts.isFunctionExpression(initializer)) &&
+        !initializer.asteriskToken &&
+        !(ts.getCombinedModifierFlags(initializer) & ts.ModifierFlags.Async)
+      ) {
+        functions.push(initializer);
+      }
+    }
+  }
+  return functions;
+}
+
+function containsImmediateThrow(node, checker, visiting = new Set()) {
+  let found = false;
+
+  function visit(current) {
+    if (ts.isThrowStatement(current)) {
+      found = true;
+      return;
+    }
+    if (current !== node && ts.isFunctionLike(current)) {
+      return;
+    }
+    if (ts.isCallExpression(current)) {
+      ts.forEachChild(current, (child) => visit(child));
+      for (const functionLike of directlyCalledFunctions(
+        current.expression,
+        checker
+      )) {
+        if (!found && functionLike.body && !visiting.has(functionLike)) {
+          found = containsImmediateThrow(
+            functionLike.body,
+            checker,
+            new Set(visiting).add(functionLike)
+          );
+        }
+      }
+      return;
+    }
+    if (!found) {
+      ts.forEachChild(current, (child) => visit(child));
+    }
+  }
+
+  visit(node);
+  return found;
+}
+
 function storageCall(node, checker) {
   if (
     !ts.isCallExpression(node) ||
@@ -400,9 +534,14 @@ function storageCall(node, checker) {
   if (!["getItem", "setItem", "removeItem"].includes(method)) {
     return undefined;
   }
+  if (node.arguments.length < 1 || ts.isSpreadElement(node.arguments[0])) {
+    return undefined;
+  }
   if (
     method === "setItem" &&
-    (node.arguments.length < 2 || ts.isSpreadElement(node.arguments[1]))
+    (node.arguments.length < 2 ||
+      ts.isSpreadElement(node.arguments[1]) ||
+      containsImmediateThrow(node.arguments[1], checker))
   ) {
     return undefined;
   }
@@ -417,17 +556,15 @@ function mutatingMethodCall(node, checker) {
   if (
     !ts.isCallExpression(node) ||
     (!ts.isPropertyAccessExpression(node.expression) &&
-      !ts.isElementAccessExpression(node.expression)) ||
-    !ts.isIdentifier(node.expression.expression)
+      !ts.isElementAccessExpression(node.expression))
   ) {
     return undefined;
   }
   const method = staticPropertyName(node.expression);
+  const intrinsic = intrinsicObjectName(node.expression.expression, checker);
   return method &&
-    storageMutatingMethods
-      .get(node.expression.expression.text)
-      ?.includes(method) &&
-    isUnshadowedGlobal(checker, node.expression.expression)
+    intrinsic &&
+    storageMutatingMethods.get(intrinsic)?.includes(method)
     ? method
     : undefined;
 }
@@ -467,16 +604,32 @@ function browserStorageMutations(node, checker) {
   return storageKindsForMutationTarget(node, checker);
 }
 
-function isDirectEvalCall(node, checker) {
-  if (!ts.isCallExpression(node)) {
+function isDynamicCodeReference(node, checker) {
+  if (
+    (ts.isPropertyAccessExpression(node) ||
+      ts.isElementAccessExpression(node)) &&
+    ["eval", "Function"].includes(staticPropertyName(node)) &&
+    isBrowserGlobalObject(node.expression, checker) &&
+    !isTypeOnlyReference(node)
+  ) {
+    return true;
+  }
+  if (
+    !ts.isIdentifier(node) ||
+    !["eval", "Function"].includes(node.text) ||
+    isTypeOnlyReference(node)
+  ) {
     return false;
   }
-  const callee = unwrapExpression(node.expression);
-  return (
-    ts.isIdentifier(callee) &&
-    callee.text === "eval" &&
-    isUnshadowedGlobal(checker, callee)
-  );
+  if (
+    (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) ||
+    (ts.isMethodDeclaration(node.parent) && node.parent.name === node) ||
+    (ts.isPropertyDeclaration(node.parent) && node.parent.name === node) ||
+    (ts.isPropertyAssignment(node.parent) && node.parent.name === node)
+  ) {
+    return false;
+  }
+  return isUnshadowedGlobal(checker, node);
 }
 
 function isTransparentExpressionWrapper(node) {
@@ -539,7 +692,11 @@ function isReexportedSymbol(sourceFile, checker, symbol) {
 
 function isTypeOnlyReference(identifier) {
   for (let node = identifier.parent; node; node = node.parent) {
-    if (ts.isTypeQueryNode(node) || ts.isJSDocTypeExpression(node)) {
+    if (
+      ts.isTypeReferenceNode(node) ||
+      ts.isTypeQueryNode(node) ||
+      ts.isJSDocTypeExpression(node)
+    ) {
       return true;
     }
     if (ts.isComputedPropertyName(node)) {
@@ -575,25 +732,35 @@ function identifierReferencesSymbol(checker, identifier, symbol) {
 }
 
 function containingFunctionLike(node) {
+  let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
-    if (ts.isFunctionLike(ancestor)) {
+    if (
+      ts.isFunctionLike(ancestor) &&
+      functionLikeDefersChild(ancestor, child)
+    ) {
       return ancestor;
     }
+    child = ancestor;
   }
   return undefined;
 }
 
 function executionScope(node) {
+  let child = node;
   for (let current = node; current; current = current.parent) {
-    if (ts.isFunctionLike(current) || ts.isSourceFile(current)) {
+    if (
+      (ts.isFunctionLike(current) && functionLikeDefersChild(current, child)) ||
+      ts.isSourceFile(current)
+    ) {
       return current;
     }
+    child = current;
   }
   return undefined;
 }
 
-function addExecutionPosition(positions, node) {
-  const scope = executionScope(node);
+function addExecutionPosition(positions, node, scopeNode = node) {
+  const scope = executionScope(scopeNode);
   if (!scope) {
     return;
   }
@@ -669,6 +836,7 @@ function functionBinding(functionLike, checker) {
         initialization: container,
         initializationEnd: container.getEnd(),
         initializationScopeNode: container,
+        methodName: functionLike.name.text,
         ownerSymbol: owner ? checker.getSymbolAtLocation(owner) : undefined,
         receiverKind:
           ts.isObjectLiteralExpression(container) ||
@@ -762,6 +930,109 @@ function constructsOwner(expression, ownerSymbol, checker) {
   );
 }
 
+function isPrimitiveConstructorReturn(expression, checker) {
+  expression = unwrapExpression(expression);
+  return (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression) ||
+    ts.isNumericLiteral(expression) ||
+    ts.isBigIntLiteral(expression) ||
+    expression.kind === ts.SyntaxKind.TrueKeyword ||
+    expression.kind === ts.SyntaxKind.FalseKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword ||
+    ts.isVoidExpression(expression) ||
+    (ts.isIdentifier(expression) &&
+      expression.text === "undefined" &&
+      isUnshadowedGlobal(checker, expression)) ||
+    expression.kind === ts.SyntaxKind.ThisKeyword
+  );
+}
+
+function constructorMayReplaceInstance(ownerSymbol, checker, methodName) {
+  let replacement = false;
+
+  function visit(node) {
+    if (replacement || (node.parent && ts.isFunctionLike(node))) {
+      return;
+    }
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      !isPrimitiveConstructorReturn(node.expression, checker)
+    ) {
+      replacement = true;
+      return;
+    }
+    if (
+      methodName &&
+      (ts.isPropertyAccessExpression(node) ||
+        ts.isElementAccessExpression(node)) &&
+      node.expression.kind === ts.SyntaxKind.ThisKeyword &&
+      staticPropertyName(node) === methodName &&
+      (ts.isAssignmentTarget(node) || ts.isDeleteExpression(node.parent))
+    ) {
+      replacement = true;
+      return;
+    }
+    const mutator = ts.isCallExpression(node)
+      ? mutatingMethodCall(node, checker)
+      : undefined;
+    if (
+      methodName &&
+      mutator &&
+      node.arguments[0] &&
+      unwrapExpression(node.arguments[0]).kind === ts.SyntaxKind.ThisKeyword
+    ) {
+      const property = node.arguments[1]
+        ? staticStringValue(node.arguments[1])
+        : undefined;
+      if (
+        !["defineProperty", "deleteProperty", "set"].includes(mutator) ||
+        property === undefined ||
+        property === methodName
+      ) {
+        replacement = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  for (const ownerDeclaration of ownerSymbol.declarations ?? []) {
+    let declaration = ownerDeclaration;
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      declaration = unwrapExpression(declaration.initializer);
+    }
+    if (
+      !ts.isClassDeclaration(declaration) &&
+      !ts.isClassExpression(declaration)
+    ) {
+      continue;
+    }
+    if (
+      declaration.heritageClauses?.some(
+        (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
+      )
+    ) {
+      return true;
+    }
+    for (const member of declaration.members) {
+      if (
+        methodName &&
+        ts.isPropertyDeclaration(member) &&
+        !(ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Static) &&
+        staticDeclarationName(member.name) === methodName
+      ) {
+        return true;
+      }
+      if (ts.isConstructorDeclaration(member) && member.body) {
+        ts.forEachChild(member.body, visit);
+      }
+    }
+  }
+  return replacement;
+}
+
 function hasProvenMethodReceiver(
   call,
   binding,
@@ -785,6 +1056,15 @@ function hasProvenMethodReceiver(
     );
   }
   if (symbolIsMutated(binding.ownerSymbol, identifiers, checker)) {
+    return false;
+  }
+  if (
+    constructorMayReplaceInstance(
+      binding.ownerSymbol,
+      checker,
+      binding.methodName
+    )
+  ) {
     return false;
   }
   if (constructsOwner(receiver, binding.ownerSymbol, checker)) {
@@ -958,6 +1238,27 @@ function addMutationFunctionKind(mutationFunctions, functionLike, storageKind) {
 function propagateStorageMutations(hazards, identifiers, checker) {
   const pending = [...hazards.mutationFunctions.keys()];
   const processed = new Map();
+
+  function recordUnresolvedEffect(node, scopeNode, storageKinds) {
+    if (isCompilerUnreachable(node)) {
+      return;
+    }
+    const scope = executionScope(scopeNode);
+    for (const storageKind of storageKinds) {
+      addExecutionPosition(
+        hazards.storageMutations.get(storageKind),
+        node,
+        scopeNode
+      );
+      if (
+        ts.isFunctionLike(scope) &&
+        addMutationFunctionKind(hazards.mutationFunctions, scope, storageKind)
+      ) {
+        pending.push(scope);
+      }
+    }
+  }
+
   while (pending.length > 0) {
     const functionLike = pending.shift();
     const storageKinds = hazards.mutationFunctions.get(functionLike);
@@ -984,9 +1285,7 @@ function propagateStorageMutations(hazards, identifiers, checker) {
         ? checker.getSymbolAtLocation(binding.identifier)
         : undefined;
       if (!symbol) {
-        newKinds.forEach((storageKind) =>
-          hazards.unresolvedStorageMutations.add(storageKind)
-        );
+        recordUnresolvedEffect(functionLike, functionLike.parent, newKinds);
         continue;
       }
       for (const identifier of identifiers) {
@@ -1003,9 +1302,7 @@ function propagateStorageMutations(hazards, identifiers, checker) {
             calls.push(call);
           }
         } else {
-          newKinds.forEach((storageKind) =>
-            hazards.unresolvedStorageMutations.add(storageKind)
-          );
+          recordUnresolvedEffect(identifier, identifier, newKinds);
         }
       }
     }
@@ -1049,13 +1346,12 @@ function parserExemptions(file, program, checker) {
       ["localStorage", new Map()],
       ["sessionStorage", new Map()],
     ]),
-    unresolvedStorageMutations: new Set(),
   };
   executionHazards.set(sourceFile, hazards);
-  let hasDirectEval = false;
+  let hasDynamicCode = false;
 
   function visit(node) {
-    hasDirectEval ||= isDirectEvalCall(node, checker);
+    hasDynamicCode ||= isDynamicCodeReference(node, checker);
     if (
       (ts.isAwaitExpression(node) ||
         (ts.isForOfStatement(node) && node.awaitModifier)) &&
@@ -1120,7 +1416,7 @@ function parserExemptions(file, program, checker) {
   visit(sourceFile);
   propagateStorageMutations(hazards, identifiers, checker);
 
-  if (hasDirectEval) {
+  if (hasDynamicCode) {
     return [];
   }
 
