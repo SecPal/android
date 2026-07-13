@@ -21,6 +21,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+const domainCheckerEnvironment = {
+  ...process.env,
+  SECPAL_NODE_MODULES_ROOT: repoRoot,
+};
 
 describe("preflight", () => {
   it("ignores only Fastlane's generated mixed-style documentation", () => {
@@ -193,8 +197,8 @@ describe("preflight", () => {
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
       writeFileSync(
         join(tempRoot, "theme-color.js"),
@@ -204,6 +208,7 @@ describe("preflight", () => {
       const storageKeyResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageKeyResult.status).toBe(0);
@@ -222,6 +227,7 @@ describe("preflight", () => {
       const storageVariantsResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageVariantsResult.status).toBe(0);
@@ -236,6 +242,7 @@ describe("preflight", () => {
       const multilineStorageResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(multilineStorageResult.status).toBe(0);
@@ -252,12 +259,53 @@ describe("preflight", () => {
       const customStorageHelperResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(customStorageHelperResult.status).toBe(1);
       expect(customStorageHelperResult.stdout).toContain(customStorageHostname);
 
       unlinkSync(join(tempRoot, "custom-storage-helper.js"));
+
+      writeFileSync(
+        join(tempRoot, "shadowed-storage-globals.js"),
+        [
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${storageKey}", "1");`,
+          "function persist(window) {",
+          `  window.localStorage.setItem("${storageKey}", "1");`,
+          "}",
+        ].join("\n")
+      );
+
+      const shadowedStorageGlobalsResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(shadowedStorageGlobalsResult.status).toBe(1);
+      expect(shadowedStorageGlobalsResult.stdout).toContain(storageKey);
+
+      unlinkSync(join(tempRoot, "shadowed-storage-globals.js"));
+
+      const nestedDirectory = join(tempRoot, "nested");
+      mkdirSync(nestedDirectory);
+      writeFileSync(
+        join(nestedDirectory, "check-domains-parser.mjs"),
+        `const endpoint = "https://${customStorageHostname}/api";\n`
+      );
+
+      const moduleSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(moduleSourceResult.status).toBe(1);
+      expect(moduleSourceResult.stdout).toContain(customStorageHostname);
+
+      rmSync(nestedDirectory, { recursive: true, force: true });
 
       const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
       writeFileSync(
@@ -268,6 +316,7 @@ describe("preflight", () => {
       const storageHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageHostnameResult.status).toBe(1);
@@ -284,6 +333,7 @@ describe("preflight", () => {
       const concatenatedStorageHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(concatenatedStorageHostnameResult.status).toBe(1);
@@ -302,6 +352,7 @@ describe("preflight", () => {
       const hostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(hostnameResult.status).toBe(1);
@@ -318,6 +369,7 @@ describe("preflight", () => {
       const hyphenatedHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(hyphenatedHostnameResult.status).toBe(1);
@@ -337,14 +389,18 @@ describe("preflight", () => {
 
     const check = (source: string) => {
       writeFileSync(join(tempRoot, "storage-key.ts"), source);
-      return spawnSync("bash", [checker], { cwd: tempRoot, encoding: "utf8" });
+      return spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
     };
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
 
       expect(
@@ -376,6 +432,54 @@ describe("preflight", () => {
       );
       expect(dualUse.status).toBe(1);
       expect(dualUse.stdout).toContain(storageKey);
+
+      const divisionDualUse = check(
+        `const storageKey = "${storageKey}";\nconst ratio = numerator / storageKey / denominator;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(divisionDualUse.status).toBe(1);
+      expect(divisionDualUse.stdout).toContain(storageKey);
+
+      const regexLiteral = check(
+        `if (enabled) /localStorage.setItem("${storageKey}")/.test(value);\n`
+      );
+      expect(regexLiteral.status).toBe(1);
+      expect(regexLiteral.stdout).toContain(storageKey);
+
+      const templateDualUse = check(
+        [
+          `const storageKey = "${storageKey}";`,
+          'const text = `${"}" + storageKey}`;',
+          'localStorage.setItem(storageKey, "1");',
+        ].join("\n")
+      );
+      expect(templateDualUse.status).toBe(1);
+      expect(templateDualUse.stdout).toContain(storageKey);
+
+      expect(
+        check(
+          'const value = `${(() => { const braces = "}}"; return localStorage.getItem("' +
+            storageKey +
+            '"); })()}`;\n'
+        ).status
+      ).toBe(0);
+
+      const hoistedVarDualUse = check(
+        `function sendKey() { fetch(storageKey); }\nvar storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nsendKey();\n`
+      );
+      expect(hoistedVarDualUse.status).toBe(1);
+      expect(hoistedVarDualUse.stdout).toContain(storageKey);
+
+      expect(
+        check(
+          `if (enabled) {\n  var storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
+
+      expect(
+        check(
+          `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nconst metadata = { storageKey: "unrelated" };\nconst value = object.storageKey;\n`
+        ).status
+      ).toBe(0);
 
       const unreachableUse = check(
         `{\n  const storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
@@ -413,18 +517,18 @@ describe("preflight", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const toolsDirectory = join(tempRoot, "without-perl-bin");
+    const toolsDirectory = join(tempRoot, "without-node-bin");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
       mkdirSync(toolsDirectory);
       for (const command of ["find", "grep"]) {
@@ -438,7 +542,7 @@ describe("preflight", () => {
       });
 
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Perl is required");
+      expect(result.stderr).toContain("Node.js is required");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -447,23 +551,26 @@ describe("preflight", () => {
   it("fails closed when the domain parser exits with an error", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const toolsDirectory = join(tempRoot, "failing-perl-bin");
+    const toolsDirectory = join(tempRoot, "failing-node-bin");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
       mkdirSync(toolsDirectory);
-      const perlShim = join(toolsDirectory, "perl");
-      writeFileSync(perlShim, "#!/bin/sh\nexit 2\n");
-      chmodSync(perlShim, 0o755);
+      const nodeShim = join(toolsDirectory, "node");
+      writeFileSync(nodeShim, "#!/bin/sh\nexit 2\n");
+      chmodSync(nodeShim, 0o755);
 
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+        env: {
+          ...domainCheckerEnvironment,
+          PATH: `${toolsDirectory}:${process.env.PATH}`,
+        },
       });
 
       expect(result.status).toBe(1);
@@ -481,8 +588,8 @@ describe("preflight", () => {
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
       writeFileSync(
         join(tempRoot, "unapproved-host.js"),
@@ -492,6 +599,7 @@ describe("preflight", () => {
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(result.status).toBe(1);
@@ -509,8 +617,8 @@ describe("preflight", () => {
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.pl"),
-        join(tempRoot, "check-domains-parser.pl")
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
       );
       mkdirSync(toolsDirectory);
       const xargsShim = join(toolsDirectory, "xargs");
@@ -520,7 +628,10 @@ describe("preflight", () => {
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+        env: {
+          ...domainCheckerEnvironment,
+          PATH: `${toolsDirectory}:${process.env.PATH}`,
+        },
       });
 
       expect(result.status).toBe(0);

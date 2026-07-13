@@ -25,8 +25,8 @@ echo "Deprecated web hosts: api.secpal.app"
 echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
 echo ""
 
-if ! command -v perl >/dev/null 2>&1; then
-    echo "Perl is required to validate domain usage." >&2
+if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js is required to validate domain usage." >&2
     exit 1
 fi
 
@@ -40,8 +40,8 @@ filter_out_matches() {
 # shellcheck disable=SC2016
 if ! matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
-    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
-    -exec perl "$(dirname "$0")/check-domains-parser.pl" {} + | \
+    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.mts" -o -name "*.cts" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
+    -exec node "$(dirname "$0")/check-domains-parser.mjs" {} + | \
     filter_out_matches 'check-domains\.sh' | \
     filter_out_matches "Forbidden:" | \
     filter_out_matches "FORBIDDEN:" | \

@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Replaced regex-only browser-storage key exemptions in domain-policy validation with lexer-aware JavaScript and TypeScript declaration analysis, including scope, shadowing, and template interpolation handling.
+- Replaced regex-only browser-storage key exemptions in domain-policy validation with TypeScript syntax-tree and symbol analysis, including scope, shadowing, regex literals, and template interpolation handling.
 
 ### Added
 
