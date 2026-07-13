@@ -27,6 +27,8 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
+const unreachableCodeDiagnostic = 7027;
+const unreachableRanges = new WeakMap();
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -158,10 +160,6 @@ function abruptCompletion(statement) {
   return { always: false, uncatchable: false };
 }
 
-function statementAlwaysCompletesAbruptly(statement) {
-  return abruptCompletion(statement).always;
-}
-
 function hasPrecedingAbruptCompletion(node) {
   let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
@@ -176,7 +174,7 @@ function hasPrecedingAbruptCompletion(node) {
         childIndex > 0 &&
         ancestor.statements
           .slice(0, childIndex)
-          .some(statementAlwaysCompletesAbruptly)
+          .some((statement) => abruptCompletion(statement).always)
       ) {
         return true;
       }
@@ -189,11 +187,19 @@ function hasPrecedingAbruptCompletion(node) {
   return false;
 }
 
+function isCompilerUnreachable(node) {
+  const position = node.getStart(node.getSourceFile());
+  return (unreachableRanges.get(node.getSourceFile()) ?? []).some(
+    ({ start, end }) => position >= start && position < end
+  );
+}
+
 function hasProvenExecutionAt(node) {
   return (
     !hasWithStatementAncestor(node) &&
     !isConditionallyEvaluated(node) &&
-    !hasPrecedingAbruptCompletion(node)
+    !hasPrecedingAbruptCompletion(node) &&
+    !isCompilerUnreachable(node)
   );
 }
 
@@ -229,6 +235,12 @@ function storageArgument(node, checker) {
 
   const method = staticPropertyName(node.expression);
   if (!["getItem", "setItem", "removeItem"].includes(method)) {
+    return undefined;
+  }
+  if (
+    method === "setItem" &&
+    (node.arguments.length < 2 || ts.isSpreadElement(node.arguments[1]))
+  ) {
     return undefined;
   }
 
@@ -406,6 +418,7 @@ function functionBinding(functionLike, checker) {
     checker.getSymbolAtLocation(declaration.name)
     ? {
         identifier: declaration.name,
+        initialization: declaration.initializer,
         initializationEnd: declaration.initializer.getEnd(),
       }
     : undefined;
@@ -468,7 +481,10 @@ function functionExecutionIsReachable(
       : remainingRequirements.size === 0;
   }
   const binding = functionBinding(functionLike, checker);
-  if (!binding) {
+  if (
+    !binding ||
+    (binding.initialization && !hasProvenExecutionAt(binding.initialization))
+  ) {
     return false;
   }
   const symbol = checker.getSymbolAtLocation(binding.identifier);
@@ -582,6 +598,7 @@ function parserExemptions(file, program, checker) {
       if (
         symbol &&
         initializer &&
+        hasProvenExecutionAt(node.initializer) &&
         !isReexportedSymbol(sourceFile, checker, symbol)
       ) {
         candidates.push({
@@ -661,6 +678,7 @@ const sourceFiles = files.filter((file) =>
 );
 const program = ts.createProgram(sourceFiles, {
   allowJs: true,
+  allowUnreachableCode: false,
   checkJs: true,
   jsx: ts.JsxEmit.Preserve,
   module: ts.ModuleKind.ESNext,
@@ -670,6 +688,23 @@ const program = ts.createProgram(sourceFiles, {
   target: ts.ScriptTarget.Latest,
 });
 const checker = program.getTypeChecker();
+for (const sourceFile of program.getSourceFiles()) {
+  unreachableRanges.set(
+    sourceFile,
+    program
+      .getSemanticDiagnostics(sourceFile)
+      .filter(
+        (diagnostic) =>
+          diagnostic.code === unreachableCodeDiagnostic &&
+          diagnostic.start !== undefined &&
+          diagnostic.length !== undefined
+      )
+      .map((diagnostic) => ({
+        end: diagnostic.start + diagnostic.length,
+        start: diagnostic.start,
+      }))
+  );
+}
 
 for (const file of files) {
   let source = readFileSync(file, "utf8");

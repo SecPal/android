@@ -549,6 +549,12 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nswitch (0) { default: localStorage.setItem(storageKey, "1"); }\n`
       );
       expectPass(
+        `const storageKey = "${storageKey}";\nswitch (0) { default: break; }\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nswitch (0) { case 1: throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
         `switch (0) { default: localStorage.setItem("${storageKey}", "1"); }\n`
       );
       expectPass(
@@ -572,6 +578,9 @@ describe("preflight", () => {
       );
       expectPass(
         `const storageKey = "${storageKey}";\ntry { throw new Error(); return; } catch {}\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Storage { static { try { throw new Error(); } catch {} } static { localStorage.setItem(storageKey, "1"); } }\n`
       );
       expectPass(
         `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
@@ -671,11 +680,11 @@ describe("preflight", () => {
       expect(defaultExportedStorageKey.status).toBe(1);
       expect(defaultExportedStorageKey.stdout).toContain(storageKey);
 
-      expect(
-        check(
-          `if (enabled) {\n  var storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
+      const conditionallyInitializedVar = check(
+        `if (enabled) {\n  var storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(conditionallyInitializedVar.status).toBe(1);
+      expect(conditionallyInitializedVar.stdout).toContain(storageKey);
 
       expect(
         check(
@@ -748,9 +757,21 @@ describe("preflight", () => {
         `function outer() { persist(); const storageKey = "${storageKey}"; function persist() { localStorage.setItem(storageKey, "1"); } }\nouter();\n`,
         `function persist() { try { return; } catch {} localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
         `{ throw new Error(); unreachable(); }\nlocalStorage.setItem("${storageKey}", "1");\n`,
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey);\n`,
+        `localStorage.setItem("${storageKey}");\n`,
+        `try { throw new Error(); var storageKey = "${storageKey}"; } catch {}\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\ntry { throw new Error(); var persist = () => localStorage.setItem(storageKey, "1"); } catch {}\npersist();\n`,
+        `try { throw new Error(); var persist = () => localStorage.setItem("${storageKey}", "1"); } catch {}\npersist();\n`,
+        `const storageKey = "${storageKey}";\nclass Storage { static { throw new Error(); } static { localStorage.setItem(storageKey, "1"); } }\n`,
+        `class Storage { static { throw new Error(); } static { localStorage.setItem("${storageKey}", "1"); } }\n`,
+        `const storageKey = "${storageKey}";\nswitch (0) { default: throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
+        `switch (0) { default: throw new Error(); }\nlocalStorage.setItem("${storageKey}", "1");\n`,
+        `const storageKey = "${storageKey}";\ndo { throw new Error(); } while (false);\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nwhile (true) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nfor (;;) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
       ]) {
         const result = check(source);
-        expect(result.status).toBe(1);
+        expect(result.status, source).toBe(1);
         expect(result.stdout).toContain(storageKey);
       }
 
