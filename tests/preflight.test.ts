@@ -522,6 +522,45 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\npersist();\n`
       );
       expectPass(
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nHelper.persist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nconst helper = new Helper();\nhelper.persist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nasync function persist() { localStorage.setItem(storageKey, "1"); await pending; }\npersist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nasync function persist() { if (false) await pending; localStorage.setItem(storageKey, "1"); }\npersist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nlocalStorage.setItem = replacement;\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nif (false) localStorage.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `localStorage.setItem = replacement;\nconst storageKey = "${storageKey}";\nsessionStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nmutateStorage();\n`
+      );
+      expectPass(
+        `if (false) (() => { localStorage.setItem = replacement; })();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const constructor = { assign() {} };\nconstructor.assign();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
         `function persist() { localStorage.setItem(storageKey, "1"); }\nfunction save() { persist(); }\nconst storageKey = "${storageKey}";\nsave();\n`
       );
       expectPass(
@@ -769,6 +808,29 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\ndo { throw new Error(); } while (false);\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nwhile (true) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nfor (;;) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist = replacement;\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nObject.defineProperty(helper, "persist", { value: replacement });\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nlet other: typeof helper;\nother.persist();\n`,
+        `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nlet Other: typeof Helper;\nOther.persist();\n`,
+        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nlet other: Helper;\nother.persist();\n`,
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nwindow.localStorage.setItem = replacement;\nwindow.localStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nStorage.prototype.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nObject.defineProperty(window, "localStorage", { value: replacement });\nwindow.localStorage.setItem(storageKey, "1");\n`,
+        `function mutateStorage() { sessionStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nmutateStorage();\nsessionStorage.setItem(storageKey, "1");\n`,
+        `let enabled = false;\nenabled &&= localStorage.setItem("${storageKey}", "1");\n`,
+        `maybe?.(localStorage.setItem("${storageKey}", "1"));\n`,
+        `const storageKey = "${storageKey}";\nasync function persist() { await new Promise(() => {}); localStorage.setItem(storageKey, "1"); }\npersist();\n`,
+        `async function persist() { await new Promise(() => {}); localStorage.setItem("${storageKey}", "1"); }\npersist();\n`,
+        `const storageKey = "${storageKey}";\nawait pending;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nconst method = "setItem";\nlocalStorage[method] = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); }\npersist();\n`,
+        `const storageKey = "${storageKey}";\nObject.defineProperty(localStorage, "setItem", { value: replacement });\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nObject["defineProperty"](localStorage, "setItem", { value: replacement });\nlocalStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nReflect.set(sessionStorage, "setItem", replacement);\nsessionStorage.setItem(storageKey, "1");\n`,
+        `const storageKey = "${storageKey}";\nasync function persist() { for await (const value of pending) consume(value); localStorage.setItem(storageKey, "1"); }\npersist();\n`,
+        `const storageKey = "${storageKey}";\nasync function persist() { localStorage.setItem(storageKey, await pending); }\npersist();\n`,
       ]) {
         const result = check(source);
         expect(result.status, source).toBe(1);
@@ -799,7 +861,7 @@ describe("preflight", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 90_000);
+  }, 180_000);
 
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));

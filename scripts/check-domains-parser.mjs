@@ -27,8 +27,17 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
+const browserStorageKinds = ["localStorage", "sessionStorage"];
+const storageMutatingMethods = new Map([
+  [
+    "Object",
+    ["assign", "defineProperties", "defineProperty", "setPrototypeOf"],
+  ],
+  ["Reflect", ["defineProperty", "deleteProperty", "set", "setPrototypeOf"]],
+]);
 const unreachableCodeDiagnostic = 7027;
 const unreachableRanges = new WeakMap();
+const executionHazards = new WeakMap();
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -89,10 +98,19 @@ function isConditionallyEvaluated(node) {
       (ts.isBinaryExpression(ancestor) &&
         [
           ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.AmpersandAmpersandEqualsToken,
           ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.BarBarEqualsToken,
           ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.QuestionQuestionEqualsToken,
         ].includes(ancestor.operatorToken.kind) &&
         ancestor.right === child) ||
+      (ts.isCallExpression(ancestor) &&
+        ts.isCallChain(ancestor) &&
+        ancestor.arguments.includes(child)) ||
+      (ts.isElementAccessExpression(ancestor) &&
+        ts.isOptionalChain(ancestor) &&
+        ancestor.argumentExpression === child) ||
       (ts.isWhileStatement(ancestor) && ancestor.statement === child) ||
       (ts.isForStatement(ancestor) &&
         (ancestor.statement === child || ancestor.incrementor === child)) ||
@@ -194,12 +212,42 @@ function isCompilerUnreachable(node) {
   );
 }
 
-function hasProvenExecutionAt(node) {
+function hasPrecedingPosition(positions, node) {
+  if (!positions) {
+    return false;
+  }
+  const scope = executionScope(node);
+  const position = node.getStart(node.getSourceFile());
+  return (scope ? positions.get(scope) : undefined)?.some(
+    (hazardPosition) => hazardPosition < position
+  );
+}
+
+function hasExecutionHazard(node, storageKind) {
+  const hazards = executionHazards.get(node.getSourceFile());
+  if (!hazards) {
+    return false;
+  }
+  if (hasPrecedingPosition(hazards.awaits, node)) {
+    return true;
+  }
+  if (!storageKind) {
+    return false;
+  }
   return (
+    hazards.unresolvedStorageMutations.has(storageKind) ||
+    hasPrecedingPosition(hazards.storageMutations.get(storageKind), node)
+  );
+}
+
+function hasProvenExecutionAt(node, storageKind) {
+  return (
+    !ts.isOptionalChain(node) &&
     !hasWithStatementAncestor(node) &&
     !isConditionallyEvaluated(node) &&
     !hasPrecedingAbruptCompletion(node) &&
-    !isCompilerUnreachable(node)
+    !isCompilerUnreachable(node) &&
+    !hasExecutionHazard(node, storageKind)
   );
 }
 
@@ -222,11 +270,126 @@ function staticPropertyName(expression) {
   return undefined;
 }
 
-function storageArgument(node, checker) {
+function browserStorageKind(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (
+    ts.isIdentifier(expression) &&
+    browserStorageKinds.includes(expression.text) &&
+    isUnshadowedGlobal(checker, expression)
+  ) {
+    return expression.text;
+  }
+  if (
+    (ts.isPropertyAccessExpression(expression) ||
+      ts.isElementAccessExpression(expression)) &&
+    ts.isIdentifier(expression.expression) &&
+    ["window", "globalThis"].includes(expression.expression.text) &&
+    isUnshadowedGlobal(checker, expression.expression)
+  ) {
+    const property = staticPropertyName(expression);
+    return browserStorageKinds.includes(property ?? "") ? property : undefined;
+  }
+  return undefined;
+}
+
+function isStorageConstructor(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (
+    ts.isIdentifier(expression) &&
+    expression.text === "Storage" &&
+    isUnshadowedGlobal(checker, expression)
+  ) {
+    return true;
+  }
+  return (
+    (ts.isPropertyAccessExpression(expression) ||
+      ts.isElementAccessExpression(expression)) &&
+    ts.isIdentifier(expression.expression) &&
+    ["window", "globalThis"].includes(expression.expression.text) &&
+    isUnshadowedGlobal(checker, expression.expression) &&
+    staticPropertyName(expression) === "Storage"
+  );
+}
+
+function targetsStoragePrototype(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (
+    !ts.isPropertyAccessExpression(expression) &&
+    !ts.isElementAccessExpression(expression)
+  ) {
+    return false;
+  }
+  return (
+    (staticPropertyName(expression) === "prototype" &&
+      isStorageConstructor(expression.expression, checker)) ||
+    targetsStoragePrototype(expression.expression, checker)
+  );
+}
+
+function storageKindsForMutationTarget(expression, checker) {
+  expression = unwrapExpression(expression);
+  const storageKind = browserStorageKind(expression, checker);
+  if (storageKind) {
+    return [storageKind];
+  }
+  if (targetsStoragePrototype(expression, checker)) {
+    return browserStorageKinds;
+  }
+  if (
+    ts.isPropertyAccessExpression(expression) ||
+    ts.isElementAccessExpression(expression)
+  ) {
+    return storageKindsForMutationTarget(expression.expression, checker);
+  }
+  return [];
+}
+
+function isBrowserGlobalObject(expression, checker) {
+  expression = unwrapExpression(expression);
+  return (
+    ts.isIdentifier(expression) &&
+    ["window", "globalThis"].includes(expression.text) &&
+    isUnshadowedGlobal(checker, expression)
+  );
+}
+
+function browserStorageProperty(expression) {
+  expression = unwrapExpression(expression);
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return browserStorageKinds.includes(expression.text)
+      ? expression.text
+      : null;
+  }
+  return undefined;
+}
+
+function containsImmediateAwait(node) {
+  let found = false;
+  function visit(current) {
+    if (current !== node && ts.isFunctionLike(current)) {
+      return;
+    }
+    if (ts.isAwaitExpression(current)) {
+      found = true;
+      return;
+    }
+    if (!found) {
+      ts.forEachChild(current, visit);
+    }
+  }
+  visit(node);
+  return found;
+}
+
+function storageCall(node, checker) {
   if (
     !ts.isCallExpression(node) ||
     hasWithStatementAncestor(node) ||
     isDeferredClassFieldInitializer(node) ||
+    containsImmediateAwait(node) ||
     (!ts.isPropertyAccessExpression(node.expression) &&
       !ts.isElementAccessExpression(node.expression))
   ) {
@@ -244,22 +407,64 @@ function storageArgument(node, checker) {
     return undefined;
   }
 
-  const receiver = node.expression.expression;
-  const directStorage =
-    ts.isIdentifier(receiver) &&
-    ["localStorage", "sessionStorage"].includes(receiver.text) &&
-    isUnshadowedGlobal(checker, receiver);
-  const globalStorage =
-    (ts.isPropertyAccessExpression(receiver) ||
-      ts.isElementAccessExpression(receiver)) &&
-    ts.isIdentifier(receiver.expression) &&
-    ["window", "globalThis"].includes(receiver.expression.text) &&
-    ["localStorage", "sessionStorage"].includes(
-      staticPropertyName(receiver) ?? ""
-    ) &&
-    isUnshadowedGlobal(checker, receiver.expression);
+  const storageKind = browserStorageKind(node.expression.expression, checker);
+  return storageKind
+    ? { argument: node.arguments[0], storageKind, storageUse: node }
+    : undefined;
+}
 
-  return directStorage || globalStorage ? node.arguments[0] : undefined;
+function mutatingMethodCall(node, checker) {
+  if (
+    !ts.isCallExpression(node) ||
+    (!ts.isPropertyAccessExpression(node.expression) &&
+      !ts.isElementAccessExpression(node.expression)) ||
+    !ts.isIdentifier(node.expression.expression)
+  ) {
+    return undefined;
+  }
+  const method = staticPropertyName(node.expression);
+  return method &&
+    storageMutatingMethods
+      .get(node.expression.expression.text)
+      ?.includes(method) &&
+    isUnshadowedGlobal(checker, node.expression.expression)
+    ? method
+    : undefined;
+}
+
+function browserStorageMutations(node, checker) {
+  const mutatingMethod = mutatingMethodCall(node, checker);
+  if (mutatingMethod) {
+    const target = node.arguments[0];
+    if (!target) {
+      return [];
+    }
+    const storageTargets = storageKindsForMutationTarget(target, checker);
+    if (storageTargets.length > 0) {
+      return storageTargets;
+    }
+    if (!isBrowserGlobalObject(target, checker)) {
+      return [];
+    }
+    if (["defineProperty", "deleteProperty", "set"].includes(mutatingMethod)) {
+      const storageProperty = node.arguments[1]
+        ? browserStorageProperty(node.arguments[1])
+        : undefined;
+      return storageProperty === null
+        ? []
+        : storageProperty
+          ? [storageProperty]
+          : browserStorageKinds;
+    }
+    return browserStorageKinds;
+  }
+  if (
+    !node.parent ||
+    (!ts.isAssignmentTarget(node) && !ts.isDeleteExpression(node.parent))
+  ) {
+    return [];
+  }
+  return storageKindsForMutationTarget(node, checker);
 }
 
 function isDirectEvalCall(node, checker) {
@@ -357,6 +562,18 @@ function symbolAtIdentifier(checker, identifier) {
   return checker.getSymbolAtLocation(identifier);
 }
 
+function identifierReferencesSymbol(checker, identifier, symbol) {
+  const reference = symbolAtIdentifier(checker, identifier);
+  return (
+    reference === symbol ||
+    Boolean(
+      reference?.declarations?.some((declaration) =>
+        symbol.declarations?.includes(declaration)
+      )
+    )
+  );
+}
+
 function containingFunctionLike(node) {
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
     if (ts.isFunctionLike(ancestor)) {
@@ -373,6 +590,16 @@ function executionScope(node) {
     }
   }
   return undefined;
+}
+
+function addExecutionPosition(positions, node) {
+  const scope = executionScope(node);
+  if (!scope) {
+    return;
+  }
+  const scopePositions = positions.get(scope) ?? [];
+  scopePositions.push(node.getStart(node.getSourceFile()));
+  positions.set(scope, scopePositions);
 }
 
 function addInitializationRequirement(requirements, node, position) {
@@ -403,6 +630,54 @@ function functionBinding(functionLike, checker) {
   if (ts.isFunctionDeclaration(functionLike) && functionLike.name) {
     return { identifier: functionLike.name, initializationEnd: undefined };
   }
+  if (
+    ts.isMethodDeclaration(functionLike) &&
+    ts.isIdentifier(functionLike.name)
+  ) {
+    const container = functionLike.parent;
+    if (
+      ts.isObjectLiteralExpression(container) ||
+      ts.isClassDeclaration(container) ||
+      ts.isClassExpression(container)
+    ) {
+      let owner;
+      if (
+        ts.isObjectLiteralExpression(container) ||
+        ts.isClassExpression(container)
+      ) {
+        let expression = container;
+        while (
+          isTransparentExpressionWrapper(expression.parent) &&
+          expression.parent.expression === expression
+        ) {
+          expression = expression.parent;
+        }
+        const declaration = expression.parent;
+        if (
+          ts.isVariableDeclaration(declaration) &&
+          declaration.initializer === expression &&
+          ts.isIdentifier(declaration.name)
+        ) {
+          owner = declaration.name;
+        }
+      }
+      if (!owner && !ts.isObjectLiteralExpression(container)) {
+        owner = container.name;
+      }
+      return {
+        identifier: functionLike.name,
+        initialization: container,
+        initializationEnd: container.getEnd(),
+        initializationScopeNode: container,
+        ownerSymbol: owner ? checker.getSymbolAtLocation(owner) : undefined,
+        receiverKind:
+          ts.isObjectLiteralExpression(container) ||
+          ts.getCombinedModifierFlags(functionLike) & ts.ModifierFlags.Static
+            ? "owner"
+            : "instance",
+      };
+    }
+  }
 
   let expression = functionLike;
   while (
@@ -420,11 +695,19 @@ function functionBinding(functionLike, checker) {
         identifier: declaration.name,
         initialization: declaration.initializer,
         initializationEnd: declaration.initializer.getEnd(),
+        initializationScopeNode: declaration.name,
       }
     : undefined;
 }
 
 function directCallExpression(expression) {
+  if (
+    ts.isIdentifier(expression) &&
+    ts.isPropertyAccessExpression(expression.parent) &&
+    expression.parent.name === expression
+  ) {
+    expression = expression.parent;
+  }
   while (
     isTransparentExpressionWrapper(expression.parent) &&
     expression.parent.expression === expression
@@ -437,11 +720,106 @@ function directCallExpression(expression) {
     : undefined;
 }
 
-function isDirectCall(identifier) {
-  return (
-    hasProvenExecutionAt(identifier) &&
-    Boolean(directCallExpression(identifier))
+function symbolIsMutated(symbol, identifiers, checker) {
+  return Boolean(
+    symbol &&
+    identifiers.some(
+      (identifier) =>
+        identifierReferencesSymbol(checker, identifier, symbol) &&
+        (ts.isAssignmentTarget(identifier) ||
+          isMutatingCallTarget(identifier, checker))
+    )
   );
+}
+
+function isMutatingCallTarget(identifier, checker) {
+  let target = identifier;
+  while (
+    (isTransparentExpressionWrapper(target.parent) &&
+      target.parent.expression === target) ||
+    ((ts.isPropertyAccessExpression(target.parent) ||
+      ts.isElementAccessExpression(target.parent)) &&
+      target.parent.expression === target)
+  ) {
+    target = target.parent;
+  }
+  return (
+    ts.isCallExpression(target.parent) &&
+    target.parent.arguments[0] === target &&
+    Boolean(mutatingMethodCall(target.parent, checker))
+  );
+}
+
+function constructsOwner(expression, ownerSymbol, checker) {
+  expression = unwrapExpression(expression);
+  if (!ts.isNewExpression(expression)) {
+    return false;
+  }
+  const constructor = unwrapExpression(expression.expression);
+  return (
+    ts.isIdentifier(constructor) &&
+    identifierReferencesSymbol(checker, constructor, ownerSymbol)
+  );
+}
+
+function hasProvenMethodReceiver(
+  call,
+  binding,
+  identifiers,
+  checker,
+  storageKind
+) {
+  if (!binding.receiverKind || !binding.ownerSymbol) {
+    return !binding.receiverKind;
+  }
+  const callee = unwrapExpression(call.expression);
+  if (!ts.isPropertyAccessExpression(callee)) {
+    return false;
+  }
+  const receiver = unwrapExpression(callee.expression);
+  if (binding.receiverKind === "owner") {
+    return (
+      ts.isIdentifier(receiver) &&
+      identifierReferencesSymbol(checker, receiver, binding.ownerSymbol) &&
+      !symbolIsMutated(binding.ownerSymbol, identifiers, checker)
+    );
+  }
+  if (symbolIsMutated(binding.ownerSymbol, identifiers, checker)) {
+    return false;
+  }
+  if (constructsOwner(receiver, binding.ownerSymbol, checker)) {
+    return true;
+  }
+  if (!ts.isIdentifier(receiver)) {
+    return false;
+  }
+  const receiverSymbol = checker.getSymbolAtLocation(receiver);
+  const declaration = receiverSymbol?.declarations?.find(
+    (candidate) =>
+      ts.isVariableDeclaration(candidate) &&
+      ts.isIdentifier(candidate.name) &&
+      candidate.initializer
+  );
+  return (
+    declaration?.initializer &&
+    executionScope(declaration) === executionScope(call) &&
+    declaration.initializer.getEnd() < call.getStart() &&
+    hasProvenExecutionAt(declaration.initializer, storageKind) &&
+    constructsOwner(declaration.initializer, binding.ownerSymbol, checker) &&
+    !symbolIsMutated(receiverSymbol, identifiers, checker)
+  );
+}
+
+function isDirectCall(identifier, binding, identifiers, checker, storageKind) {
+  const call = directCallExpression(identifier);
+  if (
+    !call ||
+    !hasProvenExecutionAt(call, storageKind) ||
+    !hasProvenMethodReceiver(call, binding, identifiers, checker, storageKind)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function functionExecutionIsReachable(
@@ -449,6 +827,7 @@ function functionExecutionIsReachable(
   initializationRequirements,
   identifiers,
   checker,
+  storageKind,
   visiting = new Set()
 ) {
   if (functionLike.asteriskToken || isConditionallyEvaluated(functionLike)) {
@@ -459,7 +838,7 @@ function functionExecutionIsReachable(
       ? directCallExpression(functionLike)
       : undefined;
   if (immediateInvocation) {
-    if (!hasProvenExecutionAt(immediateInvocation)) {
+    if (!hasProvenExecutionAt(immediateInvocation, storageKind)) {
       return false;
     }
     const caller = containingFunctionLike(immediateInvocation);
@@ -476,6 +855,7 @@ function functionExecutionIsReachable(
           remainingRequirements,
           identifiers,
           checker,
+          storageKind,
           visiting
         )
       : remainingRequirements.size === 0;
@@ -483,7 +863,9 @@ function functionExecutionIsReachable(
   const binding = functionBinding(functionLike, checker);
   if (
     !binding ||
-    (binding.initialization && !hasProvenExecutionAt(binding.initialization))
+    symbolIsMutated(binding.ownerSymbol, identifiers, checker) ||
+    (binding.initialization &&
+      !hasProvenExecutionAt(binding.initialization, storageKind))
   ) {
     return false;
   }
@@ -496,7 +878,7 @@ function functionExecutionIsReachable(
       ? initializationRequirements
       : addInitializationRequirement(
           initializationRequirements,
-          binding.identifier,
+          binding.initializationScopeNode ?? binding.identifier,
           binding.initializationEnd
         );
   const nextVisiting = new Set(visiting).add(symbol);
@@ -504,12 +886,14 @@ function functionExecutionIsReachable(
     (identifier) =>
       identifier !== binding.identifier &&
       !isTypeOnlyReference(identifier) &&
-      symbolAtIdentifier(checker, identifier) === symbol
+      identifierReferencesSymbol(checker, identifier, symbol)
   );
   return (
     references.length > 0 &&
     references.every((identifier) => {
-      if (!isDirectCall(identifier)) {
+      if (
+        !isDirectCall(identifier, binding, identifiers, checker, storageKind)
+      ) {
         return false;
       }
       const remainingRequirements = satisfyInitializationRequirement(
@@ -526,6 +910,7 @@ function functionExecutionIsReachable(
             remainingRequirements,
             identifiers,
             checker,
+            storageKind,
             nextVisiting
           )
         : remainingRequirements.size === 0;
@@ -537,9 +922,10 @@ function isReachableStorageUse(
   storageUse,
   initializationRequirements,
   identifiers,
-  checker
+  checker,
+  storageKind
 ) {
-  if (!hasProvenExecutionAt(storageUse)) {
+  if (!hasProvenExecutionAt(storageUse, storageKind)) {
     return false;
   }
   const remainingRequirements = satisfyInitializationRequirement(
@@ -555,9 +941,95 @@ function isReachableStorageUse(
         containingFunction,
         remainingRequirements,
         identifiers,
-        checker
+        checker,
+        storageKind
       )
     : remainingRequirements.size === 0;
+}
+
+function addMutationFunctionKind(mutationFunctions, functionLike, storageKind) {
+  const storageKinds = mutationFunctions.get(functionLike) ?? new Set();
+  const added = !storageKinds.has(storageKind);
+  storageKinds.add(storageKind);
+  mutationFunctions.set(functionLike, storageKinds);
+  return added;
+}
+
+function propagateStorageMutations(hazards, identifiers, checker) {
+  const pending = [...hazards.mutationFunctions.keys()];
+  const processed = new Map();
+  while (pending.length > 0) {
+    const functionLike = pending.shift();
+    const storageKinds = hazards.mutationFunctions.get(functionLike);
+    const processedKinds = processed.get(functionLike) ?? new Set();
+    const newKinds = [...storageKinds].filter(
+      (storageKind) => !processedKinds.has(storageKind)
+    );
+    if (newKinds.length === 0) {
+      continue;
+    }
+    newKinds.forEach((storageKind) => processedKinds.add(storageKind));
+    processed.set(functionLike, processedKinds);
+
+    const calls = [];
+    const immediateInvocation =
+      ts.isArrowFunction(functionLike) || ts.isFunctionExpression(functionLike)
+        ? directCallExpression(functionLike)
+        : undefined;
+    if (immediateInvocation) {
+      calls.push(immediateInvocation);
+    } else {
+      const binding = functionBinding(functionLike, checker);
+      const symbol = binding
+        ? checker.getSymbolAtLocation(binding.identifier)
+        : undefined;
+      if (!symbol) {
+        newKinds.forEach((storageKind) =>
+          hazards.unresolvedStorageMutations.add(storageKind)
+        );
+        continue;
+      }
+      for (const identifier of identifiers) {
+        if (
+          identifier === binding.identifier ||
+          isTypeOnlyReference(identifier) ||
+          !identifierReferencesSymbol(checker, identifier, symbol)
+        ) {
+          continue;
+        }
+        const call = directCallExpression(identifier);
+        if (call) {
+          if (!isCompilerUnreachable(call)) {
+            calls.push(call);
+          }
+        } else {
+          newKinds.forEach((storageKind) =>
+            hazards.unresolvedStorageMutations.add(storageKind)
+          );
+        }
+      }
+    }
+
+    for (const call of calls) {
+      for (const storageKind of newKinds) {
+        addExecutionPosition(hazards.storageMutations.get(storageKind), call);
+      }
+      const caller = containingFunctionLike(call);
+      if (caller) {
+        for (const storageKind of newKinds) {
+          if (
+            addMutationFunctionKind(
+              hazards.mutationFunctions,
+              caller,
+              storageKind
+            )
+          ) {
+            pending.push(caller);
+          }
+        }
+      }
+    }
+  }
 }
 
 function parserExemptions(file, program, checker) {
@@ -566,23 +1038,54 @@ function parserExemptions(file, program, checker) {
     return [];
   }
 
-  const storageUses = new Set();
+  const storageUses = new Map();
   const directLiterals = [];
   const candidates = [];
   const identifiers = [];
+  const hazards = {
+    awaits: new Map(),
+    mutationFunctions: new Map(),
+    storageMutations: new Map([
+      ["localStorage", new Map()],
+      ["sessionStorage", new Map()],
+    ]),
+    unresolvedStorageMutations: new Set(),
+  };
+  executionHazards.set(sourceFile, hazards);
   let hasDirectEval = false;
 
   function visit(node) {
     hasDirectEval ||= isDirectEvalCall(node, checker);
-    const argument = storageArgument(node, checker);
-    if (argument) {
-      const unwrappedArgument = unwrapExpression(argument);
+    if (
+      (ts.isAwaitExpression(node) ||
+        (ts.isForOfStatement(node) && node.awaitModifier)) &&
+      !isCompilerUnreachable(node)
+    ) {
+      addExecutionPosition(hazards.awaits, node);
+    }
+    const mutatedStorages = browserStorageMutations(node, checker);
+    if (mutatedStorages.length > 0 && !isCompilerUnreachable(node)) {
+      const scope = executionScope(node);
+      for (const storageKind of mutatedStorages) {
+        addExecutionPosition(hazards.storageMutations.get(storageKind), node);
+        if (ts.isFunctionLike(scope)) {
+          addMutationFunctionKind(
+            hazards.mutationFunctions,
+            scope,
+            storageKind
+          );
+        }
+      }
+    }
+    const call = storageCall(node, checker);
+    if (call) {
+      const unwrappedArgument = unwrapExpression(call.argument);
       if (ts.isIdentifier(unwrappedArgument)) {
-        storageUses.add(unwrappedArgument);
+        storageUses.set(unwrappedArgument, call);
       } else {
         const literal = storageKeyLiteral(unwrappedArgument);
         if (literal) {
-          directLiterals.push({ literal, storageUse: node });
+          directLiterals.push({ literal, ...call });
         }
       }
     }
@@ -598,7 +1101,6 @@ function parserExemptions(file, program, checker) {
       if (
         symbol &&
         initializer &&
-        hasProvenExecutionAt(node.initializer) &&
         !isReexportedSymbol(sourceFile, checker, symbol)
       ) {
         candidates.push({
@@ -616,22 +1118,32 @@ function parserExemptions(file, program, checker) {
   }
 
   visit(sourceFile);
+  propagateStorageMutations(hazards, identifiers, checker);
 
   if (hasDirectEval) {
     return [];
   }
 
   const exemptions = directLiterals
-    .filter(({ storageUse }) =>
-      isReachableStorageUse(storageUse, new Map(), identifiers, checker)
+    .filter(({ storageKind, storageUse }) =>
+      isReachableStorageUse(
+        storageUse,
+        new Map(),
+        identifiers,
+        checker,
+        storageKind
+      )
     )
     .map(({ literal }) => literal);
   for (const candidate of candidates) {
+    if (!hasProvenExecutionAt(candidate.declaration.initializer)) {
+      continue;
+    }
     const references = identifiers.filter(
       (identifier) =>
         identifier !== candidate.declaration.name &&
         !isTypeOnlyReference(identifier) &&
-        symbolAtIdentifier(checker, identifier) === candidate.symbol
+        identifierReferencesSymbol(checker, identifier, candidate.symbol)
     );
     const initializationRequirements = addInitializationRequirement(
       new Map(),
@@ -640,16 +1152,19 @@ function parserExemptions(file, program, checker) {
     );
     const onlyReachableStorageUses =
       references.length > 0 &&
-      references.every(
-        (identifier) =>
-          storageUses.has(identifier) &&
+      references.every((identifier) => {
+        const use = storageUses.get(identifier);
+        return (
+          use &&
           isReachableStorageUse(
-            identifier,
+            use.storageUse,
             initializationRequirements,
             identifiers,
-            checker
+            checker,
+            use.storageKind
           )
-      );
+        );
+      });
     if (onlyReachableStorageUses) {
       exemptions.push(candidate.initializer);
     }
