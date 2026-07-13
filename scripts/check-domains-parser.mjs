@@ -191,58 +191,79 @@ function symbolAtIdentifier(checker, identifier) {
   return checker.getSymbolAtLocation(identifier);
 }
 
-function containingFunctionDeclaration(identifier) {
+function containingFunctionLike(identifier) {
   for (let node = identifier.parent; node; node = node.parent) {
-    if (ts.isFunctionDeclaration(node)) {
-      return node;
-    }
     if (ts.isFunctionLike(node)) {
-      return undefined;
+      return node;
     }
   }
   return undefined;
 }
 
+function functionBinding(functionLike, checker) {
+  if (ts.isFunctionDeclaration(functionLike) && functionLike.name) {
+    return functionLike.name;
+  }
+
+  let expression = functionLike;
+  while (
+    isTransparentExpressionWrapper(expression.parent) &&
+    expression.parent.expression === expression
+  ) {
+    expression = expression.parent;
+  }
+  const declaration = expression.parent;
+  return ts.isVariableDeclaration(declaration) &&
+    declaration.initializer === expression &&
+    ts.isIdentifier(declaration.name) &&
+    checker.getSymbolAtLocation(declaration.name)
+    ? declaration.name
+    : undefined;
+}
+
+function isDirectCall(identifier) {
+  let expression = identifier;
+  while (
+    isTransparentExpressionWrapper(expression.parent) &&
+    expression.parent.expression === expression
+  ) {
+    expression = expression.parent;
+  }
+  return (
+    ts.isCallExpression(expression.parent) &&
+    expression.parent.expression === expression
+  );
+}
+
 function functionIsCalledAfterDeclaration(
-  declaration,
+  functionLike,
   declarationStart,
   identifiers,
   checker,
   visiting = new Set()
 ) {
-  if (!declaration.name) {
+  const binding = functionBinding(functionLike, checker);
+  if (!binding) {
     return false;
   }
-  const symbol = checker.getSymbolAtLocation(declaration.name);
+  const symbol = checker.getSymbolAtLocation(binding);
   if (!symbol || visiting.has(symbol)) {
     return false;
   }
   const nextVisiting = new Set(visiting).add(symbol);
   const references = identifiers.filter(
     (identifier) =>
-      identifier !== declaration.name &&
+      identifier !== binding &&
+      !isTypeOnlyReference(identifier) &&
       symbolAtIdentifier(checker, identifier) === symbol
   );
-  const isDirectCall = (identifier) => {
-    let expression = identifier;
-    while (
-      isTransparentExpressionWrapper(expression.parent) &&
-      expression.parent.expression === expression
-    ) {
-      expression = expression.parent;
-    }
-    return (
-      ts.isCallExpression(expression.parent) &&
-      expression.parent.expression === expression
-    );
-  };
   return (
     references.length > 0 &&
     references.every((identifier) => {
       if (!isDirectCall(identifier)) {
         return false;
       }
-      const caller = containingFunctionDeclaration(identifier);
+      const caller = containingFunctionLike(identifier);
       return caller
         ? functionIsCalledAfterDeclaration(
             caller,
@@ -262,7 +283,7 @@ function isReachableStorageUse(
   identifiers,
   checker
 ) {
-  const containingFunction = containingFunctionDeclaration(identifier);
+  const containingFunction = containingFunctionLike(identifier);
   return containingFunction
     ? functionIsCalledAfterDeclaration(
         containingFunction,

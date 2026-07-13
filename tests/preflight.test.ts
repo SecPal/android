@@ -473,6 +473,15 @@ describe("preflight", () => {
         `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\n(persist as () => void)();\n`
       );
       expectPass(
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\ntype Persist = typeof persist;\npersist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\npersist();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\npersist();\n`
+      );
+      expectPass(
         `function persist() { localStorage.setItem(storageKey, "1"); }\nfunction save() { persist(); }\nconst storageKey = "${storageKey}";\nsave();\n`
       );
       expectPass(
@@ -490,6 +499,18 @@ describe("preflight", () => {
       );
       expect(dualUse.status).toBe(1);
       expect(dualUse.stdout).toContain(storageKey);
+
+      const unusedArrowHelper = check(
+        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\n`
+      );
+      expect(unusedArrowHelper.status).toBe(1);
+      expect(unusedArrowHelper.stdout).toContain(storageKey);
+
+      const unusedFunctionExpressionHelper = check(
+        `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\n`
+      );
+      expect(unusedFunctionExpressionHelper.status).toBe(1);
+      expect(unusedFunctionExpressionHelper.stdout).toContain(storageKey);
 
       const divisionDualUse = check(
         `const storageKey = "${storageKey}";\nconst ratio = numerator / storageKey / denominator;\nlocalStorage.setItem(storageKey, "1");\n`
