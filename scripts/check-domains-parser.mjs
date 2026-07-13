@@ -56,6 +56,62 @@ function isUnshadowedGlobal(checker, identifier) {
   );
 }
 
+function hasWithStatementAncestor(node) {
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (ts.isWithStatement(ancestor)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isDeferredClassFieldInitializer(node) {
+  let child = node;
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (ts.isPropertyDeclaration(ancestor) && ancestor.initializer === child) {
+      if (!(ts.getCombinedModifierFlags(ancestor) & ts.ModifierFlags.Static)) {
+        return true;
+      }
+    }
+    child = ancestor;
+  }
+  return false;
+}
+
+function isConditionallyEvaluated(node) {
+  let child = node;
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (
+      (ts.isIfStatement(ancestor) && ancestor.expression !== child) ||
+      (ts.isConditionalExpression(ancestor) && ancestor.condition !== child) ||
+      (ts.isBinaryExpression(ancestor) &&
+        [
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+        ].includes(ancestor.operatorToken.kind) &&
+        ancestor.right === child) ||
+      (ts.isWhileStatement(ancestor) && ancestor.statement === child) ||
+      (ts.isForStatement(ancestor) &&
+        (ancestor.statement === child || ancestor.incrementor === child)) ||
+      ((ts.isForInStatement(ancestor) || ts.isForOfStatement(ancestor)) &&
+        ancestor.statement === child) ||
+      ts.isCaseClause(ancestor) ||
+      ts.isDefaultClause(ancestor) ||
+      ts.isCatchClause(ancestor) ||
+      (ts.isParameter(ancestor) && ancestor.initializer === child) ||
+      (ts.isBindingElement(ancestor) && ancestor.initializer === child)
+    ) {
+      return true;
+    }
+    if (ts.isFunctionLike(ancestor) || ts.isSourceFile(ancestor)) {
+      return false;
+    }
+    child = ancestor;
+  }
+  return false;
+}
+
 function staticPropertyName(expression) {
   if (ts.isPropertyAccessExpression(expression)) {
     return expression.name.text;
@@ -78,6 +134,8 @@ function staticPropertyName(expression) {
 function storageArgument(node, checker) {
   if (
     !ts.isCallExpression(node) ||
+    hasWithStatementAncestor(node) ||
+    isDeferredClassFieldInitializer(node) ||
     (!ts.isPropertyAccessExpression(node.expression) &&
       !ts.isElementAccessExpression(node.expression))
   ) {
@@ -105,6 +163,18 @@ function storageArgument(node, checker) {
     isUnshadowedGlobal(checker, receiver.expression);
 
   return directStorage || globalStorage ? node.arguments[0] : undefined;
+}
+
+function isDirectEvalCall(node, checker) {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+  const callee = unwrapExpression(node.expression);
+  return (
+    ts.isIdentifier(callee) &&
+    callee.text === "eval" &&
+    isUnshadowedGlobal(checker, callee)
+  );
 }
 
 function isTransparentExpressionWrapper(node) {
@@ -201,7 +271,7 @@ function containingFunctionLike(identifier) {
 
 function functionBinding(functionLike, checker) {
   if (ts.isFunctionDeclaration(functionLike) && functionLike.name) {
-    return functionLike.name;
+    return { identifier: functionLike.name, initializationEnd: undefined };
   }
 
   let expression = functionLike;
@@ -216,11 +286,20 @@ function functionBinding(functionLike, checker) {
     declaration.initializer === expression &&
     ts.isIdentifier(declaration.name) &&
     checker.getSymbolAtLocation(declaration.name)
-    ? declaration.name
+    ? {
+        identifier: declaration.name,
+        initializationEnd: declaration.initializer.getEnd(),
+      }
     : undefined;
 }
 
 function isDirectCall(identifier) {
+  if (
+    hasWithStatementAncestor(identifier) ||
+    isConditionallyEvaluated(identifier)
+  ) {
+    return false;
+  }
   let expression = identifier;
   while (
     isTransparentExpressionWrapper(expression.parent) &&
@@ -241,18 +320,25 @@ function functionIsCalledAfterDeclaration(
   checker,
   visiting = new Set()
 ) {
+  if (functionLike.asteriskToken || isConditionallyEvaluated(functionLike)) {
+    return false;
+  }
   const binding = functionBinding(functionLike, checker);
   if (!binding) {
     return false;
   }
-  const symbol = checker.getSymbolAtLocation(binding);
+  const symbol = checker.getSymbolAtLocation(binding.identifier);
   if (!symbol || visiting.has(symbol)) {
     return false;
   }
+  const minimumCallStart = Math.max(
+    declarationStart,
+    binding.initializationEnd ?? declarationStart
+  );
   const nextVisiting = new Set(visiting).add(symbol);
   const references = identifiers.filter(
     (identifier) =>
-      identifier !== binding &&
+      identifier !== binding.identifier &&
       !isTypeOnlyReference(identifier) &&
       symbolAtIdentifier(checker, identifier) === symbol
   );
@@ -266,12 +352,12 @@ function functionIsCalledAfterDeclaration(
       return caller
         ? functionIsCalledAfterDeclaration(
             caller,
-            declarationStart,
+            minimumCallStart,
             identifiers,
             checker,
             nextVisiting
           )
-        : identifier.getStart() > declarationStart;
+        : identifier.getStart() > minimumCallStart;
     })
   );
 }
@@ -282,6 +368,9 @@ function isReachableStorageUse(
   identifiers,
   checker
 ) {
+  if (isConditionallyEvaluated(identifier)) {
+    return false;
+  }
   const containingFunction = containingFunctionLike(identifier);
   return containingFunction
     ? functionIsCalledAfterDeclaration(
@@ -303,8 +392,10 @@ function parserExemptions(file, program, checker) {
   const directLiterals = [];
   const candidates = [];
   const identifiers = [];
+  let hasDirectEval = false;
 
   function visit(node) {
+    hasDirectEval ||= isDirectEvalCall(node, checker);
     const argument = storageArgument(node, checker);
     if (argument) {
       const unwrappedArgument = unwrapExpression(argument);
@@ -346,6 +437,10 @@ function parserExemptions(file, program, checker) {
   }
 
   visit(sourceFile);
+
+  if (hasDirectEval) {
+    return [];
+  }
 
   const exemptions = [...directLiterals];
   for (const candidate of candidates) {

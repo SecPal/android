@@ -439,8 +439,13 @@ describe("preflight", () => {
     const storageKey = "secpal" + ".asset-load-recovery";
     const invalidHost = "secpal" + ".invalid-host.com";
 
-    const check = (source: string) => {
-      writeFileSync(join(tempRoot, "storage-key.ts"), source);
+    const check = (source: string, extension = "ts") => {
+      for (const existingExtension of ["cjs", "js", "ts"]) {
+        rmSync(join(tempRoot, `storage-key.${existingExtension}`), {
+          force: true,
+        });
+      }
+      writeFileSync(join(tempRoot, `storage-key.${extension}`), source);
       return spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
@@ -518,6 +523,27 @@ describe("preflight", () => {
       );
       expectPass(
         `function persist() { localStorage.setItem(storageKey, "1"); }\nfunction save() { persist(); }\nconst storageKey = "${storageKey}";\nsave();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\npersist();\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Storage { static value = localStorage.setItem(storageKey, "1"); }\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Storage { static { localStorage.setItem(storageKey, "1"); } }\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass Storage { [localStorage.setItem(storageKey, "1")] = true; }\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nif (localStorage.getItem(storageKey)) consume();\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\ndo { localStorage.setItem(storageKey, "1"); } while (false);\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nlocalStorage.getItem(storageKey) && consume();\n`
       );
       expectPass(
         `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
@@ -641,10 +667,51 @@ describe("preflight", () => {
       expect(useBeforeDeclaration.status).toBe(1);
       expect(useBeforeDeclaration.stdout).toContain(storageKey);
 
+      for (const [source, extension] of [
+        [
+          `const storageKey = "${storageKey}";\npersist();\nconst persist = () => localStorage.setItem(storageKey, "1");\n`,
+          "cjs",
+        ],
+        [
+          `with ({ localStorage: fakeStorage }) { localStorage.setItem("${storageKey}", "1"); }\n`,
+          "cjs",
+        ],
+        [
+          `const storageKey = "${storageKey}";\nclass Storage { value = localStorage.setItem(storageKey, "1"); }\n`,
+          "js",
+        ],
+        [
+          `eval("var localStorage = fakeStorage;");\nlocalStorage.setItem("${storageKey}", "1");\n`,
+          "cjs",
+        ],
+        [
+          `const storageKey = "${storageKey}";\nclass Outer { value = class { static value = localStorage.setItem(storageKey, "1"); }; }\n`,
+          "js",
+        ],
+        [
+          `if (false) { function persist() { localStorage.setItem(storageKey, "1"); } }\nconst storageKey = "${storageKey}";\npersist();\n`,
+          "cjs",
+        ],
+      ] as const) {
+        const result = check(source, extension);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain(storageKey);
+      }
+
       for (const source of [
         `function persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst storageKey = "${storageKey}";\n`,
         `persist();\nconst storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`,
         `before();\nvar storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction before() { persist(); }\n`,
+        `function* persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
+        `const storageKey = "${storageKey}";\nif (false) localStorage.setItem(storageKey, "1");\n`,
+        `function persist() { if (false) localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\nfalse && persist();\n`,
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\nwith ({ persist: fakePersist }) { persist(); }\n`,
+        `function persist(value = localStorage.setItem(storageKey, "1")) {}\nconst storageKey = "${storageKey}";\npersist("provided");\n`,
+        `const storageKey = "${storageKey}";\nconst { value = localStorage.setItem(storageKey, "1") } = { value: true };\n`,
+        `const storageKey = "${storageKey}";\nwhile (false) { localStorage.setItem(storageKey, "1"); }\n`,
+        `const storageKey = "${storageKey}";\nswitch (0) { case 1: localStorage.setItem(storageKey, "1"); }\n`,
+        `const storageKey = "${storageKey}";\ntry { throw new Error(); } catch { localStorage.setItem(storageKey, "1"); }\n`,
       ]) {
         const result = check(source);
         expect(result.status).toBe(1);
