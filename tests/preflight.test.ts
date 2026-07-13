@@ -433,6 +433,24 @@ describe("preflight", () => {
       );
       expectPass(`localStorage.setItem("${storageKey}" as const, "1");\n`);
       expectPass(`localStorage.setItem(\`${storageKey}\`, "1");\n`);
+      expectPass(`localStorage["setItem"]("${storageKey}", "1");\n`);
+      expectPass(`window["localStorage"]["getItem"]("${storageKey}");\n`);
+      expectPass(`globalThis.sessionStorage["removeItem"]("${storageKey}");\n`);
+      expectPass(
+        `declare const localStorage: Storage;\nlocalStorage.setItem("${storageKey}", "1");\n`
+      );
+      expectPass(
+        `declare const window: Window;\nwindow.localStorage.getItem("${storageKey}");\n`
+      );
+      for (const source of [
+        `const localStorage = fakeStorage;\nlocalStorage["setItem"]("${storageKey}", "1");\n`,
+        `function persist(window) {\n  window["localStorage"]["setItem"]("${storageKey}", "1");\n}\n`,
+        `const method = "setItem";\nlocalStorage[method]("${storageKey}", "1");\n`,
+      ]) {
+        const result = check(source);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain(storageKey);
+      }
       for (const argument of [
         "storageKey as string",
         "storageKey!",
@@ -444,6 +462,15 @@ describe("preflight", () => {
       }
       expectPass(
         `const storageKey = "${storageKey}";\ntype StorageKey = typeof storageKey;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\ntype StorageMap = { [storageKey]: string };\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`
+      );
+      expectPass(
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\n(persist as () => void)();\n`
       );
       expectPass(
         `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
@@ -555,6 +582,15 @@ describe("preflight", () => {
       expect(useBeforeDeclaration.status).toBe(1);
       expect(useBeforeDeclaration.stdout).toContain(storageKey);
 
+      for (const source of [
+        `function persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst storageKey = "${storageKey}";\n`,
+        `persist();\nconst storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`,
+      ]) {
+        const result = check(source);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain(storageKey);
+      }
+
       const shadowedIdentifier = check(
         `const storageKey = "${storageKey}";\n{\n  const storageKey = "${invalidHost}";\n  localStorage.setItem(storageKey, "1");\n}\n`
       );
@@ -637,6 +673,43 @@ describe("preflight", () => {
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Failed to parse domain usage.");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("explains how to restore the TypeScript parser dependency", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const emptyModuleRoot = join(tempRoot, "without-node-modules");
+    const storageKey = "secpal" + ".asset-load-recovery";
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
+      mkdirSync(emptyModuleRoot);
+      writeFileSync(join(emptyModuleRoot, "package.json"), "{}\n");
+      writeFileSync(
+        join(tempRoot, "storage-key.ts"),
+        `localStorage.setItem("${storageKey}", "1");\n`
+      );
+
+      const result = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_NODE_MODULES_ROOT: emptyModuleRoot,
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        "TypeScript is required to validate domain usage; run npm ci."
+      );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

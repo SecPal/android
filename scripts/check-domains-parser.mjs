@@ -13,27 +13,79 @@ const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
   ? resolve(process.env.SECPAL_NODE_MODULES_ROOT)
   : resolve(scriptDirectory, "..");
 const require = createRequire(join(moduleRoot, "package.json"));
-const ts = require("typescript");
+let ts;
+try {
+  ts = require("typescript");
+} catch (error) {
+  if (error?.code === "MODULE_NOT_FOUND") {
+    process.stderr.write(
+      "TypeScript is required to validate domain usage; run npm ci.\n"
+    );
+    process.exit(1);
+  }
+  throw error;
+}
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 
+function isAmbientDeclaration(declaration) {
+  if (declaration.getSourceFile().isDeclarationFile) {
+    return true;
+  }
+  for (
+    let node = declaration;
+    node && !ts.isSourceFile(node);
+    node = node.parent
+  ) {
+    if (
+      node.flags & ts.NodeFlags.Ambient ||
+      ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isUnshadowedGlobal(checker, identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
   return !symbol?.declarations?.some(
-    (declaration) => declaration.getSourceFile() === identifier.getSourceFile()
+    (declaration) =>
+      declaration.getSourceFile() === identifier.getSourceFile() &&
+      !isAmbientDeclaration(declaration)
   );
+}
+
+function staticPropertyName(expression) {
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text;
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    expression.argumentExpression
+  ) {
+    const argument = unwrapExpression(expression.argumentExpression);
+    if (
+      ts.isStringLiteral(argument) ||
+      ts.isNoSubstitutionTemplateLiteral(argument)
+    ) {
+      return argument.text;
+    }
+  }
+  return undefined;
 }
 
 function storageArgument(node, checker) {
   if (
     !ts.isCallExpression(node) ||
-    !ts.isPropertyAccessExpression(node.expression)
+    (!ts.isPropertyAccessExpression(node.expression) &&
+      !ts.isElementAccessExpression(node.expression))
   ) {
     return undefined;
   }
 
-  const method = node.expression.name.text;
+  const method = staticPropertyName(node.expression);
   if (!["getItem", "setItem", "removeItem"].includes(method)) {
     return undefined;
   }
@@ -44,23 +96,31 @@ function storageArgument(node, checker) {
     ["localStorage", "sessionStorage"].includes(receiver.text) &&
     isUnshadowedGlobal(checker, receiver);
   const globalStorage =
-    ts.isPropertyAccessExpression(receiver) &&
+    (ts.isPropertyAccessExpression(receiver) ||
+      ts.isElementAccessExpression(receiver)) &&
     ts.isIdentifier(receiver.expression) &&
     ["window", "globalThis"].includes(receiver.expression.text) &&
-    ["localStorage", "sessionStorage"].includes(receiver.name.text) &&
+    ["localStorage", "sessionStorage"].includes(
+      staticPropertyName(receiver) ?? ""
+    ) &&
     isUnshadowedGlobal(checker, receiver.expression);
 
   return directStorage || globalStorage ? node.arguments[0] : undefined;
 }
 
+function isTransparentExpressionWrapper(node) {
+  return (
+    node &&
+    (ts.isAsExpression(node) ||
+      ts.isTypeAssertionExpression(node) ||
+      ts.isSatisfiesExpression(node) ||
+      ts.isParenthesizedExpression(node) ||
+      ts.isNonNullExpression(node))
+  );
+}
+
 function unwrapExpression(expression) {
-  while (
-    ts.isAsExpression(expression) ||
-    ts.isTypeAssertionExpression(expression) ||
-    ts.isSatisfiesExpression(expression) ||
-    ts.isParenthesizedExpression(expression) ||
-    ts.isNonNullExpression(expression)
-  ) {
+  while (isTransparentExpressionWrapper(expression)) {
     expression = expression.expression;
   }
   return expression;
@@ -111,6 +171,12 @@ function isTypeOnlyReference(identifier) {
     if (ts.isTypeQueryNode(node) || ts.isJSDocTypeExpression(node)) {
       return true;
     }
+    if (ts.isComputedPropertyName(node)) {
+      const container = node.parent.parent;
+      return (
+        ts.isTypeLiteralNode(container) || ts.isInterfaceDeclaration(container)
+      );
+    }
   }
   return false;
 }
@@ -123,6 +189,75 @@ function symbolAtIdentifier(checker, identifier) {
     return checker.getShorthandAssignmentValueSymbol(identifier.parent);
   }
   return checker.getSymbolAtLocation(identifier);
+}
+
+function containingFunctionDeclaration(identifier) {
+  for (let node = identifier.parent; node; node = node.parent) {
+    if (ts.isFunctionDeclaration(node)) {
+      return node;
+    }
+    if (ts.isFunctionLike(node)) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function functionIsCalledAfterDeclaration(
+  declaration,
+  declarationStart,
+  identifiers,
+  checker
+) {
+  if (!declaration.name) {
+    return false;
+  }
+  const symbol = checker.getSymbolAtLocation(declaration.name);
+  if (!symbol) {
+    return false;
+  }
+  const references = identifiers.filter(
+    (identifier) =>
+      identifier !== declaration.name &&
+      symbolAtIdentifier(checker, identifier) === symbol
+  );
+  const isDirectCall = (identifier) => {
+    let expression = identifier;
+    while (
+      isTransparentExpressionWrapper(expression.parent) &&
+      expression.parent.expression === expression
+    ) {
+      expression = expression.parent;
+    }
+    return (
+      ts.isCallExpression(expression.parent) &&
+      expression.parent.expression === expression
+    );
+  };
+  return (
+    references.length > 0 &&
+    references.every(
+      (identifier) =>
+        identifier.getStart() > declarationStart && isDirectCall(identifier)
+    )
+  );
+}
+
+function isReachableStorageUse(
+  identifier,
+  declarationStart,
+  identifiers,
+  checker
+) {
+  const containingFunction = containingFunctionDeclaration(identifier);
+  return containingFunction
+    ? functionIsCalledAfterDeclaration(
+        containingFunction,
+        declarationStart,
+        identifiers,
+        checker
+      )
+    : identifier.getStart() > declarationStart;
 }
 
 function parserExemptions(file, program, checker) {
@@ -193,7 +328,12 @@ function parserExemptions(file, program, checker) {
       references.every(
         (identifier) =>
           storageUses.has(identifier) &&
-          identifier.getStart(sourceFile) > declarationStart
+          isReachableStorageUse(
+            identifier,
+            declarationStart,
+            identifiers,
+            checker
+          )
       );
     if (onlyReachableStorageUses) {
       exemptions.push(candidate.initializer);
