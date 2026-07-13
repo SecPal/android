@@ -412,69 +412,42 @@ describe("preflight", () => {
         env: domainCheckerEnvironment,
       });
     };
-
+    const expectPass = (source: string) => expect(check(source).status).toBe(0);
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
       copyFileSync(
         resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
         join(tempRoot, "check-domains-parser.mjs")
       );
-
-      expect(
-        check(
-          `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
-
-      expect(
-        check(
-          `let storageKey: string = "${storageKey}";\nwindow.localStorage.getItem(storageKey);\n`
-        ).status
-      ).toBe(0);
-
-      expect(
-        check(
-          `const storageKey = "${storageKey}" as const;\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
-
-      expect(
-        check(
-          `const storageKey = \`${storageKey}\`;\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
-
-      expect(
-        check(`localStorage.setItem("${storageKey}" as const, "1");\n`).status
-      ).toBe(0);
-
-      expect(
-        check(`localStorage.setItem(\`${storageKey}\`, "1");\n`).status
-      ).toBe(0);
-
+      expectPass(
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `let storageKey: string = "${storageKey}";\nwindow.localStorage.getItem(storageKey);\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}" as const;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const storageKey = \`${storageKey}\`;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(`localStorage.setItem("${storageKey}" as const, "1");\n`);
+      expectPass(`localStorage.setItem(\`${storageKey}\`, "1");\n`);
       for (const argument of [
         "storageKey as string",
         "storageKey!",
         "(storageKey)",
       ]) {
-        expect(
-          check(
-            `const storageKey = "${storageKey}";\nlocalStorage.setItem(${argument}, "1");\n`
-          ).status
-        ).toBe(0);
+        expectPass(
+          `const storageKey = "${storageKey}";\nlocalStorage.setItem(${argument}, "1");\n`
+        );
       }
-
-      expect(
-        check(
-          `const storageKey = "${storageKey}";\ntype StorageKey = typeof storageKey;\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
-
-      expect(
-        check(
-          `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
-        ).status
-      ).toBe(0);
+      expectPass(
+        `const storageKey = "${storageKey}";\ntype StorageKey = typeof storageKey;\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expectPass(
+        `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
+      );
 
       const continuedInitializer = check(
         `const storageKey = "${storageKey}" + ".com";\nlocalStorage.setItem(storageKey, "1");\n`
@@ -516,11 +489,9 @@ describe("preflight", () => {
       expect(extendsDualUse.status).toBe(1);
       expect(extendsDualUse.stdout).toContain(storageKey);
 
-      expect(
-        check(
-          `const storageKey = "${storageKey}";\nclass StorageKey implements storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
-        ).status
-      ).toBe(0);
+      expectPass(
+        `const storageKey = "${storageKey}";\nclass StorageKey implements storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
+      );
 
       expect(
         check(
