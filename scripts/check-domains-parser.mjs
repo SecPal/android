@@ -53,15 +53,51 @@ function storageArgument(node, checker) {
   return directStorage || globalStorage ? node.arguments[0] : undefined;
 }
 
-function variableKind(declaration) {
-  const flags = declaration.parent.flags;
-  if (flags & ts.NodeFlags.Const) {
-    return "const";
+function storageKeyLiteral(initializer) {
+  let expression = initializer;
+  while (
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression) ||
+    ts.isParenthesizedExpression(expression)
+  ) {
+    expression = expression.expression;
   }
-  if (flags & ts.NodeFlags.Let) {
-    return "let";
+  return ts.isStringLiteral(expression) &&
+    storageKeyPattern.test(expression.text)
+    ? expression
+    : undefined;
+}
+
+function isExportedDeclaration(declaration) {
+  const statement = declaration.parent.parent;
+  return (
+    ts.isVariableStatement(statement) &&
+    Boolean(ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Export)
+  );
+}
+
+function isReexportedSymbol(sourceFile, checker, symbol) {
+  let exported = false;
+
+  function visit(node) {
+    if (
+      ts.isExportDeclaration(node) &&
+      node.exportClause &&
+      ts.isNamedExports(node.exportClause)
+    ) {
+      exported ||= node.exportClause.elements.some(
+        (specifier) =>
+          checker.getExportSpecifierLocalTargetSymbol(specifier) === symbol
+      );
+    }
+    if (!exported) {
+      ts.forEachChild(node, visit);
+    }
   }
-  return "var";
+
+  visit(sourceFile);
+  return exported;
 }
 
 function symbolAtIdentifier(checker, identifier) {
@@ -102,14 +138,18 @@ function parserExemptions(file, program, checker) {
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer &&
-      ts.isStringLiteral(node.initializer) &&
-      storageKeyPattern.test(node.initializer.text)
+      !isExportedDeclaration(node)
     ) {
       const symbol = checker.getSymbolAtLocation(node.name);
-      if (symbol) {
+      const initializer = storageKeyLiteral(node.initializer);
+      if (
+        symbol &&
+        initializer &&
+        !isReexportedSymbol(sourceFile, checker, symbol)
+      ) {
         candidates.push({
           declaration: node,
-          kind: variableKind(node),
+          initializer,
           symbol,
         });
       }
@@ -136,11 +176,10 @@ function parserExemptions(file, program, checker) {
       references.every(
         (identifier) =>
           storageUses.has(identifier) &&
-          (candidate.kind === "var" ||
-            identifier.getStart(sourceFile) > declarationStart)
+          identifier.getStart(sourceFile) > declarationStart
       );
     if (onlyReachableStorageUses) {
-      exemptions.push(candidate.declaration.initializer);
+      exemptions.push(candidate.initializer);
     }
   }
 

@@ -193,6 +193,7 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
     const storageKey = "secpal" + ".asset-load-recovery";
+    const deprecatedHost = ["api", "secpal", "app"].join(".");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -307,6 +308,22 @@ describe("preflight", () => {
 
       rmSync(nestedDirectory, { recursive: true, force: true });
 
+      writeFileSync(
+        join(tempRoot, "deprecated-module.mjs"),
+        `const endpoint = "https://${deprecatedHost}/api";\n`
+      );
+
+      const deprecatedModuleResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(deprecatedModuleResult.status).toBe(1);
+      expect(deprecatedModuleResult.stdout).toContain(deprecatedHost);
+
+      unlinkSync(join(tempRoot, "deprecated-module.mjs"));
+
       const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
       writeFileSync(
         join(tempRoot, "domain-like-storage-key.js"),
@@ -417,6 +434,12 @@ describe("preflight", () => {
 
       expect(
         check(
+          `const storageKey = "${storageKey}" as const;\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
+
+      expect(
+        check(
           `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
         ).status
       ).toBe(0);
@@ -468,6 +491,24 @@ describe("preflight", () => {
       );
       expect(hoistedVarDualUse.status).toBe(1);
       expect(hoistedVarDualUse.stdout).toContain(storageKey);
+
+      const varUseBeforeInitialization = check(
+        `localStorage.setItem(storageKey, "1");\nvar storageKey = "${storageKey}";\n`
+      );
+      expect(varUseBeforeInitialization.status).toBe(1);
+      expect(varUseBeforeInitialization.stdout).toContain(storageKey);
+
+      const exportedStorageKey = check(
+        `export const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(exportedStorageKey.status).toBe(1);
+      expect(exportedStorageKey.stdout).toContain(storageKey);
+
+      const reexportedStorageKey = check(
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nexport { storageKey };\n`
+      );
+      expect(reexportedStorageKey.status).toBe(1);
+      expect(reexportedStorageKey.stdout).toContain(storageKey);
 
       expect(
         check(

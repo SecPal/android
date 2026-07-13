@@ -84,7 +84,7 @@ violations=$(printf '%s\n' "$matches" | \
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app' | \
     grep -Ev '^\./(\.github/instructions/|\.github/copilot-instructions\.md:|README|docs/)' | \
-    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|js|jsx|html|kt|java|xml|gradle|kts|properties):' || true)
+    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|mts|cts|js|jsx|mjs|cjs|html|kt|java|xml|gradle|kts|properties):' || true)
 
 if [[ -z "$violations" && -z "$deprecated_web_hosts" ]]; then
     echo -e "${GREEN}✅ Domain Policy Check PASSED${NC}"
