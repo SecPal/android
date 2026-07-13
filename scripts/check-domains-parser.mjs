@@ -7,8 +7,7 @@ import { createRequire } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const scriptPath = resolve(fileURLToPath(import.meta.url));
-const scriptDirectory = dirname(scriptPath);
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
   ? resolve(process.env.SECPAL_NODE_MODULES_ROOT)
   : resolve(scriptDirectory, "..");
@@ -391,9 +390,7 @@ function replaceNonSourceStorageKeys(source) {
   );
 }
 
-const files = process.argv
-  .slice(2)
-  .filter((file) => resolve(file) !== scriptPath);
+const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
 );

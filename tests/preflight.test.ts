@@ -393,10 +393,45 @@ describe("preflight", () => {
       expect(hyphenatedHostnameResult.stdout).toContain(
         hyphenatedForbiddenHostname
       );
+
+      unlinkSync(join(tempRoot, "unapproved-hyphenated-host.js"));
+
+      const checkerHostname = "secpal" + ".checker-host.com";
+      const checkerSource = readFileSync(checker, "utf8");
+      writeFileSync(
+        checker,
+        `${checkerSource}\n# https://${checkerHostname}/api\n`
+      );
+
+      const checkerSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(checkerSourceResult.status).toBe(1);
+      expect(checkerSourceResult.stdout).toContain(checkerHostname);
+      writeFileSync(checker, checkerSource);
+
+      const parserHostname = "secpal" + ".parser-host.com";
+      const parser = join(tempRoot, "check-domains-parser.mjs");
+      writeFileSync(
+        parser,
+        `${readFileSync(parser, "utf8")}\n// https://${parserHostname}/api\n`
+      );
+
+      const parserSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(parserSourceResult.status).toBe(1);
+      expect(parserSourceResult.stdout).toContain(parserHostname);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("recognizes storage-key declarations only in reachable executable scopes", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
@@ -640,7 +675,7 @@ describe("preflight", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
@@ -740,10 +775,14 @@ describe("preflight", () => {
     }
   });
 
-  it("does not filter domains next to similarly named checker text", () => {
+  it("does not filter violations by unrelated line content", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const forbiddenHostname = "secpal" + ".invalid";
+    const forbiddenHostnames = [
+      "secpal" + ".filename-mask.com",
+      "secpal" + ".label-mask.com",
+      "secpal" + ".list-mask.com",
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -753,7 +792,11 @@ describe("preflight", () => {
       );
       writeFileSync(
         join(tempRoot, "unapproved-host.js"),
-        `const endpoint = "https://${forbiddenHostname}/api"; // check-domainsXsh\n`
+        [
+          `const first = "https://${forbiddenHostnames[0]}/api"; // check-domains.sh`,
+          `const second = "https://${forbiddenHostnames[1]}/api"; // Forbidden:`,
+          `const third = "https://${forbiddenHostnames[2]}/api"; // - "${["secpal", "policy-example"].join(".")}"`,
+        ].join("\n")
       );
 
       const result = spawnSync("/bin/bash", [checker], {
@@ -763,7 +806,9 @@ describe("preflight", () => {
       });
 
       expect(result.status).toBe(1);
-      expect(result.stdout).toContain(forbiddenHostname);
+      for (const forbiddenHostname of forbiddenHostnames) {
+        expect(result.stdout).toContain(forbiddenHostname);
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
