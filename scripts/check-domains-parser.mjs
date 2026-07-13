@@ -53,17 +53,23 @@ function storageArgument(node, checker) {
   return directStorage || globalStorage ? node.arguments[0] : undefined;
 }
 
-function storageKeyLiteral(initializer) {
-  let expression = initializer;
+function unwrapExpression(expression) {
   while (
     ts.isAsExpression(expression) ||
     ts.isTypeAssertionExpression(expression) ||
     ts.isSatisfiesExpression(expression) ||
-    ts.isParenthesizedExpression(expression)
+    ts.isParenthesizedExpression(expression) ||
+    ts.isNonNullExpression(expression)
   ) {
     expression = expression.expression;
   }
-  return ts.isStringLiteral(expression) &&
+  return expression;
+}
+
+function storageKeyLiteral(initializer) {
+  const expression = unwrapExpression(initializer);
+  return (ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)) &&
     storageKeyPattern.test(expression.text)
     ? expression
     : undefined;
@@ -102,7 +108,7 @@ function isReexportedSymbol(sourceFile, checker, symbol) {
 
 function isTypeOnlyReference(identifier) {
   for (let node = identifier.parent; node; node = node.parent) {
-    if (ts.isTypeNode(node) || ts.isJSDocTypeExpression(node)) {
+    if (ts.isTypeQueryNode(node) || ts.isJSDocTypeExpression(node)) {
       return true;
     }
   }
@@ -133,10 +139,11 @@ function parserExemptions(file, program, checker) {
   function visit(node) {
     const argument = storageArgument(node, checker);
     if (argument) {
-      if (ts.isIdentifier(argument)) {
-        storageUses.add(argument);
+      const unwrappedArgument = unwrapExpression(argument);
+      if (ts.isIdentifier(unwrappedArgument)) {
+        storageUses.add(unwrappedArgument);
       } else {
-        const literal = storageKeyLiteral(argument);
+        const literal = storageKeyLiteral(unwrappedArgument);
         if (literal) {
           directLiterals.push(literal);
         }

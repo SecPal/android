@@ -439,8 +439,30 @@ describe("preflight", () => {
       ).toBe(0);
 
       expect(
+        check(
+          `const storageKey = \`${storageKey}\`;\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
+
+      expect(
         check(`localStorage.setItem("${storageKey}" as const, "1");\n`).status
       ).toBe(0);
+
+      expect(
+        check(`localStorage.setItem(\`${storageKey}\`, "1");\n`).status
+      ).toBe(0);
+
+      for (const argument of [
+        "storageKey as string",
+        "storageKey!",
+        "(storageKey)",
+      ]) {
+        expect(
+          check(
+            `const storageKey = "${storageKey}";\nlocalStorage.setItem(${argument}, "1");\n`
+          ).status
+        ).toBe(0);
+      }
 
       expect(
         check(
@@ -487,6 +509,18 @@ describe("preflight", () => {
       );
       expect(templateDualUse.status).toBe(1);
       expect(templateDualUse.stdout).toContain(storageKey);
+
+      const extendsDualUse = check(
+        `const storageKey = "${storageKey}";\nclass StorageKey extends storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
+      );
+      expect(extendsDualUse.status).toBe(1);
+      expect(extendsDualUse.stdout).toContain(storageKey);
+
+      expect(
+        check(
+          `const storageKey = "${storageKey}";\nclass StorageKey implements storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
+        ).status
+      ).toBe(0);
 
       expect(
         check(
