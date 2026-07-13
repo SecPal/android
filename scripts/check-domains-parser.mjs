@@ -97,7 +97,7 @@ function isConditionallyEvaluated(node) {
       ((ts.isForInStatement(ancestor) || ts.isForOfStatement(ancestor)) &&
         ancestor.statement === child) ||
       ts.isCaseClause(ancestor) ||
-      ts.isDefaultClause(ancestor) ||
+      (ts.isDefaultClause(ancestor) && ancestor.parent.clauses.length !== 1) ||
       ts.isCatchClause(ancestor) ||
       (ts.isParameter(ancestor) && ancestor.initializer === child) ||
       (ts.isBindingElement(ancestor) && ancestor.initializer === child)
@@ -110,6 +110,91 @@ function isConditionallyEvaluated(node) {
     child = ancestor;
   }
   return false;
+}
+
+function abruptCompletion(statement) {
+  if (ts.isThrowStatement(statement)) {
+    return { always: true, uncatchable: false };
+  }
+  if (
+    ts.isReturnStatement(statement) ||
+    ts.isBreakStatement(statement) ||
+    ts.isContinueStatement(statement)
+  ) {
+    return { always: true, uncatchable: true };
+  }
+  if (ts.isBlock(statement)) {
+    for (const nestedStatement of statement.statements) {
+      const completion = abruptCompletion(nestedStatement);
+      if (completion.always) {
+        return completion;
+      }
+    }
+  }
+  if (ts.isIfStatement(statement) && statement.elseStatement) {
+    const thenCompletion = abruptCompletion(statement.thenStatement);
+    const elseCompletion = abruptCompletion(statement.elseStatement);
+    return {
+      always: thenCompletion.always && elseCompletion.always,
+      uncatchable: thenCompletion.uncatchable && elseCompletion.uncatchable,
+    };
+  }
+  if (ts.isTryStatement(statement)) {
+    const finallyCompletion = statement.finallyBlock
+      ? abruptCompletion(statement.finallyBlock)
+      : { always: false, uncatchable: false };
+    if (finallyCompletion.always) {
+      return finallyCompletion;
+    }
+    const tryCompletion = abruptCompletion(statement.tryBlock);
+    if (!tryCompletion.always || tryCompletion.uncatchable) {
+      return tryCompletion;
+    }
+    if (!statement.catchClause) {
+      return tryCompletion;
+    }
+    return abruptCompletion(statement.catchClause.block);
+  }
+  return { always: false, uncatchable: false };
+}
+
+function statementAlwaysCompletesAbruptly(statement) {
+  return abruptCompletion(statement).always;
+}
+
+function hasPrecedingAbruptCompletion(node) {
+  let child = node;
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (
+      ts.isBlock(ancestor) ||
+      ts.isSourceFile(ancestor) ||
+      ts.isCaseClause(ancestor) ||
+      ts.isDefaultClause(ancestor)
+    ) {
+      const childIndex = ancestor.statements.indexOf(child);
+      if (
+        childIndex > 0 &&
+        ancestor.statements
+          .slice(0, childIndex)
+          .some(statementAlwaysCompletesAbruptly)
+      ) {
+        return true;
+      }
+    }
+    if (ts.isFunctionLike(ancestor) || ts.isSourceFile(ancestor)) {
+      return false;
+    }
+    child = ancestor;
+  }
+  return false;
+}
+
+function hasProvenExecutionAt(node) {
+  return (
+    !hasWithStatementAncestor(node) &&
+    !isConditionallyEvaluated(node) &&
+    !hasPrecedingAbruptCompletion(node)
+  );
 }
 
 function staticPropertyName(expression) {
@@ -260,13 +345,46 @@ function symbolAtIdentifier(checker, identifier) {
   return checker.getSymbolAtLocation(identifier);
 }
 
-function containingFunctionLike(identifier) {
-  for (let node = identifier.parent; node; node = node.parent) {
-    if (ts.isFunctionLike(node)) {
-      return node;
+function containingFunctionLike(node) {
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (ts.isFunctionLike(ancestor)) {
+      return ancestor;
     }
   }
   return undefined;
+}
+
+function executionScope(node) {
+  for (let current = node; current; current = current.parent) {
+    if (ts.isFunctionLike(current) || ts.isSourceFile(current)) {
+      return current;
+    }
+  }
+  return undefined;
+}
+
+function addInitializationRequirement(requirements, node, position) {
+  const scope = executionScope(node);
+  if (!scope) {
+    return requirements;
+  }
+  const updated = new Map(requirements);
+  updated.set(scope, Math.max(updated.get(scope) ?? -1, position));
+  return updated;
+}
+
+function satisfyInitializationRequirement(requirements, node) {
+  const scope = executionScope(node);
+  const requiredPosition = scope ? requirements.get(scope) : undefined;
+  if (requiredPosition === undefined) {
+    return requirements;
+  }
+  if (node.getStart() <= requiredPosition) {
+    return undefined;
+  }
+  const remaining = new Map(requirements);
+  remaining.delete(scope);
+  return remaining;
 }
 
 function functionBinding(functionLike, checker) {
@@ -293,35 +411,61 @@ function functionBinding(functionLike, checker) {
     : undefined;
 }
 
-function isDirectCall(identifier) {
-  if (
-    hasWithStatementAncestor(identifier) ||
-    isConditionallyEvaluated(identifier)
-  ) {
-    return false;
-  }
-  let expression = identifier;
+function directCallExpression(expression) {
   while (
     isTransparentExpressionWrapper(expression.parent) &&
     expression.parent.expression === expression
   ) {
     expression = expression.parent;
   }
-  return (
-    ts.isCallExpression(expression.parent) &&
+  return ts.isCallExpression(expression.parent) &&
     expression.parent.expression === expression
+    ? expression.parent
+    : undefined;
+}
+
+function isDirectCall(identifier) {
+  return (
+    hasProvenExecutionAt(identifier) &&
+    Boolean(directCallExpression(identifier))
   );
 }
 
-function functionIsCalledAfterDeclaration(
+function functionExecutionIsReachable(
   functionLike,
-  declarationStart,
+  initializationRequirements,
   identifiers,
   checker,
   visiting = new Set()
 ) {
   if (functionLike.asteriskToken || isConditionallyEvaluated(functionLike)) {
     return false;
+  }
+  const immediateInvocation =
+    ts.isArrowFunction(functionLike) || ts.isFunctionExpression(functionLike)
+      ? directCallExpression(functionLike)
+      : undefined;
+  if (immediateInvocation) {
+    if (!hasProvenExecutionAt(immediateInvocation)) {
+      return false;
+    }
+    const caller = containingFunctionLike(immediateInvocation);
+    const remainingRequirements = satisfyInitializationRequirement(
+      initializationRequirements,
+      immediateInvocation
+    );
+    if (!remainingRequirements) {
+      return false;
+    }
+    return caller
+      ? functionExecutionIsReachable(
+          caller,
+          remainingRequirements,
+          identifiers,
+          checker,
+          visiting
+        )
+      : remainingRequirements.size === 0;
   }
   const binding = functionBinding(functionLike, checker);
   if (!binding) {
@@ -331,10 +475,14 @@ function functionIsCalledAfterDeclaration(
   if (!symbol || visiting.has(symbol)) {
     return false;
   }
-  const minimumCallStart = Math.max(
-    declarationStart,
-    binding.initializationEnd ?? declarationStart
-  );
+  const requiredAtCall =
+    binding.initializationEnd === undefined
+      ? initializationRequirements
+      : addInitializationRequirement(
+          initializationRequirements,
+          binding.identifier,
+          binding.initializationEnd
+        );
   const nextVisiting = new Set(visiting).add(symbol);
   const references = identifiers.filter(
     (identifier) =>
@@ -348,38 +496,52 @@ function functionIsCalledAfterDeclaration(
       if (!isDirectCall(identifier)) {
         return false;
       }
+      const remainingRequirements = satisfyInitializationRequirement(
+        requiredAtCall,
+        identifier
+      );
+      if (!remainingRequirements) {
+        return false;
+      }
       const caller = containingFunctionLike(identifier);
       return caller
-        ? functionIsCalledAfterDeclaration(
+        ? functionExecutionIsReachable(
             caller,
-            minimumCallStart,
+            remainingRequirements,
             identifiers,
             checker,
             nextVisiting
           )
-        : identifier.getStart() > minimumCallStart;
+        : remainingRequirements.size === 0;
     })
   );
 }
 
 function isReachableStorageUse(
-  identifier,
-  declarationStart,
+  storageUse,
+  initializationRequirements,
   identifiers,
   checker
 ) {
-  if (isConditionallyEvaluated(identifier)) {
+  if (!hasProvenExecutionAt(storageUse)) {
     return false;
   }
-  const containingFunction = containingFunctionLike(identifier);
+  const remainingRequirements = satisfyInitializationRequirement(
+    initializationRequirements,
+    storageUse
+  );
+  if (!remainingRequirements) {
+    return false;
+  }
+  const containingFunction = containingFunctionLike(storageUse);
   return containingFunction
-    ? functionIsCalledAfterDeclaration(
+    ? functionExecutionIsReachable(
         containingFunction,
-        declarationStart,
+        remainingRequirements,
         identifiers,
         checker
       )
-    : identifier.getStart() > declarationStart;
+    : remainingRequirements.size === 0;
 }
 
 function parserExemptions(file, program, checker) {
@@ -404,7 +566,7 @@ function parserExemptions(file, program, checker) {
       } else {
         const literal = storageKeyLiteral(unwrappedArgument);
         if (literal) {
-          directLiterals.push(literal);
+          directLiterals.push({ literal, storageUse: node });
         }
       }
     }
@@ -442,7 +604,11 @@ function parserExemptions(file, program, checker) {
     return [];
   }
 
-  const exemptions = [...directLiterals];
+  const exemptions = directLiterals
+    .filter(({ storageUse }) =>
+      isReachableStorageUse(storageUse, new Map(), identifiers, checker)
+    )
+    .map(({ literal }) => literal);
   for (const candidate of candidates) {
     const references = identifiers.filter(
       (identifier) =>
@@ -450,7 +616,11 @@ function parserExemptions(file, program, checker) {
         !isTypeOnlyReference(identifier) &&
         symbolAtIdentifier(checker, identifier) === candidate.symbol
     );
-    const declarationStart = candidate.declaration.name.getStart(sourceFile);
+    const initializationRequirements = addInitializationRequirement(
+      new Map(),
+      candidate.declaration,
+      candidate.declaration.initializer.getEnd()
+    );
     const onlyReachableStorageUses =
       references.length > 0 &&
       references.every(
@@ -458,7 +628,7 @@ function parserExemptions(file, program, checker) {
           storageUses.has(identifier) &&
           isReachableStorageUse(
             identifier,
-            declarationStart,
+            initializationRequirements,
             identifiers,
             checker
           )
