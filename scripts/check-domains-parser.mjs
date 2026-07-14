@@ -278,13 +278,25 @@ function isStorageConstructorReference(node, checker) {
   );
 }
 
+function isUnsafeUnshadowedCall(node, checker) {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    isUnshadowedGlobal(checker, node.expression)
+  );
+}
+
 function hasOnlySafeIifeGlobalUses(root, checker) {
   let safe = true;
   function visit(node) {
+    if (ts.isIdentifier(node) && isTypeOnlyReference(node)) {
+      return;
+    }
     if (
       safe &&
       (isDynamicCodeReference(node, checker) ||
         isStorageConstructorReference(node, checker) ||
+        isUnsafeUnshadowedCall(node, checker) ||
         (isUnshadowedGlobalObject(node, checker) &&
           !isPropertyNameIdentifier(node) &&
           !isSafeGlobalObjectUse(node)) ||

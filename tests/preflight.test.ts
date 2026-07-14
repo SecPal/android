@@ -595,6 +595,11 @@ describe("preflight", () => {
         `(function () {\n  var assetLoadRecoveryStorageKey = "${assetLoadRecoveryKey}";\n\n  function hasPendingAssetLoadRecovery() {\n    return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending";\n  }\n\n  function clearAssetLoadRecoveryFlag() {\n    window.sessionStorage.removeItem(assetLoadRecoveryStorageKey);\n  }\n\n  function markPendingAssetLoadRecovery() {\n    window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending");\n  }\n})();`,
         "js",
       ],
+      [
+        focusedKey("type-only-iife"),
+        `(function () {\n  var storageKey = "${focusedKey("type-only-iife")}";\n  type BrowserStorage = Storage;\n  type Callback = Function;\n  window.sessionStorage.getItem(storageKey);\n})();`,
+        "ts",
+      ],
     ] as const;
     const rejected = [
       [
@@ -784,6 +789,10 @@ describe("preflight", () => {
       [
         focusedKey("unsafe-iife-prefix"),
         `(function () {\n  block();\n  var storageKey = "${focusedKey("unsafe-iife-prefix")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("unsafe-before-storage-call"),
+        `(function () {\n  var storageKey = "${focusedKey("unsafe-before-storage-call")}";\n  block();\n  window.sessionStorage.getItem(storageKey);\n})();`,
       ],
     ] as const;
 
