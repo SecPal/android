@@ -163,42 +163,51 @@ function topLevelExpressionStatement(expression) {
     : undefined;
 }
 
-function syntacticStorageCall(node, checker) {
+function storageCallAccess(node, checker) {
   if (
     !ts.isCallExpression(node) ||
-    ts.isOptionalChain(node) ||
     (!ts.isPropertyAccessExpression(node.expression) &&
       !ts.isElementAccessExpression(node.expression))
   ) {
     return undefined;
   }
   const method = staticPropertyName(node.expression);
-  const argumentCount = storageMethods.get(method);
+  if (!storageMethods.has(method)) {
+    return undefined;
+  }
+  const receiver = browserStorageReceiver(node.expression.expression, checker);
+  return receiver ? { method, node, receiver } : undefined;
+}
+
+function syntacticStorageCall(access, checker) {
+  if (!access || ts.isOptionalChain(access.node)) {
+    return undefined;
+  }
+  const argumentCount = storageMethods.get(access.method);
   if (
-    argumentCount === undefined ||
-    node.arguments.length !== argumentCount ||
-    node.arguments.some(ts.isSpreadElement)
+    access.node.arguments.length !== argumentCount ||
+    access.node.arguments.some(ts.isSpreadElement) ||
+    (access.method === "setItem" &&
+      !passiveExpression(access.node.arguments[1], checker))
   ) {
     return undefined;
   }
-  const statement = topLevelExpressionStatement(node);
-  const receiver = browserStorageReceiver(node.expression.expression, checker);
+  const statement = topLevelExpressionStatement(access.node);
+  const key = unwrapExpression(access.node.arguments[0]);
   if (
     !statement ||
-    !receiver ||
-    (method === "setItem" && !passiveExpression(node.arguments[1], checker))
+    (!ts.isIdentifier(key) && !passiveExpression(key, checker))
   ) {
     return undefined;
   }
-  const key = unwrapExpression(node.arguments[0]);
-  if (!ts.isIdentifier(key) && !storageKeyLiteral(key)) {
-    return undefined;
-  }
-  return { key, method, node, receiver, statement };
+  return { ...access, key, statement };
 }
 
 function isTypeOnlyReference(identifier) {
   for (let node = identifier.parent; node; node = node.parent) {
+    if (ts.isPartOfTypeOnlyImportOrExportDeclaration(node)) {
+      return true;
+    }
     if (
       ts.isTypeReferenceNode(node) ||
       ts.isTypeQueryNode(node) ||
@@ -291,18 +300,45 @@ function passiveVariableStatement(statement, checker) {
     statement.declarationList.declarations.every(
       (declaration) =>
         ts.isIdentifier(declaration.name) &&
-        Boolean(declaration.initializer) &&
-        passiveExpression(declaration.initializer, checker)
+        (!declaration.initializer ||
+          passiveExpression(declaration.initializer, checker))
     )
   );
 }
 
-function safePrecedingStatement(statement, callsByStatement, checker) {
+function isErasedTypeOnlyStatement(statement) {
+  if (ts.isImportDeclaration(statement)) {
+    return statement.importClause?.isTypeOnly === true;
+  }
+  if (ts.isImportEqualsDeclaration(statement)) {
+    return statement.isTypeOnly;
+  }
+  if (!ts.isExportDeclaration(statement)) {
+    return false;
+  }
+  return (
+    statement.isTypeOnly ||
+    (!statement.moduleSpecifier &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause) &&
+      statement.exportClause.elements.every((specifier) =>
+        Boolean(specifier.isTypeOnly)
+      ))
+  );
+}
+
+function safePrecedingStatement(
+  statement,
+  callsByStatement,
+  safeStorageKeyUses,
+  checker
+) {
   if (
     isAmbientDeclaration(statement) ||
     ts.isEmptyStatement(statement) ||
     ts.isInterfaceDeclaration(statement) ||
-    ts.isTypeAliasDeclaration(statement)
+    ts.isTypeAliasDeclaration(statement) ||
+    isErasedTypeOnlyStatement(statement)
   ) {
     return true;
   }
@@ -314,11 +350,25 @@ function safePrecedingStatement(statement, callsByStatement, checker) {
   if (ts.isVariableStatement(statement)) {
     return passiveVariableStatement(statement, checker);
   }
+  if (
+    ts.isExpressionStatement(statement) &&
+    passiveExpression(statement.expression, checker)
+  ) {
+    return true;
+  }
   const call = callsByStatement.get(statement);
-  return Boolean(call && storageKeyLiteral(call.key));
+  return Boolean(
+    call &&
+    (passiveExpression(call.key, checker) || safeStorageKeyUses.has(call.key))
+  );
 }
 
-function hasStraightLinePrefix(call, callsByStatement, checker) {
+function hasStraightLinePrefix(
+  call,
+  callsByStatement,
+  safeStorageKeyUses,
+  checker
+) {
   const statements = call.statement.parent.statements;
   const index = statements.indexOf(call.statement);
   return (
@@ -326,7 +376,12 @@ function hasStraightLinePrefix(call, callsByStatement, checker) {
     statements
       .slice(0, index)
       .every((statement) =>
-        safePrecedingStatement(statement, callsByStatement, checker)
+        safePrecedingStatement(
+          statement,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker
+        )
       )
   );
 }
@@ -339,14 +394,16 @@ function declarationIsExported(declaration) {
   );
 }
 
-function symbolIsReexported(sourceFile, checker, symbol) {
+function symbolIsRuntimeExported(sourceFile, checker, symbol) {
   return sourceFile.statements.some(
     (statement) =>
       ts.isExportDeclaration(statement) &&
+      !statement.isTypeOnly &&
       statement.exportClause &&
       ts.isNamedExports(statement.exportClause) &&
       statement.exportClause.elements.some(
         (specifier) =>
+          !specifier.isTypeOnly &&
           checker.getExportSpecifierLocalTargetSymbol(specifier) === symbol
       )
   );
@@ -359,12 +416,17 @@ function parserExemptions(file, program, checker) {
   }
 
   const identifiers = [];
+  const accesses = [];
   const calls = [];
   function visit(node) {
     if (ts.isIdentifier(node)) {
       identifiers.push(node);
     }
-    const call = syntacticStorageCall(node, checker);
+    const access = storageCallAccess(node, checker);
+    if (access) {
+      accesses.push(access);
+    }
+    const call = syntacticStorageCall(access, checker);
     if (call) {
       calls.push(call);
     }
@@ -373,7 +435,7 @@ function parserExemptions(file, program, checker) {
   visit(sourceFile);
 
   const allowedReceivers = new Set(
-    calls.map((call) => call.receiver.identifier)
+    accesses.map((access) => access.receiver.identifier)
   );
   if (
     identifiers.some((identifier) =>
@@ -389,13 +451,7 @@ function parserExemptions(file, program, checker) {
       .filter((call) => ts.isIdentifier(call.key))
       .map((call) => [call.key, call])
   );
-  const exemptions = calls
-    .filter(
-      (call) =>
-        storageKeyLiteral(call.key) &&
-        hasStraightLinePrefix(call, callsByStatement, checker)
-    )
-    .map((call) => storageKeyLiteral(call.key));
+  const candidates = [];
 
   for (const statement of sourceFile.statements) {
     if (
@@ -418,7 +474,7 @@ function parserExemptions(file, program, checker) {
     if (
       !initializer ||
       !symbol ||
-      symbolIsReexported(sourceFile, checker, symbol)
+      symbolIsRuntimeExported(sourceFile, checker, symbol)
     ) {
       continue;
     }
@@ -430,16 +486,45 @@ function parserExemptions(file, program, checker) {
     );
     if (
       references.length > 0 &&
-      references.every((identifier) => {
-        const call = storageUses.get(identifier);
-        return (
+      references.every(
+        (identifier) =>
           identifier.getStart() > initializer.getEnd() &&
-          call &&
-          hasStraightLinePrefix(call, callsByStatement, checker)
+          storageUses.has(identifier)
+      )
+    ) {
+      candidates.push({ initializer, references });
+    }
+  }
+
+  const safeStorageKeyUses = new Set(
+    candidates.flatMap((candidate) => candidate.references)
+  );
+  const exemptions = calls
+    .filter(
+      (call) =>
+        storageKeyLiteral(call.key) &&
+        hasStraightLinePrefix(
+          call,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker
+        )
+    )
+    .map((call) => storageKeyLiteral(call.key));
+
+  for (const candidate of candidates) {
+    if (
+      candidate.references.every((identifier) => {
+        const call = storageUses.get(identifier);
+        return hasStraightLinePrefix(
+          call,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker
         );
       })
     ) {
-      exemptions.push(initializer);
+      exemptions.push(candidate.initializer);
     }
   }
 

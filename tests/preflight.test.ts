@@ -469,6 +469,51 @@ describe("preflight", () => {
         "mjs",
       ],
       [
+        focusedKey("directive-prefix"),
+        `"use strict";\nlocalStorage.setItem("${focusedKey("directive-prefix")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("type-import"),
+        `import type { StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("type-import")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-export"),
+        `export type { StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("type-export")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-only-key-export"),
+        `const storageKey = "${focusedKey("type-only-key-export")}";\nexport type { storageKey };\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("unrelated-storage"),
+        `localStorage.setItem("theme", "dark");\nlocalStorage.setItem("${focusedKey("unrelated-storage")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("unrelated-storage-after"),
+        `localStorage.setItem("${focusedKey("unrelated-storage-after")}", "1");\nlocalStorage.setItem("theme", "dark");`,
+        "js",
+      ],
+      [
+        focusedKey("nested-unrelated-storage"),
+        `function readTheme() { return localStorage.getItem("theme"); }\nlocalStorage.setItem("${focusedKey("nested-unrelated-storage")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("uninitialized-prefix"),
+        `let cached;\nlocalStorage.setItem("${focusedKey("uninitialized-prefix")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("sequential-uses"),
+        `const storageKey = "${focusedKey("sequential-uses")}";\nlocalStorage.getItem(storageKey);\nlocalStorage.removeItem(storageKey);`,
+        "ts",
+      ],
+      [
         focusedKey("ambient"),
         `declare const localStorage: Storage;\nconst storageKey = "${focusedKey("ambient")}";\nlocalStorage.setItem(storageKey, "1");`,
         "ts",
@@ -555,6 +600,18 @@ describe("preflight", () => {
         focusedKey("extra-argument"),
         `const storageKey = "${focusedKey("extra-argument")}";\nlocalStorage.setItem(storageKey, "1", "extra");`,
       ],
+      [
+        focusedKey("runtime-type-import"),
+        `import { type StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("runtime-type-import")}", "1");`,
+      ],
+      [
+        focusedKey("runtime-type-export"),
+        `export { type StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("runtime-type-export")}", "1");`,
+      ],
+      [
+        focusedKey("nonpassive-storage-prefix"),
+        `localStorage.setItem("theme", readTheme());\nlocalStorage.setItem("${focusedKey("nonpassive-storage-prefix")}", "1");`,
+      ],
     ] as const;
 
     try {
@@ -575,17 +632,18 @@ describe("preflight", () => {
         [parser, ...files.map(({ file }) => file)],
         { encoding: "utf8", env: domainCheckerEnvironment }
       );
+      const outputLines = result.stdout.split("\n");
+      const reports = ({ file, key }: { file: string; key: string }) =>
+        outputLines.some(
+          (line) => line.startsWith(`${file}:`) && line.includes(key)
+        );
       expect(result.status, result.stderr).toBe(0);
       expect(
-        files
-          .slice(0, accepted.length)
-          .filter(({ key }) => result.stdout.includes(key)),
+        files.slice(0, accepted.length).filter(reports),
         result.stdout
       ).toEqual([]);
       expect(
-        files
-          .slice(accepted.length)
-          .filter(({ key }) => !result.stdout.includes(key)),
+        files.slice(accepted.length).filter((file) => !reports(file)),
         result.stdout
       ).toEqual([]);
     } finally {

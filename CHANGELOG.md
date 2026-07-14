@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replaced regex-only browser-storage key exemptions in domain-policy validation with a fail-closed TypeScript syntax-tree whitelist for straight-line top-level calls and single-variable declarations, including lexical context, scope, shadowing, exact call arity, complete literal initializers, TypeScript wrappers, template-use tracking, and rejection of aliases, exports, indirect execution, concatenation, and dual use.
+- Replaced regex-only browser-storage key exemptions in domain-policy validation with a fail-closed TypeScript syntax-tree whitelist for straight-line top-level calls and single-variable declarations, including passive declarations and directives, erased type-only imports and exports, unrelated and repeated direct storage calls, lexical context, scope, shadowing, exact call arity, complete literal initializers, TypeScript wrappers, template-use tracking, and rejection of aliases, runtime exports, indirect execution, concatenation, and dual use.
 - Upgraded the Android build toolchain to compile SDK 36 and Android Gradle Plugin 8.9.1, raised the minimum SDK to 24, and moved the native open-source notices UI to Google Play services OSS licenses 17.5.1 and its v2 activity.
 - Removed the injected Android WebView discovery, login-reset, and About presentation so the shared frontend exclusively owns those screens; retained the native runtime-bootstrap, authentication, push, and enterprise capability bridges.
 - Corrected REUSE copyright attribution for the third-party Gradle Wrapper,
