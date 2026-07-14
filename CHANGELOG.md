@@ -48,9 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Domain-policy storage-key exemptions now prove bounded, straight-line
-  execution through zero-argument IIFEs while execution remains synchronous,
-  stop at async suspension or deferred callbacks, and validate each enclosing
-  prefix before a storage call (issue #377).
+  execution through concise, nested, and consecutive zero-argument IIFEs while
+  execution remains synchronous, stop at async suspension or deferred
+  callbacks, and validate each enclosing prefix before a storage call (issue
+  #377).
 - Excluded Fastlane's generated README from Markdown validation so its mixed
   setext and ATX headings no longer fail repository preflight while heading
   style enforcement remains enabled for maintained documentation (issue #360).

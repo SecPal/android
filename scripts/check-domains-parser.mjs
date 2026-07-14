@@ -163,6 +163,67 @@ function containingExpressionStatement(expression) {
     : undefined;
 }
 
+function immediateInvocation(functionExpression) {
+  if (
+    (!ts.isArrowFunction(functionExpression) &&
+      !ts.isFunctionExpression(functionExpression)) ||
+    functionExpression.asteriskToken ||
+    functionExpression.parameters.length !== 0
+  ) {
+    return undefined;
+  }
+
+  let invocation = functionExpression;
+  while (
+    isTransparentExpressionWrapper(invocation.parent) &&
+    invocation.parent.expression === invocation
+  ) {
+    invocation = invocation.parent;
+  }
+  return ts.isCallExpression(invocation.parent) &&
+    invocation.parent.expression === invocation &&
+    !ts.isOptionalChain(invocation.parent) &&
+    invocation.parent.arguments.length === 0
+    ? invocation.parent
+    : undefined;
+}
+
+function immediateFunctionExpression(expression) {
+  const invocation = unwrapExpression(expression);
+  if (!ts.isCallExpression(invocation)) {
+    return undefined;
+  }
+  const functionExpression = unwrapExpression(invocation.expression);
+  return immediateInvocation(functionExpression) === invocation
+    ? functionExpression
+    : undefined;
+}
+
+function containingExecutionStatement(expression) {
+  const statement = containingExpressionStatement(expression);
+  if (statement) {
+    return statement;
+  }
+
+  let body = expression;
+  while (
+    isTransparentExpressionWrapper(body.parent) &&
+    body.parent.expression === body
+  ) {
+    body = body.parent;
+  }
+  const functionExpression = body.parent;
+  if (
+    !ts.isArrowFunction(functionExpression) ||
+    functionExpression.body !== body ||
+    ts.isBlock(functionExpression.body)
+  ) {
+    return undefined;
+  }
+  const invocation = immediateInvocation(functionExpression);
+  return invocation ? containingExecutionStatement(invocation) : undefined;
+}
+
 function storageCallAccess(node, checker) {
   if (
     !ts.isCallExpression(node) ||
@@ -192,7 +253,7 @@ function syntacticStorageCall(access, checker) {
   ) {
     return undefined;
   }
-  const statement = containingExpressionStatement(access.node);
+  const statement = containingExecutionStatement(access.node);
   const key = unwrapExpression(access.node.arguments[0]);
   if (
     !statement ||
@@ -388,10 +449,30 @@ function safePrecedingStatement(
     return true;
   }
   const call = callsByStatement.get(statement);
-  return Boolean(
+  if (
     call &&
     (passiveExpression(call.key, checker) || safeStorageKeyUses.has(call.key))
-  );
+  ) {
+    return true;
+  }
+
+  if (!ts.isExpressionStatement(statement)) {
+    return false;
+  }
+  const functionExpression = immediateFunctionExpression(statement.expression);
+  if (!functionExpression) {
+    return false;
+  }
+  return ts.isBlock(functionExpression.body)
+    ? functionExpression.body.statements.every((bodyStatement) =>
+        safePrecedingStatement(
+          bodyStatement,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker
+        )
+      )
+    : passiveExpression(functionExpression.body, checker);
 }
 
 function hasStraightLinePrefix(
@@ -423,32 +504,14 @@ function hasStraightLinePrefix(
   }
 
   const functionExpression = container.parent;
-  if (
-    !ts.isBlock(container) ||
-    (!ts.isArrowFunction(functionExpression) &&
-      !ts.isFunctionExpression(functionExpression)) ||
-    functionExpression.asteriskToken ||
-    functionExpression.parameters.length !== 0
-  ) {
+  if (!ts.isBlock(container)) {
     return false;
   }
-
-  let invocation = functionExpression;
-  while (
-    isTransparentExpressionWrapper(invocation.parent) &&
-    invocation.parent.expression === invocation
-  ) {
-    invocation = invocation.parent;
-  }
-  if (
-    !ts.isCallExpression(invocation.parent) ||
-    invocation.parent.expression !== invocation ||
-    ts.isOptionalChain(invocation.parent) ||
-    invocation.parent.arguments.length !== 0
-  ) {
+  const invocation = immediateInvocation(functionExpression);
+  if (!invocation) {
     return false;
   }
-  const entry = containingExpressionStatement(invocation.parent);
+  const entry = containingExecutionStatement(invocation);
   return Boolean(
     entry &&
     hasStraightLinePrefix(

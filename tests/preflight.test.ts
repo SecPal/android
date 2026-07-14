@@ -599,6 +599,36 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("sequential-iife"),
+        `(() => { localStorage.setItem("theme", "dark"); })();\n(() => { localStorage.setItem("${focusedKey("sequential-iife")}", "1"); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("iife-then-direct"),
+        `(() => { localStorage.setItem("theme", "dark"); })();\nlocalStorage.setItem("${focusedKey("iife-then-direct")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("concise-iife"),
+        `(() => localStorage.setItem("${focusedKey("concise-iife")}", "1"))();`,
+        "ts",
+      ],
+      [
+        focusedKey("function-iife"),
+        `(function () { localStorage.setItem("${focusedKey("function-iife")}", "1"); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("nested-iife"),
+        `(() => { (() => { localStorage.setItem("${focusedKey("nested-iife")}", "1"); })(); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("nested-concise-iife"),
+        `(() => (() => localStorage.setItem("${focusedKey("nested-concise-iife")}", "1"))())();`,
+        "ts",
+      ],
+      [
         focusedKey("async-iife-before-suspension"),
         `(async () => { localStorage.setItem("${focusedKey("async-iife-before-suspension")}", "1"); })();`,
         "ts",
@@ -752,6 +782,30 @@ describe("preflight", () => {
       [
         focusedKey("async-suspension"),
         `(async () => { await ready; localStorage.setItem("${focusedKey("async-suspension")}", "1"); })();`,
+      ],
+      [
+        focusedKey("nested-async-suspension"),
+        `(async () => { await ready; (() => { localStorage.setItem("${focusedKey("nested-async-suspension")}", "1"); })(); })();`,
+      ],
+      [
+        focusedKey("iife-trailing-effect"),
+        `(() => { localStorage.setItem("theme", "dark"); initialize(); })();\nlocalStorage.setItem("${focusedKey("iife-trailing-effect")}", "1");`,
+      ],
+      [
+        focusedKey("iife-trailing-suspension"),
+        `(async () => { localStorage.setItem("theme", "dark"); await ready; })();\nlocalStorage.setItem("${focusedKey("iife-trailing-suspension")}", "1");`,
+      ],
+      [
+        focusedKey("optional-iife"),
+        `(() => { localStorage.setItem("${focusedKey("optional-iife")}", "1"); })?.();`,
+      ],
+      [
+        focusedKey("parameterized-iife"),
+        `((value = initialize()) => { localStorage.setItem("${focusedKey("parameterized-iife")}", "1"); })();`,
+      ],
+      [
+        focusedKey("generator-iife"),
+        `(function* () { localStorage.setItem("${focusedKey("generator-iife")}", "1"); })();`,
       ],
       [
         focusedKey("deferred"),
