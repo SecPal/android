@@ -487,6 +487,30 @@ describe("preflight", () => {
         ...Array.from({ length: callsPerHelper[1] }, () => "persistSecond();"),
         `localStorage.setItem("${storageKey}", "1");`,
       ].join("\n");
+    const repeatedWrapperCalls = (storageKey: string, wrapperCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function persist() { localStorage.setItem(storageKey, "1"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: wrapperCalls }, () => "wrapper();"),
+      ].join("\n");
+    const mixedPrefixWrapperCalls = (storageKey: string, prefixCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function persistTheme() { localStorage.setItem("theme", "dark"); }',
+        'function persist() { localStorage.setItem(storageKey, "1"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: prefixCalls }, () => "persistTheme();"),
+        "wrapper();",
+        "wrapper();",
+      ].join("\n");
+    const passiveWrapperPrefix = (storageKey: string, wrapperCalls: number) =>
+      [
+        'function persist() { localStorage.setItem("theme", "dark"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: wrapperCalls }, () => "wrapper();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
     const accepted = [
       [
         focusedKey("const-direct"),
@@ -762,6 +786,61 @@ describe("preflight", () => {
         "dormant-getter-helper-call",
         `class Wrapper { get value() { persist(); return "ready"; } }\nconst storageKey = "${focusedKey("dormant-getter-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
       ),
+      acceptedCase(
+        "direct-before-helper-reference",
+        `const storageKey = "${focusedKey("direct-before-helper-reference")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nlocalStorage.setItem(storageKey, "1");\npersist();`
+      ),
+      acceptedCase(
+        "dormant-arrow-helper-call",
+        `const storageKey = "${focusedKey("dormant-arrow-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst unused = () => { persist(); };`
+      ),
+      acceptedCase(
+        "dormant-expression-helper-call",
+        `const storageKey = "${focusedKey("dormant-expression-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst unused = function () { persist(); };`
+      ),
+      acceptedCase(
+        "repeated-wrapper-helper-call",
+        repeatedWrapperCalls(focusedKey("repeated-wrapper-helper-call"), 2)
+      ),
+      acceptedCase(
+        "wrapper-helper-call-limit",
+        repeatedWrapperCalls(focusedKey("wrapper-helper-call-limit"), 4)
+      ),
+      acceptedCase(
+        "mixed-wrapper-helper-call-limit",
+        mixedPrefixWrapperCalls(
+          focusedKey("mixed-wrapper-helper-call-limit"),
+          4
+        )
+      ),
+      acceptedCase(
+        "passive-wrapper-prefix-limit",
+        passiveWrapperPrefix(focusedKey("passive-wrapper-prefix-limit"), 4)
+      ),
+      acceptedCase(
+        "multiple-helper-reference-fixpoint",
+        `const storageKey = "${focusedKey("multiple-helper-reference-fixpoint")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\nlocalStorage.setItem(storageKey, "1");\npersistSecond();\npersistFirst();`
+      ),
+      acceptedCase(
+        "dormant-arrow-before-helper-call",
+        `const storageKey = "${focusedKey("dormant-arrow-before-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { persist(); };\npersist();`
+      ),
+      acceptedCase(
+        "type-only-dormant-arrow",
+        `const storageKey = "${focusedKey("type-only-dormant-arrow")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { persist(); };\ntype Unused = typeof unused;\npersist();`
+      ),
+      acceptedCase(
+        "dormant-concise-arrow",
+        `const storageKey = "${focusedKey("dormant-concise-arrow")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => persist();\npersist();`
+      ),
+      acceptedCase(
+        "nested-dormant-closure",
+        `const storageKey = "${focusedKey("nested-dormant-closure")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { const nested = () => persist(); nested(); };\npersist();`
+      ),
+      acceptedCase(
+        "class-used-only-by-dormant-function",
+        `function unused() { new Wrapper().run(); }\nclass Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("class-used-only-by-dormant-function")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
     ] as const;
     const rejected = [
       [
@@ -884,6 +963,27 @@ describe("preflight", () => {
         "iife-prefix-helper-limit-exceeded",
         `(() => {\n${passiveHelperPrefix(focusedKey("iife-prefix-helper-limit-exceeded"), 9)}\n})();`
       ),
+      rejectedCase(
+        "wrapper-helper-call-limit-exceeded",
+        repeatedWrapperCalls(
+          focusedKey("wrapper-helper-call-limit-exceeded"),
+          5
+        )
+      ),
+      rejectedCase(
+        "mixed-wrapper-helper-call-limit-exceeded",
+        mixedPrefixWrapperCalls(
+          focusedKey("mixed-wrapper-helper-call-limit-exceeded"),
+          5
+        )
+      ),
+      rejectedCase(
+        "passive-wrapper-prefix-limit-exceeded",
+        passiveWrapperPrefix(
+          focusedKey("passive-wrapper-prefix-limit-exceeded"),
+          5
+        )
+      ),
       [
         focusedKey("helper-trailing-effect"),
         `const storageKey = "${focusedKey("helper-trailing-effect")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); initialize(); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`,
@@ -923,6 +1023,14 @@ describe("preflight", () => {
       [
         focusedKey("exported-method-wrapper"),
         `export class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("exported-method-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("live-arrow-wrapper"),
+        `const storageKey = "${focusedKey("live-arrow-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst wrapper = () => { persist(); };\npersist();\nwrapper();`,
+      ],
+      [
+        focusedKey("exported-arrow-wrapper"),
+        `const storageKey = "${focusedKey("exported-arrow-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nexport const wrapper = () => { persist(); };\npersist();`,
       ],
       [
         focusedKey("helper-before-var-initializer"),
