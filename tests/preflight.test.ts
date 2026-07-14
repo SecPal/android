@@ -679,6 +679,11 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("repeated-helper-call"),
+        `const storageKey = "${focusedKey("repeated-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\npersist();`,
+        "ts",
+      ],
+      [
         focusedKey("helper-call-limit"),
         helperChain(focusedKey("helper-call-limit"), 8),
         "ts",
@@ -768,6 +773,14 @@ describe("preflight", () => {
       [
         focusedKey("named-export-helper"),
         `const storageKey = "${focusedKey("named-export-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nexport { persist };\npersist();`,
+      ],
+      [
+        focusedKey("duplicate-helper"),
+        `const storageKey = "${focusedKey("duplicate-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction persist() {}\npersist();`,
+      ],
+      [
+        focusedKey("later-safe-key"),
+        `localStorage.setItem(firstKey, "1");\nconst firstKey = "${focusedKey("earlier-bad-key")}";\nconst secondKey = "${focusedKey("later-safe-key")}";\nlocalStorage.setItem(secondKey, "1");`,
       ],
       [
         focusedKey("optional-helper"),

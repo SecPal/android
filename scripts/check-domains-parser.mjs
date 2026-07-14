@@ -228,6 +228,13 @@ function isFunctionDeclarationName(identifier) {
   );
 }
 
+function isSingleFunctionImplementation(symbol, declaration) {
+  const implementations = symbol.declarations?.filter(
+    (candidate) => ts.isFunctionDeclaration(candidate) && candidate.body
+  );
+  return implementations?.length === 1 && implementations[0] === declaration;
+}
+
 function containingExecutionStatement(expression) {
   const statement = containingExpressionStatement(expression);
   if (statement) {
@@ -524,11 +531,9 @@ function safeHelperInvocation(statement, proofContext) {
     return declaration.body.statements.every((bodyStatement) => {
       const call = proofContext.callsByStatement.get(bodyStatement);
       return call
-        ? hasStraightLinePrefix(
+        ? hasHelperInvocationPrefix(
             call,
-            proofContext.callsByStatement,
-            proofContext.safeStorageKeyUses,
-            proofContext.checker,
+            statement,
             proofContext,
             proofContext.requiredPrecedingStatements.get(call.key)
           )
@@ -543,6 +548,38 @@ function safeHelperInvocation(statement, proofContext) {
   } finally {
     proofContext.validatingHelperInvocations.delete(statement);
   }
+}
+
+function hasHelperInvocationPrefix(
+  call,
+  invocationStatement,
+  proofContext,
+  requiredPrecedingStatement
+) {
+  const statements = call.statement.parent.statements;
+  const index = statements.indexOf(call.statement);
+  return (
+    index >= 0 &&
+    statements
+      .slice(0, index)
+      .every((statement) =>
+        safePrecedingStatement(
+          statement,
+          proofContext.callsByStatement,
+          proofContext.safeStorageKeyUses,
+          proofContext.checker,
+          proofContext
+        )
+      ) &&
+    hasStraightLinePrefix(
+      { statement: invocationStatement },
+      proofContext.callsByStatement,
+      proofContext.safeStorageKeyUses,
+      proofContext.checker,
+      proofContext,
+      requiredPrecedingStatement
+    )
+  );
 }
 
 function hasStraightLinePrefix(
@@ -740,7 +777,11 @@ function parserExemptions(file, program, checker) {
       continue;
     }
     const symbol = checker.getSymbolAtLocation(declaration.name);
-    if (!symbol || symbolIsRuntimeExported(sourceFile, checker, symbol)) {
+    if (
+      !symbol ||
+      !isSingleFunctionImplementation(symbol, declaration) ||
+      symbolIsRuntimeExported(sourceFile, checker, symbol)
+    ) {
       continue;
     }
     const invocations = identifiers
@@ -797,9 +838,7 @@ function parserExemptions(file, program, checker) {
     }
   }
 
-  const safeStorageKeyUses = new Set(
-    candidates.flatMap((candidate) => candidate.references)
-  );
+  const safeStorageKeyUses = new Set();
   const helperDeclarationsByInvocation = new Map(
     [...helperInvocations].flatMap(([declaration, invocations]) =>
       invocations.map((invocation) => [invocation.statement, declaration])
@@ -842,19 +881,25 @@ function parserExemptions(file, program, checker) {
   const candidateRecords = [];
 
   for (const candidate of candidates) {
-    if (
-      candidate.references.every((identifier) => {
-        const call = storageUses.get(identifier);
-        return hasStraightLinePrefix(
+    const provenReferences = [];
+    for (const identifier of candidate.references) {
+      const call = storageUses.get(identifier);
+      if (
+        !hasStraightLinePrefix(
           call,
           callsByStatement,
           safeStorageKeyUses,
           checker,
           proofContext,
           candidate.declaration.parent.parent
-        );
-      })
-    ) {
+        )
+      ) {
+        break;
+      }
+      safeStorageKeyUses.add(identifier);
+      provenReferences.push(identifier);
+    }
+    if (provenReferences.length === candidate.references.length) {
       candidateRecords.push({
         literal: candidate.initializer,
         typeRoots: [
@@ -864,6 +909,10 @@ function parserExemptions(file, program, checker) {
           ),
         ],
       });
+    } else {
+      for (const identifier of provenReferences) {
+        safeStorageKeyUses.delete(identifier);
+      }
     }
   }
 
