@@ -866,6 +866,9 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper["persist"] = replacement;\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\ndelete helper["persist"];\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nObject.defineProperty(helper, "persist", { value: replacement });\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nalias.persist = replacement;\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nconst transitiveAlias = alias;\nObject.defineProperty(transitiveAlias, "persist", { value: replacement });\nhelper.persist();\n`,
+        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nregister(helper);\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nlet other: typeof helper;\nother.persist();\n`,
         `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nlet Other: typeof Helper;\nOther.persist();\n`,
         `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nlet other: Helper;\nother.persist();\n`,
@@ -902,6 +905,9 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nFunction("localStorage.setItem = replacement")();\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, (() => { throw new Error(); })());\n`,
         `localStorage.setItem("${storageKey}", (() => { throw new Error(); })());\n`,
+        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1", "unused");\n`,
+        `const storageKey = "${storageKey}";\nlocalStorage.getItem(storageKey, "unused");\n`,
+        `const storageKey = "${storageKey}";\nsessionStorage.removeItem(storageKey, ...extraArguments);\n`,
         `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, fail());\n`,
         `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nfail();\nlocalStorage.setItem(storageKey, "1");\n`,
         `function fail() { throw new Error(); }\nconst { value = fail() } = {};\nlocalStorage.setItem("${storageKey}", "1");\n`,
@@ -990,6 +996,78 @@ describe("preflight", () => {
         accepted: `for (const { value = "safe" } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-safe")}", "1");`,
         rejected: `function fail() { throw new Error(); }\nfor (const { value = fail() } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-default")}", "1");`,
       },
+      {
+        accepted: `function maybeThrow() { if (enabled) throw new Error(); }\ntry { maybeThrow(); } catch {}\nlocalStorage.setItem("${reviewStorageKey("catch-safe")}", "1");`,
+        rejected: `function maybeThrow() { if (enabled) throw new Error(); }\ntry { maybeThrow(); } catch { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("catch-exit")}", "1");`,
+      },
+      {
+        accepted: `const storageKey = "${reviewStorageKey("alias-safe")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\nconst alias = helper;\nalias.persist = replacement;`,
+        rejected: `const storageKey = "${reviewStorageKey("alias-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nalias.persist = replacement;\nhelper.persist();`,
+      },
+      {
+        accepted: `for (const value of []) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-of-safe")}", "1");`,
+        rejected: `for (const value of [1]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-of-exit")}", "1");`,
+      },
+      {
+        accepted: `for (const key in {}) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-in-safe")}", "1");`,
+        rejected: `for (const key in { value: 1 }) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-in-exit")}", "1");`,
+      },
+      {
+        accepted: `for (const value of [...[]]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-spread-safe")}", "1");`,
+        rejected: `for (const value of [...[1]]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-spread-exit")}", "1");`,
+      },
+      {
+        accepted: `for (const value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-declaration-safe")}", "1");`,
+        rejected: `function fail() { throw new Error(); }\nfor (const { value = fail() } of [{}]) {}\nlocalStorage.setItem("${reviewStorageKey("for-declaration-exit")}", "1");`,
+      },
+      {
+        accepted: `const target = { value: 0 };\nfor (target.value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-target-safe")}", "1");`,
+        rejected: `const target = { set value(next) { throw new Error(); } };\nfor (target.value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-target-exit")}", "1");`,
+      },
+      {
+        accepted: `const obj = { prop: 0 };\nobj.prop = 1;\nlocalStorage.setItem("${reviewStorageKey("setter-safe")}", "1");`,
+        rejected: `const obj = { set prop(value) { throw new Error(); } };\nobj.prop = 1;\nlocalStorage.setItem("${reviewStorageKey("setter-exit")}", "1");`,
+      },
+      {
+        accepted: `let prior = 0;\nprior++;\nlocalStorage.setItem("${reviewStorageKey("postfix-safe")}", "1");`,
+        rejected: `let prior = { valueOf() { throw new Error(); } };\nprior++;\nlocalStorage.setItem("${reviewStorageKey("postfix-exit")}", "1");`,
+      },
+      {
+        accepted: `let prior = 0;\n--prior;\nlocalStorage.setItem("${reviewStorageKey("prefix-safe")}", "1");`,
+        rejected: `let prior = { valueOf() { throw new Error(); } };\n--prior;\nlocalStorage.setItem("${reviewStorageKey("prefix-exit")}", "1");`,
+      },
+      {
+        accepted: `const prior = "value";\nprior + 1;\nlocalStorage.setItem("${reviewStorageKey("const-order-safe")}", "1");`,
+        rejected: `prior + 1;\nconst prior = "value";\nlocalStorage.setItem("${reviewStorageKey("const-tdz")}", "1");`,
+      },
+      {
+        accepted: `function read() { return prior + 1; }\nconst prior = "value";\nread();\nlocalStorage.setItem("${reviewStorageKey("deferred-order-safe")}", "1");`,
+        rejected: `prior + 1;\nlet prior = "value";\nlocalStorage.setItem("${reviewStorageKey("let-tdz")}", "1");`,
+      },
+      {
+        accepted: `var prior = { prop: "value" };\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-order-safe")}", "1");`,
+        rejected: `prior.prop;\nvar prior = { prop: "value" };\nlocalStorage.setItem("${reviewStorageKey("var-order-hazard")}", "1");`,
+      },
+      {
+        accepted: `var prior = { prop: "value" };\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-path-safe")}", "1");`,
+        rejected: `if (enabled) { var prior = { prop: "value" }; }\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-path-hazard")}", "1");`,
+      },
+      {
+        accepted: `class Prior {}\n({}) instanceof Prior;\nlocalStorage.setItem("${reviewStorageKey("class-order-safe")}", "1");`,
+        rejected: `({}) instanceof Prior;\nclass Prior {}\nlocalStorage.setItem("${reviewStorageKey("class-tdz")}", "1");`,
+      },
+      {
+        accepted: `false && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-safe")}", "1");`,
+        rejected: `enabled && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-hazard")}", "1");`,
+      },
+      {
+        accepted: `true || await pending;\nlocalStorage.setItem("${reviewStorageKey("await-or-safe")}", "1");`,
+        rejected: `true && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-and-hazard")}", "1");`,
+      },
+      {
+        accepted: `function mutateStorage() { localStorage.setItem = replacement; }\nfalse && mutateStorage();\nconst storageKey = "${reviewStorageKey("mutation-safe")}";\nlocalStorage.setItem(storageKey, "1");`,
+        rejected: `function mutateStorage() { localStorage.setItem = replacement; }\nenabled && mutateStorage();\nconst storageKey = "${reviewStorageKey("mutation-hazard")}";\nlocalStorage.setItem(storageKey, "1");`,
+      },
     ] as const;
 
     try {
@@ -1016,6 +1094,24 @@ describe("preflight", () => {
           reviewStorageKey("prototype-getter"),
           reviewStorageKey("conditional-exit"),
           reviewStorageKey("for-binding-default"),
+          reviewStorageKey("catch-exit"),
+          reviewStorageKey("alias-overwrite"),
+          reviewStorageKey("for-of-exit"),
+          reviewStorageKey("for-in-exit"),
+          reviewStorageKey("for-spread-exit"),
+          reviewStorageKey("for-declaration-exit"),
+          reviewStorageKey("for-target-exit"),
+          reviewStorageKey("setter-exit"),
+          reviewStorageKey("postfix-exit"),
+          reviewStorageKey("prefix-exit"),
+          reviewStorageKey("const-tdz"),
+          reviewStorageKey("let-tdz"),
+          reviewStorageKey("var-order-hazard"),
+          reviewStorageKey("var-path-hazard"),
+          reviewStorageKey("class-tdz"),
+          reviewStorageKey("await-hazard"),
+          reviewStorageKey("await-and-hazard"),
+          reviewStorageKey("mutation-hazard"),
         ].filter((storageKey) => !result.stdout.includes(storageKey)),
         result.stdout
       ).toEqual([]);
@@ -1030,6 +1126,24 @@ describe("preflight", () => {
           reviewStorageKey("prototype-safe"),
           reviewStorageKey("conditional-safe"),
           reviewStorageKey("for-binding-safe"),
+          reviewStorageKey("catch-safe"),
+          reviewStorageKey("alias-safe"),
+          reviewStorageKey("for-of-safe"),
+          reviewStorageKey("for-in-safe"),
+          reviewStorageKey("for-spread-safe"),
+          reviewStorageKey("for-declaration-safe"),
+          reviewStorageKey("for-target-safe"),
+          reviewStorageKey("setter-safe"),
+          reviewStorageKey("postfix-safe"),
+          reviewStorageKey("prefix-safe"),
+          reviewStorageKey("const-order-safe"),
+          reviewStorageKey("deferred-order-safe"),
+          reviewStorageKey("var-order-safe"),
+          reviewStorageKey("var-path-safe"),
+          reviewStorageKey("class-order-safe"),
+          reviewStorageKey("await-safe"),
+          reviewStorageKey("await-or-safe"),
+          reviewStorageKey("mutation-safe"),
         ].filter((storageKey) => result.stdout.includes(storageKey)),
         result.stdout
       ).toEqual([]);
