@@ -26,6 +26,20 @@ const domainCheckerEnvironment = {
   SECPAL_NODE_MODULES_ROOT: repoRoot,
 };
 
+function outputReportsExactValue(
+  outputLines: string[],
+  file: string,
+  value: string
+) {
+  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const exactValue = new RegExp(
+    `(?:^|[^A-Za-z0-9.-])${escapedValue}(?:$|[^A-Za-z0-9.-])`
+  );
+  return outputLines.some(
+    (line) => line.startsWith(`${file}:`) && exactValue.test(line)
+  );
+}
+
 describe("preflight", () => {
   it("ignores only Fastlane's generated mixed-style documentation", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-fastlane-readme-"));
@@ -1257,15 +1271,8 @@ describe("preflight", () => {
         { encoding: "utf8", env: domainCheckerEnvironment }
       );
       const outputLines = result.stdout.split("\n");
-      const reports = ({ file, key }: { file: string; key: string }) => {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const exactKey = new RegExp(
-          `(?:^|[^A-Za-z0-9.-])${escapedKey}(?:$|[^A-Za-z0-9.-])`
-        );
-        return outputLines.some(
-          (line) => line.startsWith(`${file}:`) && exactKey.test(line)
-        );
-      };
+      const reports = ({ file, key }: { file: string; key: string }) =>
+        outputReportsExactValue(outputLines, file, key);
       expect(result.status, result.stderr).toBe(0);
       expect(
         {
@@ -1339,6 +1346,7 @@ describe("preflight", () => {
     ];
 
     try {
+      expect(expectedKeys).toHaveLength(cases.length);
       const files = cases.map((source, index) => {
         const file = join(tempRoot, `indirect-${index}.ts`);
         writeFileSync(file, source);
@@ -1353,10 +1361,7 @@ describe("preflight", () => {
       expect(
         expectedKeys.filter(
           (key, index) =>
-            !outputLines.some(
-              (line) =>
-                line.startsWith(`${files[index]}:`) && line.includes(key)
-            )
+            !outputReportsExactValue(outputLines, files[index], key)
         ),
         result.stdout
       ).toEqual([]);
