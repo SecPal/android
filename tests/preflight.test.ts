@@ -1285,6 +1285,22 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const storageKey = (suffix: string) => "secpal" + `.strict-${suffix}`;
+    const receiverEscapeCases = (
+      ["localStorage", "sessionStorage"] as const
+    ).flatMap((storage) =>
+      (["getItem", "removeItem", "setItem"] as const).flatMap((method) => {
+        const valueArgument = method === "setItem" ? ', "1"' : "";
+        return (["method", "receiver"] as const).map((escape) => {
+          const key = storageKey(`escaped-${escape}-${storage}-${method}`);
+          const escapedValue =
+            escape === "method" ? `${storage}.${method}` : storage;
+          return {
+            key,
+            source: `const escaped = ${escapedValue};\nconst key = "${key}";\n${storage}.${method}(key${valueArgument});`,
+          };
+        });
+      })
+    );
     const cases = [
       `switch (value) { case 1: throw new Error(); }\nlocalStorage.setItem("${storageKey("switch-exit")}", "1");`,
       `import "./setup.js";\nlocalStorage.setItem("${storageKey("import-exit")}", "1");`,
@@ -1300,10 +1316,27 @@ describe("preflight", () => {
       `Storage.prototype.setItem = replacement;\nconst key = "${storageKey("storage-prototype")}";\nlocalStorage.setItem(key, "1");`,
       `const StorageConstructor = Storage;\nStorageConstructor.prototype.removeItem = replacement;\nconst key = "${storageKey("storage-constructor-alias")}";\nsessionStorage.removeItem(key);`,
       `Function("localStorage.setItem = replacement")();\nconst key = "${storageKey("function-constructor")}";\nlocalStorage.setItem(key, "1");`,
-      `const save = localStorage.setItem;\nsave.call(localStorage, "${storageKey("escaped-method")}", "1");`,
-      `const store = sessionStorage;\nstore.setItem("${storageKey("escaped-receiver")}", "1");`,
+      ...receiverEscapeCases.map(({ source }) => source),
       `function block() { while (enabled) {} }\nblock();\nlocalStorage.setItem("${storageKey("while-block")}", "1");`,
     ] as const;
+    const expectedKeys = [
+      storageKey("switch-exit"),
+      storageKey("import-exit"),
+      storageKey("using-exit"),
+      storageKey("for-exit"),
+      storageKey("global-alias"),
+      storageKey("computed-global"),
+      storageKey("constructor-exit"),
+      storageKey("parameter-alias"),
+      storageKey("static-block"),
+      storageKey("dynamic-alias"),
+      storageKey("browser-alias"),
+      storageKey("storage-prototype"),
+      storageKey("storage-constructor-alias"),
+      storageKey("function-constructor"),
+      ...receiverEscapeCases.map(({ key }) => key),
+      storageKey("while-block"),
+    ];
 
     try {
       const files = cases.map((source, index) => {
@@ -1316,26 +1349,15 @@ describe("preflight", () => {
         env: domainCheckerEnvironment,
       });
       expect(result.status, result.stderr).toBe(0);
+      const outputLines = result.stdout.split("\n");
       expect(
-        [
-          storageKey("switch-exit"),
-          storageKey("import-exit"),
-          storageKey("using-exit"),
-          storageKey("for-exit"),
-          storageKey("global-alias"),
-          storageKey("computed-global"),
-          storageKey("constructor-exit"),
-          storageKey("parameter-alias"),
-          storageKey("static-block"),
-          storageKey("dynamic-alias"),
-          storageKey("browser-alias"),
-          storageKey("storage-prototype"),
-          storageKey("storage-constructor-alias"),
-          storageKey("function-constructor"),
-          storageKey("escaped-method"),
-          storageKey("escaped-receiver"),
-          storageKey("while-block"),
-        ].filter((key) => !result.stdout.includes(key)),
+        expectedKeys.filter(
+          (key, index) =>
+            !outputLines.some(
+              (line) =>
+                line.startsWith(`${files[index]}:`) && line.includes(key)
+            )
+        ),
         result.stdout
       ).toEqual([]);
     } finally {
