@@ -250,50 +250,6 @@ function identifierReferencesSymbol(checker, identifier, symbol) {
   );
 }
 
-function isNonComputedPropertyName(identifier) {
-  return (
-    (ts.isPropertyAccessExpression(identifier.parent) &&
-      identifier.parent.name === identifier) ||
-    ((ts.isPropertyAssignment(identifier.parent) ||
-      ts.isMethodDeclaration(identifier.parent) ||
-      ts.isPropertyDeclaration(identifier.parent)) &&
-      identifier.parent.name === identifier)
-  );
-}
-
-function sensitiveGlobalUse(identifier, allowedReceivers, checker) {
-  if (
-    allowedReceivers.has(identifier) ||
-    isTypeOnlyReference(identifier) ||
-    isNonComputedPropertyName(identifier) ||
-    (ts.isDeclarationName(identifier) &&
-      isAmbientDeclaration(identifier.parent)) ||
-    !isUnshadowedGlobal(checker, identifier)
-  ) {
-    return false;
-  }
-  if (
-    browserStorageKinds.has(identifier.text) ||
-    ["eval", "Function", "Storage"].includes(identifier.text)
-  ) {
-    return true;
-  }
-  if (!["window", "globalThis"].includes(identifier.text)) {
-    return false;
-  }
-  const parent = identifier.parent;
-  if (
-    (ts.isPropertyAccessExpression(parent) ||
-      ts.isElementAccessExpression(parent)) &&
-    parent.expression === identifier
-  ) {
-    return [...browserStorageKinds, "eval", "Function", "Storage"].includes(
-      staticPropertyName(parent)
-    );
-  }
-  return true;
-}
-
 function passiveVariableStatement(statement, checker) {
   return (
     !(statement.declarationList.flags & ts.NodeFlags.Using) &&
@@ -303,6 +259,56 @@ function passiveVariableStatement(statement, checker) {
         (!declaration.initializer ||
           passiveExpression(declaration.initializer, checker))
     )
+  );
+}
+
+function hasDecorators(node) {
+  return ts.canHaveDecorators(node) && Boolean(ts.getDecorators(node)?.length);
+}
+
+function hasStaticModifier(node) {
+  return Boolean(
+    node.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+    )
+  );
+}
+
+function passiveClassMember(member, checker) {
+  if (
+    ts.isClassStaticBlockDeclaration(member) ||
+    hasDecorators(member) ||
+    (member.name &&
+      ts.isComputedPropertyName(member.name) &&
+      !passiveExpression(member.name.expression, checker)) ||
+    member.parameters?.some(hasDecorators)
+  ) {
+    return false;
+  }
+  if (ts.isPropertyDeclaration(member)) {
+    return !(
+      hasStaticModifier(member) &&
+      member.initializer &&
+      !passiveExpression(member.initializer, checker)
+    );
+  }
+  return (
+    ts.isConstructorDeclaration(member) ||
+    ts.isMethodDeclaration(member) ||
+    ts.isGetAccessorDeclaration(member) ||
+    ts.isSetAccessorDeclaration(member) ||
+    ts.isIndexSignatureDeclaration(member) ||
+    ts.isSemicolonClassElement(member)
+  );
+}
+
+function passiveClassDeclaration(statement, checker) {
+  return (
+    !hasDecorators(statement) &&
+    !statement.heritageClauses?.some(
+      (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
+    ) &&
+    statement.members.every((member) => passiveClassMember(member, checker))
   );
 }
 
@@ -327,6 +333,29 @@ function isErasedTypeOnlyStatement(statement) {
   );
 }
 
+function hasHoistedRuntimeDependency(sourceFile) {
+  return sourceFile.statements.some(
+    (statement) =>
+      (ts.isImportDeclaration(statement) ||
+        (ts.isExportDeclaration(statement) && statement.moduleSpecifier)) &&
+      !isErasedTypeOnlyStatement(statement)
+  );
+}
+
+function resolvedLocalExport(statement, checker) {
+  return (
+    ts.isExportDeclaration(statement) &&
+    !statement.moduleSpecifier &&
+    statement.exportClause &&
+    ts.isNamedExports(statement.exportClause) &&
+    statement.exportClause.elements.every(
+      (specifier) =>
+        specifier.isTypeOnly ||
+        Boolean(checker.getExportSpecifierLocalTargetSymbol(specifier))
+    )
+  );
+}
+
 function safePrecedingStatement(
   statement,
   callsByStatement,
@@ -338,14 +367,16 @@ function safePrecedingStatement(
     ts.isEmptyStatement(statement) ||
     ts.isInterfaceDeclaration(statement) ||
     ts.isTypeAliasDeclaration(statement) ||
-    isErasedTypeOnlyStatement(statement)
+    isErasedTypeOnlyStatement(statement) ||
+    resolvedLocalExport(statement, checker)
   ) {
     return true;
   }
   if (ts.isFunctionDeclaration(statement)) {
-    return (
-      Boolean(statement.name) && !statement.modifiers?.some(ts.isDecorator)
-    );
+    return !hasDecorators(statement);
+  }
+  if (ts.isClassDeclaration(statement)) {
+    return passiveClassDeclaration(statement, checker);
   }
   if (ts.isVariableStatement(statement)) {
     return passiveVariableStatement(statement, checker);
@@ -409,23 +440,55 @@ function symbolIsRuntimeExported(sourceFile, checker, symbol) {
   );
 }
 
+function matchingTypeLiterals(root, value) {
+  const matches = [];
+  function visit(node) {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      node.text === value &&
+      ts.isLiteralTypeNode(node.parent)
+    ) {
+      matches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return matches;
+}
+
+function exemptionNodes(records) {
+  const nodes = new Set();
+  for (const record of records) {
+    nodes.add(record.literal);
+    for (const root of record.typeRoots) {
+      for (const typeLiteral of matchingTypeLiterals(
+        root,
+        record.literal.text
+      )) {
+        nodes.add(typeLiteral);
+      }
+    }
+  }
+  return [...nodes];
+}
+
 function parserExemptions(file, program, checker) {
   const sourceFile = program.getSourceFile(file);
-  if (!sourceFile || sourceFile.parseDiagnostics.length > 0) {
+  if (
+    !sourceFile ||
+    sourceFile.parseDiagnostics.length > 0 ||
+    hasHoistedRuntimeDependency(sourceFile)
+  ) {
     return [];
   }
 
   const identifiers = [];
-  const accesses = [];
   const calls = [];
   function visit(node) {
     if (ts.isIdentifier(node)) {
       identifiers.push(node);
     }
     const access = storageCallAccess(node, checker);
-    if (access) {
-      accesses.push(access);
-    }
     const call = syntacticStorageCall(access, checker);
     if (call) {
       calls.push(call);
@@ -433,17 +496,6 @@ function parserExemptions(file, program, checker) {
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
-
-  const allowedReceivers = new Set(
-    accesses.map((access) => access.receiver.identifier)
-  );
-  if (
-    identifiers.some((identifier) =>
-      sensitiveGlobalUse(identifier, allowedReceivers, checker)
-    )
-  ) {
-    return [];
-  }
 
   const callsByStatement = new Map(calls.map((call) => [call.statement, call]));
   const storageUses = new Map(
@@ -492,14 +544,14 @@ function parserExemptions(file, program, checker) {
           storageUses.has(identifier)
       )
     ) {
-      candidates.push({ initializer, references });
+      candidates.push({ declaration, initializer, references });
     }
   }
 
   const safeStorageKeyUses = new Set(
     candidates.flatMap((candidate) => candidate.references)
   );
-  const exemptions = calls
+  const directCallRecords = calls
     .filter(
       (call) =>
         storageKeyLiteral(call.key) &&
@@ -510,7 +562,11 @@ function parserExemptions(file, program, checker) {
           checker
         )
     )
-    .map((call) => storageKeyLiteral(call.key));
+    .map((call) => ({
+      literal: storageKeyLiteral(call.key),
+      typeRoots: [call.node],
+    }));
+  const candidateRecords = [];
 
   for (const candidate of candidates) {
     if (
@@ -524,14 +580,24 @@ function parserExemptions(file, program, checker) {
         );
       })
     ) {
-      exemptions.push(candidate.initializer);
+      candidateRecords.push({
+        literal: candidate.initializer,
+        typeRoots: [
+          candidate.declaration,
+          ...candidate.references.map(
+            (identifier) => storageUses.get(identifier).node
+          ),
+        ],
+      });
     }
   }
 
-  return exemptions.map((node) => ({
-    end: node.getEnd(),
-    start: node.getStart(sourceFile),
-  }));
+  return exemptionNodes([...directCallRecords, ...candidateRecords]).map(
+    (node) => ({
+      end: node.getEnd(),
+      start: node.getStart(sourceFile),
+    })
+  );
 }
 
 function replaceNonSourceStorageKeys(source) {

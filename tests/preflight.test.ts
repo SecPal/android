@@ -464,6 +464,26 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("literal-type"),
+        `const storageKey: "${focusedKey("literal-type")}" = "${focusedKey("literal-type")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-assertion"),
+        `const storageKey = "${focusedKey("literal-assertion")}" as "${focusedKey("literal-assertion")}";\nlocalStorage.setItem(storageKey as "${focusedKey("literal-assertion")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-call-assertion"),
+        `localStorage.setItem("${focusedKey("literal-call-assertion")}" as "${focusedKey("literal-call-assertion")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("template-literal-type"),
+        `const storageKey: \`${focusedKey("template-literal-type")}\` = \`${focusedKey("template-literal-type")}\`;\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
         focusedKey("literal-global"),
         `globalThis.sessionStorage["getItem"]("${focusedKey("literal-global")}");`,
         "mjs",
@@ -481,6 +501,16 @@ describe("preflight", () => {
       [
         focusedKey("type-export"),
         `export type { StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("type-export")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-import-after"),
+        `localStorage.setItem("${focusedKey("type-import-after")}", "1");\nimport type { StorageKey } from "./types";`,
+        "ts",
+      ],
+      [
+        focusedKey("type-export-after"),
+        `localStorage.setItem("${focusedKey("type-export-after")}", "1");\nexport type { StorageKey } from "./types";`,
         "ts",
       ],
       [
@@ -502,6 +532,46 @@ describe("preflight", () => {
         focusedKey("nested-unrelated-storage"),
         `function readTheme() { return localStorage.getItem("theme"); }\nlocalStorage.setItem("${focusedKey("nested-unrelated-storage")}", "1");`,
         "js",
+      ],
+      [
+        focusedKey("later-global-alias"),
+        `localStorage.setItem("${focusedKey("later-global-alias")}", "1");\nconst browser = window;`,
+        "js",
+      ],
+      [
+        focusedKey("dormant-global-alias"),
+        `function aliasBrowser() { const browser = window; return browser; }\nlocalStorage.setItem("${focusedKey("dormant-global-alias")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("empty-class"),
+        `class Helper {}\nlocalStorage.setItem("${focusedKey("empty-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("passive-class"),
+        `class Helper { value = window; method() { return window; } static method() { return globalThis; } }\nlocalStorage.setItem("${focusedKey("passive-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("passive-static-class"),
+        `class Helper { static value = "ready"; static ["named"] = 1; }\nlocalStorage.setItem("${focusedKey("passive-static-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("implements-class"),
+        `class Helper implements Contract {}\nlocalStorage.setItem("${focusedKey("implements-class")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("later-local-export"),
+        `localStorage.setItem("${focusedKey("later-local-export")}", "1");\nconst value = "value";\nexport { value };`,
+        "ts",
+      ],
+      [
+        focusedKey("earlier-local-export"),
+        `const value = "value";\nexport { value };\nlocalStorage.setItem("${focusedKey("earlier-local-export")}", "1");`,
+        "ts",
       ],
       [
         focusedKey("uninitialized-prefix"),
@@ -612,6 +682,50 @@ describe("preflight", () => {
         focusedKey("nonpassive-storage-prefix"),
         `localStorage.setItem("theme", readTheme());\nlocalStorage.setItem("${focusedKey("nonpassive-storage-prefix")}", "1");`,
       ],
+      [
+        focusedKey("mismatched-literal-type"),
+        `const storageKey: "${focusedKey("mismatched-literal-type")}" = "${focusedKey("different-runtime-key")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("earlier-global-alias"),
+        `const browser = window;\nlocalStorage.setItem("${focusedKey("earlier-global-alias")}", "1");`,
+      ],
+      [
+        focusedKey("runtime-import-after"),
+        `localStorage.setItem("${focusedKey("runtime-import-after")}", "1");\nimport "./setup.js";`,
+      ],
+      [
+        focusedKey("runtime-reexport-after"),
+        `localStorage.setItem("${focusedKey("runtime-reexport-after")}", "1");\nexport { setup } from "./setup.js";`,
+      ],
+      [
+        focusedKey("class-extends"),
+        `class Helper extends Base {}\nlocalStorage.setItem("${focusedKey("class-extends")}", "1");`,
+      ],
+      [
+        focusedKey("class-computed-name"),
+        `class Helper { [propertyName()]() {} }\nlocalStorage.setItem("${focusedKey("class-computed-name")}", "1");`,
+      ],
+      [
+        focusedKey("class-static-block"),
+        `class Helper { static { setup(); } }\nlocalStorage.setItem("${focusedKey("class-static-block")}", "1");`,
+      ],
+      [
+        focusedKey("class-static-initializer"),
+        `class Helper { static value = setup(); }\nlocalStorage.setItem("${focusedKey("class-static-initializer")}", "1");`,
+      ],
+      [
+        focusedKey("class-decorator"),
+        `@decorate\nclass Helper {}\nlocalStorage.setItem("${focusedKey("class-decorator")}", "1");`,
+      ],
+      [
+        focusedKey("class-member-decorator"),
+        `class Helper { @decorate method() {} }\nlocalStorage.setItem("${focusedKey("class-member-decorator")}", "1");`,
+      ],
+      [
+        focusedKey("unresolved-local-export"),
+        `export { missing };\nlocalStorage.setItem("${focusedKey("unresolved-local-export")}", "1");`,
+      ],
     ] as const;
 
     try {
@@ -639,13 +753,14 @@ describe("preflight", () => {
         );
       expect(result.status, result.stderr).toBe(0);
       expect(
-        files.slice(0, accepted.length).filter(reports),
+        {
+          reportedAccepted: files.slice(0, accepted.length).filter(reports),
+          unreportedRejected: files
+            .slice(accepted.length)
+            .filter((file) => !reports(file)),
+        },
         result.stdout
-      ).toEqual([]);
-      expect(
-        files.slice(accepted.length).filter((file) => !reports(file)),
-        result.stdout
-      ).toEqual([]);
+      ).toEqual({ reportedAccepted: [], unreportedRejected: [] });
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
