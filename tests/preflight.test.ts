@@ -769,6 +769,22 @@ describe("preflight", () => {
         focusedKey("global-object-alias"),
         `(function () {\n  var browser = window;\n  browser.sessionStorage.getItem = fetch;\n  var storageKey = "${focusedKey("global-object-alias")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
       ],
+      [
+        focusedKey("timer-dynamic-execution"),
+        `(function () {\n  window.setTimeout("window.sessionStorage.getItem = fetch", 0);\n  var storageKey = "${focusedKey("timer-dynamic-execution")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("self-dynamic-execution"),
+        `(function () {\n  self.eval("window.sessionStorage.getItem = fetch");\n  var storageKey = "${focusedKey("self-dynamic-execution")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("storage-prototype-mutation"),
+        `(function () {\n  Storage.prototype.getItem = fetch;\n  var storageKey = "${focusedKey("storage-prototype-mutation")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("unsafe-iife-prefix"),
+        `(function () {\n  block();\n  var storageKey = "${focusedKey("unsafe-iife-prefix")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
     ] as const;
 
     try {

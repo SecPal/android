@@ -34,6 +34,13 @@ const storageMethods = new Map([
   ["removeItem", 1],
   ["setItem", 2],
 ]);
+const globalObjectAliases = new Set(["globalThis", "self", "window"]);
+const dynamicExecutionGlobals = new Set([
+  "eval",
+  "Function",
+  "setInterval",
+  "setTimeout",
+]);
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -230,7 +237,7 @@ function isDirectStorageCallReceiver(receiver, checker) {
 function isUnshadowedGlobalObject(node, checker) {
   return (
     ts.isIdentifier(node) &&
-    ["globalThis", "window"].includes(node.text) &&
+    globalObjectAliases.has(node.text) &&
     isUnshadowedGlobal(checker, node)
   );
 }
@@ -241,14 +248,14 @@ function isSafeGlobalObjectUse(identifier) {
     ts.isPropertyAccessExpression(access) &&
     access.expression === identifier
   ) {
-    return !["Function", "eval"].includes(access.name.text);
+    return !dynamicExecutionGlobals.has(access.name.text);
   }
   if (
     ts.isElementAccessExpression(access) &&
     access.expression === identifier
   ) {
     const property = staticPropertyName(access);
-    return Boolean(property && !["Function", "eval"].includes(property));
+    return Boolean(property && !dynamicExecutionGlobals.has(property));
   }
   return false;
 }
@@ -256,7 +263,16 @@ function isSafeGlobalObjectUse(identifier) {
 function isDynamicCodeReference(node, checker) {
   return (
     ts.isIdentifier(node) &&
-    ["Function", "eval"].includes(node.text) &&
+    dynamicExecutionGlobals.has(node.text) &&
+    !isPropertyNameIdentifier(node) &&
+    isUnshadowedGlobal(checker, node)
+  );
+}
+
+function isStorageConstructorReference(node, checker) {
+  return (
+    ts.isIdentifier(node) &&
+    node.text === "Storage" &&
     !isPropertyNameIdentifier(node) &&
     isUnshadowedGlobal(checker, node)
   );
@@ -268,6 +284,7 @@ function hasOnlySafeIifeGlobalUses(root, checker) {
     if (
       safe &&
       (isDynamicCodeReference(node, checker) ||
+        isStorageConstructorReference(node, checker) ||
         (isUnshadowedGlobalObject(node, checker) &&
           !isPropertyNameIdentifier(node) &&
           !isSafeGlobalObjectUse(node)) ||
@@ -282,6 +299,20 @@ function hasOnlySafeIifeGlobalUses(root, checker) {
   }
   visit(root);
   return safe;
+}
+
+function hasSafeIifePrefix(declaration, checker) {
+  const statement = declaration.parent.parent;
+  const statements = statement.parent.statements;
+  const index = statements.indexOf(statement);
+  return (
+    index >= 0 &&
+    statements
+      .slice(0, index)
+      .every((prefix) =>
+        safePrecedingStatement(prefix, new Map(), new Set(), checker)
+      )
+  );
 }
 
 function isWithinNode(node, ancestor) {
@@ -695,7 +726,9 @@ function parserExemptions(file, program, checker) {
       candidate.references.every((identifier) => {
         const call = storageUses.get(identifier);
         return (
-          (candidate.iifeBody && isWithinNode(call.node, candidate.iifeBody)) ||
+          (candidate.iifeBody &&
+            hasSafeIifePrefix(candidate.declaration, checker) &&
+            isWithinNode(call.node, candidate.iifeBody)) ||
           (!candidate.iifeBody &&
             call.statement &&
             hasStraightLinePrefix(
