@@ -433,718 +433,159 @@ describe("preflight", () => {
     }
   }, 30_000);
 
-  it("recognizes storage-key declarations only in reachable executable scopes", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
-    const checker = join(tempRoot, "check-domains.sh");
-    const storageKey = "secpal" + ".asset-load-recovery";
-    const invalidHost = "secpal" + ".invalid-host.com";
-
-    const check = (source: string, extension = "ts") => {
-      for (const existingExtension of ["cjs", "js", "ts", "tsx"]) {
-        rmSync(join(tempRoot, `storage-key.${existingExtension}`), {
-          force: true,
-        });
-      }
-      writeFileSync(join(tempRoot, `storage-key.${extension}`), source);
-      return spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-    };
-    const expectPass = (source: string) => expect(check(source).status).toBe(0);
-    try {
-      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
-      copyFileSync(
-        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
-        join(tempRoot, "check-domains-parser.mjs")
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `let storageKey: string = "${storageKey}";\nwindow.localStorage.getItem(storageKey);\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}" as const;\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const storageKey = \`${storageKey}\`;\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(`localStorage.setItem("${storageKey}" as const, "1");\n`);
-      expectPass(`localStorage.setItem(\`${storageKey}\`, "1");\n`);
-      expectPass(`localStorage["setItem"]("${storageKey}", "1");\n`);
-      expectPass(`window["localStorage"]["getItem"]("${storageKey}");\n`);
-      expectPass(`globalThis.sessionStorage["removeItem"]("${storageKey}");\n`);
-      expectPass(
-        `declare const localStorage: Storage;\nlocalStorage.setItem("${storageKey}", "1");\n`
-      );
-      expectPass(
-        `declare const window: Window;\nwindow.localStorage.getItem("${storageKey}");\n`
-      );
-      for (const source of [
-        `const localStorage = fakeStorage;\nlocalStorage["setItem"]("${storageKey}", "1");\n`,
-        `function persist(window) {\n  window["localStorage"]["setItem"]("${storageKey}", "1");\n}\n`,
-        `const method = "setItem";\nlocalStorage[method]("${storageKey}", "1");\n`,
-      ]) {
-        const result = check(source);
-        expect(result.status).toBe(1);
-        expect(result.stdout).toContain(storageKey);
-      }
-      for (const argument of [
-        "storageKey as string",
-        "storageKey!",
-        "(storageKey)",
-      ]) {
-        expectPass(
-          `const storageKey = "${storageKey}";\nlocalStorage.setItem(${argument}, "1");\n`
-        );
-      }
-      expectPass(
-        `const storageKey = "${storageKey}";\ntype StorageKey = typeof storageKey;\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ntype StorageMap = { [storageKey]: string };\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`
-      );
-      expectPass(
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\n(persist as () => void)();\n`
-      );
-      expectPass(
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\ntype Persist = typeof persist;\npersist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\npersist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\npersist();\nregister(persist);\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\npersist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper["persist"]();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nHelper.persist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nconst helper = new Helper();\nhelper.persist();\n`
-      );
-      expectPass("localStorage.getItem();\nsessionStorage.removeItem();\n");
-      expectPass(
-        `const storageKey = "${storageKey}";\nasync function persist() { localStorage.setItem(storageKey, "1"); await pending; }\npersist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nasync function persist() { if (false) await pending; localStorage.setItem(storageKey, "1"); }\npersist();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nlocalStorage.setItem = replacement;\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nif (false) localStorage.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `localStorage.setItem = replacement;\nconst storageKey = "${storageKey}";\nsessionStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const proto = Object.getPrototypeOf(localStorage);\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nconsume(proto);\n`
-      );
-      expectPass(
-        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nmutateStorage();\n`
-      );
-      expectPass(
-        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nregister(mutateStorage);\n`
-      );
-      expectPass(
-        `function mutateStorage() { localStorage.setItem = replacement; }\nif (false) register(mutateStorage);\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `function mutateStorage() { localStorage.setItem = replacement; }\nfalse && mutateStorage();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `if (false) (() => { localStorage.setItem = replacement; })();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const constructor = { assign() {} };\nconstructor.assign();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `async function value() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, value());\n`
-      );
-      expectPass(
-        `let callable: Function;\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nconsumeType(callable);\n`
-      );
-      expectPass(
-        `function* value() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, value());\n`
-      );
-      expectPass(
-        `class Value { constructor() { try { throw new Error(); } catch {} } }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, new Value());\n`
-      );
-      expectPass(
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nfunction save() { persist(); }\nconst storageKey = "${storageKey}";\nsave();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\npersist();\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Storage { static value = localStorage.setItem(storageKey, "1"); }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Storage { static { localStorage.setItem(storageKey, "1"); } }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Storage { [localStorage.setItem(storageKey, "1")] = true; }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Storage { [localStorage.setItem(storageKey, "1")]() {} }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst storage = { [localStorage.setItem(storageKey, "1")]() {} };\nconsume(storage);\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nif (localStorage.getItem(storageKey)) consume();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ndo { localStorage.setItem(storageKey, "1"); } while (false);\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ndo {} while (localStorage.setItem(storageKey, "1"));\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ndo { try { throw new Error(); } catch {} } while (localStorage.setItem(storageKey, "1"));\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ndo { switch (0) { default: break; } } while (localStorage.setItem(storageKey, "1"));\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nlocalStorage.getItem(storageKey) && consume();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nswitch (0) { default: localStorage.setItem(storageKey, "1"); }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nswitch (0) { default: break; }\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nswitch (0) { case 1: throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `switch (0) { default: localStorage.setItem("${storageKey}", "1"); }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\n(() => localStorage.setItem(storageKey, "1"))();\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\n(function () { localStorage.setItem(storageKey, "1"); })();\n`
-      );
-      expectPass(`(() => localStorage.setItem("${storageKey}", "1"))();\n`);
-      expectPass(
-        `function persist() { (() => localStorage.setItem(storageKey, "1"))(); }\nconst storageKey = "${storageKey}";\npersist();\n`
-      );
-      expectPass(
-        `(() => { const storageKey = "${storageKey}"; localStorage.setItem(storageKey, "1"); })();\n`
-      );
-      expectPass(
-        `persist();\nfunction persist() { const storageKey = "${storageKey}"; localStorage.setItem(storageKey, "1"); }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ntry { throw new Error(); } catch {}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\ntry { throw new Error(); return; } catch {}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `function value() { return "1"; }\nconst storageKey = "${storageKey}";\nvalue();\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass Storage { static { try { throw new Error(); } catch {} } static { localStorage.setItem(storageKey, "1"); } }\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\nhelper["persist"] = replacement;\n`
-      );
-      expectPass(
-        `const storageKey = "${storageKey}";\nconst value = \`${"${"}\`${"${"}localStorage.getItem(storageKey)${"}"}\`${"}"}\`;\n`
-      );
-
-      const continuedInitializer = check(
-        `const storageKey = "${storageKey}" + ".com";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(continuedInitializer.status).toBe(1);
-      expect(continuedInitializer.stdout).toContain(storageKey);
-
-      const dualUse = check(
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nfetch(storageKey);\n`
-      );
-      expect(dualUse.status).toBe(1);
-      expect(dualUse.stdout).toContain(storageKey);
-
-      const unusedArrowHelper = check(
-        `const storageKey = "${storageKey}";\nconst persist = () => localStorage.setItem(storageKey, "1");\n`
-      );
-      expect(unusedArrowHelper.status).toBe(1);
-      expect(unusedArrowHelper.stdout).toContain(storageKey);
-
-      const unusedFunctionExpressionHelper = check(
-        `const storageKey = "${storageKey}";\nconst persist = function () { localStorage.setItem(storageKey, "1"); };\n`
-      );
-      expect(unusedFunctionExpressionHelper.status).toBe(1);
-      expect(unusedFunctionExpressionHelper.stdout).toContain(storageKey);
-
-      const divisionDualUse = check(
-        `const storageKey = "${storageKey}";\nconst ratio = numerator / storageKey / denominator;\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(divisionDualUse.status).toBe(1);
-      expect(divisionDualUse.stdout).toContain(storageKey);
-
-      const regexLiteral = check(
-        `if (enabled) /localStorage.setItem("${storageKey}")/.test(value);\n`
-      );
-      expect(regexLiteral.status).toBe(1);
-      expect(regexLiteral.stdout).toContain(storageKey);
-
-      const templateDualUse = check(
-        [
-          `const storageKey = "${storageKey}";`,
-          'const text = `${"}" + storageKey}`;',
-          'localStorage.setItem(storageKey, "1");',
-        ].join("\n")
-      );
-      expect(templateDualUse.status).toBe(1);
-      expect(templateDualUse.stdout).toContain(storageKey);
-
-      const extendsDualUse = check(
-        `const storageKey = "${storageKey}";\nclass StorageKey extends storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(extendsDualUse.status).toBe(1);
-      expect(extendsDualUse.stdout).toContain(storageKey);
-
-      expectPass(
-        `const storageKey = "${storageKey}";\nclass StorageKey implements storageKey {}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-
-      expect(
-        check(
-          'const value = `${(() => { const braces = "}}"; return localStorage.getItem("' +
-            storageKey +
-            '"); })()}`;\n'
-        ).status
-      ).toBe(0);
-
-      const hoistedVarDualUse = check(
-        `function sendKey() { fetch(storageKey); }\nvar storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nsendKey();\n`
-      );
-      expect(hoistedVarDualUse.status).toBe(1);
-      expect(hoistedVarDualUse.stdout).toContain(storageKey);
-
-      const varUseBeforeInitialization = check(
-        `localStorage.setItem(storageKey, "1");\nvar storageKey = "${storageKey}";\n`
-      );
-      expect(varUseBeforeInitialization.status).toBe(1);
-      expect(varUseBeforeInitialization.stdout).toContain(storageKey);
-
-      const exportedStorageKey = check(
-        `export const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(exportedStorageKey.status).toBe(1);
-      expect(exportedStorageKey.stdout).toContain(storageKey);
-
-      const reexportedStorageKey = check(
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nexport { storageKey };\n`
-      );
-      expect(reexportedStorageKey.status).toBe(1);
-      expect(reexportedStorageKey.stdout).toContain(storageKey);
-
-      const defaultExportedStorageKey = check(
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nexport default storageKey;\n`
-      );
-      expect(defaultExportedStorageKey.status).toBe(1);
-      expect(defaultExportedStorageKey.stdout).toContain(storageKey);
-
-      const conditionallyInitializedVar = check(
-        `if (enabled) {\n  var storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(conditionallyInitializedVar.status).toBe(1);
-      expect(conditionallyInitializedVar.stdout).toContain(storageKey);
-
-      expect(
-        check(
-          `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\nconst metadata = { storageKey: "unrelated" };\nconst value = object.storageKey;\n`
-        ).status
-      ).toBe(0);
-
-      const unreachableUse = check(
-        `{\n  const storageKey = "${storageKey}";\n}\nlocalStorage.setItem(storageKey, "1");\n`
-      );
-      expect(unreachableUse.status).toBe(1);
-      expect(unreachableUse.stdout).toContain(storageKey);
-
-      const useBeforeDeclaration = check(
-        `localStorage.setItem(storageKey, "1");\nconst storageKey = "${storageKey}";\n`
-      );
-      expect(useBeforeDeclaration.status).toBe(1);
-      expect(useBeforeDeclaration.stdout).toContain(storageKey);
-
-      for (const [source, extension] of [
-        [
-          `const storageKey = "${storageKey}";\npersist();\nconst persist = () => localStorage.setItem(storageKey, "1");\n`,
-          "cjs",
-        ],
-        [
-          `with ({ localStorage: fakeStorage }) { localStorage.setItem("${storageKey}", "1"); }\n`,
-          "cjs",
-        ],
-        [
-          `const storageKey = "${storageKey}";\nclass Storage { value = localStorage.setItem(storageKey, "1"); }\n`,
-          "js",
-        ],
-        [
-          `eval("var localStorage = fakeStorage;");\nlocalStorage.setItem("${storageKey}", "1");\n`,
-          "cjs",
-        ],
-        [
-          `const storageKey = "${storageKey}";\nclass Outer { value = class { static value = localStorage.setItem(storageKey, "1"); }; }\n`,
-          "js",
-        ],
-        [
-          `if (false) { function persist() { localStorage.setItem(storageKey, "1"); } }\nconst storageKey = "${storageKey}";\npersist();\n`,
-          "cjs",
-        ],
-      ] as const) {
-        const result = check(source, extension);
-        expect(result.status).toBe(1);
-        expect(result.stdout).toContain(storageKey);
-      }
-
-      for (const source of [
-        `function persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst storageKey = "${storageKey}";\n`,
-        `persist();\nconst storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n`,
-        `before();\nvar storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction before() { persist(); }\n`,
-        `function* persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
-        `const storageKey = "${storageKey}";\nif (false) localStorage.setItem(storageKey, "1");\n`,
-        `function persist() { if (false) localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\nfalse && persist();\n`,
-        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\nwith ({ persist: fakePersist }) { persist(); }\n`,
-        `function persist(value = localStorage.setItem(storageKey, "1")) {}\nconst storageKey = "${storageKey}";\npersist("provided");\n`,
-        `const storageKey = "${storageKey}";\nconst { value = localStorage.setItem(storageKey, "1") } = { value: true };\n`,
-        `const storageKey = "${storageKey}";\nwhile (false) { localStorage.setItem(storageKey, "1"); }\n`,
-        `const storageKey = "${storageKey}";\nswitch (0) { case 1: localStorage.setItem(storageKey, "1"); }\n`,
-        `const storageKey = "${storageKey}";\ntry { throw new Error(); } catch { localStorage.setItem(storageKey, "1"); }\n`,
-        `if (false) localStorage.setItem("${storageKey}", "1");\n`,
-        `function persist() { localStorage.setItem("${storageKey}", "1"); }\n`,
-        `const storageKey = "${storageKey}";\nthrow new Error();\nlocalStorage.setItem(storageKey, "1");\n`,
-        `throw new Error();\nlocalStorage.setItem("${storageKey}", "1");\n`,
-        `function persist() { return; localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
-        `function outer() { persist(); const storageKey = "${storageKey}"; function persist() { localStorage.setItem(storageKey, "1"); } }\nouter();\n`,
-        `function persist() { try { return; } catch {} localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${storageKey}";\npersist();\n`,
-        `{ throw new Error(); unreachable(); }\nlocalStorage.setItem("${storageKey}", "1");\n`,
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey);\n`,
-        `localStorage.setItem("${storageKey}");\n`,
-        `try { throw new Error(); var storageKey = "${storageKey}"; } catch {}\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\ntry { throw new Error(); var persist = () => localStorage.setItem(storageKey, "1"); } catch {}\npersist();\n`,
-        `try { throw new Error(); var persist = () => localStorage.setItem("${storageKey}", "1"); } catch {}\npersist();\n`,
-        `const storageKey = "${storageKey}";\nclass Storage { static { throw new Error(); } static { localStorage.setItem(storageKey, "1"); } }\n`,
-        `class Storage { static { throw new Error(); } static { localStorage.setItem("${storageKey}", "1"); } }\n`,
-        `const storageKey = "${storageKey}";\nswitch (0) { default: throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
-        `switch (0) { default: throw new Error(); }\nlocalStorage.setItem("${storageKey}", "1");\n`,
-        `const storageKey = "${storageKey}";\ndo { throw new Error(); } while (false);\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nwhile (true) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nfor (;;) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist = replacement;\nhelper.persist();\n`,
-        `let method = "persist";\nconst storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, [method]() {} };\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper["persist"] = replacement;\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\ndelete helper["persist"];\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nObject.defineProperty(helper, "persist", { value: replacement });\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nalias.persist = replacement;\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nconst transitiveAlias = alias;\nObject.defineProperty(transitiveAlias, "persist", { value: replacement });\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nregister(helper);\nhelper.persist();\n`,
-        `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nlet other: typeof helper;\nother.persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { static persist() { localStorage.setItem(storageKey, "1"); } }\nlet Other: typeof Helper;\nOther.persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { persist() { localStorage.setItem(storageKey, "1"); } }\nlet other: Helper;\nother.persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { constructor() { return { persist() {} }; } persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`,
-        `const storageKey = "${storageKey}";\nconst Helper = class { constructor() { return { persist() {} }; } persist() { localStorage.setItem(storageKey, "1"); } };\nnew Helper().persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Base { constructor() { return { persist() {} }; } }\nclass Helper extends Base { persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { constructor() { Object.defineProperty(this, "persist", { value() {} }); } persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { ["persist"] = () => {}; persist() { localStorage.setItem(storageKey, "1"); } }\nnew Helper().persist();\n`,
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nwindow.localStorage.setItem = replacement;\nwindow.localStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nStorage.prototype.setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nObject.getPrototypeOf(localStorage).setItem = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nReflect.getPrototypeOf(sessionStorage).setItem = replacement;\nsessionStorage.setItem(storageKey, "1");\n`,
-        `const proto = Object.getPrototypeOf(localStorage);\nproto.setItem = replacement;\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nObject.defineProperty(window, "localStorage", { value: replacement });\nwindow.localStorage.setItem(storageKey, "1");\n`,
-        `function mutateStorage() { sessionStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nmutateStorage();\nsessionStorage.setItem(storageKey, "1");\n`,
-        `function mutateStorage() { localStorage.setItem = replacement; }\nconst storageKey = "${storageKey}";\nregister(mutateStorage);\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const helper = { mutate() { localStorage.setItem = replacement; } };\nhelper["mutate"]();\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nclass Helper { static { this.persist = () => {}; } static persist() { localStorage.setItem(storageKey, "1"); } }\nHelper.persist();\n`,
-        `let enabled = false;\nenabled &&= localStorage.setItem("${storageKey}", "1");\n`,
-        `maybe?.(localStorage.setItem("${storageKey}", "1"));\n`,
-        `const storageKey = "${storageKey}";\nasync function persist() { await new Promise(() => {}); localStorage.setItem(storageKey, "1"); }\npersist();\n`,
-        `async function persist() { await new Promise(() => {}); localStorage.setItem("${storageKey}", "1"); }\npersist();\n`,
-        `const storageKey = "${storageKey}";\nawait pending;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nconst method = "setItem";\nlocalStorage[method] = replacement;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nfunction persist() { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); }\npersist();\n`,
-        `const storageKey = "${storageKey}";\nObject.defineProperty(localStorage, "setItem", { value: replacement });\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nObject["defineProperty"](localStorage, "setItem", { value: replacement });\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nglobalThis.Object.defineProperty(localStorage, "setItem", { value: replacement });\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nReflect.set(sessionStorage, "setItem", replacement);\nsessionStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nwindow.Reflect.set(sessionStorage, "setItem", replacement);\nsessionStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\n(0, eval)("localStorage.setItem = replacement");\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nglobalThis.eval("localStorage.setItem = replacement");\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nFunction("localStorage.setItem = replacement")();\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, (() => { throw new Error(); })());\n`,
-        `localStorage.setItem("${storageKey}", (() => { throw new Error(); })());\n`,
-        `const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1", "unused");\n`,
-        `const storageKey = "${storageKey}";\nlocalStorage.getItem(storageKey, "unused");\n`,
-        `const storageKey = "${storageKey}";\nsessionStorage.removeItem(storageKey, ...extraArguments);\n`,
-        `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, fail());\n`,
-        `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nfail();\nlocalStorage.setItem(storageKey, "1");\n`,
-        `function fail() { throw new Error(); }\nconst { value = fail() } = {};\nlocalStorage.setItem("${storageKey}", "1");\n`,
-        `if (enabled) throw new Error();\nlocalStorage.setItem("${storageKey}", "1");\n`,
-        `function fail() { throw new Error(); }\nconst value = { first: fail(), second: localStorage.setItem("${storageKey}", "1") };\n`,
-        `function fail() { throw new Error(); }\nconst value = [fail(), localStorage.setItem("${storageKey}", "1")];\n`,
-        `function fail() { throw new Error(); }\nconsume(fail(), localStorage.setItem("${storageKey}", "1"));\n`,
-        `function fail() { throw new Error(); }\nconst first = fail(), second = localStorage.setItem("${storageKey}", "1");\n`,
-        `function fail() { throw new Error(); }\nfail().method(localStorage.setItem("${storageKey}", "1"));\n`,
-        `function fail() { throw new Error(); }\nfail() + localStorage.setItem("${storageKey}", "1");\n`,
-        `class Fail { constructor() { throw new Error(); } }\nlocalStorage.setItem("${storageKey}", new Fail());\n`,
-        `const { defineProperty } = Object;\ndefineProperty(localStorage, "setItem", { value: replacement });\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`,
-        `do { break; } while (localStorage.setItem("${storageKey}", "1"));\n`,
-        `const storageKey = "${storageKey}";\nasync function persist() { for await (const value of pending) consume(value); localStorage.setItem(storageKey, "1"); }\npersist();\n`,
-        `const storageKey = "${storageKey}";\nasync function persist() { localStorage.setItem(storageKey, await pending); }\npersist();\n`,
-      ]) {
-        const result = check(source);
-        expect(result.status, source).toBe(1);
-        expect(result.stdout).toContain(storageKey);
-      }
-
-      const shadowedIdentifier = check(
-        `const storageKey = "${storageKey}";\n{\n  const storageKey = "${invalidHost}";\n  localStorage.setItem(storageKey, "1");\n}\n`
-      );
-      expect(shadowedIdentifier.status).toBe(1);
-      expect(shadowedIdentifier.stdout).toContain(invalidHost);
-
-      const shadowedStorageKey = check(
-        `const storageKey = "${storageKey}";\n{\n  const storageKey = "${storageKey}";\n  localStorage.setItem(storageKey, "1");\n}\n`
-      );
-      expect(shadowedStorageKey.status).toBe(1);
-      expect(shadowedStorageKey.stdout).toContain(storageKey);
-
-      for (const source of [
-        `// const storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, "1");\n`,
-        `/* const storageKey = "${storageKey}"; */\nlocalStorage.setItem(storageKey, "1");\n`,
-        `// localStorage.setItem("${storageKey}", "1");\n`,
-        `const storageKey = /${invalidHost}/;\nlocalStorage.setItem(storageKey, "1");\n`,
-        `const storageKey = \`${"secpal" + ".asset-load-"}${"${suffix}"}\`;\nlocalStorage.setItem(storageKey, "1");\n`,
-      ]) {
-        expect(check(source).status).toBe(1);
-      }
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
-  }, 180_000);
-
-  it("fails closed when setup paths can bypass storage", () => {
+  it("recognizes only straight-line top-level storage keys", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
-    const reviewStorageKey = (suffix: string) => "secpal" + `.review-${suffix}`;
-    const cases = [
-      {
-        accepted: `const storageKey = "${reviewStorageKey("method-safe")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();`,
-        rejected: `let method = "persist";\nconst storageKey = "${reviewStorageKey("method-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, [method]() {} };\nhelper.persist();`,
-      },
-      {
-        accepted: `const { value = "safe" } = {};\nlocalStorage.setItem("${reviewStorageKey("binding-safe")}", "1");`,
-        rejected: `function fail() { throw new Error(); }\nconst { value = fail() } = {};\nlocalStorage.setItem("${reviewStorageKey("binding-default")}", "1");`,
-      },
-      {
-        accepted: `if (false) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("branch-safe")}", "1");`,
-        rejected: `if (enabled) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("branch-exit")}", "1");`,
-      },
-      {
-        accepted: `const storageKey = "${reviewStorageKey("spread-safe")}";\nconst helper = { ...{}, persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();`,
-        rejected: `const replacement = { persist() {} };\nconst storageKey = "${reviewStorageKey("spread-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, ...replacement };\nhelper.persist();`,
-      },
-      {
-        accepted: `const { value } = { value: "safe" };\nlocalStorage.setItem("${reviewStorageKey("getter-safe")}", "1");`,
-        rejected: `const { value } = { get value() { throw new Error(); } };\nlocalStorage.setItem("${reviewStorageKey("binding-getter")}", "1");`,
-      },
-      {
-        accepted: `if (!!false) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("negation-safe")}", "1");`,
-        rejected: `if (!!enabled) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("negation-exit")}", "1");`,
-      },
-      {
-        accepted: `const { value } = { value: "safe" };\nlocalStorage.setItem("${reviewStorageKey("prototype-safe")}", "1");`,
-        rejected: `const prototype = { get value() { throw new Error(); } };\nconst { value } = { __proto__: prototype };\nlocalStorage.setItem("${reviewStorageKey("prototype-getter")}", "1");`,
-      },
-      {
-        accepted: `function fail() { throw new Error(); }\nfalse ? fail() : undefined;\nlocalStorage.setItem("${reviewStorageKey("conditional-safe")}", "1");`,
-        rejected: `function fail() { throw new Error(); }\nenabled ? fail() : undefined;\nlocalStorage.setItem("${reviewStorageKey("conditional-exit")}", "1");`,
-      },
-      {
-        accepted: `for (const { value = "safe" } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-safe")}", "1");`,
-        rejected: `function fail() { throw new Error(); }\nfor (const { value = fail() } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-default")}", "1");`,
-      },
-      {
-        accepted: `function maybeThrow() { if (enabled) throw new Error(); }\ntry { maybeThrow(); } catch {}\nlocalStorage.setItem("${reviewStorageKey("catch-safe")}", "1");`,
-        rejected: `function maybeThrow() { if (enabled) throw new Error(); }\ntry { maybeThrow(); } catch { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("catch-exit")}", "1");`,
-      },
-      {
-        accepted: `const storageKey = "${reviewStorageKey("alias-safe")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();\nconst alias = helper;\nalias.persist = replacement;`,
-        rejected: `const storageKey = "${reviewStorageKey("alias-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nconst alias = helper;\nalias.persist = replacement;\nhelper.persist();`,
-      },
-      {
-        accepted: `for (const value of []) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-of-safe")}", "1");`,
-        rejected: `for (const value of [1]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-of-exit")}", "1");`,
-      },
-      {
-        accepted: `for (const key in {}) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-in-safe")}", "1");`,
-        rejected: `for (const key in { value: 1 }) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-in-exit")}", "1");`,
-      },
-      {
-        accepted: `for (const value of [...[]]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-spread-safe")}", "1");`,
-        rejected: `for (const value of [...[1]]) { throw new Error(); }\nlocalStorage.setItem("${reviewStorageKey("for-spread-exit")}", "1");`,
-      },
-      {
-        accepted: `for (const value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-declaration-safe")}", "1");`,
-        rejected: `function fail() { throw new Error(); }\nfor (const { value = fail() } of [{}]) {}\nlocalStorage.setItem("${reviewStorageKey("for-declaration-exit")}", "1");`,
-      },
-      {
-        accepted: `const target = { value: 0 };\nfor (target.value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-target-safe")}", "1");`,
-        rejected: `const target = { set value(next) { throw new Error(); } };\nfor (target.value of [1]) {}\nlocalStorage.setItem("${reviewStorageKey("for-target-exit")}", "1");`,
-      },
-      {
-        accepted: `const obj = { prop: 0 };\nobj.prop = 1;\nlocalStorage.setItem("${reviewStorageKey("setter-safe")}", "1");`,
-        rejected: `const obj = { set prop(value) { throw new Error(); } };\nobj.prop = 1;\nlocalStorage.setItem("${reviewStorageKey("setter-exit")}", "1");`,
-      },
-      {
-        accepted: `let prior = 0;\nprior++;\nlocalStorage.setItem("${reviewStorageKey("postfix-safe")}", "1");`,
-        rejected: `let prior = { valueOf() { throw new Error(); } };\nprior++;\nlocalStorage.setItem("${reviewStorageKey("postfix-exit")}", "1");`,
-      },
-      {
-        accepted: `let prior = 0;\n--prior;\nlocalStorage.setItem("${reviewStorageKey("prefix-safe")}", "1");`,
-        rejected: `let prior = { valueOf() { throw new Error(); } };\n--prior;\nlocalStorage.setItem("${reviewStorageKey("prefix-exit")}", "1");`,
-      },
-      {
-        accepted: `const prior = "value";\nprior + 1;\nlocalStorage.setItem("${reviewStorageKey("const-order-safe")}", "1");`,
-        rejected: `prior + 1;\nconst prior = "value";\nlocalStorage.setItem("${reviewStorageKey("const-tdz")}", "1");`,
-      },
-      {
-        accepted: `function read() { return prior + 1; }\nconst prior = "value";\nread();\nlocalStorage.setItem("${reviewStorageKey("deferred-order-safe")}", "1");`,
-        rejected: `prior + 1;\nlet prior = "value";\nlocalStorage.setItem("${reviewStorageKey("let-tdz")}", "1");`,
-      },
-      {
-        accepted: `var prior = { prop: "value" };\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-order-safe")}", "1");`,
-        rejected: `prior.prop;\nvar prior = { prop: "value" };\nlocalStorage.setItem("${reviewStorageKey("var-order-hazard")}", "1");`,
-      },
-      {
-        accepted: `var prior = { prop: "value" };\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-path-safe")}", "1");`,
-        rejected: `if (enabled) { var prior = { prop: "value" }; }\nprior.prop;\nlocalStorage.setItem("${reviewStorageKey("var-path-hazard")}", "1");`,
-      },
-      {
-        accepted: `class Prior {}\n({}) instanceof Prior;\nlocalStorage.setItem("${reviewStorageKey("class-order-safe")}", "1");`,
-        rejected: `({}) instanceof Prior;\nclass Prior {}\nlocalStorage.setItem("${reviewStorageKey("class-tdz")}", "1");`,
-      },
-      {
-        accepted: `false && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-safe")}", "1");`,
-        rejected: `enabled && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-hazard")}", "1");`,
-      },
-      {
-        accepted: `true || await pending;\nlocalStorage.setItem("${reviewStorageKey("await-or-safe")}", "1");`,
-        rejected: `true && await pending;\nlocalStorage.setItem("${reviewStorageKey("await-and-hazard")}", "1");`,
-      },
-      {
-        accepted: `function mutateStorage() { localStorage.setItem = replacement; }\nfalse && mutateStorage();\nconst storageKey = "${reviewStorageKey("mutation-safe")}";\nlocalStorage.setItem(storageKey, "1");`,
-        rejected: `function mutateStorage() { localStorage.setItem = replacement; }\nenabled && mutateStorage();\nconst storageKey = "${reviewStorageKey("mutation-hazard")}";\nlocalStorage.setItem(storageKey, "1");`,
-      },
+    const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const accepted = [
+      [
+        focusedKey("const-direct"),
+        `const storageKey = "${focusedKey("const-direct")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "js",
+      ],
+      [
+        focusedKey("let-typed"),
+        `let storageKey: string = "${focusedKey("let-typed")}";\nwindow.localStorage.getItem(storageKey);`,
+        "ts",
+      ],
+      [
+        focusedKey("var-template"),
+        `var storageKey = \`${focusedKey("var-template")}\`;\nsessionStorage.removeItem(storageKey);`,
+        "cjs",
+      ],
+      [
+        focusedKey("asserted"),
+        `const storageKey = "${focusedKey("asserted")}" as const;\nlocalStorage.setItem(storageKey as string, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-only"),
+        `const storageKey = "${focusedKey("type-only")}";\ntype StorageKey = typeof storageKey;\ntype StorageMap = { [storageKey]: string };\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-global"),
+        `globalThis.sessionStorage["getItem"]("${focusedKey("literal-global")}");`,
+        "mjs",
+      ],
+      [
+        focusedKey("ambient"),
+        `declare const localStorage: Storage;\nconst storageKey = "${focusedKey("ambient")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+    ] as const;
+    const rejected = [
+      [
+        focusedKey("concatenated"),
+        `const storageKey = "${focusedKey("concatenated")}" + ".com";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("continued"),
+        `const storageKey = "${focusedKey("continued")}"\n  + ".com";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("dual-use"),
+        `const storageKey = "${focusedKey("dual-use")}";\nlocalStorage.setItem(storageKey, "1");\nfetch(storageKey);`,
+      ],
+      [
+        focusedKey("interpolated"),
+        `const suffix = "value";\nconst storageKey = \`${focusedKey("interpolated")}-\${suffix}\`;\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("nested-template"),
+        [
+          `const storageKey = "${focusedKey("nested-template")}";`,
+          "const text = `${`${storageKey}`}`;",
+          'localStorage.setItem(storageKey, "1");',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("line-comment"),
+        `// const storageKey = "${focusedKey("line-comment")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("block-comment"),
+        `/* const storageKey = "${focusedKey("block-comment")}"; */\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("regex-code"),
+        `const source = /${focusedKey("regex-code")}/;\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("string-code"),
+        `const source = 'const storageKey = "${focusedKey("string-code")}"';\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("shadowed"),
+        `const localStorage = fakeStorage;\nconst storageKey = "${focusedKey("shadowed")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("exported"),
+        `export const storageKey = "${focusedKey("exported")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("named-export"),
+        `const storageKey = "${focusedKey("named-export")}";\nlocalStorage.setItem(storageKey, "1");\nexport { storageKey };`,
+      ],
+      [
+        focusedKey("default-export"),
+        `const storageKey = "${focusedKey("default-export")}";\nlocalStorage.setItem(storageKey, "1");\nexport default storageKey;`,
+      ],
+      [
+        focusedKey("multi-declaration"),
+        `const storageKey = "${focusedKey("multi-declaration")}", other = "value";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("helper"),
+        `const storageKey = "${focusedKey("helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("conditional"),
+        `const storageKey = "${focusedKey("conditional")}";\nif (enabled) localStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("before-declaration"),
+        `localStorage.setItem(storageKey, "1");\nconst storageKey = "${focusedKey("before-declaration")}";`,
+      ],
+      [
+        focusedKey("value-call"),
+        `const storageKey = "${focusedKey("value-call")}";\nlocalStorage.setItem(storageKey, value());`,
+      ],
+      [
+        focusedKey("extra-argument"),
+        `const storageKey = "${focusedKey("extra-argument")}";\nlocalStorage.setItem(storageKey, "1", "extra");`,
+      ],
     ] as const;
 
     try {
-      const files = cases.flatMap(({ accepted, rejected }, index) => {
-        const acceptedFile = join(tempRoot, `accepted-${index}.ts`);
-        const rejectedFile = join(tempRoot, `rejected-${index}.ts`);
-        writeFileSync(acceptedFile, accepted);
-        writeFileSync(rejectedFile, rejected);
-        return [acceptedFile, rejectedFile];
-      });
-      const result = spawnSync(process.execPath, [parser, ...files], {
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
+      const files = [
+        ...accepted.map(([key, source, extension], index) => {
+          const file = join(tempRoot, `accepted-${index}.${extension}`);
+          writeFileSync(file, source);
+          return { file, key };
+        }),
+        ...rejected.map(([key, source], index) => {
+          const file = join(tempRoot, `rejected-${index}.ts`);
+          writeFileSync(file, source);
+          return { file, key };
+        }),
+      ];
+      const result = spawnSync(
+        process.execPath,
+        [parser, ...files.map(({ file }) => file)],
+        { encoding: "utf8", env: domainCheckerEnvironment }
+      );
       expect(result.status, result.stderr).toBe(0);
       expect(
-        [
-          reviewStorageKey("method-overwrite"),
-          reviewStorageKey("binding-default"),
-          reviewStorageKey("branch-exit"),
-          reviewStorageKey("spread-overwrite"),
-          reviewStorageKey("binding-getter"),
-          reviewStorageKey("negation-exit"),
-          reviewStorageKey("prototype-getter"),
-          reviewStorageKey("conditional-exit"),
-          reviewStorageKey("for-binding-default"),
-          reviewStorageKey("catch-exit"),
-          reviewStorageKey("alias-overwrite"),
-          reviewStorageKey("for-of-exit"),
-          reviewStorageKey("for-in-exit"),
-          reviewStorageKey("for-spread-exit"),
-          reviewStorageKey("for-declaration-exit"),
-          reviewStorageKey("for-target-exit"),
-          reviewStorageKey("setter-exit"),
-          reviewStorageKey("postfix-exit"),
-          reviewStorageKey("prefix-exit"),
-          reviewStorageKey("const-tdz"),
-          reviewStorageKey("let-tdz"),
-          reviewStorageKey("var-order-hazard"),
-          reviewStorageKey("var-path-hazard"),
-          reviewStorageKey("class-tdz"),
-          reviewStorageKey("await-hazard"),
-          reviewStorageKey("await-and-hazard"),
-          reviewStorageKey("mutation-hazard"),
-        ].filter((storageKey) => !result.stdout.includes(storageKey)),
+        files
+          .slice(0, accepted.length)
+          .filter(({ key }) => result.stdout.includes(key)),
         result.stdout
       ).toEqual([]);
       expect(
-        [
-          reviewStorageKey("method-safe"),
-          reviewStorageKey("binding-safe"),
-          reviewStorageKey("branch-safe"),
-          reviewStorageKey("spread-safe"),
-          reviewStorageKey("getter-safe"),
-          reviewStorageKey("negation-safe"),
-          reviewStorageKey("prototype-safe"),
-          reviewStorageKey("conditional-safe"),
-          reviewStorageKey("for-binding-safe"),
-          reviewStorageKey("catch-safe"),
-          reviewStorageKey("alias-safe"),
-          reviewStorageKey("for-of-safe"),
-          reviewStorageKey("for-in-safe"),
-          reviewStorageKey("for-spread-safe"),
-          reviewStorageKey("for-declaration-safe"),
-          reviewStorageKey("for-target-safe"),
-          reviewStorageKey("setter-safe"),
-          reviewStorageKey("postfix-safe"),
-          reviewStorageKey("prefix-safe"),
-          reviewStorageKey("const-order-safe"),
-          reviewStorageKey("deferred-order-safe"),
-          reviewStorageKey("var-order-safe"),
-          reviewStorageKey("var-path-safe"),
-          reviewStorageKey("class-order-safe"),
-          reviewStorageKey("await-safe"),
-          reviewStorageKey("await-or-safe"),
-          reviewStorageKey("mutation-safe"),
-        ].filter((storageKey) => result.stdout.includes(storageKey)),
+        files
+          .slice(accepted.length)
+          .filter(({ key }) => !result.stdout.includes(key)),
         result.stdout
       ).toEqual([]);
     } finally {
@@ -1152,403 +593,55 @@ describe("preflight", () => {
     }
   });
 
-  it("orders eager evaluation contexts before exempting storage keys", () => {
+  it("rejects indirect execution proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
-    const eagerEvaluationCases = [
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) =>
-          "`${before()}${" + storageCall + "}`;",
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return () => {}; }`,
-        statement: (storageCall: string) => "before()`${" + storageCall + "}`;",
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return []; }`,
-        statement: (storageCall: string) => `[...before(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) => `[[before()], ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) =>
-          `[{ value: before() }, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return 1; }`,
-        statement: (storageCall: string) => `[before() + 1, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) => `[void before(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) =>
-          "[`${before()}`, " + storageCall + "];",
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `class Base {}\nfunction before() { return Base; }`,
-        statement: (storageCall: string) =>
-          `[class extends before() {}, ${storageCall}];`,
-      },
-      {
-        extension: "tsx",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) =>
-          `<Comp first={before()} second={${storageCall}} />;`,
-      },
-      {
-        extension: "tsx",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "value"; }`,
-        statement: (storageCall: string) =>
-          `<Comp><Child value={before()} />{${storageCall}}</Comp>;`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return {}; }`,
-        statement: (storageCall: string) => `before()[${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return []; }`,
-        statement: (storageCall: string) =>
-          `consume(...before(), ${storageCall});`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() {}`,
-        statement: (storageCall: string) =>
-          `for (before(); ${storageCall}; ) { break; }`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return 0; }`,
-        statement: (storageCall: string) =>
-          `switch (before()) { default: ${storageCall}; }`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `class Base {}\nfunction before() { return Base; }`,
-        statement: (storageCall: string) =>
-          `class Holder extends before() { static { ${storageCall}; } }`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function before() { throw new Error(); }`,
-        passingSetup: `function before() { return "method"; }`,
-        statement: (storageCall: string) =>
-          `class Holder { [before()]() {} static { ${storageCall}; } }`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: "value" };`,
-        statement: (storageCall: string) => `[prior.value, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
-        passingSetup: `const prior = "value";`,
-        statement: (storageCall: string) => "`${prior}${" + storageCall + "}`;",
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
-        passingSetup: `const prior = [];`,
-        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
-        passingSetup: `const prior = [];`,
-        statement: (storageCall: string) =>
-          `consume(...prior, ${storageCall});`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: "value" };`,
-        statement: (storageCall: string) => `[{ ...prior }, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { valueOf() { throw new Error(); } };`,
-        passingSetup: `const prior = 1;`,
-        statement: (storageCall: string) => `[prior + 1, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const Matcher = { [Symbol.hasInstance]() { throw new Error(); } };`,
-        passingSetup: `const value = {};\nclass Matcher {}`,
-        statement: (storageCall: string) =>
-          `[value instanceof Matcher, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get method() { throw new Error(); } };`,
-        passingSetup: `const prior = { method() {} };`,
-        statement: (storageCall: string) => `[prior.method(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
-        passingSetup: `const prior = "property";`,
-        statement: (storageCall: string) =>
-          `({ [prior]: true, value: ${storageCall} });`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
-        passingSetup: `const prior = "method";`,
-        statement: (storageCall: string) =>
-          `class Holder { [prior]() {} static { ${storageCall}; } }`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = new Proxy(() => {}, { apply() { throw new Error(); } });`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = new Proxy(class {}, { construct() { throw new Error(); } });`,
-        passingSetup: `class prior {}`,
-        statement: (storageCall: string) => `[new prior(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function prior() { throw new Error(); }`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare const prior: (strings: TemplateStringsArray) => void;`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: "value" };`,
-        statement: (storageCall: string) =>
-          `const value = prior.value;\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = new Proxy(() => {}, { apply() { throw new Error(); } });`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `prior();\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
-        passingSetup: `const prior = [];`,
-        statement: (storageCall: string) =>
-          `for (const value of prior) {}\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = new Proxy({}, { ownKeys() { throw new Error(); } });`,
-        passingSetup: `const prior = {};`,
-        statement: (storageCall: string) =>
-          `for (const key in prior) {}\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: true };`,
-        statement: (storageCall: string) =>
-          `if (prior.value) {}\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: 0 };`,
-        statement: (storageCall: string) =>
-          `switch (prior.value) { default: break; }\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `function prior() { throw new Error(); }`,
-        passingSetup: `class Base {}\nfunction prior() { return Base; }`,
-        statement: (storageCall: string) =>
-          `class Holder extends prior() {}\n${storageCall};`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = [];\nprior[Symbol.iterator] = () => { throw new Error(); };`,
-        passingSetup: `const prior = [];`,
-        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { method() {} };\nObject.defineProperty(prior, "method", { get() { throw new Error(); } });`,
-        passingSetup: `const prior = { method() {} };`,
-        statement: (storageCall: string) => `[prior.method(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = [];\nconst alias = prior;\nalias[Symbol.iterator] = () => { throw new Error(); };`,
-        passingSetup: `const prior = [];`,
-        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: "value" };`,
-        statement: (storageCall: string) =>
-          storageCall.replace('"1"', "prior.value"),
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = new Proxy(() => "value", { apply() { throw new Error(); } });`,
-        passingSetup: `function prior() { return "value"; }`,
-        statement: (storageCall: string) =>
-          storageCall.replace('"1"', "prior()"),
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare function external(): void;\nfunction prior() { external(); }`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare function external(): void;\nclass Prior { constructor() { external(); } }`,
-        passingSetup: `class Prior {}`,
-        statement: (storageCall: string) => `[new Prior(), ${storageCall}];`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare function external(): void;\nfunction prior() { external(); }`,
-        passingSetup: `function prior() {}`,
-        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
-      },
-      {
-        extension: "tsx",
-        failingSetup: `const prior = { get Component() { throw new Error(); } };`,
-        passingSetup: `const prior = { Component() { return null; } };`,
-        statement: (storageCall: string) =>
-          `<prior.Component value={${storageCall}} />;`,
-      },
-      {
-        extension: "tsx",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: true };`,
-        statement: (storageCall: string) =>
-          `<Comp {...prior} value={${storageCall}} />;`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare function prior(): string;`,
-        passingSetup: `function prior() { return "value"; }`,
-        statement: (storageCall: string) =>
-          `function persist(value = prior()) { ${storageCall}; }\npersist();`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `const prior = { get value() { throw new Error(); } };`,
-        passingSetup: `const prior = { value: "value" };`,
-        statement: (storageCall: string) =>
-          `function persist({ value } = prior) { ${storageCall}; }\npersist();`,
-      },
-      {
-        extension: "ts",
-        failingSetup: `declare function external(): string;\nfunction prior(value = external()) { return value; }`,
-        passingSetup: `function prior(value = "value") { return value; }`,
-        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
-      },
+    const storageKey = (suffix: string) => "secpal" + `.strict-${suffix}`;
+    const cases = [
+      `switch (value) { case 1: throw new Error(); }\nlocalStorage.setItem("${storageKey("switch-exit")}", "1");`,
+      `import "./setup.js";\nlocalStorage.setItem("${storageKey("import-exit")}", "1");`,
+      `using storageKey = "${storageKey("using-exit")}";\nlocalStorage.setItem(storageKey, "1");`,
+      `for (; enabled;) { throw new Error(); }\nlocalStorage.setItem("${storageKey("for-exit")}", "1");`,
+      `const w = window;\nw.localStorage = replacement;\nconst key = "${storageKey("global-alias")}";\nwindow.localStorage.setItem(key, "1");`,
+      `globalThis["local" + "Storage"].setItem = replacement;\nlocalStorage.setItem("${storageKey("computed-global")}", "1");`,
+      `const key = "${storageKey("constructor-exit")}";\nclass Helper { constructor() { if (enabled) throw new Error(); } persist() { localStorage.setItem(key, "1"); } }\nnew Helper().persist();`,
+      `function mutate(store) { store.setItem = replacement; }\nmutate(localStorage);\nconst key = "${storageKey("parameter-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `class Storage { static { if (enabled) throw new Error(); } static { localStorage.setItem("${storageKey("static-block")}", "1"); } }`,
+      `const { eval: evil } = globalThis;\nevil("localStorage.setItem = replacement");\nconst key = "${storageKey("dynamic-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `function block() { while (enabled) {} }\nblock();\nlocalStorage.setItem("${storageKey("while-block")}", "1");`,
     ] as const;
-    const files: string[] = [];
-    const rejectedKeys: string[] = [];
-    const exemptedKeys: string[] = [];
 
     try {
-      for (const [
-        caseIndex,
-        evaluationCase,
-      ] of eagerEvaluationCases.entries()) {
-        for (const declaredKey of [false, true]) {
-          for (const failsBefore of [false, true]) {
-            const storageKey =
-              "secpal" +
-              `.eager-${caseIndex}-${
-                declaredKey ? "declared" : "direct"
-              }-${failsBefore ? "rejected" : "exempted"}`;
-            const keyExpression = declaredKey
-              ? "storageKey"
-              : `"${storageKey}"`;
-            const declaration = declaredKey
-              ? `const storageKey = "${storageKey}";`
-              : "";
-            const storageCall = `localStorage.setItem(${keyExpression}, "1")`;
-            const source = [
-              failsBefore
-                ? evaluationCase.failingSetup
-                : evaluationCase.passingSetup,
-              declaration,
-              evaluationCase.statement(storageCall),
-            ]
-              .filter(Boolean)
-              .join("\n");
-            const file = join(
-              tempRoot,
-              `evaluation-${caseIndex}-${declaredKey}-${failsBefore}.${evaluationCase.extension}`
-            );
-            writeFileSync(file, source);
-            files.push(file);
-            (failsBefore ? rejectedKeys : exemptedKeys).push(storageKey);
-          }
-        }
-      }
-
+      const files = cases.map((source, index) => {
+        const file = join(tempRoot, `indirect-${index}.ts`);
+        writeFileSync(file, source);
+        return file;
+      });
       const result = spawnSync(process.execPath, [parser, ...files], {
         encoding: "utf8",
         env: domainCheckerEnvironment,
       });
       expect(result.status, result.stderr).toBe(0);
-      for (const storageKey of rejectedKeys) {
-        expect(result.stdout).toContain(storageKey);
-      }
-      for (const storageKey of exemptedKeys) {
-        expect(result.stdout).not.toContain(storageKey);
-      }
+      expect(
+        [
+          storageKey("switch-exit"),
+          storageKey("import-exit"),
+          storageKey("using-exit"),
+          storageKey("for-exit"),
+          storageKey("global-alias"),
+          storageKey("computed-global"),
+          storageKey("constructor-exit"),
+          storageKey("parameter-alias"),
+          storageKey("static-block"),
+          storageKey("dynamic-alias"),
+          storageKey("while-block"),
+        ].filter((key) => !result.stdout.includes(key)),
+        result.stdout
+      ).toEqual([]);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 30_000);
-
+  });
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
