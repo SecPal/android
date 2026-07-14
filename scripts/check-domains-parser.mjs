@@ -288,6 +288,14 @@ function expressionAbruptCompletion(expression, checker, visiting = new Set()) {
     }
   }
   if (ts.isConditionalExpression(expression)) {
+    const condition = expressionAbruptCompletion(
+      expression.condition,
+      checker,
+      visiting
+    );
+    if (condition.always) {
+      return condition;
+    }
     const whenTrue = expressionAbruptCompletion(
       expression.whenTrue,
       checker,
@@ -870,7 +878,9 @@ function valueIsProvenPlainObject(expression, checker) {
         definition.properties.every(
           (property) =>
             !ts.isGetAccessorDeclaration(property) &&
-            !ts.isSpreadAssignment(property)
+            !ts.isSpreadAssignment(property) &&
+            (!property.name ||
+              staticDeclarationName(property.name) !== "__proto__")
         )
     )
   );
@@ -1099,6 +1109,29 @@ function operationHasUnprovenImplicitExecution(
       )
     );
   }
+  if (ts.isConditionalExpression(expression)) {
+    if (
+      operationPreventsExecutionProof(expression.condition, checker, visiting)
+    ) {
+      return true;
+    }
+    const condition = staticBooleanValue(expression.condition);
+    const whenTruePreventsExecution = operationPreventsExecutionProof(
+      expression.whenTrue,
+      checker,
+      visiting
+    );
+    const whenFalsePreventsExecution = operationPreventsExecutionProof(
+      expression.whenFalse,
+      checker,
+      visiting
+    );
+    return condition === true
+      ? whenTruePreventsExecution
+      : condition === false
+        ? whenFalsePreventsExecution
+        : whenTruePreventsExecution || whenFalsePreventsExecution;
+  }
   if (ts.isBinaryExpression(expression)) {
     const leftHasUnprovenExecution =
       expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
@@ -1287,6 +1320,27 @@ function operationPreventsExecutionProof(
   );
 }
 
+function variableDeclarationPreventsExecutionProof(
+  declaration,
+  checker,
+  visiting
+) {
+  return Boolean(
+    declaration.initializer &&
+    (operationPreventsExecutionProof(
+      declaration.initializer,
+      checker,
+      visiting
+    ) ||
+      !bindingNameHasProvenInitialization(
+        declaration.name,
+        declaration.initializer,
+        checker,
+        visiting
+      ))
+  );
+}
+
 function statementPreventsExecutionProof(
   statement,
   checker,
@@ -1308,14 +1362,8 @@ function statementPreventsExecutionProof(
     );
   }
   if (ts.isVariableStatement(statement)) {
-    return statement.declarationList.declarations.some(
-      (declaration) =>
-        declaration.initializer &&
-        operationPreventsExecutionProof(
-          declaration.initializer,
-          checker,
-          visiting
-        )
+    return statement.declarationList.declarations.some((declaration) =>
+      variableDeclarationPreventsExecutionProof(declaration, checker, visiting)
     );
   }
   if (ts.isClassDeclaration(statement)) {
@@ -1328,26 +1376,30 @@ function statementPreventsExecutionProof(
     );
   }
   if (ts.isIfStatement(statement)) {
-    return (
-      operationPreventsExecutionProof(
-        statement.expression,
+    if (
+      operationPreventsExecutionProof(statement.expression, checker, visiting)
+    ) {
+      return true;
+    }
+    const condition = staticBooleanValue(statement.expression);
+    const thenPreventsExecution = statementPreventsExecutionProof(
+      statement.thenStatement,
+      checker,
+      visiting
+    );
+    const elsePreventsExecution = Boolean(
+      statement.elseStatement &&
+      statementPreventsExecutionProof(
+        statement.elseStatement,
         checker,
         visiting
-      ) ||
-      Boolean(
-        statement.elseStatement &&
-        statementPreventsExecutionProof(
-          statement.thenStatement,
-          checker,
-          visiting
-        ) &&
-        statementPreventsExecutionProof(
-          statement.elseStatement,
-          checker,
-          visiting
-        )
       )
     );
+    return condition === true
+      ? thenPreventsExecution
+      : condition === false
+        ? elsePreventsExecution
+        : thenPreventsExecution || elsePreventsExecution;
   }
   if (ts.isSwitchStatement(statement)) {
     return operationPreventsExecutionProof(
@@ -1370,14 +1422,12 @@ function statementPreventsExecutionProof(
     if (
       statement.initializer &&
       (ts.isVariableDeclarationList(statement.initializer)
-        ? statement.initializer.declarations.some(
-            (declaration) =>
-              declaration.initializer &&
-              operationPreventsExecutionProof(
-                declaration.initializer,
-                checker,
-                visiting
-              )
+        ? statement.initializer.declarations.some((declaration) =>
+            variableDeclarationPreventsExecutionProof(
+              declaration,
+              checker,
+              visiting
+            )
           )
         : operationPreventsExecutionProof(
             statement.initializer,
@@ -1426,6 +1476,24 @@ function statementPreventsExecutionProof(
     );
   }
   return false;
+}
+
+function staticBooleanValue(expression) {
+  expression = unwrapExpression(expression);
+  if (expression.kind === ts.SyntaxKind.TrueKeyword) {
+    return true;
+  }
+  if (expression.kind === ts.SyntaxKind.FalseKeyword) {
+    return false;
+  }
+  if (
+    !ts.isPrefixUnaryExpression(expression) ||
+    expression.operator !== ts.SyntaxKind.ExclamationToken
+  ) {
+    return undefined;
+  }
+  const operand = staticBooleanValue(expression.operand);
+  return operand === undefined ? undefined : !operand;
 }
 
 function bindingNameHasProvenInitialization(
@@ -2637,6 +2705,32 @@ function staticInitializationMayReplaceMethod(
   return false;
 }
 
+function objectInitializationMayReplaceMethod(binding) {
+  const objectLiteral = binding.initialization;
+  const method = binding.identifier.parent;
+  if (
+    !ts.isObjectLiteralExpression(objectLiteral) ||
+    !ts.isMethodDeclaration(method)
+  ) {
+    return false;
+  }
+  const methodIndex = objectLiteral.properties.indexOf(method);
+  return (
+    methodIndex < 0 ||
+    objectLiteral.properties.slice(methodIndex + 1).some((property) => {
+      if (ts.isSpreadAssignment(property)) {
+        return true;
+      }
+      const name = property.name;
+      const staticName = name ? staticDeclarationName(name) : undefined;
+      return (
+        staticName === binding.methodName ||
+        (name && ts.isComputedPropertyName(name) && staticName === undefined)
+      );
+    })
+  );
+}
+
 function hasProvenMethodReceiver(
   call,
   binding,
@@ -2662,6 +2756,7 @@ function hasProvenMethodReceiver(
     return (
       ts.isIdentifier(receiver) &&
       identifierReferencesSymbol(checker, receiver, binding.ownerSymbol) &&
+      !objectInitializationMayReplaceMethod(binding) &&
       !staticInitializationMayReplaceMethod(
         binding.ownerSymbol,
         checker,

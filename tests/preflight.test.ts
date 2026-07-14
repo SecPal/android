@@ -862,6 +862,7 @@ describe("preflight", () => {
         `const storageKey = "${storageKey}";\nfor (;;) { throw new Error(); }\nlocalStorage.setItem(storageKey, "1");\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist = replacement;\nhelper.persist();\n`,
+        `let method = "persist";\nconst storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, [method]() {} };\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper["persist"] = replacement;\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\ndelete helper["persist"];\nhelper.persist();\n`,
         `const storageKey = "${storageKey}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nObject.defineProperty(helper, "persist", { value: replacement });\nhelper.persist();\n`,
@@ -903,6 +904,8 @@ describe("preflight", () => {
         `localStorage.setItem("${storageKey}", (() => { throw new Error(); })());\n`,
         `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nlocalStorage.setItem(storageKey, fail());\n`,
         `function fail() { throw new Error(); }\nconst storageKey = "${storageKey}";\nfail();\nlocalStorage.setItem(storageKey, "1");\n`,
+        `function fail() { throw new Error(); }\nconst { value = fail() } = {};\nlocalStorage.setItem("${storageKey}", "1");\n`,
+        `if (enabled) throw new Error();\nlocalStorage.setItem("${storageKey}", "1");\n`,
         `function fail() { throw new Error(); }\nconst value = { first: fail(), second: localStorage.setItem("${storageKey}", "1") };\n`,
         `function fail() { throw new Error(); }\nconst value = [fail(), localStorage.setItem("${storageKey}", "1")];\n`,
         `function fail() { throw new Error(); }\nconsume(fail(), localStorage.setItem("${storageKey}", "1"));\n`,
@@ -945,6 +948,95 @@ describe("preflight", () => {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it("fails closed when setup paths can bypass storage", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
+    const reviewStorageKey = (suffix: string) => "secpal" + `.review-${suffix}`;
+    const cases = [
+      {
+        accepted: `const storageKey = "${reviewStorageKey("method-safe")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();`,
+        rejected: `let method = "persist";\nconst storageKey = "${reviewStorageKey("method-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, [method]() {} };\nhelper.persist();`,
+      },
+      {
+        accepted: `const { value = "safe" } = {};\nlocalStorage.setItem("${reviewStorageKey("binding-safe")}", "1");`,
+        rejected: `function fail() { throw new Error(); }\nconst { value = fail() } = {};\nlocalStorage.setItem("${reviewStorageKey("binding-default")}", "1");`,
+      },
+      {
+        accepted: `if (false) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("branch-safe")}", "1");`,
+        rejected: `if (enabled) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("branch-exit")}", "1");`,
+      },
+      {
+        accepted: `const storageKey = "${reviewStorageKey("spread-safe")}";\nconst helper = { ...{}, persist() { localStorage.setItem(storageKey, "1"); } };\nhelper.persist();`,
+        rejected: `const replacement = { persist() {} };\nconst storageKey = "${reviewStorageKey("spread-overwrite")}";\nconst helper = { persist() { localStorage.setItem(storageKey, "1"); }, ...replacement };\nhelper.persist();`,
+      },
+      {
+        accepted: `const { value } = { value: "safe" };\nlocalStorage.setItem("${reviewStorageKey("getter-safe")}", "1");`,
+        rejected: `const { value } = { get value() { throw new Error(); } };\nlocalStorage.setItem("${reviewStorageKey("binding-getter")}", "1");`,
+      },
+      {
+        accepted: `if (!!false) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("negation-safe")}", "1");`,
+        rejected: `if (!!enabled) throw new Error();\nlocalStorage.setItem("${reviewStorageKey("negation-exit")}", "1");`,
+      },
+      {
+        accepted: `const { value } = { value: "safe" };\nlocalStorage.setItem("${reviewStorageKey("prototype-safe")}", "1");`,
+        rejected: `const prototype = { get value() { throw new Error(); } };\nconst { value } = { __proto__: prototype };\nlocalStorage.setItem("${reviewStorageKey("prototype-getter")}", "1");`,
+      },
+      {
+        accepted: `function fail() { throw new Error(); }\nfalse ? fail() : undefined;\nlocalStorage.setItem("${reviewStorageKey("conditional-safe")}", "1");`,
+        rejected: `function fail() { throw new Error(); }\nenabled ? fail() : undefined;\nlocalStorage.setItem("${reviewStorageKey("conditional-exit")}", "1");`,
+      },
+      {
+        accepted: `for (const { value = "safe" } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-safe")}", "1");`,
+        rejected: `function fail() { throw new Error(); }\nfor (const { value = fail() } = {};;) { break; }\nlocalStorage.setItem("${reviewStorageKey("for-binding-default")}", "1");`,
+      },
+    ] as const;
+
+    try {
+      const files = cases.flatMap(({ accepted, rejected }, index) => {
+        const acceptedFile = join(tempRoot, `accepted-${index}.ts`);
+        const rejectedFile = join(tempRoot, `rejected-${index}.ts`);
+        writeFileSync(acceptedFile, accepted);
+        writeFileSync(rejectedFile, rejected);
+        return [acceptedFile, rejectedFile];
+      });
+      const result = spawnSync(process.execPath, [parser, ...files], {
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        [
+          reviewStorageKey("method-overwrite"),
+          reviewStorageKey("binding-default"),
+          reviewStorageKey("branch-exit"),
+          reviewStorageKey("spread-overwrite"),
+          reviewStorageKey("binding-getter"),
+          reviewStorageKey("negation-exit"),
+          reviewStorageKey("prototype-getter"),
+          reviewStorageKey("conditional-exit"),
+          reviewStorageKey("for-binding-default"),
+        ].filter((storageKey) => !result.stdout.includes(storageKey)),
+        result.stdout
+      ).toEqual([]);
+      expect(
+        [
+          reviewStorageKey("method-safe"),
+          reviewStorageKey("binding-safe"),
+          reviewStorageKey("branch-safe"),
+          reviewStorageKey("spread-safe"),
+          reviewStorageKey("getter-safe"),
+          reviewStorageKey("negation-safe"),
+          reviewStorageKey("prototype-safe"),
+          reviewStorageKey("conditional-safe"),
+          reviewStorageKey("for-binding-safe"),
+        ].filter((storageKey) => result.stdout.includes(storageKey)),
+        result.stdout
+      ).toEqual([]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 
   it("orders eager evaluation contexts before exempting storage keys", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
