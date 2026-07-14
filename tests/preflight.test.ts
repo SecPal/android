@@ -654,6 +654,11 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("scoped-helper-call"),
+        `(() => { const storageKey = "${focusedKey("scoped-helper-call")}"; function persist() { localStorage.setItem(storageKey, "1"); } persist(); })();`,
+        "ts",
+      ],
+      [
         focusedKey("helper-call-limit"),
         helperChain(focusedKey("helper-call-limit"), 8),
         "ts",
@@ -751,6 +756,18 @@ describe("preflight", () => {
       [
         focusedKey("helper-call-limit-exceeded"),
         helperChain(focusedKey("helper-call-limit-exceeded"), 9),
+      ],
+      [
+        focusedKey("helper-before-var-initializer"),
+        `persist();\nvar storageKey = "${focusedKey("helper-before-var-initializer")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }`,
+      ],
+      [
+        focusedKey("helper-before-const-initializer"),
+        `persist();\nconst storageKey = "${focusedKey("helper-before-const-initializer")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }`,
+      ],
+      [
+        focusedKey("scoped-helper-before-initializer"),
+        `(() => { persist(); var storageKey = "${focusedKey("scoped-helper-before-initializer")}"; function persist() { localStorage.setItem(storageKey, "1"); } })();`,
       ],
       [
         focusedKey("conditional"),

@@ -503,11 +503,20 @@ function hasStraightLinePrefix(
   safeStorageKeyUses,
   checker,
   helperInvocations,
+  requiredPrecedingStatement,
   remainingHelperCalls = helperProofCallLimit
 ) {
   const container = call.statement.parent;
   const statements = container.statements;
   const index = statements.indexOf(call.statement);
+  let unresolvedPrecedingStatement = requiredPrecedingStatement;
+  if (requiredPrecedingStatement?.parent === container) {
+    const precedingIndex = statements.indexOf(requiredPrecedingStatement);
+    if (precedingIndex < 0 || precedingIndex >= index) {
+      return false;
+    }
+    unresolvedPrecedingStatement = undefined;
+  }
   if (
     index < 0 ||
     !statements
@@ -524,7 +533,7 @@ function hasStraightLinePrefix(
     return false;
   }
   if (ts.isSourceFile(container)) {
-    return true;
+    return !unresolvedPrecedingStatement;
   }
 
   const functionExpression = container.parent;
@@ -543,6 +552,7 @@ function hasStraightLinePrefix(
           safeStorageKeyUses,
           checker,
           helperInvocations,
+          unresolvedPrecedingStatement,
           remainingHelperCalls - 1
         )
       )
@@ -564,6 +574,7 @@ function hasStraightLinePrefix(
       safeStorageKeyUses,
       checker,
       helperInvocations,
+      unresolvedPrecedingStatement,
       remainingHelperCalls
     )
   );
@@ -751,7 +762,8 @@ function parserExemptions(file, program, checker) {
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          helperInvocations
+          helperInvocations,
+          undefined
         )
     )
     .map((call) => ({
@@ -769,7 +781,8 @@ function parserExemptions(file, program, checker) {
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          helperInvocations
+          helperInvocations,
+          candidate.declaration.parent.parent
         );
       })
     ) {
