@@ -236,9 +236,17 @@ function isSingleFunctionImplementation(symbol, declaration) {
 
 function isClassCallableDeclaration(node) {
   return (
+    ts.isConstructorDeclaration(node) ||
     ts.isMethodDeclaration(node) ||
     ts.isGetAccessorDeclaration(node) ||
     ts.isSetAccessorDeclaration(node)
+  );
+}
+
+function isDeferredClassMember(node) {
+  return (
+    isClassCallableDeclaration(node) ||
+    (ts.isPropertyDeclaration(node) && !hasStaticModifier(node))
   );
 }
 
@@ -256,11 +264,35 @@ function boundFunctionDeclaration(expression) {
     : undefined;
 }
 
-function isInsideDormantCallable(node, dormantCallables) {
-  for (let owner = node.parent; owner; owner = owner.parent) {
-    if (dormantCallables.has(owner)) {
+function isDescendantOf(node, ancestor) {
+  for (let current = node; current; current = current.parent) {
+    if (current === ancestor) {
       return true;
     }
+  }
+  return false;
+}
+
+function isInsideDormantExecution(node, dormantExecutionRegions) {
+  for (let owner = node.parent; owner; owner = owner.parent) {
+    if (!dormantExecutionRegions.has(owner)) {
+      continue;
+    }
+    if (ts.isPropertyDeclaration(owner)) {
+      if (owner.initializer && isDescendantOf(node, owner.initializer)) {
+        return true;
+      }
+      continue;
+    }
+    if (
+      isClassCallableDeclaration(owner) &&
+      owner.name &&
+      ts.isComputedPropertyName(owner.name) &&
+      isDescendantOf(node, owner.name)
+    ) {
+      continue;
+    }
+    return true;
   }
   return false;
 }
@@ -377,7 +409,7 @@ function identifierReferencesSymbol(checker, identifier, symbol) {
   );
 }
 
-function passiveVariableStatement(statement, checker, dormantCallables) {
+function passiveVariableStatement(statement, checker, dormantExecutionRegions) {
   return (
     !(statement.declarationList.flags & ts.NodeFlags.Using) &&
     statement.declarationList.declarations.every(
@@ -385,7 +417,9 @@ function passiveVariableStatement(statement, checker, dormantCallables) {
         ts.isIdentifier(declaration.name) &&
         (!declaration.initializer ||
           passiveExpression(declaration.initializer, checker) ||
-          dormantCallables?.has(unwrapExpression(declaration.initializer)))
+          dormantExecutionRegions?.has(
+            unwrapExpression(declaration.initializer)
+          ))
     )
   );
 }
@@ -512,7 +546,7 @@ function safePrecedingStatement(
     return passiveVariableStatement(
       statement,
       checker,
-      proofContext.dormantCallableDeclarations
+      proofContext.dormantExecutionRegions
     );
   }
   if (
@@ -583,6 +617,7 @@ function safeHelperInvocation(statement, proofContext, proofState) {
     proofState.validatingHelperInvocations.delete(statement);
   }
 }
+
 function helperInvocationIsReachable(invocation, proofContext, visiting) {
   const container = invocation.statement.parent;
   if (ts.isSourceFile(container)) {
@@ -592,7 +627,7 @@ function helperInvocationIsReachable(invocation, proofContext, visiting) {
     return false;
   }
   const owner = container.parent;
-  if (proofContext.dormantCallableDeclarations.has(owner)) {
+  if (proofContext.dormantExecutionRegions.has(owner)) {
     return false;
   }
   if (
@@ -623,6 +658,7 @@ function helperInvocationIsReachable(invocation, proofContext, visiting) {
     ? helperInvocationIsReachable({ statement: entry }, proofContext, visiting)
     : true;
 }
+
 function containingNamedHelperOwner(statement) {
   let executionStatement = statement;
   while (ts.isBlock(executionStatement.parent)) {
@@ -639,16 +675,13 @@ function containingNamedHelperOwner(statement) {
   }
   return undefined;
 }
-function addAll(target, values) {
-  for (const value of values) target.add(value);
-}
 
-function rootHelperInvocationStatements(declaration, proofContext, visiting) {
+function rootHelperInvocationPaths(declaration, proofContext, visiting) {
   if (visiting.has(declaration)) {
-    return new Set();
+    return [];
   }
   const nextVisiting = new Set(visiting).add(declaration);
-  const roots = new Set();
+  const paths = [];
   for (const invocation of proofContext.helperInvocations.get(declaration) ??
     []) {
     if (!helperInvocationIsReachable(invocation, proofContext, new Set())) {
@@ -656,36 +689,74 @@ function rootHelperInvocationStatements(declaration, proofContext, visiting) {
     }
     const caller = containingNamedHelperOwner(invocation.statement);
     if (caller) {
-      addAll(
-        roots,
-        rootHelperInvocationStatements(caller, proofContext, nextVisiting)
-      );
+      for (const callerPath of rootHelperInvocationPaths(
+        caller,
+        proofContext,
+        nextVisiting
+      )) {
+        paths.push([...callerPath, invocation.statement]);
+      }
     } else {
-      roots.add(invocation.statement);
+      paths.push([invocation.statement]);
     }
   }
-  return roots;
+  return paths;
 }
 
-function proofTargetStatements(call, proofContext) {
+function proofTargetExecutions(call, proofContext) {
   const owner = containingNamedHelperOwner(call.statement);
   return owner
-    ? rootHelperInvocationStatements(owner, proofContext, new Set())
-    : new Set([call.statement]);
+    ? rootHelperInvocationPaths(owner, proofContext, new Set()).map((path) => ({
+        steps: [...path, call.statement],
+      }))
+    : [{ steps: [call.statement] }];
 }
 
 function helperExecutionCountThroughTargets(
   sourceFile,
-  targetStatements,
+  targetExecutions,
   proofContext
 ) {
-  if (targetStatements.size === 0) {
+  if (targetExecutions.length === 0) {
     return Number.POSITIVE_INFINITY;
   }
-  const remainingTargets = new Set(targetStatements);
+  const targetsByRoot = new Map();
+  for (const targetExecution of targetExecutions) {
+    const root = targetExecution.steps[0];
+    const rootedTargets = targetsByRoot.get(root) ?? [];
+    rootedTargets.push(targetExecution);
+    targetsByRoot.set(root, rootedTargets);
+  }
+  const remainingTargets = new Set(targetExecutions);
+  const nextStepIndexes = new Map(
+    targetExecutions.map((targetExecution) => [targetExecution, 0])
+  );
   let helperCalls = 0;
-  function scan(statements) {
+  const targetsComplete = (targets) =>
+    targets.length > 0 &&
+    targets.every((target) => !remainingTargets.has(target));
+  function scan(statements, enclosingTargets = []) {
     for (const statement of statements) {
+      for (const target of enclosingTargets) {
+        const nextStepIndex = nextStepIndexes.get(target);
+        if (target.steps[nextStepIndex] === statement) {
+          nextStepIndexes.set(target, nextStepIndex + 1);
+          if (nextStepIndex + 1 === target.steps.length) {
+            remainingTargets.delete(target);
+          }
+        }
+      }
+      const rootedTargets = targetsByRoot.get(statement) ?? [];
+      for (const target of rootedTargets) {
+        nextStepIndexes.set(target, 1);
+        if (target.steps.length === 1) {
+          remainingTargets.delete(target);
+        }
+      }
+      if (targetsComplete(enclosingTargets)) {
+        return;
+      }
+      const nestedTargets = [...enclosingTargets, ...rootedTargets];
       const declaration =
         proofContext.helperDeclarationsByInvocation.get(statement);
       if (declaration?.body) {
@@ -693,18 +764,20 @@ function helperExecutionCountThroughTargets(
         if (helperCalls > helperProofCallLimit) {
           return;
         }
-        scan(declaration.body.statements);
-        remainingTargets.delete(statement);
+        scan(declaration.body.statements, nestedTargets);
       } else {
         const functionExpression =
           ts.isExpressionStatement(statement) &&
           immediateFunctionExpression(statement.expression);
         if (functionExpression && ts.isBlock(functionExpression.body)) {
-          scan(functionExpression.body.statements);
+          scan(functionExpression.body.statements, nestedTargets);
         }
-        remainingTargets.delete(statement);
       }
-      if (helperCalls > helperProofCallLimit || remainingTargets.size === 0) {
+      if (
+        helperCalls > helperProofCallLimit ||
+        remainingTargets.size === 0 ||
+        targetsComplete(enclosingTargets)
+      ) {
         return;
       }
     }
@@ -860,32 +933,48 @@ function exemptionNodes(records) {
   return [...nodes];
 }
 
-function collectDormantCallables(
+function collectDormantExecutionRegions(
   sourceFile,
   checker,
   identifiers,
   functionDeclarations,
-  classCallableDeclarations,
+  deferredClassMembers,
   boundFunctionExpressions
 ) {
-  const dormantCallables = new Set();
-  const hasLiveReference = (symbol, declarationName, skipFunctionNames) =>
+  const dormantExecutionRegions = new Set();
+  const hasLiveReference = (
+    symbol,
+    declarationName,
+    skipFunctionNames,
+    executionRegions = dormantExecutionRegions
+  ) =>
     identifiers.some(
       (identifier) =>
         identifier !== declarationName &&
         (!skipFunctionNames || !isFunctionDeclarationName(identifier)) &&
         !isTypeOnlyReference(identifier) &&
-        !isInsideDormantCallable(identifier, dormantCallables) &&
+        !isInsideDormantExecution(identifier, executionRegions) &&
         identifierReferencesSymbol(checker, identifier, symbol)
     );
-  let foundDormantCallable;
+  const deferredMembersByClass = new Map();
+  for (const member of deferredClassMembers) {
+    const classDeclaration = member.parent;
+    if (!ts.isClassDeclaration(classDeclaration)) {
+      continue;
+    }
+    const members = deferredMembersByClass.get(classDeclaration) ?? [];
+    members.push(member);
+    deferredMembersByClass.set(classDeclaration, members);
+  }
+  let foundDormantRegion;
   do {
-    foundDormantCallable = false;
+    foundDormantRegion = false;
     for (const declaration of functionDeclarations) {
       if (
-        dormantCallables.has(declaration) ||
+        dormantExecutionRegions.has(declaration) ||
         !declaration.name ||
         hasDecorators(declaration) ||
+        declaration.parameters.some(hasDecorators) ||
         declaration.modifiers?.some(
           (modifier) =>
             modifier.kind === ts.SyntaxKind.ExportKeyword ||
@@ -895,25 +984,23 @@ function collectDormantCallables(
         continue;
       }
       const symbol = checker.getSymbolAtLocation(declaration.name);
+      const candidateRegions = new Set([
+        ...dormantExecutionRegions,
+        declaration,
+      ]);
       if (
         symbol &&
         !symbolIsRuntimeExported(sourceFile, checker, symbol) &&
-        !hasLiveReference(symbol, declaration.name, true)
+        !hasLiveReference(symbol, declaration.name, true, candidateRegions)
       ) {
-        dormantCallables.add(declaration);
-        foundDormantCallable = true;
+        dormantExecutionRegions.add(declaration);
+        foundDormantRegion = true;
       }
     }
-    for (const declaration of classCallableDeclarations) {
-      if (dormantCallables.has(declaration)) {
-        continue;
-      }
-      const classDeclaration = declaration.parent;
+    for (const [classDeclaration, members] of deferredMembersByClass) {
       if (
-        !ts.isClassDeclaration(classDeclaration) ||
         !classDeclaration.name ||
         hasDecorators(classDeclaration) ||
-        hasDecorators(declaration) ||
         classDeclaration.modifiers?.some(
           (modifier) =>
             modifier.kind === ts.SyntaxKind.ExportKeyword ||
@@ -922,18 +1009,41 @@ function collectDormantCallables(
       ) {
         continue;
       }
+      const eligibleMembers = members.filter(
+        (member) =>
+          !hasDecorators(member) && !member.parameters?.some(hasDecorators)
+      );
+      if (
+        eligibleMembers.length === 0 ||
+        eligibleMembers.every((member) => dormantExecutionRegions.has(member))
+      ) {
+        continue;
+      }
       const symbol = checker.getSymbolAtLocation(classDeclaration.name);
+      const candidateRegions = new Set([
+        ...dormantExecutionRegions,
+        ...eligibleMembers,
+      ]);
       if (
         symbol &&
         !symbolIsRuntimeExported(sourceFile, checker, symbol) &&
-        !hasLiveReference(symbol, classDeclaration.name, false)
+        !hasLiveReference(
+          symbol,
+          classDeclaration.name,
+          false,
+          candidateRegions
+        )
       ) {
-        dormantCallables.add(declaration);
-        foundDormantCallable = true;
+        for (const member of eligibleMembers) {
+          if (!dormantExecutionRegions.has(member)) {
+            dormantExecutionRegions.add(member);
+            foundDormantRegion = true;
+          }
+        }
       }
     }
     for (const expression of boundFunctionExpressions) {
-      if (dormantCallables.has(expression)) {
+      if (dormantExecutionRegions.has(expression)) {
         continue;
       }
       const declaration = boundFunctionDeclaration(expression);
@@ -945,17 +1055,21 @@ function collectDormantCallables(
         continue;
       }
       const symbol = checker.getSymbolAtLocation(declaration.name);
+      const candidateRegions = new Set([
+        ...dormantExecutionRegions,
+        expression,
+      ]);
       if (
         symbol &&
         !symbolIsRuntimeExported(sourceFile, checker, symbol) &&
-        !hasLiveReference(symbol, declaration.name, false)
+        !hasLiveReference(symbol, declaration.name, false, candidateRegions)
       ) {
-        dormantCallables.add(expression);
-        foundDormantCallable = true;
+        dormantExecutionRegions.add(expression);
+        foundDormantRegion = true;
       }
     }
-  } while (foundDormantCallable);
-  return dormantCallables;
+  } while (foundDormantRegion);
+  return dormantExecutionRegions;
 }
 
 function parserExemptions(file, program, checker) {
@@ -971,7 +1085,7 @@ function parserExemptions(file, program, checker) {
   const identifiers = [];
   const boundFunctionExpressions = [];
   const calls = [];
-  const classCallableDeclarations = [];
+  const deferredClassMembers = [];
   const functionDeclarations = [];
   const variableStatements = [];
   function visit(node) {
@@ -984,8 +1098,8 @@ function parserExemptions(file, program, checker) {
     if (ts.isFunctionDeclaration(node)) {
       functionDeclarations.push(node);
     }
-    if (isClassCallableDeclaration(node)) {
-      classCallableDeclarations.push(node);
+    if (isDeferredClassMember(node)) {
+      deferredClassMembers.push(node);
     }
     if (
       (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
@@ -1008,12 +1122,12 @@ function parserExemptions(file, program, checker) {
       .filter((call) => ts.isIdentifier(call.key))
       .map((call) => [call.key, call])
   );
-  const dormantCallableDeclarations = collectDormantCallables(
+  const dormantExecutionRegions = collectDormantExecutionRegions(
     sourceFile,
     checker,
     identifiers,
     functionDeclarations,
-    classCallableDeclarations,
+    deferredClassMembers,
     boundFunctionExpressions
   );
   const helperInvocations = new Map();
@@ -1046,7 +1160,7 @@ function parserExemptions(file, program, checker) {
           identifier !== declaration.name &&
           !isFunctionDeclarationName(identifier) &&
           !isTypeOnlyReference(identifier) &&
-          !isInsideDormantCallable(identifier, dormantCallableDeclarations) &&
+          !isInsideDormantExecution(identifier, dormantExecutionRegions) &&
           identifierReferencesSymbol(checker, identifier, symbol)
       )
       .map(directFunctionInvocation);
@@ -1104,7 +1218,7 @@ function parserExemptions(file, program, checker) {
   const proofContext = {
     callsByStatement,
     checker,
-    dormantCallableDeclarations,
+    dormantExecutionRegions,
     helperDeclarationsByInvocation,
     helperInvocations,
     safeStorageKeyUses,
@@ -1115,17 +1229,16 @@ function parserExemptions(file, program, checker) {
   do {
     provedCandidate = false;
     for (const candidate of pendingCandidates) {
-      const targetStatements = new Set();
+      const targetExecutions = [];
       for (const identifier of candidate.references) {
-        addAll(
-          targetStatements,
-          proofTargetStatements(storageUses.get(identifier), proofContext)
+        targetExecutions.push(
+          ...proofTargetExecutions(storageUses.get(identifier), proofContext)
         );
       }
       if (
         helperExecutionCountThroughTargets(
           sourceFile,
-          targetStatements,
+          targetExecutions,
           proofContext
         ) > helperProofCallLimit
       ) {
@@ -1184,7 +1297,7 @@ function parserExemptions(file, program, checker) {
         storageKeyLiteral(call.key) &&
         helperExecutionCountThroughTargets(
           sourceFile,
-          proofTargetStatements(call, proofContext),
+          proofTargetExecutions(call, proofContext),
           proofContext
         ) <= helperProofCallLimit &&
         hasStraightLinePrefix(
