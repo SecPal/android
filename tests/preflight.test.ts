@@ -437,6 +437,8 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const assetLoadRecoveryKey = "secpal" + ".asset-load-recovery";
+    const invalidIifeStorageKey = "secpal" + ".invalid-host.com";
     const accepted = [
       [
         focusedKey("const-direct"),
@@ -588,6 +590,11 @@ describe("preflight", () => {
         `declare const localStorage: Storage;\nconst storageKey = "${focusedKey("ambient")}";\nlocalStorage.setItem(storageKey, "1");`,
         "ts",
       ],
+      [
+        assetLoadRecoveryKey,
+        `(function () {\n  var assetLoadRecoveryStorageKey = "${assetLoadRecoveryKey}";\n\n  function hasPendingAssetLoadRecovery() {\n    return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending";\n  }\n\n  function clearAssetLoadRecoveryFlag() {\n    window.sessionStorage.removeItem(assetLoadRecoveryStorageKey);\n  }\n\n  function markPendingAssetLoadRecovery() {\n    window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending");\n  }\n})();`,
+        "js",
+      ],
     ] as const;
     const rejected = [
       [
@@ -725,6 +732,10 @@ describe("preflight", () => {
       [
         focusedKey("unresolved-local-export"),
         `export { missing };\nlocalStorage.setItem("${focusedKey("unresolved-local-export")}", "1");`,
+      ],
+      [
+        invalidIifeStorageKey,
+        `(function () {\n  var storageKey = "${invalidIifeStorageKey}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
       ],
     ] as const;
 

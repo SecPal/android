@@ -192,15 +192,38 @@ function syntacticStorageCall(access, checker) {
   ) {
     return undefined;
   }
-  const statement = topLevelExpressionStatement(access.node);
   const key = unwrapExpression(access.node.arguments[0]);
-  if (
-    !statement ||
-    (!ts.isIdentifier(key) && !passiveExpression(key, checker))
-  ) {
+  if (!ts.isIdentifier(key) && !passiveExpression(key, checker)) {
     return undefined;
   }
-  return { ...access, key, statement };
+  return {
+    ...access,
+    key,
+    statement: topLevelExpressionStatement(access.node),
+  };
+}
+
+function topLevelIifeBody(statement) {
+  const body = statement.parent;
+  if (!ts.isBlock(body)) {
+    return false;
+  }
+  let expression = body.parent;
+  if (!ts.isFunctionExpression(expression) && !ts.isArrowFunction(expression)) {
+    return false;
+  }
+  while (
+    isTransparentExpressionWrapper(expression.parent) &&
+    expression.parent.expression === expression
+  ) {
+    expression = expression.parent;
+  }
+  return (
+    ts.isCallExpression(expression.parent) &&
+    expression.parent.expression === expression &&
+    expression.parent.arguments.length === 0 &&
+    Boolean(topLevelExpressionStatement(expression.parent))
+  );
 }
 
 function isTypeOnlyReference(identifier) {
@@ -497,15 +520,42 @@ function parserExemptions(file, program, checker) {
   }
   visit(sourceFile);
 
-  const callsByStatement = new Map(calls.map((call) => [call.statement, call]));
+  const callsByStatement = new Map(
+    calls.filter((call) => call.statement).map((call) => [call.statement, call])
+  );
   const storageUses = new Map(
     calls
       .filter((call) => ts.isIdentifier(call.key))
       .map((call) => [call.key, call])
   );
+  const candidateStatements = sourceFile.statements.flatMap((statement) => {
+    if (ts.isVariableStatement(statement)) {
+      return [{ statement, iife: false }];
+    }
+    if (
+      ts.isExpressionStatement(statement) &&
+      ts.isCallExpression(unwrapExpression(statement.expression))
+    ) {
+      const expression = unwrapExpression(statement.expression);
+      const callee = unwrapExpression(expression.expression);
+      if (
+        expression.arguments.length === 0 &&
+        (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee))
+      ) {
+        return callee.body.statements
+          .filter(
+            (iifeStatement) =>
+              ts.isVariableStatement(iifeStatement) &&
+              topLevelIifeBody(iifeStatement)
+          )
+          .map((iifeStatement) => ({ statement: iifeStatement, iife: true }));
+      }
+    }
+    return [];
+  });
   const candidates = [];
 
-  for (const statement of sourceFile.statements) {
+  for (const { statement, iife } of candidateStatements) {
     if (
       !ts.isVariableStatement(statement) ||
       statement.declarationList.flags & ts.NodeFlags.Using ||
@@ -544,7 +594,7 @@ function parserExemptions(file, program, checker) {
           storageUses.has(identifier)
       )
     ) {
-      candidates.push({ declaration, initializer, references });
+      candidates.push({ declaration, initializer, iife, references });
     }
   }
 
@@ -554,6 +604,7 @@ function parserExemptions(file, program, checker) {
   const directCallRecords = calls
     .filter(
       (call) =>
+        call.statement &&
         storageKeyLiteral(call.key) &&
         hasStraightLinePrefix(
           call,
@@ -572,11 +623,15 @@ function parserExemptions(file, program, checker) {
     if (
       candidate.references.every((identifier) => {
         const call = storageUses.get(identifier);
-        return hasStraightLinePrefix(
-          call,
-          callsByStatement,
-          safeStorageKeyUses,
-          checker
+        return (
+          candidate.iife ||
+          (call.statement &&
+            hasStraightLinePrefix(
+              call,
+              callsByStatement,
+              safeStorageKeyUses,
+              checker
+            ))
         );
       })
     ) {
