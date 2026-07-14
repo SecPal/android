@@ -437,6 +437,16 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const helperChain = (storageKey: string, helperCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function helper0() { localStorage.setItem(storageKey, "1"); }',
+        ...Array.from(
+          { length: helperCalls - 1 },
+          (_, index) => `function helper${index + 1}() { helper${index}(); }`
+        ),
+        `helper${helperCalls - 1}();`,
+      ].join("\n");
     const accepted = [
       [
         focusedKey("const-direct"),
@@ -633,6 +643,21 @@ describe("preflight", () => {
         `(async () => { localStorage.setItem("${focusedKey("async-iife-before-suspension")}", "1"); })();`,
         "ts",
       ],
+      [
+        focusedKey("helper-call"),
+        `const storageKey = "${focusedKey("helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+        "ts",
+      ],
+      [
+        focusedKey("nested-helper-call"),
+        `const storageKey = "${focusedKey("nested-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction initialize() { persist(); }\ninitialize();`,
+        "ts",
+      ],
+      [
+        focusedKey("helper-call-limit"),
+        helperChain(focusedKey("helper-call-limit"), 8),
+        "ts",
+      ],
     ] as const;
     const rejected = [
       [
@@ -697,7 +722,35 @@ describe("preflight", () => {
       ],
       [
         focusedKey("helper"),
-        `const storageKey = "${focusedKey("helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+        `const storageKey = "${focusedKey("helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nsetTimeout(persist);`,
+      ],
+      [
+        focusedKey("async-helper"),
+        `const storageKey = "${focusedKey("async-helper")}";\nasync function persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("parameterized-helper"),
+        `const storageKey = "${focusedKey("parameterized-helper")}";\nfunction persist(value) { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("generator-helper"),
+        `const storageKey = "${focusedKey("generator-helper")}";\nfunction* persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("exported-helper"),
+        `const storageKey = "${focusedKey("exported-helper")}";\nexport function persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("optional-helper"),
+        `const storageKey = "${focusedKey("optional-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist?.();`,
+      ],
+      [
+        focusedKey("reassigned-helper"),
+        `const storageKey = "${focusedKey("reassigned-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist = replacement;\npersist();`,
+      ],
+      [
+        focusedKey("helper-call-limit-exceeded"),
+        helperChain(focusedKey("helper-call-limit-exceeded"), 9),
       ],
       [
         focusedKey("conditional"),

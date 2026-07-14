@@ -28,6 +28,8 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
+// Includes the direct top-level invocation that makes the helper live.
+const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const storageMethods = new Map([
   ["getItem", 1],
@@ -197,6 +199,26 @@ function immediateFunctionExpression(expression) {
   return immediateInvocation(functionExpression) === invocation
     ? functionExpression
     : undefined;
+}
+
+function directFunctionInvocation(identifier) {
+  let expression = identifier;
+  while (
+    isTransparentExpressionWrapper(expression.parent) &&
+    expression.parent.expression === expression
+  ) {
+    expression = expression.parent;
+  }
+  if (
+    !ts.isCallExpression(expression.parent) ||
+    expression.parent.expression !== expression ||
+    ts.isOptionalChain(expression.parent) ||
+    expression.parent.arguments.length !== 0
+  ) {
+    return undefined;
+  }
+  const statement = containingExecutionStatement(expression.parent);
+  return statement ? { node: expression.parent, statement } : undefined;
 }
 
 function containingExecutionStatement(expression) {
@@ -479,7 +501,9 @@ function hasStraightLinePrefix(
   call,
   callsByStatement,
   safeStorageKeyUses,
-  checker
+  checker,
+  helperInvocations,
+  remainingHelperCalls = helperProofCallLimit
 ) {
   const container = call.statement.parent;
   const statements = container.statements;
@@ -504,6 +528,26 @@ function hasStraightLinePrefix(
   }
 
   const functionExpression = container.parent;
+  if (
+    ts.isFunctionDeclaration(functionExpression) &&
+    functionExpression.body === container
+  ) {
+    const invocations = helperInvocations.get(functionExpression);
+    return (
+      remainingHelperCalls > 0 &&
+      invocations?.length > 0 &&
+      invocations.every((invocation) =>
+        hasStraightLinePrefix(
+          invocation,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker,
+          helperInvocations,
+          remainingHelperCalls - 1
+        )
+      )
+    );
+  }
   if (!ts.isBlock(container)) {
     return false;
   }
@@ -518,7 +562,9 @@ function hasStraightLinePrefix(
       { statement: entry },
       callsByStatement,
       safeStorageKeyUses,
-      checker
+      checker,
+      helperInvocations,
+      remainingHelperCalls
     )
   );
 }
@@ -590,6 +636,7 @@ function parserExemptions(file, program, checker) {
 
   const identifiers = [];
   const calls = [];
+  const functionDeclarations = [];
   const variableStatements = [];
   function visit(node) {
     if (ts.isIdentifier(node)) {
@@ -597,6 +644,9 @@ function parserExemptions(file, program, checker) {
     }
     if (ts.isVariableStatement(node)) {
       variableStatements.push(node);
+    }
+    if (ts.isFunctionDeclaration(node)) {
+      functionDeclarations.push(node);
     }
     const access = storageCallAccess(node, checker);
     const call = syntacticStorageCall(access, checker);
@@ -613,6 +663,37 @@ function parserExemptions(file, program, checker) {
       .filter((call) => ts.isIdentifier(call.key))
       .map((call) => [call.key, call])
   );
+  const helperInvocations = new Map();
+  for (const declaration of functionDeclarations) {
+    if (
+      !declaration.name ||
+      declaration.asteriskToken ||
+      declaration.modifiers?.some(
+        (modifier) =>
+          modifier.kind === ts.SyntaxKind.AsyncKeyword ||
+          modifier.kind === ts.SyntaxKind.ExportKeyword ||
+          modifier.kind === ts.SyntaxKind.DefaultKeyword
+      ) ||
+      declaration.parameters.length !== 0 ||
+      hasDecorators(declaration)
+    ) {
+      continue;
+    }
+    const symbol = checker.getSymbolAtLocation(declaration.name);
+    if (!symbol) {
+      continue;
+    }
+    const invocations = identifiers
+      .filter(
+        (identifier) =>
+          identifier !== declaration.name &&
+          identifierReferencesSymbol(checker, identifier, symbol)
+      )
+      .map(directFunctionInvocation);
+    if (invocations.length > 0 && invocations.every(Boolean)) {
+      helperInvocations.set(declaration, invocations);
+    }
+  }
   const candidates = [];
 
   for (const statement of variableStatements) {
@@ -669,7 +750,8 @@ function parserExemptions(file, program, checker) {
           call,
           callsByStatement,
           safeStorageKeyUses,
-          checker
+          checker,
+          helperInvocations
         )
     )
     .map((call) => ({
@@ -686,7 +768,8 @@ function parserExemptions(file, program, checker) {
           call,
           callsByStatement,
           safeStorageKeyUses,
-          checker
+          checker,
+          helperInvocations
         );
       })
     ) {
