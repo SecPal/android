@@ -233,14 +233,38 @@ function expressionAbruptCompletion(expression, checker, visiting = new Set()) {
           visiting
         );
   }
+  if (
+    ts.isPrefixUnaryExpression(expression) ||
+    ts.isPostfixUnaryExpression(expression)
+  ) {
+    return expressionAbruptCompletion(expression.operand, checker, visiting);
+  }
+  if (
+    ts.isDeleteExpression(expression) ||
+    ts.isTypeOfExpression(expression) ||
+    ts.isVoidExpression(expression) ||
+    ts.isAwaitExpression(expression)
+  ) {
+    return expressionAbruptCompletion(expression.expression, checker, visiting);
+  }
   if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
-    if (
-      expression.arguments?.some(
-        (argument) =>
-          expressionAbruptCompletion(argument, checker, visiting).always
-      )
-    ) {
-      return { always: true, uncatchable: false, throws: true };
+    const calleeCompletion = expressionAbruptCompletion(
+      expression.expression,
+      checker,
+      visiting
+    );
+    if (calleeCompletion.always) {
+      return calleeCompletion;
+    }
+    for (const argument of expression.arguments ?? []) {
+      const argumentCompletion = expressionAbruptCompletion(
+        ts.isSpreadElement(argument) ? argument.expression : argument,
+        checker,
+        visiting
+      );
+      if (argumentCompletion.always) {
+        return argumentCompletion;
+      }
     }
     const functions = directlyCalledFunctions(expression.expression, checker);
     if (
@@ -280,14 +304,82 @@ function expressionAbruptCompletion(expression, checker, visiting = new Set()) {
       throws: whenTrue.throws && whenFalse.throws,
     };
   }
-  if (
-    ts.isBinaryExpression(expression) &&
-    expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-  ) {
+  if (ts.isBinaryExpression(expression)) {
     const left = expressionAbruptCompletion(expression.left, checker, visiting);
-    return left.always
-      ? left
-      : expressionAbruptCompletion(expression.right, checker, visiting);
+    if (left.always) {
+      return left;
+    }
+    if (
+      [
+        ts.SyntaxKind.AmpersandAmpersandToken,
+        ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+        ts.SyntaxKind.BarBarToken,
+        ts.SyntaxKind.BarBarEqualsToken,
+        ts.SyntaxKind.QuestionQuestionToken,
+        ts.SyntaxKind.QuestionQuestionEqualsToken,
+      ].includes(expression.operatorToken.kind)
+    ) {
+      return { always: false, uncatchable: false, throws: false };
+    }
+    return expressionAbruptCompletion(expression.right, checker, visiting);
+  }
+  if (
+    ts.isArrayLiteralExpression(expression) ||
+    ts.isObjectLiteralExpression(expression) ||
+    ts.isTemplateExpression(expression) ||
+    ts.isTaggedTemplateExpression(expression) ||
+    ts.isJsxElement(expression) ||
+    ts.isJsxSelfClosingElement(expression)
+  ) {
+    for (const step of eagerEvaluationSteps(expression) ?? []) {
+      for (const operation of step.operations) {
+        const completion = evaluationAbruptCompletion(
+          operation,
+          checker,
+          visiting
+        );
+        if (completion.always) {
+          return completion;
+        }
+      }
+    }
+    if (ts.isTaggedTemplateExpression(expression)) {
+      const functions = directlyCalledFunctions(expression.tag, checker);
+      if (
+        functions.length > 0 &&
+        functions.every((functionLike) => {
+          if (!functionLike.body || visiting.has(functionLike)) {
+            return false;
+          }
+          const nextVisiting = new Set(visiting).add(functionLike);
+          const completion = ts.isBlock(functionLike.body)
+            ? abruptCompletion(functionLike.body, checker, nextVisiting)
+            : expressionAbruptCompletion(
+                functionLike.body,
+                checker,
+                nextVisiting
+              );
+          return completion.always && completion.throws;
+        })
+      ) {
+        return { always: true, uncatchable: false, throws: true };
+      }
+    }
+  }
+  if (ts.isClassExpression(expression)) {
+    const operations = classEvaluationOperations(expression);
+    if (operations) {
+      for (const operation of operations) {
+        const completion = evaluationAbruptCompletion(
+          operation,
+          checker,
+          visiting
+        );
+        if (completion.always) {
+          return completion;
+        }
+      }
+    }
   }
   return { always: false, uncatchable: false, throws: false };
 }
@@ -295,7 +387,7 @@ function expressionAbruptCompletion(expression, checker, visiting = new Set()) {
 function eagerObjectElementExpressions(element) {
   const expressions = [];
   if (element.name && ts.isComputedPropertyName(element.name)) {
-    expressions.push(element.name.expression);
+    expressions.push(element.name);
   }
   if (ts.isPropertyAssignment(element)) {
     expressions.push(element.initializer);
@@ -305,74 +397,1110 @@ function eagerObjectElementExpressions(element) {
   ) {
     expressions.push(element.objectAssignmentInitializer);
   } else if (ts.isSpreadAssignment(element)) {
-    expressions.push(element.expression);
+    expressions.push(element);
   }
   return expressions;
 }
 
-function precedingEvaluationExpressions(ancestor, child) {
+function arrayElementExpressions(element) {
+  if (ts.isOmittedExpression(element)) {
+    return [];
+  }
+  return [element];
+}
+
+function callArgumentExpressions(argument) {
+  return [argument];
+}
+
+function jsxAttributeExpressions(attribute) {
+  if (ts.isJsxSpreadAttribute(attribute)) {
+    return [attribute];
+  }
+  const initializer = attribute.initializer;
+  if (!initializer || ts.isStringLiteral(initializer)) {
+    return [];
+  }
+  return ts.isJsxExpression(initializer) && initializer.expression
+    ? [initializer.expression]
+    : [];
+}
+
+function jsxChildExpressions(child) {
+  if (ts.isJsxExpression(child)) {
+    return child.expression ? [child.expression] : [];
+  }
+  return ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)
+    ? [child]
+    : [];
+}
+
+function evaluationStep(owner, operations) {
+  return { operations, owner };
+}
+
+function isWithinNode(node, root) {
+  for (let current = node; current; current = current.parent) {
+    if (current === root) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function decoratorsFor(node) {
+  return ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
+}
+
+function classHeritageExpressions(node) {
+  return (node.heritageClauses ?? [])
+    .filter((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword)
+    .flatMap((clause) => clause.types.map((type) => type.expression));
+}
+
+function computedClassNameOperation(member) {
+  return member.name && ts.isComputedPropertyName(member.name)
+    ? member.name
+    : undefined;
+}
+
+function staticClassInitialization(member) {
+  if (ts.isClassStaticBlockDeclaration(member)) {
+    return member.body;
+  }
+  return ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Static &&
+    ts.isPropertyDeclaration(member) &&
+    member.initializer
+    ? member.initializer
+    : undefined;
+}
+
+function classEvaluationPhases(node) {
   if (
-    (ts.isCallExpression(ancestor) || ts.isNewExpression(ancestor)) &&
-    ancestor.arguments?.includes(child)
+    decoratorsFor(node).length > 0 ||
+    node.members.some((member) => decoratorsFor(member).length > 0)
   ) {
+    return undefined;
+  }
+  return {
+    heritage: classHeritageExpressions(node),
+    members: node.members.map((member) => ({
+      computedName: computedClassNameOperation(member),
+      staticInitialization: staticClassInitialization(member),
+    })),
+  };
+}
+
+function classEvaluationOperations(node) {
+  const phases = classEvaluationPhases(node);
+  return phases
+    ? [
+        ...phases.heritage,
+        ...phases.members.flatMap(({ computedName }) =>
+          computedName ? [computedName] : []
+        ),
+        ...phases.members.flatMap(({ staticInitialization }) =>
+          staticInitialization ? [staticInitialization] : []
+        ),
+      ]
+    : undefined;
+}
+
+function classPrecedingEvaluation(node, child, target) {
+  const phases = classEvaluationPhases(node);
+  if (!phases) {
+    return { operations: [], proven: false };
+  }
+
+  const heritageClauseIndex = node.heritageClauses?.indexOf(child) ?? -1;
+  if (heritageClauseIndex >= 0) {
+    const precedingHeritageExpressions = (node.heritageClauses ?? [])
+      .slice(0, heritageClauseIndex)
+      .filter((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword)
+      .flatMap((clause) => clause.types.map((type) => type.expression));
+    return { operations: precedingHeritageExpressions, proven: true };
+  }
+
+  const memberIndex = node.members.indexOf(child);
+  if (memberIndex < 0) {
+    return { operations: [], proven: false };
+  }
+  const member = node.members[memberIndex];
+  const targetIsComputedName =
+    member.name &&
+    ts.isComputedPropertyName(member.name) &&
+    isWithinNode(target, member.name);
+  const computedNameExpressions = phases.members
+    .slice(0, targetIsComputedName ? memberIndex : node.members.length)
+    .flatMap(({ computedName }) => (computedName ? [computedName] : []));
+  if (targetIsComputedName) {
+    return {
+      operations: [...phases.heritage, ...computedNameExpressions],
+      proven: true,
+    };
+  }
+  const precedingStaticInitializations = phases.members
+    .slice(0, memberIndex)
+    .flatMap(({ staticInitialization }) =>
+      staticInitialization ? [staticInitialization] : []
+    );
+  return {
+    operations: [
+      ...phases.heritage,
+      ...computedNameExpressions,
+      ...precedingStaticInitializations,
+    ],
+    proven: true,
+  };
+}
+
+function eagerEvaluationSteps(node) {
+  if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
     return [
-      ancestor.expression,
-      ...ancestor.arguments.slice(0, ancestor.arguments.indexOf(child)),
+      evaluationStep(node.expression, [node.expression]),
+      ...(node.arguments ?? []).map((argument) =>
+        evaluationStep(argument, callArgumentExpressions(argument))
+      ),
     ];
   }
-  if (
-    ts.isArrayLiteralExpression(ancestor) &&
-    ancestor.elements.includes(child)
-  ) {
-    return ancestor.elements.slice(0, ancestor.elements.indexOf(child));
+  if (ts.isElementAccessExpression(node)) {
+    return [
+      evaluationStep(node.expression, [node.expression]),
+      ...(node.argumentExpression
+        ? [evaluationStep(node.argumentExpression, [node.argumentExpression])]
+        : []),
+    ];
   }
-  if (
-    ts.isObjectLiteralExpression(ancestor) &&
-    ancestor.properties.includes(child)
-  ) {
-    return ancestor.properties
-      .slice(0, ancestor.properties.indexOf(child))
-      .flatMap(eagerObjectElementExpressions);
+  if (ts.isBinaryExpression(node)) {
+    return [
+      evaluationStep(node.left, [node.left]),
+      evaluationStep(node.right, [node.right]),
+    ];
   }
-  if (
-    ts.isVariableDeclarationList(ancestor) &&
-    ancestor.declarations.includes(child)
-  ) {
-    return ancestor.declarations
-      .slice(0, ancestor.declarations.indexOf(child))
-      .flatMap((declaration) =>
+  if (ts.isConditionalExpression(node)) {
+    return [
+      evaluationStep(node.condition, [node.condition]),
+      evaluationStep(node.whenTrue, [node.whenTrue]),
+      evaluationStep(node.whenFalse, [node.whenFalse]),
+    ];
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.map((element) =>
+      evaluationStep(element, arrayElementExpressions(element))
+    );
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.map((property) =>
+      evaluationStep(property, eagerObjectElementExpressions(property))
+    );
+  }
+  if (ts.isVariableDeclarationList(node)) {
+    return node.declarations.map((declaration) =>
+      evaluationStep(
+        declaration,
         declaration.initializer ? [declaration.initializer] : []
+      )
+    );
+  }
+  if (ts.isPropertyAssignment(node)) {
+    return [
+      ...(ts.isComputedPropertyName(node.name)
+        ? [evaluationStep(node.name, [node.name])]
+        : []),
+      evaluationStep(node.initializer, [node.initializer]),
+    ];
+  }
+  if (ts.isTemplateExpression(node)) {
+    return node.templateSpans.map((span) => evaluationStep(span, [span]));
+  }
+  if (ts.isTaggedTemplateExpression(node)) {
+    return [
+      evaluationStep(node.tag, [node.tag]),
+      evaluationStep(node.template, [node.template]),
+    ];
+  }
+  if (ts.isJsxAttributes(node)) {
+    return node.properties.map((attribute) =>
+      evaluationStep(attribute, jsxAttributeExpressions(attribute))
+    );
+  }
+  if (ts.isJsxElement(node)) {
+    return [
+      evaluationStep(node.openingElement, [node.openingElement]),
+      ...node.children.map((child) =>
+        evaluationStep(child, jsxChildExpressions(child))
+      ),
+      evaluationStep(node.closingElement, []),
+    ];
+  }
+  if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+    return [
+      evaluationStep(node.tagName, [node.tagName]),
+      evaluationStep(
+        node.attributes,
+        node.attributes.properties.flatMap(jsxAttributeExpressions)
+      ),
+    ];
+  }
+  if (ts.isSwitchStatement(node)) {
+    return [
+      evaluationStep(node.expression, [node.expression]),
+      evaluationStep(node.caseBlock, []),
+    ];
+  }
+  if (ts.isForStatement(node)) {
+    const initializerExpressions = ts.isVariableDeclarationList(
+      node.initializer
+    )
+      ? node.initializer.declarations.flatMap((declaration) =>
+          declaration.initializer ? [declaration.initializer] : []
+        )
+      : node.initializer
+        ? [node.initializer]
+        : [];
+    return [
+      ...(node.initializer
+        ? [evaluationStep(node.initializer, initializerExpressions)]
+        : []),
+      ...(node.condition
+        ? [evaluationStep(node.condition, [node.condition])]
+        : []),
+      ...(node.incrementor
+        ? [evaluationStep(node.incrementor, [node.incrementor])]
+        : []),
+      evaluationStep(node.statement, []),
+    ];
+  }
+  return undefined;
+}
+
+function precedingEvaluation(ancestor, child, target) {
+  if (ts.isClassLike(ancestor)) {
+    return classPrecedingEvaluation(ancestor, child, target);
+  }
+  const steps = eagerEvaluationSteps(ancestor);
+  if (!steps) {
+    return { operations: [], proven: true };
+  }
+  const childIndex = steps.findIndex((step) => step.owner === child);
+  if (childIndex < 0) {
+    return { operations: [], proven: false };
+  }
+  return {
+    operations: steps.slice(0, childIndex).flatMap((step) => step.operations),
+    proven: true,
+  };
+}
+
+function functionReturnExpressions(functionLike) {
+  if (!functionLike.body) {
+    return [];
+  }
+  if (!ts.isBlock(functionLike.body)) {
+    return [functionLike.body];
+  }
+  const expressions = [];
+  function visit(node) {
+    if (node !== functionLike.body && ts.isFunctionLike(node)) {
+      return;
+    }
+    if (ts.isReturnStatement(node)) {
+      if (node.expression) {
+        expressions.push(node.expression);
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functionLike.body);
+  return expressions;
+}
+
+function valueDefinitions(expression, checker, visiting = new Set()) {
+  expression = unwrapExpression(expression);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || visiting.has(symbol)) {
+      return [expression];
+    }
+    const nextVisiting = new Set(visiting).add(symbol);
+    const definitions = (symbol.declarations ?? []).flatMap((declaration) => {
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        return valueDefinitions(declaration.initializer, checker, nextVisiting);
+      }
+      return ts.isClassDeclaration(declaration) ||
+        ts.isFunctionDeclaration(declaration)
+        ? [declaration]
+        : [];
+    });
+    return definitions.length > 0 ? definitions : [expression];
+  }
+  if (ts.isCallExpression(expression)) {
+    const definitions = directlyCalledFunctions(
+      expression.expression,
+      checker
+    ).flatMap((functionLike) =>
+      functionReturnExpressions(functionLike).flatMap((returned) =>
+        valueDefinitions(returned, checker, visiting)
+      )
+    );
+    return definitions.length > 0 ? definitions : [expression];
+  }
+  if (ts.isNewExpression(expression)) {
+    const constructor = unwrapExpression(expression.expression);
+    const symbol = checker.getSymbolAtLocation(constructor);
+    const definitions = (symbol?.declarations ?? []).filter(
+      (declaration) =>
+        ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration)
+    );
+    return definitions.length > 0 ? definitions : [expression];
+  }
+  return [expression];
+}
+
+function valueMembers(expression, checker) {
+  return valueDefinitions(expression, checker).flatMap((definition) => {
+    if (ts.isObjectLiteralExpression(definition)) {
+      return [...definition.properties];
+    }
+    if (ts.isClassDeclaration(definition) || ts.isClassExpression(definition)) {
+      return [...definition.members];
+    }
+    return [];
+  });
+}
+
+function wellKnownMemberName(name, checker) {
+  if (!name || !ts.isComputedPropertyName(name)) {
+    return undefined;
+  }
+  const expression = unwrapExpression(name.expression);
+  if (
+    (!ts.isPropertyAccessExpression(expression) &&
+      !ts.isElementAccessExpression(expression)) ||
+    !ts.isIdentifier(expression.expression) ||
+    expression.expression.text !== "Symbol" ||
+    !isUnshadowedGlobal(checker, expression.expression)
+  ) {
+    return undefined;
+  }
+  return staticPropertyName(expression);
+}
+
+function valueHasMember(expression, checker, memberName, wellKnown = false) {
+  return valueMembers(expression, checker).some((member) => {
+    const name = member.name;
+    return wellKnown
+      ? wellKnownMemberName(name, checker) === memberName
+      : name && staticDeclarationName(name) === memberName;
+  });
+}
+
+function valueHasGetter(expression, checker) {
+  return valueMembers(expression, checker).some(ts.isGetAccessorDeclaration);
+}
+
+function propertyAccessIsProvenData(expression, checker) {
+  const location = ts.isPropertyAccessExpression(expression)
+    ? expression.name
+    : expression.argumentExpression;
+  if (!location) {
+    return false;
+  }
+  const declarations =
+    checker.getSymbolAtLocation(location)?.declarations ?? [];
+  return (
+    declarations.length > 0 &&
+    declarations.every(
+      (declaration) => !ts.isGetAccessorDeclaration(declaration)
+    )
+  );
+}
+
+function valueIsDefinitelyPrimitive(expression, checker) {
+  const definitions = valueDefinitions(expression, checker);
+  return (
+    definitions.length > 0 &&
+    definitions.every((definition) => {
+      definition = unwrapExpression(definition);
+      return (
+        ts.isStringLiteral(definition) ||
+        ts.isNoSubstitutionTemplateLiteral(definition) ||
+        ts.isNumericLiteral(definition) ||
+        ts.isBigIntLiteral(definition) ||
+        definition.kind === ts.SyntaxKind.TrueKeyword ||
+        definition.kind === ts.SyntaxKind.FalseKeyword ||
+        definition.kind === ts.SyntaxKind.NullKeyword ||
+        ts.isTemplateExpression(definition) ||
+        ts.isTypeOfExpression(definition) ||
+        ts.isDeleteExpression(definition) ||
+        ts.isVoidExpression(definition) ||
+        ts.isPrefixUnaryExpression(definition) ||
+        ts.isPostfixUnaryExpression(definition) ||
+        (ts.isIdentifier(definition) &&
+          definition.text === "undefined" &&
+          isUnshadowedGlobal(checker, definition))
       );
+    })
+  );
+}
+
+function valueIsProvenIterable(expression, checker) {
+  const definitions = valueDefinitions(expression, checker);
+  return (
+    definitions.length > 0 &&
+    definitions.every((definition) => {
+      definition = unwrapExpression(definition);
+      return (
+        ts.isArrayLiteralExpression(definition) ||
+        ts.isStringLiteral(definition) ||
+        ts.isNoSubstitutionTemplateLiteral(definition)
+      );
+    })
+  );
+}
+
+function valueIsProvenPlainObject(expression, checker) {
+  const definitions = valueDefinitions(expression, checker);
+  return (
+    definitions.length > 0 &&
+    definitions.every(
+      (definition) =>
+        ts.isObjectLiteralExpression(definition) &&
+        definition.properties.every(
+          (property) =>
+            !ts.isGetAccessorDeclaration(property) &&
+            !ts.isSpreadAssignment(property)
+        )
+    )
+  );
+}
+
+function valueIsProvenMatcher(expression, checker) {
+  const definitions = valueDefinitions(expression, checker);
+  return (
+    definitions.length > 0 &&
+    definitions.every(
+      (definition) =>
+        ts.isClassDeclaration(definition) ||
+        ts.isClassExpression(definition) ||
+        ts.isFunctionDeclaration(definition) ||
+        ts.isFunctionExpression(definition) ||
+        ts.isArrowFunction(definition)
+    )
+  );
+}
+
+function binaryHasUnprovenCoercion(expression, checker) {
+  const operator = expression.operatorToken.kind;
+  if (operator === ts.SyntaxKind.InstanceOfKeyword) {
+    return (
+      valueHasMember(expression.right, checker, "hasInstance", true) ||
+      !valueIsProvenMatcher(expression.right, checker)
+    );
+  }
+  if (operator === ts.SyntaxKind.InKeyword) {
+    return (
+      !valueIsDefinitelyPrimitive(expression.left, checker) ||
+      !valueIsProvenPlainObject(expression.right, checker)
+    );
   }
   if (
-    ts.isPropertyAssignment(ancestor) &&
-    ancestor.initializer === child &&
-    ts.isComputedPropertyName(ancestor.name)
+    [
+      ts.SyntaxKind.PlusToken,
+      ts.SyntaxKind.PlusEqualsToken,
+      ts.SyntaxKind.MinusToken,
+      ts.SyntaxKind.MinusEqualsToken,
+      ts.SyntaxKind.AsteriskToken,
+      ts.SyntaxKind.AsteriskEqualsToken,
+      ts.SyntaxKind.AsteriskAsteriskToken,
+      ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+      ts.SyntaxKind.SlashToken,
+      ts.SyntaxKind.SlashEqualsToken,
+      ts.SyntaxKind.PercentToken,
+      ts.SyntaxKind.PercentEqualsToken,
+      ts.SyntaxKind.LessThanToken,
+      ts.SyntaxKind.LessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanToken,
+      ts.SyntaxKind.GreaterThanEqualsToken,
+      ts.SyntaxKind.EqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsToken,
+      ts.SyntaxKind.LessThanLessThanToken,
+      ts.SyntaxKind.LessThanLessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanGreaterThanToken,
+      ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+      ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
+      ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+      ts.SyntaxKind.AmpersandToken,
+      ts.SyntaxKind.AmpersandEqualsToken,
+      ts.SyntaxKind.BarToken,
+      ts.SyntaxKind.BarEqualsToken,
+      ts.SyntaxKind.CaretToken,
+      ts.SyntaxKind.CaretEqualsToken,
+    ].includes(operator)
   ) {
-    return [ancestor.name.expression];
+    return (
+      !valueIsDefinitelyPrimitive(expression.left, checker) ||
+      !valueIsDefinitelyPrimitive(expression.right, checker)
+    );
   }
-  if (ts.isBinaryExpression(ancestor) && ancestor.right === child) {
-    return [ancestor.left];
+  return false;
+}
+
+function assignmentTargetHasUnprovenImplicitExecution(
+  target,
+  checker,
+  visiting
+) {
+  target = unwrapExpression(target);
+  if (ts.isIdentifier(target)) {
+    return false;
   }
-  return [];
+  if (
+    !ts.isPropertyAccessExpression(target) &&
+    !ts.isElementAccessExpression(target)
+  ) {
+    return true;
+  }
+  if (
+    operationHasUnprovenImplicitExecution(
+      target.expression,
+      checker,
+      visiting
+    ) ||
+    (target.argumentExpression &&
+      (operationHasUnprovenImplicitExecution(
+        target.argumentExpression,
+        checker,
+        visiting
+      ) ||
+        !valueIsDefinitelyPrimitive(target.argumentExpression, checker)))
+  ) {
+    return true;
+  }
+  return (
+    !browserStorageKind(target.expression, checker) &&
+    !valueIsProvenPlainObject(target.expression, checker)
+  );
+}
+
+function isProvenIntrinsicCall(expression, checker) {
+  if (
+    !ts.isCallExpression(expression) ||
+    (!ts.isPropertyAccessExpression(expression.expression) &&
+      !ts.isElementAccessExpression(expression.expression))
+  ) {
+    return false;
+  }
+  if (
+    ["getItem", "setItem", "removeItem"].includes(
+      staticPropertyName(expression.expression) ?? ""
+    ) &&
+    browserStorageKind(expression.expression.expression, checker)
+  ) {
+    return true;
+  }
+  if (
+    staticPropertyName(expression.expression) !== "getPrototypeOf" ||
+    !intrinsicObjectName(expression.expression.expression, checker) ||
+    !expression.arguments[0]
+  ) {
+    return false;
+  }
+  return Boolean(browserStorageKind(expression.arguments[0], checker));
+}
+
+function operationHasUnprovenImplicitExecution(
+  operation,
+  checker,
+  visiting = new Set()
+) {
+  if (ts.isComputedPropertyName(operation)) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        operation.expression,
+        checker,
+        visiting
+      ) || !valueIsDefinitelyPrimitive(operation.expression, checker)
+    );
+  }
+  if (ts.isSpreadElement(operation)) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        operation.expression,
+        checker,
+        visiting
+      ) || !valueIsProvenIterable(operation.expression, checker)
+    );
+  }
+  if (ts.isSpreadAssignment(operation) || ts.isJsxSpreadAttribute(operation)) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        operation.expression,
+        checker,
+        visiting
+      ) ||
+      valueHasGetter(operation.expression, checker) ||
+      !valueIsProvenPlainObject(operation.expression, checker)
+    );
+  }
+  if (ts.isTemplateSpan(operation)) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        operation.expression,
+        checker,
+        visiting
+      ) || !valueIsDefinitelyPrimitive(operation.expression, checker)
+    );
+  }
+
+  const expression = unwrapExpression(operation);
+  if (
+    ts.isPropertyAccessExpression(expression) ||
+    ts.isElementAccessExpression(expression)
+  ) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        expression.expression,
+        checker,
+        visiting
+      ) ||
+      (expression.argumentExpression
+        ? operationHasUnprovenImplicitExecution(
+            expression.argumentExpression,
+            checker,
+            visiting
+          )
+        : false) ||
+      !propertyAccessIsProvenData(expression, checker)
+    );
+  }
+  if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
+    const provenIntrinsicCall = isProvenIntrinsicCall(expression, checker);
+    const invocationIsProven = ts.isCallExpression(expression)
+      ? provenIntrinsicCall ||
+        callTargetIsProvenFunction(expression.expression, checker)
+      : valueIsProvenMatcher(expression.expression, checker);
+    return (
+      !invocationIsProven ||
+      (!provenIntrinsicCall &&
+        operationHasUnprovenImplicitExecution(
+          expression.expression,
+          checker,
+          visiting
+        )) ||
+      (expression.arguments ?? []).some((argument) =>
+        operationHasUnprovenImplicitExecution(argument, checker, visiting)
+      ) ||
+      calledFunctionsHaveUnprovenImplicitExecution(
+        expression.expression,
+        checker,
+        visiting
+      )
+    );
+  }
+  if (ts.isBinaryExpression(expression)) {
+    const leftHasUnprovenExecution =
+      expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ? assignmentTargetHasUnprovenImplicitExecution(
+            expression.left,
+            checker,
+            visiting
+          )
+        : operationHasUnprovenImplicitExecution(
+            expression.left,
+            checker,
+            visiting
+          );
+    return (
+      leftHasUnprovenExecution ||
+      operationHasUnprovenImplicitExecution(
+        expression.right,
+        checker,
+        visiting
+      ) ||
+      binaryHasUnprovenCoercion(expression, checker)
+    );
+  }
+  if (
+    ts.isPrefixUnaryExpression(expression) ||
+    ts.isPostfixUnaryExpression(expression)
+  ) {
+    return (
+      operationHasUnprovenImplicitExecution(
+        expression.operand,
+        checker,
+        visiting
+      ) ||
+      ([
+        ts.SyntaxKind.PlusToken,
+        ts.SyntaxKind.MinusToken,
+        ts.SyntaxKind.TildeToken,
+      ].includes(expression.operator) &&
+        !valueIsDefinitelyPrimitive(expression.operand, checker))
+    );
+  }
+  if (
+    ts.isDeleteExpression(expression) ||
+    ts.isTypeOfExpression(expression) ||
+    ts.isVoidExpression(expression) ||
+    ts.isAwaitExpression(expression)
+  ) {
+    return operationHasUnprovenImplicitExecution(
+      expression.expression,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isClassExpression(expression)) {
+    const operations = classEvaluationOperations(expression);
+    return (
+      !operations ||
+      operations.some((nested) =>
+        operationHasUnprovenImplicitExecution(nested, checker, visiting)
+      )
+    );
+  }
+  if (
+    ts.isArrayLiteralExpression(expression) ||
+    ts.isObjectLiteralExpression(expression) ||
+    ts.isTemplateExpression(expression) ||
+    ts.isTaggedTemplateExpression(expression) ||
+    ts.isJsxElement(expression) ||
+    ts.isJsxSelfClosingElement(expression)
+  ) {
+    return (
+      (eagerEvaluationSteps(expression) ?? []).some((step) =>
+        step.operations.some((nested) =>
+          operationHasUnprovenImplicitExecution(nested, checker, visiting)
+        )
+      ) ||
+      (ts.isTaggedTemplateExpression(expression) &&
+        (!callTargetIsProvenFunction(expression.tag, checker) ||
+          calledFunctionsHaveUnprovenImplicitExecution(
+            expression.tag,
+            checker,
+            visiting
+          )))
+    );
+  }
+  return false;
+}
+
+function calledFunctionsHaveUnprovenImplicitExecution(
+  expression,
+  checker,
+  visiting
+) {
+  return directlyCalledFunctions(expression, checker).some(
+    (functionLike) =>
+      visiting.has(functionLike) ||
+      functionLikeHasUnprovenImplicitExecution(
+        functionLike,
+        checker,
+        new Set(visiting).add(functionLike)
+      )
+  );
+}
+
+function functionLikeHasUnprovenImplicitExecution(
+  functionLike,
+  checker,
+  visiting
+) {
+  if (!functionLike.body) {
+    return true;
+  }
+  if (
+    functionLike.parameters.some((parameter) =>
+      parameterPreventsExecutionProof(parameter, checker, visiting)
+    )
+  ) {
+    return true;
+  }
+  if (!ts.isBlock(functionLike.body)) {
+    return operationHasUnprovenImplicitExecution(
+      functionLike.body,
+      checker,
+      visiting
+    );
+  }
+
+  let returnValueIsUnproven = false;
+  function visitReturns(node) {
+    if (
+      returnValueIsUnproven ||
+      (node !== functionLike.body && ts.isFunctionLike(node))
+    ) {
+      return;
+    }
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      operationHasUnprovenImplicitExecution(node.expression, checker, visiting)
+    ) {
+      returnValueIsUnproven = true;
+      return;
+    }
+    ts.forEachChild(node, visitReturns);
+  }
+  visitReturns(functionLike.body);
+  if (returnValueIsUnproven) {
+    return true;
+  }
+
+  for (const statement of functionLike.body.statements) {
+    const completion = abruptCompletion(statement, checker, visiting);
+    if (completion.always && !completion.throws) {
+      return false;
+    }
+    if (statementPreventsExecutionProof(statement, checker, visiting)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function evaluationAbruptCompletion(operation, checker, visiting = new Set()) {
+  if (
+    ts.isComputedPropertyName(operation) ||
+    ts.isSpreadElement(operation) ||
+    ts.isSpreadAssignment(operation) ||
+    ts.isJsxSpreadAttribute(operation) ||
+    ts.isTemplateSpan(operation)
+  ) {
+    return expressionAbruptCompletion(operation.expression, checker, visiting);
+  }
+  return ts.isStatement(operation) || ts.isBlock(operation)
+    ? abruptCompletion(operation, checker, visiting)
+    : expressionAbruptCompletion(operation, checker, visiting);
+}
+
+function operationPreventsExecutionProof(
+  operation,
+  checker,
+  visiting = new Set()
+) {
+  return (
+    evaluationAbruptCompletion(operation, checker, visiting).always ||
+    operationHasUnprovenImplicitExecution(operation, checker, visiting)
+  );
+}
+
+function statementPreventsExecutionProof(
+  statement,
+  checker,
+  visiting = new Set()
+) {
+  if (abruptCompletion(statement, checker, visiting).always) {
+    return true;
+  }
+  if (ts.isBlock(statement)) {
+    return statement.statements.some((nested) =>
+      statementPreventsExecutionProof(nested, checker, visiting)
+    );
+  }
+  if (ts.isExpressionStatement(statement)) {
+    return operationPreventsExecutionProof(
+      statement.expression,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isVariableStatement(statement)) {
+    return statement.declarationList.declarations.some(
+      (declaration) =>
+        declaration.initializer &&
+        operationPreventsExecutionProof(
+          declaration.initializer,
+          checker,
+          visiting
+        )
+    );
+  }
+  if (ts.isClassDeclaration(statement)) {
+    const operations = classEvaluationOperations(statement);
+    return (
+      !operations ||
+      operations.some((operation) =>
+        operationPreventsExecutionProof(operation, checker, visiting)
+      )
+    );
+  }
+  if (ts.isIfStatement(statement)) {
+    return (
+      operationPreventsExecutionProof(
+        statement.expression,
+        checker,
+        visiting
+      ) ||
+      Boolean(
+        statement.elseStatement &&
+        statementPreventsExecutionProof(
+          statement.thenStatement,
+          checker,
+          visiting
+        ) &&
+        statementPreventsExecutionProof(
+          statement.elseStatement,
+          checker,
+          visiting
+        )
+      )
+    );
+  }
+  if (ts.isSwitchStatement(statement)) {
+    return operationPreventsExecutionProof(
+      statement.expression,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isForOfStatement(statement) || ts.isForInStatement(statement)) {
+    if (
+      operationPreventsExecutionProof(statement.expression, checker, visiting)
+    ) {
+      return true;
+    }
+    return ts.isForOfStatement(statement)
+      ? !valueIsProvenIterable(statement.expression, checker)
+      : !valueIsProvenPlainObject(statement.expression, checker);
+  }
+  if (ts.isForStatement(statement)) {
+    if (
+      statement.initializer &&
+      (ts.isVariableDeclarationList(statement.initializer)
+        ? statement.initializer.declarations.some(
+            (declaration) =>
+              declaration.initializer &&
+              operationPreventsExecutionProof(
+                declaration.initializer,
+                checker,
+                visiting
+              )
+          )
+        : operationPreventsExecutionProof(
+            statement.initializer,
+            checker,
+            visiting
+          ))
+    ) {
+      return true;
+    }
+    return Boolean(
+      statement.condition &&
+      operationPreventsExecutionProof(statement.condition, checker, visiting)
+    );
+  }
+  if (ts.isWhileStatement(statement)) {
+    return operationPreventsExecutionProof(
+      statement.expression,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isDoStatement(statement)) {
+    return statementPreventsExecutionProof(
+      statement.statement,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isLabeledStatement(statement)) {
+    return statementPreventsExecutionProof(
+      statement.statement,
+      checker,
+      visiting
+    );
+  }
+  if (ts.isTryStatement(statement)) {
+    if (
+      statement.finallyBlock &&
+      statementPreventsExecutionProof(statement.finallyBlock, checker, visiting)
+    ) {
+      return true;
+    }
+    return (
+      !statement.catchClause &&
+      statementPreventsExecutionProof(statement.tryBlock, checker, visiting)
+    );
+  }
+  return false;
+}
+
+function bindingNameHasProvenInitialization(
+  name,
+  initializer,
+  checker,
+  visiting = new Set()
+) {
+  if (ts.isIdentifier(name)) {
+    return true;
+  }
+  if (!initializer) {
+    return false;
+  }
+  const sourceIsProven = ts.isObjectBindingPattern(name)
+    ? valueIsProvenPlainObject(initializer, checker)
+    : valueIsProvenIterable(initializer, checker);
+  return (
+    sourceIsProven &&
+    name.elements.every(
+      (element) =>
+        ts.isOmittedExpression(element) ||
+        (ts.isIdentifier(element.name) &&
+          (!element.initializer ||
+            !operationPreventsExecutionProof(
+              element.initializer,
+              checker,
+              visiting
+            )))
+    )
+  );
+}
+
+function parameterPreventsExecutionProof(
+  parameter,
+  checker,
+  visiting = new Set()
+) {
+  return (
+    Boolean(
+      parameter.initializer &&
+      operationPreventsExecutionProof(parameter.initializer, checker, visiting)
+    ) ||
+    !bindingNameHasProvenInitialization(
+      parameter.name,
+      parameter.initializer,
+      checker,
+      visiting
+    )
+  );
 }
 
 function hasPrecedingAbruptExpression(node, checker) {
   let child = node;
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
     if (
-      precedingEvaluationExpressions(ancestor, child).some(
-        (expression) => expressionAbruptCompletion(expression, checker).always
-      )
-    ) {
-      return true;
-    }
-    if (
       (ts.isFunctionLike(ancestor) &&
         functionLikeDefersChild(ancestor, child)) ||
       ts.isSourceFile(ancestor)
     ) {
-      return false;
+      return (
+        ts.isFunctionLike(ancestor) &&
+        ancestor.parameters.some((parameter) =>
+          parameterPreventsExecutionProof(parameter, checker)
+        )
+      );
+    }
+    const evaluation = precedingEvaluation(ancestor, child, node);
+    if (
+      !evaluation.proven ||
+      evaluation.operations.some((operation) =>
+        operationPreventsExecutionProof(operation, checker)
+      )
+    ) {
+      return true;
     }
     child = ancestor;
   }
@@ -459,7 +1587,9 @@ function hasPrecedingAbruptCompletion(node) {
         childIndex > 0 &&
         ancestor.statements
           .slice(0, childIndex)
-          .some((statement) => abruptCompletion(statement, checker).always)
+          .some((statement) =>
+            statementPreventsExecutionProof(statement, checker)
+          )
       ) {
         return true;
       }
@@ -811,6 +1941,53 @@ function directlyCalledFunctions(expression, checker) {
   return functions;
 }
 
+function callTargetIsProvenFunction(expression, checker) {
+  expression = unwrapExpression(expression);
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+    return true;
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return (
+      callTargetIsProvenFunction(expression.whenTrue, checker) &&
+      callTargetIsProvenFunction(expression.whenFalse, checker)
+    );
+  }
+  if (
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+  ) {
+    return callTargetIsProvenFunction(expression.right, checker);
+  }
+
+  const symbol = checker.getSymbolAtLocation(
+    ts.isPropertyAccessExpression(expression)
+      ? expression.name
+      : ts.isElementAccessExpression(expression) &&
+          expression.argumentExpression
+        ? expression.argumentExpression
+        : expression
+  );
+  const declarations = symbol?.declarations ?? [];
+  return (
+    declarations.length > 0 &&
+    declarations.every((declaration) => {
+      if (
+        ts.isFunctionDeclaration(declaration) ||
+        ts.isMethodDeclaration(declaration)
+      ) {
+        return Boolean(declaration.body);
+      }
+      if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) {
+        return false;
+      }
+      const initializer = unwrapExpression(declaration.initializer);
+      return (
+        ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)
+      );
+    })
+  );
+}
+
 function storageCall(node, checker) {
   if (
     !ts.isCallExpression(node) ||
@@ -834,7 +2011,7 @@ function storageCall(node, checker) {
     method === "setItem" &&
     (node.arguments.length < 2 ||
       ts.isSpreadElement(node.arguments[1]) ||
-      expressionAbruptCompletion(node.arguments[1], checker).always)
+      operationPreventsExecutionProof(node.arguments[1], checker))
   ) {
     return undefined;
   }

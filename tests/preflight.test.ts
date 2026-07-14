@@ -440,7 +440,7 @@ describe("preflight", () => {
     const invalidHost = "secpal" + ".invalid-host.com";
 
     const check = (source: string, extension = "ts") => {
-      for (const existingExtension of ["cjs", "js", "ts"]) {
+      for (const existingExtension of ["cjs", "js", "ts", "tsx"]) {
         rmSync(join(tempRoot, `storage-key.${existingExtension}`), {
           force: true,
         });
@@ -945,6 +945,403 @@ describe("preflight", () => {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it("orders eager evaluation contexts before exempting storage keys", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
+    const eagerEvaluationCases = [
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) =>
+          "`${before()}${" + storageCall + "}`;",
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return () => {}; }`,
+        statement: (storageCall: string) => "before()`${" + storageCall + "}`;",
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return []; }`,
+        statement: (storageCall: string) => `[...before(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) => `[[before()], ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) =>
+          `[{ value: before() }, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return 1; }`,
+        statement: (storageCall: string) => `[before() + 1, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) => `[void before(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) =>
+          "[`${before()}`, " + storageCall + "];",
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `class Base {}\nfunction before() { return Base; }`,
+        statement: (storageCall: string) =>
+          `[class extends before() {}, ${storageCall}];`,
+      },
+      {
+        extension: "tsx",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) =>
+          `<Comp first={before()} second={${storageCall}} />;`,
+      },
+      {
+        extension: "tsx",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "value"; }`,
+        statement: (storageCall: string) =>
+          `<Comp><Child value={before()} />{${storageCall}}</Comp>;`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return {}; }`,
+        statement: (storageCall: string) => `before()[${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return []; }`,
+        statement: (storageCall: string) =>
+          `consume(...before(), ${storageCall});`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() {}`,
+        statement: (storageCall: string) =>
+          `for (before(); ${storageCall}; ) { break; }`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return 0; }`,
+        statement: (storageCall: string) =>
+          `switch (before()) { default: ${storageCall}; }`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `class Base {}\nfunction before() { return Base; }`,
+        statement: (storageCall: string) =>
+          `class Holder extends before() { static { ${storageCall}; } }`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function before() { throw new Error(); }`,
+        passingSetup: `function before() { return "method"; }`,
+        statement: (storageCall: string) =>
+          `class Holder { [before()]() {} static { ${storageCall}; } }`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: "value" };`,
+        statement: (storageCall: string) => `[prior.value, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
+        passingSetup: `const prior = "value";`,
+        statement: (storageCall: string) => "`${prior}${" + storageCall + "}`;",
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
+        passingSetup: `const prior = [];`,
+        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
+        passingSetup: `const prior = [];`,
+        statement: (storageCall: string) =>
+          `consume(...prior, ${storageCall});`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: "value" };`,
+        statement: (storageCall: string) => `[{ ...prior }, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { valueOf() { throw new Error(); } };`,
+        passingSetup: `const prior = 1;`,
+        statement: (storageCall: string) => `[prior + 1, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const Matcher = { [Symbol.hasInstance]() { throw new Error(); } };`,
+        passingSetup: `const value = {};\nclass Matcher {}`,
+        statement: (storageCall: string) =>
+          `[value instanceof Matcher, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get method() { throw new Error(); } };`,
+        passingSetup: `const prior = { method() {} };`,
+        statement: (storageCall: string) => `[prior.method(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
+        passingSetup: `const prior = "property";`,
+        statement: (storageCall: string) =>
+          `({ [prior]: true, value: ${storageCall} });`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.toPrimitive]() { throw new Error(); } };`,
+        passingSetup: `const prior = "method";`,
+        statement: (storageCall: string) =>
+          `class Holder { [prior]() {} static { ${storageCall}; } }`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = new Proxy(() => {}, { apply() { throw new Error(); } });`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = new Proxy(class {}, { construct() { throw new Error(); } });`,
+        passingSetup: `class prior {}`,
+        statement: (storageCall: string) => `[new prior(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function prior() { throw new Error(); }`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare const prior: (strings: TemplateStringsArray) => void;`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: "value" };`,
+        statement: (storageCall: string) =>
+          `const value = prior.value;\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = new Proxy(() => {}, { apply() { throw new Error(); } });`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `prior();\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { [Symbol.iterator]() { throw new Error(); } };`,
+        passingSetup: `const prior = [];`,
+        statement: (storageCall: string) =>
+          `for (const value of prior) {}\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = new Proxy({}, { ownKeys() { throw new Error(); } });`,
+        passingSetup: `const prior = {};`,
+        statement: (storageCall: string) =>
+          `for (const key in prior) {}\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: true };`,
+        statement: (storageCall: string) =>
+          `if (prior.value) {}\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: 0 };`,
+        statement: (storageCall: string) =>
+          `switch (prior.value) { default: break; }\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `function prior() { throw new Error(); }`,
+        passingSetup: `class Base {}\nfunction prior() { return Base; }`,
+        statement: (storageCall: string) =>
+          `class Holder extends prior() {}\n${storageCall};`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = [];\nprior[Symbol.iterator] = () => { throw new Error(); };`,
+        passingSetup: `const prior = [];`,
+        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { method() {} };\nObject.defineProperty(prior, "method", { get() { throw new Error(); } });`,
+        passingSetup: `const prior = { method() {} };`,
+        statement: (storageCall: string) => `[prior.method(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = [];\nconst alias = prior;\nalias[Symbol.iterator] = () => { throw new Error(); };`,
+        passingSetup: `const prior = [];`,
+        statement: (storageCall: string) => `[...prior, ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: "value" };`,
+        statement: (storageCall: string) =>
+          storageCall.replace('"1"', "prior.value"),
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = new Proxy(() => "value", { apply() { throw new Error(); } });`,
+        passingSetup: `function prior() { return "value"; }`,
+        statement: (storageCall: string) =>
+          storageCall.replace('"1"', "prior()"),
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare function external(): void;\nfunction prior() { external(); }`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare function external(): void;\nclass Prior { constructor() { external(); } }`,
+        passingSetup: `class Prior {}`,
+        statement: (storageCall: string) => `[new Prior(), ${storageCall}];`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare function external(): void;\nfunction prior() { external(); }`,
+        passingSetup: `function prior() {}`,
+        statement: (storageCall: string) => `[prior\`\`, ${storageCall}];`,
+      },
+      {
+        extension: "tsx",
+        failingSetup: `const prior = { get Component() { throw new Error(); } };`,
+        passingSetup: `const prior = { Component() { return null; } };`,
+        statement: (storageCall: string) =>
+          `<prior.Component value={${storageCall}} />;`,
+      },
+      {
+        extension: "tsx",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: true };`,
+        statement: (storageCall: string) =>
+          `<Comp {...prior} value={${storageCall}} />;`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare function prior(): string;`,
+        passingSetup: `function prior() { return "value"; }`,
+        statement: (storageCall: string) =>
+          `function persist(value = prior()) { ${storageCall}; }\npersist();`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `const prior = { get value() { throw new Error(); } };`,
+        passingSetup: `const prior = { value: "value" };`,
+        statement: (storageCall: string) =>
+          `function persist({ value } = prior) { ${storageCall}; }\npersist();`,
+      },
+      {
+        extension: "ts",
+        failingSetup: `declare function external(): string;\nfunction prior(value = external()) { return value; }`,
+        passingSetup: `function prior(value = "value") { return value; }`,
+        statement: (storageCall: string) => `[prior(), ${storageCall}];`,
+      },
+    ] as const;
+    const files: string[] = [];
+    const rejectedKeys: string[] = [];
+    const exemptedKeys: string[] = [];
+
+    try {
+      for (const [
+        caseIndex,
+        evaluationCase,
+      ] of eagerEvaluationCases.entries()) {
+        for (const declaredKey of [false, true]) {
+          for (const failsBefore of [false, true]) {
+            const storageKey =
+              "secpal" +
+              `.eager-${caseIndex}-${
+                declaredKey ? "declared" : "direct"
+              }-${failsBefore ? "rejected" : "exempted"}`;
+            const keyExpression = declaredKey
+              ? "storageKey"
+              : `"${storageKey}"`;
+            const declaration = declaredKey
+              ? `const storageKey = "${storageKey}";`
+              : "";
+            const storageCall = `localStorage.setItem(${keyExpression}, "1")`;
+            const source = [
+              failsBefore
+                ? evaluationCase.failingSetup
+                : evaluationCase.passingSetup,
+              declaration,
+              evaluationCase.statement(storageCall),
+            ]
+              .filter(Boolean)
+              .join("\n");
+            const file = join(
+              tempRoot,
+              `evaluation-${caseIndex}-${declaredKey}-${failsBefore}.${evaluationCase.extension}`
+            );
+            writeFileSync(file, source);
+            files.push(file);
+            (failsBefore ? rejectedKeys : exemptedKeys).push(storageKey);
+          }
+        }
+      }
+
+      const result = spawnSync(process.execPath, [parser, ...files], {
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      for (const storageKey of rejectedKeys) {
+        expect(result.stdout).toContain(storageKey);
+      }
+      for (const storageKey of exemptedKeys) {
+        expect(result.stdout).not.toContain(storageKey);
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
