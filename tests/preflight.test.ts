@@ -1281,7 +1281,7 @@ describe("preflight", () => {
     }
   });
 
-  it("rejects indirect execution proof contexts", () => {
+  it("rejects unsafe storage-key exemption proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const storageKey = (suffix: string) => "secpal" + `.strict-${suffix}`;
@@ -1296,6 +1296,12 @@ describe("preflight", () => {
       `function mutate(store) { store.setItem = replacement; }\nmutate(localStorage);\nconst key = "${storageKey("parameter-alias")}";\nlocalStorage.setItem(key, "1");`,
       `class Storage { static { if (enabled) throw new Error(); } static { localStorage.setItem("${storageKey("static-block")}", "1"); } }`,
       `const { eval: evil } = globalThis;\nevil("localStorage.setItem = replacement");\nconst key = "${storageKey("dynamic-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `const browser = window;\nbrowser.localStorage = replacement;\nconst key = "${storageKey("browser-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `Storage.prototype.setItem = replacement;\nconst key = "${storageKey("storage-prototype")}";\nlocalStorage.setItem(key, "1");`,
+      `const StorageConstructor = Storage;\nStorageConstructor.prototype.removeItem = replacement;\nconst key = "${storageKey("storage-constructor-alias")}";\nsessionStorage.removeItem(key);`,
+      `Function("localStorage.setItem = replacement")();\nconst key = "${storageKey("function-constructor")}";\nlocalStorage.setItem(key, "1");`,
+      `const save = localStorage.setItem;\nsave.call(localStorage, "${storageKey("escaped-method")}", "1");`,
+      `const store = sessionStorage;\nstore.setItem("${storageKey("escaped-receiver")}", "1");`,
       `function block() { while (enabled) {} }\nblock();\nlocalStorage.setItem("${storageKey("while-block")}", "1");`,
     ] as const;
 
@@ -1322,6 +1328,12 @@ describe("preflight", () => {
           storageKey("parameter-alias"),
           storageKey("static-block"),
           storageKey("dynamic-alias"),
+          storageKey("browser-alias"),
+          storageKey("storage-prototype"),
+          storageKey("storage-constructor-alias"),
+          storageKey("function-constructor"),
+          storageKey("escaped-method"),
+          storageKey("escaped-receiver"),
           storageKey("while-block"),
         ].filter((key) => !result.stdout.includes(key)),
         result.stdout
