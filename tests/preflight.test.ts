@@ -607,6 +607,11 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("type-erased-assertion"),
+        `const storageKey = "${focusedKey("type-erased-assertion")}";\ntype StorageRecord = { key: typeof storageKey };\nlocalStorage.setItem(storageKey as StorageRecord["key"], "1");`,
+        "ts",
+      ],
+      [
         focusedKey("unrelated-storage"),
         `localStorage.setItem("theme", "dark");\nlocalStorage.setItem("${focusedKey("unrelated-storage")}", "1");`,
         "js",
@@ -721,6 +726,10 @@ describe("preflight", () => {
         `(async () => { localStorage.setItem("${focusedKey("async-iife-before-suspension")}", "1"); })();`,
         "ts",
       ],
+      acceptedCase(
+        "helper-through-iife",
+        `const storageKey = "${focusedKey("helper-through-iife")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n(() => { persist(); })();`
+      ),
       simpleHelperCase("helper-call"),
       acceptedCase(
         "nested-helper-call",
@@ -1143,6 +1152,10 @@ describe("preflight", () => {
         `const storageKey = "${focusedKey("conditional")}";\nif (enabled) localStorage.setItem(storageKey, "1");`,
       ],
       [
+        focusedKey("helper-conditional"),
+        `const storageKey = "${focusedKey("helper-conditional")}";\nfunction persist() { if (enabled) localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
         focusedKey("before-declaration"),
         `localStorage.setItem(storageKey, "1");\nconst storageKey = "${focusedKey("before-declaration")}";`,
       ],
@@ -1223,6 +1236,14 @@ describe("preflight", () => {
         `(async () => { await ready; localStorage.setItem("${focusedKey("async-suspension")}", "1"); })();`,
       ],
       [
+        focusedKey("promise-deferred"),
+        `Promise.resolve().then(() => { localStorage.setItem("${focusedKey("promise-deferred")}", "1"); });`,
+      ],
+      [
+        focusedKey("microtask-deferred"),
+        `queueMicrotask(() => { localStorage.setItem("${focusedKey("microtask-deferred")}", "1"); });`,
+      ],
+      [
         focusedKey("nested-async-suspension"),
         `(async () => { await ready; (() => { localStorage.setItem("${focusedKey("nested-async-suspension")}", "1"); })(); })();`,
       ],
@@ -1249,6 +1270,18 @@ describe("preflight", () => {
       [
         focusedKey("deferred"),
         `setTimeout(() => { localStorage.setItem("${focusedKey("deferred")}", "1"); });`,
+      ],
+      [
+        focusedKey("global-alias-receiver"),
+        `const browser = globalThis;\nconst storageKey = "${focusedKey("global-alias-receiver")}";\nbrowser.localStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("aliased-receiver-mutation"),
+        `const browser = window;\nbrowser.localStorage.setItem = replacement;\nconst storageKey = "${focusedKey("aliased-receiver-mutation")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("receiver-method-mutation"),
+        `localStorage.setItem = replacement;\nconst storageKey = "${focusedKey("receiver-method-mutation")}";\nlocalStorage.setItem(storageKey, "1");`,
       ],
     ] as const;
 
