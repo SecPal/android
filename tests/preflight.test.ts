@@ -659,6 +659,26 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("helper-before-key"),
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${focusedKey("helper-before-key")}";\npersist();`,
+        "ts",
+      ],
+      [
+        focusedKey("overloaded-helper"),
+        `const storageKey = "${focusedKey("overloaded-helper")}";\nfunction persist(): void;\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+        "ts",
+      ],
+      [
+        focusedKey("type-only-helper"),
+        `const storageKey = "${focusedKey("type-only-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\ntype Persist = typeof persist;\npersist();`,
+        "ts",
+      ],
+      [
+        focusedKey("sequential-helper-calls"),
+        `const storageKey = "${focusedKey("sequential-helper-calls")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`,
+        "ts",
+      ],
+      [
         focusedKey("helper-call-limit"),
         helperChain(focusedKey("helper-call-limit"), 8),
         "ts",
@@ -746,6 +766,10 @@ describe("preflight", () => {
         `const storageKey = "${focusedKey("exported-helper")}";\nexport function persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
       ],
       [
+        focusedKey("named-export-helper"),
+        `const storageKey = "${focusedKey("named-export-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nexport { persist };\npersist();`,
+      ],
+      [
         focusedKey("optional-helper"),
         `const storageKey = "${focusedKey("optional-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist?.();`,
       ],
@@ -756,6 +780,10 @@ describe("preflight", () => {
       [
         focusedKey("helper-call-limit-exceeded"),
         helperChain(focusedKey("helper-call-limit-exceeded"), 9),
+      ],
+      [
+        focusedKey("helper-trailing-effect"),
+        `const storageKey = "${focusedKey("helper-trailing-effect")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); initialize(); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`,
       ],
       [
         focusedKey("helper-before-var-initializer"),

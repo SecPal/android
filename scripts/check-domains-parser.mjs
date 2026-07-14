@@ -221,6 +221,13 @@ function directFunctionInvocation(identifier) {
   return statement ? { node: expression.parent, statement } : undefined;
 }
 
+function isFunctionDeclarationName(identifier) {
+  return (
+    ts.isFunctionDeclaration(identifier.parent) &&
+    identifier.parent.name === identifier
+  );
+}
+
 function containingExecutionStatement(expression) {
   const statement = containingExpressionStatement(expression);
   if (statement) {
@@ -443,7 +450,8 @@ function safePrecedingStatement(
   statement,
   callsByStatement,
   safeStorageKeyUses,
-  checker
+  checker,
+  proofContext
 ) {
   if (
     isAmbientDeclaration(statement) ||
@@ -478,6 +486,10 @@ function safePrecedingStatement(
     return true;
   }
 
+  if (safeHelperInvocation(statement, proofContext)) {
+    return true;
+  }
+
   if (!ts.isExpressionStatement(statement)) {
     return false;
   }
@@ -491,10 +503,46 @@ function safePrecedingStatement(
           bodyStatement,
           callsByStatement,
           safeStorageKeyUses,
-          checker
+          checker,
+          proofContext
         )
       )
     : passiveExpression(functionExpression.body, checker);
+}
+
+function safeHelperInvocation(statement, proofContext) {
+  const declaration =
+    proofContext.helperDeclarationsByInvocation.get(statement);
+  if (
+    !declaration?.body ||
+    proofContext.validatingHelperInvocations.has(statement)
+  ) {
+    return false;
+  }
+  proofContext.validatingHelperInvocations.add(statement);
+  try {
+    return declaration.body.statements.every((bodyStatement) => {
+      const call = proofContext.callsByStatement.get(bodyStatement);
+      return call
+        ? hasStraightLinePrefix(
+            call,
+            proofContext.callsByStatement,
+            proofContext.safeStorageKeyUses,
+            proofContext.checker,
+            proofContext,
+            proofContext.requiredPrecedingStatements.get(call.key)
+          )
+        : safePrecedingStatement(
+            bodyStatement,
+            proofContext.callsByStatement,
+            proofContext.safeStorageKeyUses,
+            proofContext.checker,
+            proofContext
+          );
+    });
+  } finally {
+    proofContext.validatingHelperInvocations.delete(statement);
+  }
 }
 
 function hasStraightLinePrefix(
@@ -502,7 +550,7 @@ function hasStraightLinePrefix(
   callsByStatement,
   safeStorageKeyUses,
   checker,
-  helperInvocations,
+  proofContext,
   requiredPrecedingStatement,
   remainingHelperCalls = helperProofCallLimit
 ) {
@@ -526,7 +574,8 @@ function hasStraightLinePrefix(
           statement,
           callsByStatement,
           safeStorageKeyUses,
-          checker
+          checker,
+          proofContext
         )
       )
   ) {
@@ -541,7 +590,7 @@ function hasStraightLinePrefix(
     ts.isFunctionDeclaration(functionExpression) &&
     functionExpression.body === container
   ) {
-    const invocations = helperInvocations.get(functionExpression);
+    const invocations = proofContext.helperInvocations.get(functionExpression);
     return (
       remainingHelperCalls > 0 &&
       invocations?.length > 0 &&
@@ -551,7 +600,7 @@ function hasStraightLinePrefix(
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          helperInvocations,
+          proofContext,
           unresolvedPrecedingStatement,
           remainingHelperCalls - 1
         )
@@ -573,7 +622,7 @@ function hasStraightLinePrefix(
       callsByStatement,
       safeStorageKeyUses,
       checker,
-      helperInvocations,
+      proofContext,
       unresolvedPrecedingStatement,
       remainingHelperCalls
     )
@@ -691,13 +740,15 @@ function parserExemptions(file, program, checker) {
       continue;
     }
     const symbol = checker.getSymbolAtLocation(declaration.name);
-    if (!symbol) {
+    if (!symbol || symbolIsRuntimeExported(sourceFile, checker, symbol)) {
       continue;
     }
     const invocations = identifiers
       .filter(
         (identifier) =>
           identifier !== declaration.name &&
+          !isFunctionDeclarationName(identifier) &&
+          !isTypeOnlyReference(identifier) &&
           identifierReferencesSymbol(checker, identifier, symbol)
       )
       .map(directFunctionInvocation);
@@ -740,11 +791,7 @@ function parserExemptions(file, program, checker) {
     );
     if (
       references.length > 0 &&
-      references.every(
-        (identifier) =>
-          identifier.getStart() > initializer.getEnd() &&
-          storageUses.has(identifier)
-      )
+      references.every((identifier) => storageUses.has(identifier))
     ) {
       candidates.push({ declaration, initializer, references });
     }
@@ -753,6 +800,28 @@ function parserExemptions(file, program, checker) {
   const safeStorageKeyUses = new Set(
     candidates.flatMap((candidate) => candidate.references)
   );
+  const helperDeclarationsByInvocation = new Map(
+    [...helperInvocations].flatMap(([declaration, invocations]) =>
+      invocations.map((invocation) => [invocation.statement, declaration])
+    )
+  );
+  const requiredPrecedingStatements = new Map(
+    candidates.flatMap((candidate) =>
+      candidate.references.map((reference) => [
+        reference,
+        candidate.declaration.parent.parent,
+      ])
+    )
+  );
+  const proofContext = {
+    callsByStatement,
+    checker,
+    helperDeclarationsByInvocation,
+    helperInvocations,
+    requiredPrecedingStatements,
+    safeStorageKeyUses,
+    validatingHelperInvocations: new Set(),
+  };
   const directCallRecords = calls
     .filter(
       (call) =>
@@ -762,7 +831,7 @@ function parserExemptions(file, program, checker) {
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          helperInvocations,
+          proofContext,
           undefined
         )
     )
@@ -781,7 +850,7 @@ function parserExemptions(file, program, checker) {
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          helperInvocations,
+          proofContext,
           candidate.declaration.parent.parent
         );
       })
