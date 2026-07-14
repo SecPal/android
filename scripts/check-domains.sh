@@ -14,6 +14,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+domain_root="secpal"
+deprecated_api_host="api.${domain_root}.app"
+forbidden_hosts="${domain_root}.com, ${domain_root}.org, ${domain_root}.net, ${domain_root}.io, ${domain_root}.example"
 
 echo -e "${BLUE}=== Domain Policy Check ===${NC}"
 echo "Allowed: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev"
@@ -21,68 +24,34 @@ echo "Active web hosts: api.secpal.dev, app.secpal.dev"
 echo "Android artifact host: apk.secpal.app"
 echo "Changelog site: changelog.secpal.app"
 echo "Identifier-only: app.secpal (Android application ID)"
-echo "Deprecated web hosts: api.secpal.app"
-echo "Forbidden: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example, ANY other"
+echo "Deprecated web hosts: ${deprecated_api_host}"
+echo "Forbidden: ${forbidden_hosts}, ANY other"
 echo ""
 
-if ! command -v perl >/dev/null 2>&1; then
-    echo "Perl is required to validate domain usage." >&2
+if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js is required to validate domain usage." >&2
     exit 1
 fi
 
-filter_out_matches() {
-    grep -v -- "$1" || {
-        local status=$?
-        [[ "$status" -eq 1 ]]
-    }
-}
-
-# shellcheck disable=SC2016
 if ! matches=$(find . \
     -type d \( -name ".context" -o -name ".git" -o -name ".gradle" -o -name "build" -o -name "node_modules" -o -name "vendor" \) -prune -o \
-    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
-    -exec perl -0ne '
-        s{
-            (?<![A-Za-z0-9_$.])
-            (?:(?:window|globalThis)\.)?
-            (?:localStorage|sessionStorage)
-            \.(?:getItem|setItem|removeItem)
-            \(\s*
-            (["\x27])
-            secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+
-            \1
-            (?=\s*[,)] )
-        }{
-            my $storage_key = $&;
-            $storage_key =~ s/secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/__secpal_storage_identifier__/;
-            $storage_key;
-        }gex;
-        my $line_number = 0;
-        for my $line (split /\n/, $_, -1) {
-            ++$line_number;
-            print "$ARGV:$line_number:$line\n" if $line =~ /secpal\.[A-Za-z0-9.-]{1,100}/;
-        }
-    ' {} + | \
-    filter_out_matches 'check-domains\.sh' | \
-    filter_out_matches "Forbidden:" | \
-    filter_out_matches "FORBIDDEN:" | \
-    filter_out_matches '- "secpal\.' | \
-    filter_out_matches '^[[:space:]]*- \['); then
+    -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.mts" -o -name "*.cts" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.html" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.kts" -o -name "*.properties" \) \
+    -exec node "$(dirname "$0")/check-domains-parser.mjs" {} +); then
     echo "Failed to parse domain usage." >&2
     exit 1
 fi
 
 # Allowlist approach: flag any secpal.* domain not matching an approved pattern.
-# Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts.
+# Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts and the deprecated API host for documentation only.
 # app.secpal sub-patterns are narrowed to:
 #   - standalone app.secpal (as Android app ID),
 #   - app.secpal.ClassName (Java class imports, starting with uppercase), and
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
-# This prevents domain-like strings (e.g. app.secpal.com) from passing as approved.
-# This catches unknown domains (e.g. secpal.xyz) that a denylist-only check would miss.
+# This prevents the application identifier plus a web suffix from passing as approved.
+# This catches unknown domains that a denylist-only check would miss.
 # Hyphenated SecPal storage identifiers are only allowed when the complete
 # quoted value is passed as a literal key to a browser storage API. This
-# preserves detection of a domain-like value such as secpal.invalid-host.com.
+# preserves detection of a domain-like value with an unapproved suffix.
 regex_prefix='(^|[^A-Za-z0-9.-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
 regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
@@ -105,7 +74,7 @@ violations=$(printf '%s\n' "$matches" | \
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app' | \
     grep -Ev '^\./(\.github/instructions/|\.github/copilot-instructions\.md:|README|docs/)' | \
-    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|js|jsx|html|kt|java|xml|gradle|kts|properties):' || true)
+    grep -E '^\./.*\.(yaml|yml|json|sh|ts|tsx|mts|cts|js|jsx|mjs|cjs|html|kt|java|xml|gradle|kts|properties):' || true)
 
 if [[ -z "$violations" && -z "$deprecated_web_hosts" ]]; then
     echo -e "${GREEN}✅ Domain Policy Check PASSED${NC}"
@@ -132,8 +101,8 @@ else
     echo "  - app.secpal.dev: live PWA/frontend host"
     echo "  - secpal.dev: development, staging, testing, examples"
     echo "  - app.secpal: Android application identifier only"
-    echo "  - DEPRECATED as web hosts: api.secpal.app"
-    echo "  - FORBIDDEN: secpal.com, secpal.org, secpal.net, secpal.io, secpal.example"
+    echo "  - DEPRECATED as web hosts: ${deprecated_api_host}"
+    echo "  - FORBIDDEN: ${forbidden_hosts}"
     echo ""
     echo "Fix these violations before committing."
     exit 1

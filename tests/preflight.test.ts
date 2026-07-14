@@ -21,6 +21,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+const domainCheckerEnvironment = {
+  ...process.env,
+  SECPAL_NODE_MODULES_ROOT: repoRoot,
+};
 
 describe("preflight", () => {
   it("ignores only Fastlane's generated mixed-style documentation", () => {
@@ -188,17 +192,24 @@ describe("preflight", () => {
   it("allows SecPal storage keys while rejecting unapproved SecPal hostnames", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
+    const storageKey = "secpal" + ".asset-load-recovery";
+    const deprecatedHost = ["api", "secpal", "app"].join(".");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
       writeFileSync(
         join(tempRoot, "theme-color.js"),
-        'localStorage.setItem("secpal.asset-load-recovery", "1");\n'
+        `localStorage.setItem("${storageKey}", "1");\n`
       );
 
       const storageKeyResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageKeyResult.status).toBe(0);
@@ -206,22 +217,22 @@ describe("preflight", () => {
       writeFileSync(
         join(tempRoot, "storage-variants.js"),
         [
-          "sessionStorage.getItem('secpal.asset-load-recovery');",
-          'localStorage.removeItem("secpal.asset-load-recovery");',
-          'localStorage.setItem("secpal.first-key", "1"); sessionStorage.setItem("secpal.second-key", "1");',
-          'window.localStorage.setItem("secpal.window-key", "1");',
-          'globalThis.sessionStorage.getItem("secpal.global-key");',
+          `sessionStorage.getItem('${storageKey}');`,
+          `localStorage.removeItem("${storageKey}");`,
+          `localStorage.setItem("${"secpal" + ".first-key"}", "1"); sessionStorage.setItem("${"secpal" + ".second-key"}", "1");`,
+          `window.localStorage.setItem("${"secpal" + ".window-key"}", "1");`,
+          `globalThis.sessionStorage.getItem("${"secpal" + ".global-key"}");`,
         ].join("\n")
       );
 
       const storageVariantsResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageVariantsResult.status).toBe(0);
 
-      const storageKey = "secpal" + ".asset-load-recovery";
       writeFileSync(
         join(tempRoot, "multiline-storage-key.js"),
         ["localStorage.setItem(", `  "${storageKey}",`, '  "1"', ");"].join(
@@ -232,6 +243,7 @@ describe("preflight", () => {
       const multilineStorageResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(multilineStorageResult.status).toBe(0);
@@ -248,12 +260,69 @@ describe("preflight", () => {
       const customStorageHelperResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(customStorageHelperResult.status).toBe(1);
       expect(customStorageHelperResult.stdout).toContain(customStorageHostname);
 
       unlinkSync(join(tempRoot, "custom-storage-helper.js"));
+
+      writeFileSync(
+        join(tempRoot, "shadowed-storage-globals.js"),
+        [
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${storageKey}", "1");`,
+          "function persist(window) {",
+          `  window.localStorage.setItem("${storageKey}", "1");`,
+          "}",
+        ].join("\n")
+      );
+
+      const shadowedStorageGlobalsResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(shadowedStorageGlobalsResult.status).toBe(1);
+      expect(shadowedStorageGlobalsResult.stdout).toContain(storageKey);
+
+      unlinkSync(join(tempRoot, "shadowed-storage-globals.js"));
+
+      const nestedDirectory = join(tempRoot, "nested");
+      mkdirSync(nestedDirectory);
+      writeFileSync(
+        join(nestedDirectory, "check-domains-parser.mjs"),
+        `const endpoint = "https://${customStorageHostname}/api";\n`
+      );
+
+      const moduleSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(moduleSourceResult.status).toBe(1);
+      expect(moduleSourceResult.stdout).toContain(customStorageHostname);
+
+      rmSync(nestedDirectory, { recursive: true, force: true });
+
+      writeFileSync(
+        join(tempRoot, "deprecated-module.mjs"),
+        `const endpoint = "https://${deprecatedHost}/api";\n`
+      );
+
+      const deprecatedModuleResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(deprecatedModuleResult.status).toBe(1);
+      expect(deprecatedModuleResult.stdout).toContain(deprecatedHost);
+
+      unlinkSync(join(tempRoot, "deprecated-module.mjs"));
 
       const forbiddenStorageHostname = "secpal" + ".invalid-host.com";
       writeFileSync(
@@ -264,6 +333,7 @@ describe("preflight", () => {
       const storageHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(storageHostnameResult.status).toBe(1);
@@ -280,6 +350,7 @@ describe("preflight", () => {
       const concatenatedStorageHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(concatenatedStorageHostnameResult.status).toBe(1);
@@ -298,6 +369,7 @@ describe("preflight", () => {
       const hostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(hostnameResult.status).toBe(1);
@@ -314,24 +386,446 @@ describe("preflight", () => {
       const hyphenatedHostnameResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(hyphenatedHostnameResult.status).toBe(1);
       expect(hyphenatedHostnameResult.stdout).toContain(
         hyphenatedForbiddenHostname
       );
+
+      unlinkSync(join(tempRoot, "unapproved-hyphenated-host.js"));
+
+      const checkerHostname = "secpal" + ".checker-host.com";
+      const checkerSource = readFileSync(checker, "utf8");
+      writeFileSync(
+        checker,
+        `${checkerSource}\n# https://${checkerHostname}/api\n`
+      );
+
+      const checkerSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(checkerSourceResult.status).toBe(1);
+      expect(checkerSourceResult.stdout).toContain(checkerHostname);
+      writeFileSync(checker, checkerSource);
+
+      const parserHostname = "secpal" + ".parser-host.com";
+      const parser = join(tempRoot, "check-domains-parser.mjs");
+      writeFileSync(
+        parser,
+        `${readFileSync(parser, "utf8")}\n// https://${parserHostname}/api\n`
+      );
+
+      const parserSourceResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(parserSourceResult.status).toBe(1);
+      expect(parserSourceResult.stdout).toContain(parserHostname);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("recognizes only straight-line top-level storage keys", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
+    const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const accepted = [
+      [
+        focusedKey("const-direct"),
+        `const storageKey = "${focusedKey("const-direct")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "js",
+      ],
+      [
+        focusedKey("let-typed"),
+        `let storageKey: string = "${focusedKey("let-typed")}";\nwindow.localStorage.getItem(storageKey);`,
+        "ts",
+      ],
+      [
+        focusedKey("var-template"),
+        `var storageKey = \`${focusedKey("var-template")}\`;\nsessionStorage.removeItem(storageKey);`,
+        "cjs",
+      ],
+      [
+        focusedKey("asserted"),
+        `const storageKey = "${focusedKey("asserted")}" as const;\nlocalStorage.setItem(storageKey as string, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-only"),
+        `const storageKey = "${focusedKey("type-only")}";\ntype StorageKey = typeof storageKey;\ntype StorageMap = { [storageKey]: string };\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-type"),
+        `const storageKey: "${focusedKey("literal-type")}" = "${focusedKey("literal-type")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-assertion"),
+        `const storageKey = "${focusedKey("literal-assertion")}" as "${focusedKey("literal-assertion")}";\nlocalStorage.setItem(storageKey as "${focusedKey("literal-assertion")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-call-assertion"),
+        `localStorage.setItem("${focusedKey("literal-call-assertion")}" as "${focusedKey("literal-call-assertion")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("template-literal-type"),
+        `const storageKey: \`${focusedKey("template-literal-type")}\` = \`${focusedKey("template-literal-type")}\`;\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("literal-global"),
+        `globalThis.sessionStorage["getItem"]("${focusedKey("literal-global")}");`,
+        "mjs",
+      ],
+      [
+        focusedKey("directive-prefix"),
+        `"use strict";\nlocalStorage.setItem("${focusedKey("directive-prefix")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("type-import"),
+        `import type { StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("type-import")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-export"),
+        `export type { StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("type-export")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("type-import-after"),
+        `localStorage.setItem("${focusedKey("type-import-after")}", "1");\nimport type { StorageKey } from "./types";`,
+        "ts",
+      ],
+      [
+        focusedKey("type-export-after"),
+        `localStorage.setItem("${focusedKey("type-export-after")}", "1");\nexport type { StorageKey } from "./types";`,
+        "ts",
+      ],
+      [
+        focusedKey("type-only-key-export"),
+        `const storageKey = "${focusedKey("type-only-key-export")}";\nexport type { storageKey };\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("unrelated-storage"),
+        `localStorage.setItem("theme", "dark");\nlocalStorage.setItem("${focusedKey("unrelated-storage")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("unrelated-storage-after"),
+        `localStorage.setItem("${focusedKey("unrelated-storage-after")}", "1");\nlocalStorage.setItem("theme", "dark");`,
+        "js",
+      ],
+      [
+        focusedKey("nested-unrelated-storage"),
+        `function readTheme() { return localStorage.getItem("theme"); }\nlocalStorage.setItem("${focusedKey("nested-unrelated-storage")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("later-global-alias"),
+        `localStorage.setItem("${focusedKey("later-global-alias")}", "1");\nconst browser = window;`,
+        "js",
+      ],
+      [
+        focusedKey("dormant-global-alias"),
+        `function aliasBrowser() { const browser = window; return browser; }\nlocalStorage.setItem("${focusedKey("dormant-global-alias")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("empty-class"),
+        `class Helper {}\nlocalStorage.setItem("${focusedKey("empty-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("passive-class"),
+        `class Helper { value = window; method() { return window; } static method() { return globalThis; } }\nlocalStorage.setItem("${focusedKey("passive-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("passive-static-class"),
+        `class Helper { static value = "ready"; static ["named"] = 1; }\nlocalStorage.setItem("${focusedKey("passive-static-class")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("implements-class"),
+        `class Helper implements Contract {}\nlocalStorage.setItem("${focusedKey("implements-class")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("later-local-export"),
+        `localStorage.setItem("${focusedKey("later-local-export")}", "1");\nconst value = "value";\nexport { value };`,
+        "ts",
+      ],
+      [
+        focusedKey("earlier-local-export"),
+        `const value = "value";\nexport { value };\nlocalStorage.setItem("${focusedKey("earlier-local-export")}", "1");`,
+        "ts",
+      ],
+      [
+        focusedKey("uninitialized-prefix"),
+        `let cached;\nlocalStorage.setItem("${focusedKey("uninitialized-prefix")}", "1");`,
+        "js",
+      ],
+      [
+        focusedKey("sequential-uses"),
+        `const storageKey = "${focusedKey("sequential-uses")}";\nlocalStorage.getItem(storageKey);\nlocalStorage.removeItem(storageKey);`,
+        "ts",
+      ],
+      [
+        focusedKey("ambient"),
+        `declare const localStorage: Storage;\nconst storageKey = "${focusedKey("ambient")}";\nlocalStorage.setItem(storageKey, "1");`,
+        "ts",
+      ],
+    ] as const;
+    const rejected = [
+      [
+        focusedKey("concatenated"),
+        `const storageKey = "${focusedKey("concatenated")}" + ".com";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("continued"),
+        `const storageKey = "${focusedKey("continued")}"\n  + ".com";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("dual-use"),
+        `const storageKey = "${focusedKey("dual-use")}";\nlocalStorage.setItem(storageKey, "1");\nfetch(storageKey);`,
+      ],
+      [
+        focusedKey("interpolated"),
+        `const suffix = "value";\nconst storageKey = \`${focusedKey("interpolated")}-\${suffix}\`;\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("nested-template"),
+        [
+          `const storageKey = "${focusedKey("nested-template")}";`,
+          "const text = `${`${storageKey}`}`;",
+          'localStorage.setItem(storageKey, "1");',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("line-comment"),
+        `// const storageKey = "${focusedKey("line-comment")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("block-comment"),
+        `/* const storageKey = "${focusedKey("block-comment")}"; */\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("regex-code"),
+        `const source = /${focusedKey("regex-code")}/;\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("string-code"),
+        `const source = 'const storageKey = "${focusedKey("string-code")}"';\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("shadowed"),
+        `const localStorage = fakeStorage;\nconst storageKey = "${focusedKey("shadowed")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("exported"),
+        `export const storageKey = "${focusedKey("exported")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("named-export"),
+        `const storageKey = "${focusedKey("named-export")}";\nlocalStorage.setItem(storageKey, "1");\nexport { storageKey };`,
+      ],
+      [
+        focusedKey("default-export"),
+        `const storageKey = "${focusedKey("default-export")}";\nlocalStorage.setItem(storageKey, "1");\nexport default storageKey;`,
+      ],
+      [
+        focusedKey("multi-declaration"),
+        `const storageKey = "${focusedKey("multi-declaration")}", other = "value";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("helper"),
+        `const storageKey = "${focusedKey("helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("conditional"),
+        `const storageKey = "${focusedKey("conditional")}";\nif (enabled) localStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("before-declaration"),
+        `localStorage.setItem(storageKey, "1");\nconst storageKey = "${focusedKey("before-declaration")}";`,
+      ],
+      [
+        focusedKey("value-call"),
+        `const storageKey = "${focusedKey("value-call")}";\nlocalStorage.setItem(storageKey, value());`,
+      ],
+      [
+        focusedKey("extra-argument"),
+        `const storageKey = "${focusedKey("extra-argument")}";\nlocalStorage.setItem(storageKey, "1", "extra");`,
+      ],
+      [
+        focusedKey("runtime-type-import"),
+        `import { type StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("runtime-type-import")}", "1");`,
+      ],
+      [
+        focusedKey("runtime-type-export"),
+        `export { type StorageKey } from "./types";\nlocalStorage.setItem("${focusedKey("runtime-type-export")}", "1");`,
+      ],
+      [
+        focusedKey("nonpassive-storage-prefix"),
+        `localStorage.setItem("theme", readTheme());\nlocalStorage.setItem("${focusedKey("nonpassive-storage-prefix")}", "1");`,
+      ],
+      [
+        focusedKey("mismatched-literal-type"),
+        `const storageKey: "${focusedKey("mismatched-literal-type")}" = "${focusedKey("different-runtime-key")}";\nlocalStorage.setItem(storageKey, "1");`,
+      ],
+      [
+        focusedKey("earlier-global-alias"),
+        `const browser = window;\nlocalStorage.setItem("${focusedKey("earlier-global-alias")}", "1");`,
+      ],
+      [
+        focusedKey("runtime-import-after"),
+        `localStorage.setItem("${focusedKey("runtime-import-after")}", "1");\nimport "./setup.js";`,
+      ],
+      [
+        focusedKey("runtime-reexport-after"),
+        `localStorage.setItem("${focusedKey("runtime-reexport-after")}", "1");\nexport { setup } from "./setup.js";`,
+      ],
+      [
+        focusedKey("class-extends"),
+        `class Helper extends Base {}\nlocalStorage.setItem("${focusedKey("class-extends")}", "1");`,
+      ],
+      [
+        focusedKey("class-computed-name"),
+        `class Helper { [propertyName()]() {} }\nlocalStorage.setItem("${focusedKey("class-computed-name")}", "1");`,
+      ],
+      [
+        focusedKey("class-static-block"),
+        `class Helper { static { setup(); } }\nlocalStorage.setItem("${focusedKey("class-static-block")}", "1");`,
+      ],
+      [
+        focusedKey("class-static-initializer"),
+        `class Helper { static value = setup(); }\nlocalStorage.setItem("${focusedKey("class-static-initializer")}", "1");`,
+      ],
+      [
+        focusedKey("class-decorator"),
+        `@decorate\nclass Helper {}\nlocalStorage.setItem("${focusedKey("class-decorator")}", "1");`,
+      ],
+      [
+        focusedKey("class-member-decorator"),
+        `class Helper { @decorate method() {} }\nlocalStorage.setItem("${focusedKey("class-member-decorator")}", "1");`,
+      ],
+      [
+        focusedKey("unresolved-local-export"),
+        `export { missing };\nlocalStorage.setItem("${focusedKey("unresolved-local-export")}", "1");`,
+      ],
+    ] as const;
+
+    try {
+      const files = [
+        ...accepted.map(([key, source, extension], index) => {
+          const file = join(tempRoot, `accepted-${index}.${extension}`);
+          writeFileSync(file, source);
+          return { file, key };
+        }),
+        ...rejected.map(([key, source], index) => {
+          const file = join(tempRoot, `rejected-${index}.ts`);
+          writeFileSync(file, source);
+          return { file, key };
+        }),
+      ];
+      const result = spawnSync(
+        process.execPath,
+        [parser, ...files.map(({ file }) => file)],
+        { encoding: "utf8", env: domainCheckerEnvironment }
+      );
+      const outputLines = result.stdout.split("\n");
+      const reports = ({ file, key }: { file: string; key: string }) =>
+        outputLines.some(
+          (line) => line.startsWith(`${file}:`) && line.includes(key)
+        );
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        {
+          reportedAccepted: files.slice(0, accepted.length).filter(reports),
+          unreportedRejected: files
+            .slice(accepted.length)
+            .filter((file) => !reports(file)),
+        },
+        result.stdout
+      ).toEqual({ reportedAccepted: [], unreportedRejected: [] });
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
+  it("rejects indirect execution proof contexts", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
+    const storageKey = (suffix: string) => "secpal" + `.strict-${suffix}`;
+    const cases = [
+      `switch (value) { case 1: throw new Error(); }\nlocalStorage.setItem("${storageKey("switch-exit")}", "1");`,
+      `import "./setup.js";\nlocalStorage.setItem("${storageKey("import-exit")}", "1");`,
+      `using storageKey = "${storageKey("using-exit")}";\nlocalStorage.setItem(storageKey, "1");`,
+      `for (; enabled;) { throw new Error(); }\nlocalStorage.setItem("${storageKey("for-exit")}", "1");`,
+      `const w = window;\nw.localStorage = replacement;\nconst key = "${storageKey("global-alias")}";\nwindow.localStorage.setItem(key, "1");`,
+      `globalThis["local" + "Storage"].setItem = replacement;\nlocalStorage.setItem("${storageKey("computed-global")}", "1");`,
+      `const key = "${storageKey("constructor-exit")}";\nclass Helper { constructor() { if (enabled) throw new Error(); } persist() { localStorage.setItem(key, "1"); } }\nnew Helper().persist();`,
+      `function mutate(store) { store.setItem = replacement; }\nmutate(localStorage);\nconst key = "${storageKey("parameter-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `class Storage { static { if (enabled) throw new Error(); } static { localStorage.setItem("${storageKey("static-block")}", "1"); } }`,
+      `const { eval: evil } = globalThis;\nevil("localStorage.setItem = replacement");\nconst key = "${storageKey("dynamic-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `function block() { while (enabled) {} }\nblock();\nlocalStorage.setItem("${storageKey("while-block")}", "1");`,
+    ] as const;
+
+    try {
+      const files = cases.map((source, index) => {
+        const file = join(tempRoot, `indirect-${index}.ts`);
+        writeFileSync(file, source);
+        return file;
+      });
+      const result = spawnSync(process.execPath, [parser, ...files], {
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        [
+          storageKey("switch-exit"),
+          storageKey("import-exit"),
+          storageKey("using-exit"),
+          storageKey("for-exit"),
+          storageKey("global-alias"),
+          storageKey("computed-global"),
+          storageKey("constructor-exit"),
+          storageKey("parameter-alias"),
+          storageKey("static-block"),
+          storageKey("dynamic-alias"),
+          storageKey("while-block"),
+        ].filter((key) => !result.stdout.includes(key)),
+        result.stdout
+      ).toEqual([]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
   it("fails closed when the domain checker cannot run its parser", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const toolsDirectory = join(tempRoot, "without-perl-bin");
+    const toolsDirectory = join(tempRoot, "without-node-bin");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
       mkdirSync(toolsDirectory);
       for (const command of ["find", "grep"]) {
         symlinkSync(`/usr/bin/${command}`, join(toolsDirectory, command));
@@ -344,7 +838,7 @@ describe("preflight", () => {
       });
 
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Perl is required");
+      expect(result.stderr).toContain("Node.js is required");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -353,19 +847,26 @@ describe("preflight", () => {
   it("fails closed when the domain parser exits with an error", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const toolsDirectory = join(tempRoot, "failing-perl-bin");
+    const toolsDirectory = join(tempRoot, "failing-node-bin");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
       mkdirSync(toolsDirectory);
-      const perlShim = join(toolsDirectory, "perl");
-      writeFileSync(perlShim, "#!/bin/sh\nexit 2\n");
-      chmodSync(perlShim, 0o755);
+      const nodeShim = join(toolsDirectory, "node");
+      writeFileSync(nodeShim, "#!/bin/sh\nexit 2\n");
+      chmodSync(nodeShim, 0o755);
 
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+        env: {
+          ...domainCheckerEnvironment,
+          PATH: `${toolsDirectory}:${process.env.PATH}`,
+        },
       });
 
       expect(result.status).toBe(1);
@@ -375,25 +876,77 @@ describe("preflight", () => {
     }
   });
 
-  it("does not filter domains next to similarly named checker text", () => {
+  it("explains how to restore the TypeScript parser dependency", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
-    const forbiddenHostname = "secpal" + ".invalid";
+    const emptyModuleRoot = join(tempRoot, "without-node-modules");
+    const storageKey = "secpal" + ".asset-load-recovery";
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
+      mkdirSync(emptyModuleRoot);
+      writeFileSync(join(emptyModuleRoot, "package.json"), "{}\n");
+      writeFileSync(
+        join(tempRoot, "storage-key.ts"),
+        `localStorage.setItem("${storageKey}", "1");\n`
+      );
+
+      const result = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_NODE_MODULES_ROOT: emptyModuleRoot,
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        "TypeScript is required to validate domain usage; run npm ci."
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not filter violations by unrelated line content", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const forbiddenHostnames = [
+      "secpal" + ".filename-mask.com",
+      "secpal" + ".label-mask.com",
+      "secpal" + ".list-mask.com",
+    ];
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
       writeFileSync(
         join(tempRoot, "unapproved-host.js"),
-        `const endpoint = "https://${forbiddenHostname}/api"; // check-domainsXsh\n`
+        [
+          `const first = "https://${forbiddenHostnames[0]}/api"; // check-domains.sh`,
+          `const second = "https://${forbiddenHostnames[1]}/api"; // Forbidden:`,
+          `const third = "https://${forbiddenHostnames[2]}/api"; // - "${["secpal", "policy-example"].join(".")}"`,
+        ].join("\n")
       );
 
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
+        env: domainCheckerEnvironment,
       });
 
       expect(result.status).toBe(1);
-      expect(result.stdout).toContain(forbiddenHostname);
+      for (const forbiddenHostname of forbiddenHostnames) {
+        expect(result.stdout).toContain(forbiddenHostname);
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -406,6 +959,10 @@ describe("preflight", () => {
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
       mkdirSync(toolsDirectory);
       const xargsShim = join(toolsDirectory, "xargs");
       writeFileSync(xargsShim, "#!/bin/sh\nexit 2\n");
@@ -414,7 +971,10 @@ describe("preflight", () => {
       const result = spawnSync("/bin/bash", [checker], {
         cwd: tempRoot,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${toolsDirectory}:${process.env.PATH}` },
+        env: {
+          ...domainCheckerEnvironment,
+          PATH: `${toolsDirectory}:${process.env.PATH}`,
+        },
       });
 
       expect(result.status).toBe(0);
