@@ -433,7 +433,7 @@ describe("preflight", () => {
     }
   }, 30_000);
 
-  it("recognizes only straight-line top-level storage keys", () => {
+  it("recognizes only proven straight-line storage keys", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
@@ -588,6 +588,21 @@ describe("preflight", () => {
         `declare const localStorage: Storage;\nconst storageKey = "${focusedKey("ambient")}";\nlocalStorage.setItem(storageKey, "1");`,
         "ts",
       ],
+      [
+        focusedKey("iife"),
+        `(() => {\n  const storageKey = "${focusedKey("iife")}";\n  localStorage.setItem(storageKey, "1");\n})();`,
+        "ts",
+      ],
+      [
+        focusedKey("iife-prefix"),
+        `const ready = true;\n(() => {\n  "use strict";\n  localStorage.setItem("${focusedKey("iife-prefix")}", "1");\n})();`,
+        "ts",
+      ],
+      [
+        focusedKey("async-iife-before-suspension"),
+        `(async () => { localStorage.setItem("${focusedKey("async-iife-before-suspension")}", "1"); })();`,
+        "ts",
+      ],
     ] as const;
     const rejected = [
       [
@@ -725,6 +740,22 @@ describe("preflight", () => {
       [
         focusedKey("unresolved-local-export"),
         `export { missing };\nlocalStorage.setItem("${focusedKey("unresolved-local-export")}", "1");`,
+      ],
+      [
+        focusedKey("iife-outer-prefix"),
+        `initialize();\n(() => { localStorage.setItem("${focusedKey("iife-outer-prefix")}", "1"); })();`,
+      ],
+      [
+        focusedKey("iife-inner-prefix"),
+        `(() => { initialize(); localStorage.setItem("${focusedKey("iife-inner-prefix")}", "1"); })();`,
+      ],
+      [
+        focusedKey("async-suspension"),
+        `(async () => { await ready; localStorage.setItem("${focusedKey("async-suspension")}", "1"); })();`,
+      ],
+      [
+        focusedKey("deferred"),
+        `setTimeout(() => { localStorage.setItem("${focusedKey("deferred")}", "1"); });`,
       ],
     ] as const;
 
