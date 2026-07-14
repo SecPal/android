@@ -203,27 +203,94 @@ function syntacticStorageCall(access, checker) {
   };
 }
 
-function topLevelIifeBody(statement) {
-  const body = statement.parent;
-  if (!ts.isBlock(body)) {
-    return false;
-  }
-  let expression = body.parent;
-  if (!ts.isFunctionExpression(expression) && !ts.isArrowFunction(expression)) {
-    return false;
-  }
+function isPropertyNameIdentifier(node) {
+  return (
+    ts.isIdentifier(node) &&
+    ts.isPropertyAccessExpression(node.parent) &&
+    node.parent.name === node
+  );
+}
+
+function isDirectStorageCallReceiver(receiver, checker) {
+  let expression = receiver;
   while (
     isTransparentExpressionWrapper(expression.parent) &&
     expression.parent.expression === expression
   ) {
     expression = expression.parent;
   }
-  return (
-    ts.isCallExpression(expression.parent) &&
-    expression.parent.expression === expression &&
-    expression.parent.arguments.length === 0 &&
-    Boolean(topLevelExpressionStatement(expression.parent))
+  const access = storageCallAccess(expression.parent?.parent, checker);
+  return Boolean(
+    access &&
+    access.node.expression.expression === expression &&
+    syntacticStorageCall(access, checker)
   );
+}
+
+function isUnshadowedGlobalObject(node, checker) {
+  return (
+    ts.isIdentifier(node) &&
+    ["globalThis", "window"].includes(node.text) &&
+    isUnshadowedGlobal(checker, node)
+  );
+}
+
+function isSafeGlobalObjectUse(identifier) {
+  const access = identifier.parent;
+  if (
+    ts.isPropertyAccessExpression(access) &&
+    access.expression === identifier
+  ) {
+    return !["Function", "eval"].includes(access.name.text);
+  }
+  if (
+    ts.isElementAccessExpression(access) &&
+    access.expression === identifier
+  ) {
+    const property = staticPropertyName(access);
+    return Boolean(property && !["Function", "eval"].includes(property));
+  }
+  return false;
+}
+
+function isDynamicCodeReference(node, checker) {
+  return (
+    ts.isIdentifier(node) &&
+    ["Function", "eval"].includes(node.text) &&
+    !isPropertyNameIdentifier(node) &&
+    isUnshadowedGlobal(checker, node)
+  );
+}
+
+function hasOnlySafeIifeGlobalUses(root, checker) {
+  let safe = true;
+  function visit(node) {
+    if (
+      safe &&
+      (isDynamicCodeReference(node, checker) ||
+        (isUnshadowedGlobalObject(node, checker) &&
+          !isPropertyNameIdentifier(node) &&
+          !isSafeGlobalObjectUse(node)) ||
+        (!isPropertyNameIdentifier(node) &&
+          browserStorageReceiver(node, checker) &&
+          !isDirectStorageCallReceiver(node, checker)))
+    ) {
+      safe = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return safe;
+}
+
+function isWithinNode(node, ancestor) {
+  for (let current = node; current; current = current.parent) {
+    if (current === ancestor) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isTypeOnlyReference(identifier) {
@@ -530,7 +597,7 @@ function parserExemptions(file, program, checker) {
   );
   const candidateStatements = sourceFile.statements.flatMap((statement) => {
     if (ts.isVariableStatement(statement)) {
-      return [{ statement, iife: false }];
+      return [{ statement, iifeBody: undefined }];
     }
     if (
       ts.isExpressionStatement(statement) &&
@@ -540,22 +607,26 @@ function parserExemptions(file, program, checker) {
       const callee = unwrapExpression(expression.expression);
       if (
         expression.arguments.length === 0 &&
-        (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee))
+        !ts.isOptionalChain(expression) &&
+        (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee)) &&
+        ts.isBlock(callee.body) &&
+        !callee.asteriskToken &&
+        callee.parameters.length === 0 &&
+        hasOnlySafeIifeGlobalUses(callee.body, checker)
       ) {
         return callee.body.statements
-          .filter(
-            (iifeStatement) =>
-              ts.isVariableStatement(iifeStatement) &&
-              topLevelIifeBody(iifeStatement)
-          )
-          .map((iifeStatement) => ({ statement: iifeStatement, iife: true }));
+          .filter(ts.isVariableStatement)
+          .map((iifeStatement) => ({
+            statement: iifeStatement,
+            iifeBody: callee.body,
+          }));
       }
     }
     return [];
   });
   const candidates = [];
 
-  for (const { statement, iife } of candidateStatements) {
+  for (const { statement, iifeBody } of candidateStatements) {
     if (
       !ts.isVariableStatement(statement) ||
       statement.declarationList.flags & ts.NodeFlags.Using ||
@@ -594,7 +665,7 @@ function parserExemptions(file, program, checker) {
           storageUses.has(identifier)
       )
     ) {
-      candidates.push({ declaration, initializer, iife, references });
+      candidates.push({ declaration, initializer, iifeBody, references });
     }
   }
 
@@ -624,8 +695,9 @@ function parserExemptions(file, program, checker) {
       candidate.references.every((identifier) => {
         const call = storageUses.get(identifier);
         return (
-          candidate.iife ||
-          (call.statement &&
+          (candidate.iifeBody && isWithinNode(call.node, candidate.iifeBody)) ||
+          (!candidate.iifeBody &&
+            call.statement &&
             hasStraightLinePrefix(
               call,
               callsByStatement,

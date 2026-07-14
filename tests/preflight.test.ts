@@ -433,7 +433,7 @@ describe("preflight", () => {
     }
   }, 30_000);
 
-  it("recognizes only straight-line top-level storage keys", () => {
+  it("recognizes only proven browser storage keys", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
@@ -736,6 +736,38 @@ describe("preflight", () => {
       [
         invalidIifeStorageKey,
         `(function () {\n  var storageKey = "${invalidIifeStorageKey}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("concise-arrow-iife"),
+        `(() => "${focusedKey("concise-arrow-iife")}")();`,
+      ],
+      [
+        focusedKey("generator-iife"),
+        `(function* () {\n  var storageKey = "${focusedKey("generator-iife")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("parameterized-iife"),
+        `(function (setup = mutateStorage()) {\n  var storageKey = "${focusedKey("parameterized-iife")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("mutated-storage-method"),
+        `(function () {\n  window.sessionStorage.getItem = fetch;\n  var storageKey = "${focusedKey("mutated-storage-method")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("escaped-storage-receiver"),
+        `(function () {\n  mutateStorage(window.sessionStorage);\n  var storageKey = "${focusedKey("escaped-storage-receiver")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("dynamic-storage-mutation"),
+        `(function () {\n  eval("window.sessionStorage.getItem = fetch");\n  var storageKey = "${focusedKey("dynamic-storage-mutation")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("computed-storage-mutation"),
+        `(function () {\n  window["session" + "Storage"].getItem = fetch;\n  var storageKey = "${focusedKey("computed-storage-mutation")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
+      ],
+      [
+        focusedKey("global-object-alias"),
+        `(function () {\n  var browser = window;\n  browser.sessionStorage.getItem = fetch;\n  var storageKey = "${focusedKey("global-object-alias")}";\n  window.sessionStorage.getItem(storageKey);\n})();`,
       ],
     ] as const;
 
