@@ -148,7 +148,7 @@ function browserStorageReceiver(expression, checker) {
   return undefined;
 }
 
-function topLevelExpressionStatement(expression) {
+function containingExpressionStatement(expression) {
   let outer = expression;
   while (
     isTransparentExpressionWrapper(outer.parent) &&
@@ -158,9 +158,70 @@ function topLevelExpressionStatement(expression) {
   }
   return ts.isExpressionStatement(outer.parent) &&
     outer.parent.expression === outer &&
-    ts.isSourceFile(outer.parent.parent)
+    (ts.isSourceFile(outer.parent.parent) || ts.isBlock(outer.parent.parent))
     ? outer.parent
     : undefined;
+}
+
+function immediateInvocation(functionExpression) {
+  if (
+    (!ts.isArrowFunction(functionExpression) &&
+      !ts.isFunctionExpression(functionExpression)) ||
+    functionExpression.asteriskToken ||
+    functionExpression.parameters.length !== 0
+  ) {
+    return undefined;
+  }
+
+  let invocation = functionExpression;
+  while (
+    isTransparentExpressionWrapper(invocation.parent) &&
+    invocation.parent.expression === invocation
+  ) {
+    invocation = invocation.parent;
+  }
+  return ts.isCallExpression(invocation.parent) &&
+    invocation.parent.expression === invocation &&
+    !ts.isOptionalChain(invocation.parent) &&
+    invocation.parent.arguments.length === 0
+    ? invocation.parent
+    : undefined;
+}
+
+function immediateFunctionExpression(expression) {
+  const invocation = unwrapExpression(expression);
+  if (!ts.isCallExpression(invocation)) {
+    return undefined;
+  }
+  const functionExpression = unwrapExpression(invocation.expression);
+  return immediateInvocation(functionExpression) === invocation
+    ? functionExpression
+    : undefined;
+}
+
+function containingExecutionStatement(expression) {
+  const statement = containingExpressionStatement(expression);
+  if (statement) {
+    return statement;
+  }
+
+  let body = expression;
+  while (
+    isTransparentExpressionWrapper(body.parent) &&
+    body.parent.expression === body
+  ) {
+    body = body.parent;
+  }
+  const functionExpression = body.parent;
+  if (
+    !ts.isArrowFunction(functionExpression) ||
+    functionExpression.body !== body ||
+    ts.isBlock(functionExpression.body)
+  ) {
+    return undefined;
+  }
+  const invocation = immediateInvocation(functionExpression);
+  return invocation ? containingExecutionStatement(invocation) : undefined;
 }
 
 function storageCallAccess(node, checker) {
@@ -192,7 +253,7 @@ function syntacticStorageCall(access, checker) {
   ) {
     return undefined;
   }
-  const statement = topLevelExpressionStatement(access.node);
+  const statement = containingExecutionStatement(access.node);
   const key = unwrapExpression(access.node.arguments[0]);
   if (
     !statement ||
@@ -388,10 +449,30 @@ function safePrecedingStatement(
     return true;
   }
   const call = callsByStatement.get(statement);
-  return Boolean(
+  if (
     call &&
     (passiveExpression(call.key, checker) || safeStorageKeyUses.has(call.key))
-  );
+  ) {
+    return true;
+  }
+
+  if (!ts.isExpressionStatement(statement)) {
+    return false;
+  }
+  const functionExpression = immediateFunctionExpression(statement.expression);
+  if (!functionExpression) {
+    return false;
+  }
+  return ts.isBlock(functionExpression.body)
+    ? functionExpression.body.statements.every((bodyStatement) =>
+        safePrecedingStatement(
+          bodyStatement,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker
+        )
+      )
+    : passiveExpression(functionExpression.body, checker);
 }
 
 function hasStraightLinePrefix(
@@ -400,11 +481,12 @@ function hasStraightLinePrefix(
   safeStorageKeyUses,
   checker
 ) {
-  const statements = call.statement.parent.statements;
+  const container = call.statement.parent;
+  const statements = container.statements;
   const index = statements.indexOf(call.statement);
-  return (
-    index >= 0 &&
-    statements
+  if (
+    index < 0 ||
+    !statements
       .slice(0, index)
       .every((statement) =>
         safePrecedingStatement(
@@ -414,6 +496,30 @@ function hasStraightLinePrefix(
           checker
         )
       )
+  ) {
+    return false;
+  }
+  if (ts.isSourceFile(container)) {
+    return true;
+  }
+
+  const functionExpression = container.parent;
+  if (!ts.isBlock(container)) {
+    return false;
+  }
+  const invocation = immediateInvocation(functionExpression);
+  if (!invocation) {
+    return false;
+  }
+  const entry = containingExecutionStatement(invocation);
+  return Boolean(
+    entry &&
+    hasStraightLinePrefix(
+      { statement: entry },
+      callsByStatement,
+      safeStorageKeyUses,
+      checker
+    )
   );
 }
 
@@ -484,9 +590,13 @@ function parserExemptions(file, program, checker) {
 
   const identifiers = [];
   const calls = [];
+  const variableStatements = [];
   function visit(node) {
     if (ts.isIdentifier(node)) {
       identifiers.push(node);
+    }
+    if (ts.isVariableStatement(node)) {
+      variableStatements.push(node);
     }
     const access = storageCallAccess(node, checker);
     const call = syntacticStorageCall(access, checker);
@@ -505,7 +615,7 @@ function parserExemptions(file, program, checker) {
   );
   const candidates = [];
 
-  for (const statement of sourceFile.statements) {
+  for (const statement of variableStatements) {
     if (
       !ts.isVariableStatement(statement) ||
       statement.declarationList.flags & ts.NodeFlags.Using ||
