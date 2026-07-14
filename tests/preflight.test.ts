@@ -26,6 +26,20 @@ const domainCheckerEnvironment = {
   SECPAL_NODE_MODULES_ROOT: repoRoot,
 };
 
+function outputReportsExactValue(
+  outputLines: string[],
+  file: string,
+  value: string
+) {
+  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const exactValue = new RegExp(
+    `(?:^|[^A-Za-z0-9.-])${escapedValue}(?:$|[^A-Za-z0-9.-])`
+  );
+  return outputLines.some(
+    (line) => line.startsWith(`${file}:`) && exactValue.test(line)
+  );
+}
+
 describe("preflight", () => {
   it("ignores only Fastlane's generated mixed-style documentation", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-fastlane-readme-"));
@@ -1257,15 +1271,8 @@ describe("preflight", () => {
         { encoding: "utf8", env: domainCheckerEnvironment }
       );
       const outputLines = result.stdout.split("\n");
-      const reports = ({ file, key }: { file: string; key: string }) => {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const exactKey = new RegExp(
-          `(?:^|[^A-Za-z0-9.-])${escapedKey}(?:$|[^A-Za-z0-9.-])`
-        );
-        return outputLines.some(
-          (line) => line.startsWith(`${file}:`) && exactKey.test(line)
-        );
-      };
+      const reports = ({ file, key }: { file: string; key: string }) =>
+        outputReportsExactValue(outputLines, file, key);
       expect(result.status, result.stderr).toBe(0);
       expect(
         {
@@ -1281,10 +1288,26 @@ describe("preflight", () => {
     }
   });
 
-  it("rejects indirect execution proof contexts", () => {
+  it("rejects unsafe storage-key exemption proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const storageKey = (suffix: string) => "secpal" + `.strict-${suffix}`;
+    const receiverEscapeCases = (
+      ["localStorage", "sessionStorage"] as const
+    ).flatMap((storage) =>
+      (["getItem", "removeItem", "setItem"] as const).flatMap((method) => {
+        const valueArgument = method === "setItem" ? ', "1"' : "";
+        return (["method", "receiver"] as const).map((escape) => {
+          const key = storageKey(`escaped-${escape}-${storage}-${method}`);
+          const escapedValue =
+            escape === "method" ? `${storage}.${method}` : storage;
+          return {
+            key,
+            source: `const escaped = ${escapedValue};\nconst key = "${key}";\n${storage}.${method}(key${valueArgument});`,
+          };
+        });
+      })
+    );
     const cases = [
       `switch (value) { case 1: throw new Error(); }\nlocalStorage.setItem("${storageKey("switch-exit")}", "1");`,
       `import "./setup.js";\nlocalStorage.setItem("${storageKey("import-exit")}", "1");`,
@@ -1296,10 +1319,34 @@ describe("preflight", () => {
       `function mutate(store) { store.setItem = replacement; }\nmutate(localStorage);\nconst key = "${storageKey("parameter-alias")}";\nlocalStorage.setItem(key, "1");`,
       `class Storage { static { if (enabled) throw new Error(); } static { localStorage.setItem("${storageKey("static-block")}", "1"); } }`,
       `const { eval: evil } = globalThis;\nevil("localStorage.setItem = replacement");\nconst key = "${storageKey("dynamic-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `const browser = window;\nbrowser.localStorage = replacement;\nconst key = "${storageKey("browser-alias")}";\nlocalStorage.setItem(key, "1");`,
+      `Storage.prototype.setItem = replacement;\nconst key = "${storageKey("storage-prototype")}";\nlocalStorage.setItem(key, "1");`,
+      `const StorageConstructor = Storage;\nStorageConstructor.prototype.removeItem = replacement;\nconst key = "${storageKey("storage-constructor-alias")}";\nsessionStorage.removeItem(key);`,
+      `Function("localStorage.setItem = replacement")();\nconst key = "${storageKey("function-constructor")}";\nlocalStorage.setItem(key, "1");`,
+      ...receiverEscapeCases.map(({ source }) => source),
       `function block() { while (enabled) {} }\nblock();\nlocalStorage.setItem("${storageKey("while-block")}", "1");`,
     ] as const;
+    const expectedKeys = [
+      storageKey("switch-exit"),
+      storageKey("import-exit"),
+      storageKey("using-exit"),
+      storageKey("for-exit"),
+      storageKey("global-alias"),
+      storageKey("computed-global"),
+      storageKey("constructor-exit"),
+      storageKey("parameter-alias"),
+      storageKey("static-block"),
+      storageKey("dynamic-alias"),
+      storageKey("browser-alias"),
+      storageKey("storage-prototype"),
+      storageKey("storage-constructor-alias"),
+      storageKey("function-constructor"),
+      ...receiverEscapeCases.map(({ key }) => key),
+      storageKey("while-block"),
+    ];
 
     try {
+      expect(expectedKeys).toHaveLength(cases.length);
       const files = cases.map((source, index) => {
         const file = join(tempRoot, `indirect-${index}.ts`);
         writeFileSync(file, source);
@@ -1310,20 +1357,12 @@ describe("preflight", () => {
         env: domainCheckerEnvironment,
       });
       expect(result.status, result.stderr).toBe(0);
+      const outputLines = result.stdout.split("\n");
       expect(
-        [
-          storageKey("switch-exit"),
-          storageKey("import-exit"),
-          storageKey("using-exit"),
-          storageKey("for-exit"),
-          storageKey("global-alias"),
-          storageKey("computed-global"),
-          storageKey("constructor-exit"),
-          storageKey("parameter-alias"),
-          storageKey("static-block"),
-          storageKey("dynamic-alias"),
-          storageKey("while-block"),
-        ].filter((key) => !result.stdout.includes(key)),
+        expectedKeys.filter(
+          (key, index) =>
+            !outputReportsExactValue(outputLines, files[index], key)
+        ),
         result.stdout
       ).toEqual([]);
     } finally {
