@@ -29,6 +29,7 @@ try {
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const helperProofCallLimit = 8;
+const approvedSecPalRootDomains = new Set(["secpal.app", "secpal.dev"]);
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const storageMethods = new Map([
   ["getItem", 1],
@@ -622,7 +623,10 @@ function safeHelperStorageKey(call, proofContext) {
   return (
     proofContext.safeStorageKeyUses.has(call.key) ||
     (passiveExpression(call.key, proofContext.checker) &&
-      (!key || !key.startsWith("secpal.") || storageKeyLiteral(call.key)))
+      (!key ||
+        !key.startsWith("secpal.") ||
+        approvedSecPalRootDomains.has(key) ||
+        storageKeyLiteral(call.key)))
   );
 }
 

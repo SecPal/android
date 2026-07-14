@@ -698,6 +698,12 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("iife-outer-approved-domain-helper"),
+        `function persistApprovedDomains() { localStorage.setItem("secpal.app", "homepage"); localStorage.setItem("secpal.dev", "development"); }
+(() => { persistApprovedDomains(); localStorage.setItem("${focusedKey("iife-outer-approved-domain-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
         focusedKey("sequential-iife"),
         `(() => { localStorage.setItem("theme", "dark"); })();\n(() => { localStorage.setItem("${focusedKey("sequential-iife")}", "1"); })();`,
         "ts",
