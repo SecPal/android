@@ -457,6 +457,36 @@ describe("preflight", () => {
         ),
         `helper${helperCalls - 1}();`,
       ].join("\n");
+    const passiveHelperPrefix = (storageKey: string, helperCalls: number) =>
+      [
+        'function persist() { localStorage.setItem("theme", "dark"); }',
+        ...Array.from({ length: helperCalls }, () => "persist();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
+    const passiveHelperChainPrefix = (
+      storageKey: string,
+      helperCalls: number
+    ) =>
+      [
+        'function helper0() { localStorage.setItem("theme", "dark"); }',
+        ...Array.from(
+          { length: helperCalls - 1 },
+          (_, index) => `function helper${index + 1}() { helper${index}(); }`
+        ),
+        `helper${helperCalls - 1}();`,
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
+    const aggregatePassiveHelperPrefix = (
+      storageKey: string,
+      callsPerHelper: readonly [number, number]
+    ) =>
+      [
+        'function persistFirst() { localStorage.setItem("theme", "dark"); }',
+        'function persistSecond() { localStorage.setItem("locale", "en"); }',
+        ...Array.from({ length: callsPerHelper[0] }, () => "persistFirst();"),
+        ...Array.from({ length: callsPerHelper[1] }, () => "persistSecond();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
     const accepted = [
       [
         focusedKey("const-direct"),
@@ -705,6 +735,33 @@ describe("preflight", () => {
         "helper-call-limit",
         helperChain(focusedKey("helper-call-limit"), 8)
       ),
+      acceptedCase(
+        "prefix-helper-call-limit",
+        passiveHelperPrefix(focusedKey("prefix-helper-call-limit"), 8)
+      ),
+      acceptedCase(
+        "prefix-helper-chain-limit",
+        passiveHelperChainPrefix(focusedKey("prefix-helper-chain-limit"), 8)
+      ),
+      acceptedCase(
+        "aggregate-prefix-helper-limit",
+        aggregatePassiveHelperPrefix(
+          focusedKey("aggregate-prefix-helper-limit"),
+          [4, 4]
+        )
+      ),
+      acceptedCase(
+        "iife-prefix-helper-limit",
+        `(() => {\n${passiveHelperPrefix(focusedKey("iife-prefix-helper-limit"), 8)}\n})();`
+      ),
+      acceptedCase(
+        "dormant-method-helper-call",
+        `class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("dormant-method-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "dormant-getter-helper-call",
+        `class Wrapper { get value() { persist(); return "ready"; } }\nconst storageKey = "${focusedKey("dormant-getter-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
     ] as const;
     const rejected = [
       [
@@ -805,6 +862,28 @@ describe("preflight", () => {
         focusedKey("helper-call-limit-exceeded"),
         helperChain(focusedKey("helper-call-limit-exceeded"), 9),
       ],
+      rejectedCase(
+        "prefix-helper-call-limit-exceeded",
+        passiveHelperPrefix(focusedKey("prefix-helper-call-limit-exceeded"), 9)
+      ),
+      rejectedCase(
+        "prefix-helper-chain-limit-exceeded",
+        passiveHelperChainPrefix(
+          focusedKey("prefix-helper-chain-limit-exceeded"),
+          9
+        )
+      ),
+      rejectedCase(
+        "aggregate-prefix-helper-limit-exceeded",
+        aggregatePassiveHelperPrefix(
+          focusedKey("aggregate-prefix-helper-limit-exceeded"),
+          [4, 5]
+        )
+      ),
+      rejectedCase(
+        "iife-prefix-helper-limit-exceeded",
+        `(() => {\n${passiveHelperPrefix(focusedKey("iife-prefix-helper-limit-exceeded"), 9)}\n})();`
+      ),
       [
         focusedKey("helper-trailing-effect"),
         `const storageKey = "${focusedKey("helper-trailing-effect")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); initialize(); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`,
@@ -836,6 +915,14 @@ describe("preflight", () => {
       [
         focusedKey("live-method-wrapper"),
         `class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("live-method-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nnew Wrapper().run();`,
+      ],
+      [
+        focusedKey("live-getter-wrapper"),
+        `class Wrapper { get value() { persist(); return "ready"; } }\nconst storageKey = "${focusedKey("live-getter-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nnew Wrapper().value;`,
+      ],
+      [
+        focusedKey("exported-method-wrapper"),
+        `export class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("exported-method-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
       ],
       [
         focusedKey("helper-before-var-initializer"),

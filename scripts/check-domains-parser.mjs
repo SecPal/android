@@ -234,6 +234,14 @@ function isSingleFunctionImplementation(symbol, declaration) {
   return implementations?.length === 1 && implementations[0] === declaration;
 }
 
+function isClassCallableDeclaration(node) {
+  return (
+    ts.isMethodDeclaration(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node)
+  );
+}
+
 function containingExecutionStatement(expression) {
   const statement = containingExpressionStatement(expression);
   if (statement) {
@@ -457,7 +465,8 @@ function safePrecedingStatement(
   callsByStatement,
   safeStorageKeyUses,
   checker,
-  proofContext
+  proofContext,
+  proofState
 ) {
   if (
     isAmbientDeclaration(statement) ||
@@ -492,7 +501,7 @@ function safePrecedingStatement(
     return true;
   }
 
-  if (safeHelperInvocation(statement, proofContext)) {
+  if (safeHelperInvocation(statement, proofContext, proofState)) {
     return true;
   }
 
@@ -510,22 +519,27 @@ function safePrecedingStatement(
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          proofContext
+          proofContext,
+          proofState
         )
       )
     : passiveExpression(functionExpression.body, checker);
 }
 
-function safeHelperInvocation(statement, proofContext) {
+function safeHelperInvocation(statement, proofContext, proofState) {
   const declaration =
     proofContext.helperDeclarationsByInvocation.get(statement);
   if (
     !declaration?.body ||
-    proofContext.validatingHelperInvocations.has(statement)
+    proofState.validatingHelperInvocations.has(statement)
   ) {
     return false;
   }
-  proofContext.validatingHelperInvocations.add(statement);
+  proofState.helperCallStatements.add(statement);
+  if (proofState.helperCallStatements.size > helperProofCallLimit) {
+    return false;
+  }
+  proofState.validatingHelperInvocations.add(statement);
   try {
     return declaration.body.statements.every((bodyStatement) => {
       const call = proofContext.callsByStatement.get(bodyStatement);
@@ -536,18 +550,20 @@ function safeHelperInvocation(statement, proofContext) {
               call,
               statement,
               proofContext,
-              proofContext.requiredPrecedingStatements.get(call.key)
+              proofContext.requiredPrecedingStatements.get(call.key),
+              proofState
             )
         : safePrecedingStatement(
             bodyStatement,
             proofContext.callsByStatement,
             proofContext.safeStorageKeyUses,
             proofContext.checker,
-            proofContext
+            proofContext,
+            proofState
           );
     });
   } finally {
-    proofContext.validatingHelperInvocations.delete(statement);
+    proofState.validatingHelperInvocations.delete(statement);
   }
 }
 function helperInvocationIsReachable(invocation, proofContext, visiting) {
@@ -559,11 +575,17 @@ function helperInvocationIsReachable(invocation, proofContext, visiting) {
     return false;
   }
   const owner = container.parent;
-  if (ts.isFunctionDeclaration(owner) && owner.body === container) {
-    if (
-      proofContext.dormantFunctionDeclarations.has(owner) ||
-      visiting.has(owner)
-    ) {
+  if (
+    (ts.isFunctionDeclaration(owner) || isClassCallableDeclaration(owner)) &&
+    owner.body === container
+  ) {
+    if (proofContext.dormantCallableDeclarations.has(owner)) {
+      return false;
+    }
+    if (!ts.isFunctionDeclaration(owner)) {
+      return true;
+    }
+    if (visiting.has(owner)) {
       return false;
     }
     const ownerInvocations = proofContext.helperInvocations.get(owner);
@@ -644,7 +666,8 @@ function hasHelperInvocationPrefix(
   call,
   invocationStatement,
   proofContext,
-  requiredPrecedingStatement
+  requiredPrecedingStatement,
+  proofState
 ) {
   const statements = call.statement.parent.statements;
   const index = statements.indexOf(call.statement);
@@ -658,7 +681,8 @@ function hasHelperInvocationPrefix(
           proofContext.callsByStatement,
           proofContext.safeStorageKeyUses,
           proofContext.checker,
-          proofContext
+          proofContext,
+          proofState
         )
       ) &&
     hasStraightLinePrefix(
@@ -667,7 +691,8 @@ function hasHelperInvocationPrefix(
       proofContext.safeStorageKeyUses,
       proofContext.checker,
       proofContext,
-      requiredPrecedingStatement
+      requiredPrecedingStatement,
+      proofState
     )
   );
 }
@@ -678,6 +703,10 @@ function hasStraightLinePrefix(
   checker,
   proofContext,
   requiredPrecedingStatement,
+  proofState = {
+    helperCallStatements: new Set(),
+    validatingHelperInvocations: new Set(),
+  },
   remainingHelperCalls = helperProofCallLimit
 ) {
   const container = call.statement.parent;
@@ -701,7 +730,8 @@ function hasStraightLinePrefix(
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          proofContext
+          proofContext,
+          proofState
         )
       )
   ) {
@@ -729,17 +759,22 @@ function hasStraightLinePrefix(
       remainingHelperCalls > 0 &&
       reachableInvocations?.length > 0 &&
       reachableCalls.size <= helperProofCallLimit &&
-      reachableInvocations.every((invocation) =>
-        hasStraightLinePrefix(
-          invocation,
-          callsByStatement,
-          safeStorageKeyUses,
-          checker,
-          proofContext,
-          unresolvedPrecedingStatement,
-          remainingHelperCalls - 1
-        )
-      )
+      reachableInvocations.every((invocation) => {
+        proofState.helperCallStatements.add(invocation.statement);
+        return (
+          proofState.helperCallStatements.size <= helperProofCallLimit &&
+          hasStraightLinePrefix(
+            invocation,
+            callsByStatement,
+            safeStorageKeyUses,
+            checker,
+            proofContext,
+            unresolvedPrecedingStatement,
+            proofState,
+            remainingHelperCalls - 1
+          )
+        );
+      })
     );
   }
   if (!ts.isBlock(container)) {
@@ -759,6 +794,7 @@ function hasStraightLinePrefix(
       checker,
       proofContext,
       unresolvedPrecedingStatement,
+      proofState,
       remainingHelperCalls
     )
   );
@@ -831,6 +867,7 @@ function parserExemptions(file, program, checker) {
 
   const identifiers = [];
   const calls = [];
+  const classCallableDeclarations = [];
   const functionDeclarations = [];
   const variableStatements = [];
   function visit(node) {
@@ -842,6 +879,9 @@ function parserExemptions(file, program, checker) {
     }
     if (ts.isFunctionDeclaration(node)) {
       functionDeclarations.push(node);
+    }
+    if (isClassCallableDeclaration(node)) {
+      classCallableDeclarations.push(node);
     }
     const access = storageCallAccess(node, checker);
     const call = syntacticStorageCall(access, checker);
@@ -950,7 +990,7 @@ function parserExemptions(file, program, checker) {
       ])
     )
   );
-  const dormantFunctionDeclarations = new Set(
+  const dormantCallableDeclarations = new Set(
     functionDeclarations.filter((declaration) => {
       if (
         !declaration.name ||
@@ -976,15 +1016,43 @@ function parserExemptions(file, program, checker) {
       );
     })
   );
+  for (const declaration of classCallableDeclarations) {
+    const classDeclaration = declaration.parent;
+    if (
+      !ts.isClassDeclaration(classDeclaration) ||
+      !classDeclaration.name ||
+      hasDecorators(classDeclaration) ||
+      hasDecorators(declaration) ||
+      classDeclaration.modifiers?.some(
+        (modifier) =>
+          modifier.kind === ts.SyntaxKind.ExportKeyword ||
+          modifier.kind === ts.SyntaxKind.DefaultKeyword
+      )
+    ) {
+      continue;
+    }
+    const symbol = checker.getSymbolAtLocation(classDeclaration.name);
+    if (
+      symbol &&
+      !symbolIsRuntimeExported(sourceFile, checker, symbol) &&
+      !identifiers.some(
+        (identifier) =>
+          identifier !== classDeclaration.name &&
+          !isTypeOnlyReference(identifier) &&
+          identifierReferencesSymbol(checker, identifier, symbol)
+      )
+    ) {
+      dormantCallableDeclarations.add(declaration);
+    }
+  }
   const proofContext = {
     callsByStatement,
     checker,
-    dormantFunctionDeclarations,
+    dormantCallableDeclarations,
     helperDeclarationsByInvocation,
     helperInvocations,
     requiredPrecedingStatements,
     safeStorageKeyUses,
-    validatingHelperInvocations: new Set(),
   };
   const candidateRecords = [];
   const pendingCandidates = new Set(candidates);
