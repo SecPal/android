@@ -437,6 +437,80 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const acceptedCase = (suffix: string, source: string) =>
+      [focusedKey(suffix), source, "ts"] as const;
+    const rejectedCase = (suffix: string, source: string) =>
+      [focusedKey(suffix), source] as const;
+    const simpleHelperSource = (suffix: string, calls: string) =>
+      `const storageKey = "${focusedKey(suffix)}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n${calls}`;
+    const simpleHelperCase = (suffix: string, calls = "persist();") =>
+      acceptedCase(suffix, simpleHelperSource(suffix, calls));
+    const rejectedHelperCase = (suffix: string, calls: string) =>
+      rejectedCase(suffix, simpleHelperSource(suffix, calls));
+    const helperChain = (storageKey: string, helperCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function helper0() { localStorage.setItem(storageKey, "1"); }',
+        ...Array.from(
+          { length: helperCalls - 1 },
+          (_, index) => `function helper${index + 1}() { helper${index}(); }`
+        ),
+        `helper${helperCalls - 1}();`,
+      ].join("\n");
+    const passiveHelperPrefix = (storageKey: string, helperCalls: number) =>
+      [
+        'function persist() { localStorage.setItem("theme", "dark"); }',
+        ...Array.from({ length: helperCalls }, () => "persist();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
+    const passiveHelperChainPrefix = (
+      storageKey: string,
+      helperCalls: number
+    ) =>
+      [
+        'function helper0() { localStorage.setItem("theme", "dark"); }',
+        ...Array.from(
+          { length: helperCalls - 1 },
+          (_, index) => `function helper${index + 1}() { helper${index}(); }`
+        ),
+        `helper${helperCalls - 1}();`,
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
+    const aggregatePassiveHelperPrefix = (
+      storageKey: string,
+      callsPerHelper: readonly [number, number]
+    ) =>
+      [
+        'function persistFirst() { localStorage.setItem("theme", "dark"); }',
+        'function persistSecond() { localStorage.setItem("locale", "en"); }',
+        ...Array.from({ length: callsPerHelper[0] }, () => "persistFirst();"),
+        ...Array.from({ length: callsPerHelper[1] }, () => "persistSecond();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
+    const repeatedWrapperCalls = (storageKey: string, wrapperCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function persist() { localStorage.setItem(storageKey, "1"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: wrapperCalls }, () => "wrapper();"),
+      ].join("\n");
+    const mixedPrefixWrapperCalls = (storageKey: string, prefixCalls: number) =>
+      [
+        `const storageKey = "${storageKey}";`,
+        'function persistTheme() { localStorage.setItem("theme", "dark"); }',
+        'function persist() { localStorage.setItem(storageKey, "1"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: prefixCalls }, () => "persistTheme();"),
+        "wrapper();",
+        "wrapper();",
+      ].join("\n");
+    const passiveWrapperPrefix = (storageKey: string, wrapperCalls: number) =>
+      [
+        'function persist() { localStorage.setItem("theme", "dark"); }',
+        "function wrapper() { persist(); }",
+        ...Array.from({ length: wrapperCalls }, () => "wrapper();"),
+        `localStorage.setItem("${storageKey}", "1");`,
+      ].join("\n");
     const accepted = [
       [
         focusedKey("const-direct"),
@@ -633,6 +707,184 @@ describe("preflight", () => {
         `(async () => { localStorage.setItem("${focusedKey("async-iife-before-suspension")}", "1"); })();`,
         "ts",
       ],
+      simpleHelperCase("helper-call"),
+      acceptedCase(
+        "nested-helper-call",
+        `const storageKey = "${focusedKey("nested-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction initialize() { persist(); }\ninitialize();`
+      ),
+      acceptedCase(
+        "scoped-helper-call",
+        `(() => { const storageKey = "${focusedKey("scoped-helper-call")}"; function persist() { localStorage.setItem(storageKey, "1"); } persist(); })();`
+      ),
+      acceptedCase(
+        "helper-before-key",
+        `function persist() { localStorage.setItem(storageKey, "1"); }\nconst storageKey = "${focusedKey("helper-before-key")}";\npersist();`
+      ),
+      acceptedCase(
+        "overloaded-helper",
+        `const storageKey = "${focusedKey("overloaded-helper")}";\nfunction persist(): void;\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      simpleHelperCase(
+        "type-only-helper",
+        "type Persist = typeof persist;\npersist();"
+      ),
+      acceptedCase(
+        "sequential-helper-calls",
+        `const storageKey = "${focusedKey("sequential-helper-calls")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`
+      ),
+      simpleHelperCase("repeated-helper-call", "persist();\npersist();"),
+      acceptedCase(
+        "candidate-before-literal",
+        `const storageKey = "${focusedKey("candidate-before-literal-first")}";\nlocalStorage.setItem(storageKey, "1");\nlocalStorage.setItem("${focusedKey("candidate-before-literal")}", "1");`
+      ),
+      ...(["a", "b"] as const).map((suffix) =>
+        acceptedCase(
+          `execution-order-${suffix}`,
+          `const bKey = "${focusedKey("execution-order-b")}";\nconst aKey = "${focusedKey("execution-order-a")}";\nlocalStorage.setItem(aKey, "1");\nlocalStorage.setItem(bKey, "1");`
+        )
+      ),
+      acceptedCase(
+        "dormant-helper-call",
+        `const storageKey = "${focusedKey("dormant-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction unused() { persist(); }\npersist();`
+      ),
+      acceptedCase(
+        "self-referencing-dormant-function",
+        `const storageKey = "${focusedKey("self-referencing-dormant-function")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction unused() { void unused; persist(); }\npersist();`
+      ),
+      acceptedCase(
+        "sibling-helper-limit",
+        `const storageKey = "${focusedKey("sibling-helper-limit")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n${Array.from({ length: 8 }, () => "persist();").join("\n")}`
+      ),
+      acceptedCase(
+        "aggregate-helper-limit",
+        `const storageKey = "${focusedKey("aggregate-helper-limit")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\n${Array.from({ length: 4 }, () => "persistFirst();").join("\n")}\n${Array.from({ length: 4 }, () => "persistSecond();").join("\n")}`
+      ),
+      acceptedCase(
+        "trailing-helper-calls",
+        `const storageKey = "${focusedKey("trailing-helper-calls")}";\nfunction saveTheme() { localStorage.setItem("theme", "dark"); }\nfunction persist() { localStorage.setItem(storageKey, "1"); ${Array.from({ length: 9 }, () => "saveTheme();").join(" ")} }\npersist();`
+      ),
+      acceptedCase(
+        "multiple-target-helper-limit",
+        `const storageKey = "${focusedKey("multiple-target-helper-limit")}";\nfunction saveTheme() { localStorage.setItem("theme", "dark"); }\nfunction persist() { localStorage.setItem(storageKey, "1"); ${Array.from({ length: 7 }, () => "saveTheme();").join(" ")} localStorage.removeItem(storageKey); }\npersist();`
+      ),
+      acceptedCase(
+        "helper-call-limit",
+        helperChain(focusedKey("helper-call-limit"), 8)
+      ),
+      acceptedCase(
+        "prefix-helper-call-limit",
+        passiveHelperPrefix(focusedKey("prefix-helper-call-limit"), 8)
+      ),
+      acceptedCase(
+        "prefix-helper-chain-limit",
+        passiveHelperChainPrefix(focusedKey("prefix-helper-chain-limit"), 8)
+      ),
+      acceptedCase(
+        "aggregate-prefix-helper-limit",
+        aggregatePassiveHelperPrefix(
+          focusedKey("aggregate-prefix-helper-limit"),
+          [4, 4]
+        )
+      ),
+      acceptedCase(
+        "iife-prefix-helper-limit",
+        `(() => {\n${passiveHelperPrefix(focusedKey("iife-prefix-helper-limit"), 8)}\n})();`
+      ),
+      acceptedCase(
+        "dormant-method-helper-call",
+        `class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("dormant-method-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "dormant-getter-helper-call",
+        `class Wrapper { get value() { persist(); return "ready"; } }\nconst storageKey = "${focusedKey("dormant-getter-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "dormant-constructor-helper-call",
+        `class Wrapper { constructor() { persist(); } }\nconst storageKey = "${focusedKey("dormant-constructor-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "self-referencing-dormant-constructor",
+        `class Wrapper { constructor() { void Wrapper; persist(); } }\nconst storageKey = "${focusedKey("self-referencing-dormant-constructor")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "self-referencing-dormant-class",
+        `class Wrapper { inspect() { return Wrapper; } save() { persist(); } }\nconst storageKey = "${focusedKey("self-referencing-dormant-class")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "dormant-instance-field-helper-call",
+        `class Wrapper { value = persist(); }\nconst storageKey = "${focusedKey("dormant-instance-field-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "nested-dormant-computed-field",
+        `function unused() { class Wrapper { [persist()] = "ready"; } }\nconst storageKey = "${focusedKey("nested-dormant-computed-field")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
+      acceptedCase(
+        "direct-before-helper-reference",
+        `const storageKey = "${focusedKey("direct-before-helper-reference")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nlocalStorage.setItem(storageKey, "1");\npersist();`
+      ),
+      acceptedCase(
+        "dormant-arrow-helper-call",
+        `const storageKey = "${focusedKey("dormant-arrow-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst unused = () => { persist(); };`
+      ),
+      acceptedCase(
+        "self-referencing-dormant-arrow",
+        `const storageKey = "${focusedKey("self-referencing-dormant-arrow")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst unused = () => { void unused; persist(); };`
+      ),
+      acceptedCase(
+        "dormant-expression-helper-call",
+        `const storageKey = "${focusedKey("dormant-expression-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nconst unused = function () { persist(); };`
+      ),
+      acceptedCase(
+        "repeated-wrapper-helper-call",
+        repeatedWrapperCalls(focusedKey("repeated-wrapper-helper-call"), 2)
+      ),
+      acceptedCase(
+        "wrapper-helper-call-limit",
+        repeatedWrapperCalls(focusedKey("wrapper-helper-call-limit"), 4)
+      ),
+      acceptedCase(
+        "single-wrapper-helper-limit",
+        `const storageKey = "${focusedKey("single-wrapper-helper-limit")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper() { ${Array.from({ length: 7 }, () => "persist();").join(" ")} }\nwrapper();`
+      ),
+      acceptedCase(
+        "repeated-multi-call-wrapper-limit",
+        `const storageKey = "${focusedKey("repeated-multi-call-wrapper-limit")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper() { persist(); persist(); persist(); }\nwrapper();\nwrapper();`
+      ),
+      acceptedCase(
+        "mixed-wrapper-helper-call-limit",
+        mixedPrefixWrapperCalls(
+          focusedKey("mixed-wrapper-helper-call-limit"),
+          4
+        )
+      ),
+      acceptedCase(
+        "passive-wrapper-prefix-limit",
+        passiveWrapperPrefix(focusedKey("passive-wrapper-prefix-limit"), 4)
+      ),
+      acceptedCase(
+        "multiple-helper-reference-fixpoint",
+        `const storageKey = "${focusedKey("multiple-helper-reference-fixpoint")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\nlocalStorage.setItem(storageKey, "1");\npersistSecond();\npersistFirst();`
+      ),
+      acceptedCase(
+        "dormant-arrow-before-helper-call",
+        `const storageKey = "${focusedKey("dormant-arrow-before-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { persist(); };\npersist();`
+      ),
+      acceptedCase(
+        "type-only-dormant-arrow",
+        `const storageKey = "${focusedKey("type-only-dormant-arrow")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { persist(); };\ntype Unused = typeof unused;\npersist();`
+      ),
+      acceptedCase(
+        "dormant-concise-arrow",
+        `const storageKey = "${focusedKey("dormant-concise-arrow")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => persist();\npersist();`
+      ),
+      acceptedCase(
+        "nested-dormant-closure",
+        `const storageKey = "${focusedKey("nested-dormant-closure")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { const nested = () => persist(); nested(); };\npersist();`
+      ),
+      acceptedCase(
+        "class-used-only-by-dormant-function",
+        `function unused() { new Wrapper().run(); }\nclass Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("class-used-only-by-dormant-function")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`
+      ),
     ] as const;
     const rejected = [
       [
@@ -649,7 +901,7 @@ describe("preflight", () => {
       ],
       [
         focusedKey("interpolated"),
-        `const suffix = "value";\nconst storageKey = \`${focusedKey("interpolated")}-\${suffix}\`;\nlocalStorage.setItem(storageKey, "1");`,
+        `const suffix = "value";\nconst storageKey = \`${focusedKey("interpolated")}\${suffix}\`;\nlocalStorage.setItem(storageKey, "1");`,
       ],
       [
         focusedKey("nested-template"),
@@ -695,9 +947,182 @@ describe("preflight", () => {
         focusedKey("multi-declaration"),
         `const storageKey = "${focusedKey("multi-declaration")}", other = "value";\nlocalStorage.setItem(storageKey, "1");`,
       ],
+      rejectedHelperCase("helper", "setTimeout(persist);"),
       [
-        focusedKey("helper"),
-        `const storageKey = "${focusedKey("helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+        focusedKey("async-helper"),
+        `const storageKey = "${focusedKey("async-helper")}";\nasync function persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("parameterized-helper"),
+        `const storageKey = "${focusedKey("parameterized-helper")}";\nfunction persist(value) { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("generator-helper"),
+        `const storageKey = "${focusedKey("generator-helper")}";\nfunction* persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("exported-helper"),
+        `const storageKey = "${focusedKey("exported-helper")}";\nexport function persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("named-export-helper"),
+        `const storageKey = "${focusedKey("named-export-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nexport { persist };\npersist();`,
+      ],
+      [
+        focusedKey("duplicate-helper"),
+        `const storageKey = "${focusedKey("duplicate-helper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction persist() {}\npersist();`,
+      ],
+      [
+        focusedKey("later-safe-key"),
+        `localStorage.setItem(firstKey, "1");\nconst firstKey = "${focusedKey("earlier-bad-key")}";\nconst secondKey = "${focusedKey("later-safe-key")}";\nlocalStorage.setItem(secondKey, "1");`,
+      ],
+      rejectedHelperCase("optional-helper", "persist?.();"),
+      rejectedHelperCase(
+        "reassigned-helper",
+        "persist = replacement;\npersist();"
+      ),
+      [
+        focusedKey("helper-call-limit-exceeded"),
+        helperChain(focusedKey("helper-call-limit-exceeded"), 9),
+      ],
+      rejectedCase(
+        "prefix-helper-call-limit-exceeded",
+        passiveHelperPrefix(focusedKey("prefix-helper-call-limit-exceeded"), 9)
+      ),
+      rejectedCase(
+        "prefix-helper-chain-limit-exceeded",
+        passiveHelperChainPrefix(
+          focusedKey("prefix-helper-chain-limit-exceeded"),
+          9
+        )
+      ),
+      rejectedCase(
+        "aggregate-prefix-helper-limit-exceeded",
+        aggregatePassiveHelperPrefix(
+          focusedKey("aggregate-prefix-helper-limit-exceeded"),
+          [4, 5]
+        )
+      ),
+      rejectedCase(
+        "iife-prefix-helper-limit-exceeded",
+        `(() => {\n${passiveHelperPrefix(focusedKey("iife-prefix-helper-limit-exceeded"), 9)}\n})();`
+      ),
+      rejectedCase(
+        "wrapper-helper-call-limit-exceeded",
+        repeatedWrapperCalls(
+          focusedKey("wrapper-helper-call-limit-exceeded"),
+          5
+        )
+      ),
+      [
+        focusedKey("single-wrapper-helper-limit-exceeded"),
+        `const storageKey = "${focusedKey("single-wrapper-helper-limit-exceeded")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper() { ${Array.from({ length: 8 }, () => "persist();").join(" ")} }\nwrapper();`,
+      ],
+      [
+        focusedKey("repeated-multi-call-wrapper-limit-exceeded"),
+        `const storageKey = "${focusedKey("repeated-multi-call-wrapper-limit-exceeded")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper() { persist(); persist(); persist(); persist(); }\nwrapper();\nwrapper();`,
+      ],
+      rejectedCase(
+        "mixed-wrapper-helper-call-limit-exceeded",
+        mixedPrefixWrapperCalls(
+          focusedKey("mixed-wrapper-helper-call-limit-exceeded"),
+          5
+        )
+      ),
+      rejectedCase(
+        "passive-wrapper-prefix-limit-exceeded",
+        passiveWrapperPrefix(
+          focusedKey("passive-wrapper-prefix-limit-exceeded"),
+          5
+        )
+      ),
+      [
+        focusedKey("multiple-target-helper-limit-exceeded"),
+        `const storageKey = "${focusedKey("multiple-target-helper-limit-exceeded")}";\nfunction saveTheme() { localStorage.setItem("theme", "dark"); }\nfunction persist() { localStorage.setItem(storageKey, "1"); ${Array.from({ length: 8 }, () => "saveTheme();").join(" ")} localStorage.removeItem(storageKey); }\npersist();`,
+      ],
+      [
+        focusedKey("helper-trailing-effect"),
+        `const storageKey = "${focusedKey("helper-trailing-effect")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); initialize(); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\npersistFirst();\npersistSecond();`,
+      ],
+      [
+        focusedKey("unproven-helper-prefix-key"),
+        `const themeKey = "theme";\nfunction persistTheme() { localStorage.setItem(themeKey, "1"); }\npersistTheme();\nlocalStorage.setItem("${focusedKey("unproven-helper-prefix-key")}", "1");`,
+      ],
+      rejectedHelperCase(
+        "sibling-helper-limit",
+        Array.from({ length: 9 }, () => "persist();").join("\n")
+      ),
+      [
+        focusedKey("iife-helper-limit-exceeded"),
+        `const storageKey = "${focusedKey("iife-helper-limit-exceeded")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper() { (() => { persist(); })(); }\n${Array.from({ length: 8 }, () => "wrapper();").join("\n")}`,
+      ],
+      [
+        focusedKey("aggregate-helper-limit-exceeded"),
+        `const storageKey = "${focusedKey("aggregate-helper-limit-exceeded")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\n${Array.from({ length: 5 }, () => "persistFirst();").join("\n")}\n${Array.from({ length: 5 }, () => "persistSecond();").join("\n")}`,
+      ],
+      rejectedHelperCase(
+        "dormant-only-helper",
+        "function unused() { persist(); }"
+      ),
+      [
+        focusedKey("live-parameterized-wrapper"),
+        `const storageKey = "${focusedKey("live-parameterized-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nfunction wrapper(value) { persist(); }\npersist();\nwrapper();`,
+      ],
+      [
+        focusedKey("live-method-wrapper"),
+        `class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("live-method-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nnew Wrapper().run();`,
+      ],
+      [
+        focusedKey("live-getter-wrapper"),
+        `class Wrapper { get value() { persist(); return "ready"; } }\nconst storageKey = "${focusedKey("live-getter-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nnew Wrapper().value;`,
+      ],
+      [
+        focusedKey("live-constructor-wrapper"),
+        `class Wrapper { constructor() { persist(); } }\nconst storageKey = "${focusedKey("live-constructor-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nnew Wrapper();`,
+      ],
+      [
+        focusedKey("computed-method-helper-call"),
+        `const storageKey = "${focusedKey("computed-method-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nclass Wrapper { [persist()]() {} }`,
+      ],
+      [
+        focusedKey("computed-name-with-dormant-constructor"),
+        `const storageKey = "${focusedKey("computed-name-with-dormant-constructor")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nclass Wrapper { [persist()]() {} constructor() { persist(); } }`,
+      ],
+      [
+        focusedKey("computed-field-helper-call"),
+        `const storageKey = "${focusedKey("computed-field-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nclass Wrapper { [persist()] = "ready"; }`,
+      ],
+      [
+        focusedKey("static-field-helper-call"),
+        `const storageKey = "${focusedKey("static-field-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nclass Wrapper { static value = persist(); }`,
+      ],
+      [
+        focusedKey("static-block-helper-call"),
+        `const storageKey = "${focusedKey("static-block-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();\nclass Wrapper { static { persist(); } }`,
+      ],
+      [
+        focusedKey("exported-method-wrapper"),
+        `export class Wrapper { run() { persist(); } }\nconst storageKey = "${focusedKey("exported-method-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\npersist();`,
+      ],
+      [
+        focusedKey("live-arrow-wrapper"),
+        `const storageKey = "${focusedKey("live-arrow-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst wrapper = () => { persist(); };\npersist();\nwrapper();`,
+      ],
+      [
+        focusedKey("exported-arrow-wrapper"),
+        `const storageKey = "${focusedKey("exported-arrow-wrapper")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nexport const wrapper = () => { persist(); };\npersist();`,
+      ],
+      [
+        focusedKey("helper-before-var-initializer"),
+        `persist();\nvar storageKey = "${focusedKey("helper-before-var-initializer")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }`,
+      ],
+      [
+        focusedKey("helper-before-const-initializer"),
+        `persist();\nconst storageKey = "${focusedKey("helper-before-const-initializer")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }`,
+      ],
+      [
+        focusedKey("scoped-helper-before-initializer"),
+        `(() => { persist(); var storageKey = "${focusedKey("scoped-helper-before-initializer")}"; function persist() { localStorage.setItem(storageKey, "1"); } })();`,
       ],
       [
         focusedKey("conditional"),
@@ -832,10 +1257,15 @@ describe("preflight", () => {
         { encoding: "utf8", env: domainCheckerEnvironment }
       );
       const outputLines = result.stdout.split("\n");
-      const reports = ({ file, key }: { file: string; key: string }) =>
-        outputLines.some(
-          (line) => line.startsWith(`${file}:`) && line.includes(key)
+      const reports = ({ file, key }: { file: string; key: string }) => {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const exactKey = new RegExp(
+          `(?:^|[^A-Za-z0-9.-])${escapedKey}(?:$|[^A-Za-z0-9.-])`
         );
+        return outputLines.some(
+          (line) => line.startsWith(`${file}:`) && exactKey.test(line)
+        );
+      };
       expect(result.status, result.stderr).toBe(0);
       expect(
         {
