@@ -461,6 +461,9 @@ describe("preflight", () => {
       acceptedCase(suffix, simpleHelperSource(suffix, calls));
     const rejectedHelperCase = (suffix: string, calls: string) =>
       rejectedCase(suffix, simpleHelperSource(suffix, calls));
+    const helperBeforeIifeSource = (suffix: string, helperKey: string) =>
+      `function persistTheme() { localStorage.setItem(${JSON.stringify(helperKey)}, "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey(suffix)}", "1"); })();`;
     const helperChain = (storageKey: string, helperCalls: number) =>
       [
         `const storageKey = "${storageKey}";`,
@@ -1243,13 +1246,21 @@ describe("preflight", () => {
         focusedKey("iife-inner-prefix"),
         `(() => { initialize(); localStorage.setItem("${focusedKey("iife-inner-prefix")}", "1"); })();`,
       ],
-      [
-        focusedKey("iife-outer-helper-storage-hazard"),
-        `function persistTheme() { localStorage.setItem("${
-          "secpal" + ".unapproved-host.com"
-        }", "dark"); }
-(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-storage-hazard")}", "1"); })();`,
-      ],
+      ...(
+        [
+          ["iife-outer-helper-storage-hazard", ""],
+          ["iife-outer-helper-url-storage-hazard", "https://"],
+          ["iife-outer-helper-subdomain-storage-hazard", "prefix."],
+        ] as const
+      ).map(([suffix, prefix]) =>
+        rejectedCase(
+          suffix,
+          helperBeforeIifeSource(
+            suffix,
+            `${prefix}${"secpal" + ".unapproved-host.com"}`
+          )
+        )
+      ),
       [
         focusedKey("async-suspension"),
         `(async () => { await ready; localStorage.setItem("${focusedKey("async-suspension")}", "1"); })();`,

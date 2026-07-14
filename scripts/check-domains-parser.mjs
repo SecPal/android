@@ -27,6 +27,7 @@ try {
 }
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
+const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const helperProofCallLimit = 8;
 const approvedSecPalRootDomains = new Set(["secpal.app", "secpal.dev"]);
@@ -624,7 +625,7 @@ function safeHelperStorageKey(call, proofContext) {
     proofContext.safeStorageKeyUses.has(call.key) ||
     (passiveExpression(call.key, proofContext.checker) &&
       (!key ||
-        !key.startsWith("secpal.") ||
+        !secpalDomainPattern.test(key) ||
         approvedSecPalRootDomains.has(key) ||
         storageKeyLiteral(call.key)))
   );
@@ -1376,7 +1377,7 @@ for (const file of files) {
   }
 
   source.split("\n").forEach((line, index) => {
-    if (/secpal\.[A-Za-z0-9.-]{1,100}/.test(line)) {
+    if (secpalDomainPattern.test(line)) {
       process.stdout.write(`${file}:${index + 1}:${line}\n`);
     }
   });
