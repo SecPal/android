@@ -602,8 +602,7 @@ function safeHelperInvocation(statement, proofContext, proofState) {
     return declaration.body.statements.every((bodyStatement) => {
       const call = proofContext.callsByStatement.get(bodyStatement);
       return call
-        ? passiveExpression(call.key, proofContext.checker) ||
-            proofContext.safeStorageKeyUses.has(call.key)
+        ? safeHelperStorageKey(call, proofContext)
         : safePrecedingStatement(
             bodyStatement,
             proofContext.callsByStatement,
@@ -616,6 +615,15 @@ function safeHelperInvocation(statement, proofContext, proofState) {
   } finally {
     proofState.validatingHelperInvocations.delete(statement);
   }
+}
+
+function safeHelperStorageKey(call, proofContext) {
+  const key = staticStringValue(call.key);
+  return (
+    proofContext.safeStorageKeyUses.has(call.key) ||
+    (passiveExpression(call.key, proofContext.checker) &&
+      (!key || !key.startsWith("secpal.") || storageKeyLiteral(call.key)))
+  );
 }
 
 function helperInvocationIsReachable(invocation, proofContext, visiting) {

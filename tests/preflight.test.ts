@@ -692,6 +692,12 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("iife-outer-theme-helper"),
+        `function persistTheme() { localStorage.setItem("theme", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-theme-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
         focusedKey("sequential-iife"),
         `(() => { localStorage.setItem("theme", "dark"); })();\n(() => { localStorage.setItem("${focusedKey("sequential-iife")}", "1"); })();`,
         "ts",
@@ -1230,6 +1236,13 @@ describe("preflight", () => {
       [
         focusedKey("iife-inner-prefix"),
         `(() => { initialize(); localStorage.setItem("${focusedKey("iife-inner-prefix")}", "1"); })();`,
+      ],
+      [
+        focusedKey("iife-outer-helper-storage-hazard"),
+        `function persistTheme() { localStorage.setItem("${
+          "secpal" + ".unapproved-host.com"
+        }", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-storage-hazard")}", "1"); })();`,
       ],
       [
         focusedKey("async-suspension"),
