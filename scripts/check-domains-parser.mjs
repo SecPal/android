@@ -28,7 +28,6 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
-// Includes the direct top-level invocation that makes the helper live.
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const storageMethods = new Map([
@@ -531,12 +530,14 @@ function safeHelperInvocation(statement, proofContext) {
     return declaration.body.statements.every((bodyStatement) => {
       const call = proofContext.callsByStatement.get(bodyStatement);
       return call
-        ? hasHelperInvocationPrefix(
-            call,
-            statement,
-            proofContext,
-            proofContext.requiredPrecedingStatements.get(call.key)
-          )
+        ? (passiveExpression(call.key, proofContext.checker) ||
+            proofContext.safeStorageKeyUses.has(call.key)) &&
+            hasHelperInvocationPrefix(
+              call,
+              statement,
+              proofContext,
+              proofContext.requiredPrecedingStatements.get(call.key)
+            )
         : safePrecedingStatement(
             bodyStatement,
             proofContext.callsByStatement,
@@ -549,7 +550,96 @@ function safeHelperInvocation(statement, proofContext) {
     proofContext.validatingHelperInvocations.delete(statement);
   }
 }
-
+function helperInvocationIsReachable(invocation, proofContext, visiting) {
+  const container = invocation.statement.parent;
+  if (ts.isSourceFile(container)) {
+    return true;
+  }
+  if (!ts.isBlock(container)) {
+    return false;
+  }
+  const owner = container.parent;
+  if (ts.isFunctionDeclaration(owner) && owner.body === container) {
+    if (
+      proofContext.dormantFunctionDeclarations.has(owner) ||
+      visiting.has(owner)
+    ) {
+      return false;
+    }
+    const ownerInvocations = proofContext.helperInvocations.get(owner);
+    if (!ownerInvocations) {
+      return true;
+    }
+    return ownerInvocations.some((ownerInvocation) =>
+      helperInvocationIsReachable(
+        ownerInvocation,
+        proofContext,
+        new Set(visiting).add(owner)
+      )
+    );
+  }
+  const immediate = immediateInvocation(owner);
+  const entry = immediate && containingExecutionStatement(immediate);
+  return entry
+    ? helperInvocationIsReachable({ statement: entry }, proofContext, visiting)
+    : true;
+}
+function containingNamedHelperOwner(statement) {
+  let executionStatement = statement;
+  while (ts.isBlock(executionStatement.parent)) {
+    const owner = executionStatement.parent.parent;
+    if (ts.isFunctionDeclaration(owner)) {
+      return owner;
+    }
+    const immediate = immediateInvocation(owner);
+    const entry = immediate && containingExecutionStatement(immediate);
+    if (!entry) {
+      return undefined;
+    }
+    executionStatement = entry;
+  }
+  return undefined;
+}
+function addAll(target, values) {
+  for (const value of values) target.add(value);
+}
+function reachableHelperCallStatements(declaration, proofContext, visiting) {
+  if (visiting.has(declaration)) {
+    return new Set();
+  }
+  const nextVisiting = new Set(visiting).add(declaration);
+  const statements = new Set();
+  for (const invocation of proofContext.helperInvocations.get(declaration) ??
+    []) {
+    if (!helperInvocationIsReachable(invocation, proofContext, new Set())) {
+      continue;
+    }
+    statements.add(invocation.statement);
+    const caller = containingNamedHelperOwner(invocation.statement);
+    if (caller) {
+      addAll(
+        statements,
+        reachableHelperCallStatements(caller, proofContext, nextVisiting)
+      );
+    }
+  }
+  return statements;
+}
+function candidateHelperCallStatements(candidate, storageUses, proofContext) {
+  const statements = new Set();
+  for (const identifier of candidate.references) {
+    const call = storageUses.get(identifier);
+    const owner = containingNamedHelperOwner(call.statement);
+    if (!owner) {
+      continue;
+    }
+    addAll(
+      statements,
+      reachableHelperCallStatements(owner, proofContext, new Set())
+    );
+  }
+  return statements;
+}
 function hasHelperInvocationPrefix(
   call,
   invocationStatement,
@@ -581,7 +671,6 @@ function hasHelperInvocationPrefix(
     )
   );
 }
-
 function hasStraightLinePrefix(
   call,
   callsByStatement,
@@ -628,10 +717,19 @@ function hasStraightLinePrefix(
     functionExpression.body === container
   ) {
     const invocations = proofContext.helperInvocations.get(functionExpression);
+    const reachableInvocations = invocations?.filter((invocation) =>
+      helperInvocationIsReachable(invocation, proofContext, new Set())
+    );
+    const reachableCalls = reachableHelperCallStatements(
+      functionExpression,
+      proofContext,
+      new Set()
+    );
     return (
       remainingHelperCalls > 0 &&
-      invocations?.length > 0 &&
-      invocations.every((invocation) =>
+      reachableInvocations?.length > 0 &&
+      reachableCalls.size <= helperProofCallLimit &&
+      reachableInvocations.every((invocation) =>
         hasStraightLinePrefix(
           invocation,
           callsByStatement,
@@ -852,15 +950,94 @@ function parserExemptions(file, program, checker) {
       ])
     )
   );
+  const dormantFunctionDeclarations = new Set(
+    functionDeclarations.filter((declaration) => {
+      if (
+        !declaration.name ||
+        hasDecorators(declaration) ||
+        declaration.modifiers?.some(
+          (modifier) =>
+            modifier.kind === ts.SyntaxKind.ExportKeyword ||
+            modifier.kind === ts.SyntaxKind.DefaultKeyword
+        )
+      ) {
+        return false;
+      }
+      const symbol = checker.getSymbolAtLocation(declaration.name);
+      return (
+        symbol &&
+        !symbolIsRuntimeExported(sourceFile, checker, symbol) &&
+        !identifiers.some(
+          (identifier) =>
+            !isFunctionDeclarationName(identifier) &&
+            !isTypeOnlyReference(identifier) &&
+            identifierReferencesSymbol(checker, identifier, symbol)
+        )
+      );
+    })
+  );
   const proofContext = {
     callsByStatement,
     checker,
+    dormantFunctionDeclarations,
     helperDeclarationsByInvocation,
     helperInvocations,
     requiredPrecedingStatements,
     safeStorageKeyUses,
     validatingHelperInvocations: new Set(),
   };
+  const candidateRecords = [];
+  const pendingCandidates = new Set(candidates);
+  let provedCandidate;
+  do {
+    provedCandidate = false;
+    for (const candidate of pendingCandidates) {
+      if (
+        candidateHelperCallStatements(candidate, storageUses, proofContext)
+          .size > helperProofCallLimit
+      ) {
+        pendingCandidates.delete(candidate);
+        continue;
+      }
+      const provenReferences = [];
+      for (const identifier of candidate.references) {
+        safeStorageKeyUses.add(identifier);
+        const call = storageUses.get(identifier);
+        if (
+          !hasStraightLinePrefix(
+            call,
+            callsByStatement,
+            safeStorageKeyUses,
+            checker,
+            proofContext,
+            candidate.declaration.parent.parent
+          )
+        ) {
+          safeStorageKeyUses.delete(identifier);
+          break;
+        }
+        provenReferences.push(identifier);
+      }
+      if (provenReferences.length === candidate.references.length) {
+        candidateRecords.push({
+          literal: candidate.initializer,
+          typeRoots: [
+            candidate.declaration,
+            ...candidate.references.map(
+              (identifier) => storageUses.get(identifier).node
+            ),
+          ],
+        });
+        pendingCandidates.delete(candidate);
+        provedCandidate = true;
+      } else {
+        for (const identifier of provenReferences) {
+          safeStorageKeyUses.delete(identifier);
+        }
+      }
+    }
+  } while (provedCandidate);
+
   const directCallRecords = calls
     .filter(
       (call) =>
@@ -870,51 +1047,13 @@ function parserExemptions(file, program, checker) {
           callsByStatement,
           safeStorageKeyUses,
           checker,
-          proofContext,
-          undefined
+          proofContext
         )
     )
     .map((call) => ({
       literal: storageKeyLiteral(call.key),
       typeRoots: [call.node],
     }));
-  const candidateRecords = [];
-
-  for (const candidate of candidates) {
-    const provenReferences = [];
-    for (const identifier of candidate.references) {
-      const call = storageUses.get(identifier);
-      if (
-        !hasStraightLinePrefix(
-          call,
-          callsByStatement,
-          safeStorageKeyUses,
-          checker,
-          proofContext,
-          candidate.declaration.parent.parent
-        )
-      ) {
-        break;
-      }
-      safeStorageKeyUses.add(identifier);
-      provenReferences.push(identifier);
-    }
-    if (provenReferences.length === candidate.references.length) {
-      candidateRecords.push({
-        literal: candidate.initializer,
-        typeRoots: [
-          candidate.declaration,
-          ...candidate.references.map(
-            (identifier) => storageUses.get(identifier).node
-          ),
-        ],
-      });
-    } else {
-      for (const identifier of provenReferences) {
-        safeStorageKeyUses.delete(identifier);
-      }
-    }
-  }
 
   return exemptionNodes([...directCallRecords, ...candidateRecords]).map(
     (node) => ({
