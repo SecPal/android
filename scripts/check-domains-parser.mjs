@@ -41,6 +41,14 @@ const dynamicExecutionGlobals = new Set([
   "setInterval",
   "setTimeout",
 ]);
+const safeGlobalObjectProperties = new Set([
+  "addEventListener",
+  "caches",
+  "localStorage",
+  "location",
+  "matchMedia",
+  "sessionStorage",
+]);
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -248,14 +256,14 @@ function isSafeGlobalObjectUse(identifier) {
     ts.isPropertyAccessExpression(access) &&
     access.expression === identifier
   ) {
-    return !dynamicExecutionGlobals.has(access.name.text);
+    return safeGlobalObjectProperties.has(access.name.text);
   }
   if (
     ts.isElementAccessExpression(access) &&
     access.expression === identifier
   ) {
     const property = staticPropertyName(access);
-    return Boolean(property && !dynamicExecutionGlobals.has(property));
+    return Boolean(property && safeGlobalObjectProperties.has(property));
   }
   return false;
 }
@@ -295,6 +303,7 @@ function hasOnlySafeIifeGlobalUses(root, checker) {
     if (
       safe &&
       (isDynamicCodeReference(node, checker) ||
+        node.kind === ts.SyntaxKind.ThisKeyword ||
         isStorageConstructorReference(node, checker) ||
         isUnsafeUnshadowedCall(node, checker) ||
         (isUnshadowedGlobalObject(node, checker) &&
@@ -655,7 +664,12 @@ function parserExemptions(file, program, checker) {
         ts.isBlock(callee.body) &&
         !callee.asteriskToken &&
         callee.parameters.length === 0 &&
-        hasOnlySafeIifeGlobalUses(callee.body, checker)
+        hasOnlySafeIifeGlobalUses(callee.body, checker) &&
+        sourceFile.statements
+          .slice(0, sourceFile.statements.indexOf(statement))
+          .every((prefix) =>
+            safePrecedingStatement(prefix, new Map(), new Set(), checker)
+          )
       ) {
         return callee.body.statements
           .filter(ts.isVariableStatement)
