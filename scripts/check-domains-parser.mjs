@@ -1540,7 +1540,6 @@ function executableHtmlAttributes(node, source) {
       "action",
       "formaction",
     ].includes(attributeName);
-    const urlBody = urlAttribute ? javascriptUrlBody(value) : undefined;
     if (!valueLocation || (!eventHandler && !urlAttribute)) continue;
     const decoded = decodeHtmlCharacterReferences(
       source.slice(valueLocation.start, valueLocation.end)
