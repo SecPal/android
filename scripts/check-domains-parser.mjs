@@ -28,9 +28,10 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
+const approvedSecPalDomainPattern =
+  /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const helperProofCallLimit = 8;
-const approvedSecPalRootDomains = new Set(["secpal.app", "secpal.dev"]);
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const storageMethods = new Map([
   ["getItem", 1],
@@ -560,7 +561,10 @@ function safePrecedingStatement(
   const call = callsByStatement.get(statement);
   if (
     call &&
-    (passiveExpression(call.key, checker) || safeStorageKeyUses.has(call.key))
+    (proofState.validatingHelperInvocations.size > 0
+      ? safeHelperStorageKey(call, proofContext)
+      : passiveExpression(call.key, checker) ||
+        safeStorageKeyUses.has(call.key))
   ) {
     return true;
   }
@@ -601,19 +605,16 @@ function safeHelperInvocation(statement, proofContext, proofState) {
   }
   proofState.validatingHelperInvocations.add(statement);
   try {
-    return declaration.body.statements.every((bodyStatement) => {
-      const call = proofContext.callsByStatement.get(bodyStatement);
-      return call
-        ? safeHelperStorageKey(call, proofContext)
-        : safePrecedingStatement(
-            bodyStatement,
-            proofContext.callsByStatement,
-            proofContext.safeStorageKeyUses,
-            proofContext.checker,
-            proofContext,
-            proofState
-          );
-    });
+    return declaration.body.statements.every((bodyStatement) =>
+      safePrecedingStatement(
+        bodyStatement,
+        proofContext.callsByStatement,
+        proofContext.safeStorageKeyUses,
+        proofContext.checker,
+        proofContext,
+        proofState
+      )
+    );
   } finally {
     proofState.validatingHelperInvocations.delete(statement);
   }
@@ -625,8 +626,9 @@ function safeHelperStorageKey(call, proofContext) {
     proofContext.safeStorageKeyUses.has(call.key) ||
     (passiveExpression(call.key, proofContext.checker) &&
       (!key ||
-        !secpalDomainPattern.test(key) ||
-        approvedSecPalRootDomains.has(key) ||
+        !secpalDomainPattern.test(
+          key.replace(approvedSecPalDomainPattern, "")
+        ) ||
         storageKeyLiteral(call.key)))
   );
 }
