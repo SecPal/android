@@ -201,11 +201,18 @@ function containingExpressionStatement(expression) {
   ) {
     outer = outer.parent;
   }
+  while (ts.isExpression(outer.parent)) {
+    outer = outer.parent;
+  }
   return ts.isExpressionStatement(outer.parent) &&
     outer.parent.expression === outer &&
     (ts.isSourceFile(outer.parent.parent) || ts.isBlock(outer.parent.parent))
     ? outer.parent
-    : undefined;
+    : ts.isReturnStatement(outer.parent) &&
+        outer.parent.expression === outer &&
+        ts.isBlock(outer.parent.parent)
+      ? outer.parent
+      : undefined;
 }
 
 function immediateInvocation(functionExpression) {
@@ -404,6 +411,18 @@ function syntacticStorageCall(access, checker) {
     return undefined;
   }
   return { ...access, key, statement };
+}
+
+function isTryProtectedStorageCall(call) {
+  let node = call.statement;
+  while (node.parent) {
+    const parent = node.parent;
+    if (ts.isTryStatement(parent)) {
+      return parent.tryBlock === node;
+    }
+    node = parent;
+  }
+  return false;
 }
 
 function isTypeOnlyReference(identifier) {
@@ -1326,6 +1345,9 @@ function parserExemptions(file, program, checker) {
   do {
     provedCandidate = false;
     for (const candidate of pendingCandidates) {
+      const allReferencesAreTryProtected = candidate.references.every(
+        (identifier) => isTryProtectedStorageCall(storageUses.get(identifier))
+      );
       const targetExecutions = [];
       for (const identifier of candidate.references) {
         targetExecutions.push(
@@ -1337,7 +1359,8 @@ function parserExemptions(file, program, checker) {
           sourceFile,
           targetExecutions,
           proofContext
-        ) > helperProofCallLimit
+        ) > helperProofCallLimit &&
+        !allReferencesAreTryProtected
       ) {
         pendingCandidates.delete(candidate);
         continue;
@@ -1351,6 +1374,7 @@ function parserExemptions(file, program, checker) {
           safeStorageKeyUses.add(identifier);
           const call = storageUses.get(identifier);
           if (
+            isTryProtectedStorageCall(call) ||
             hasStraightLinePrefix(
               call,
               callsByStatement,

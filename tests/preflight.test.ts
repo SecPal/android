@@ -755,6 +755,8 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
+    const assetLoadRecoveryStorageKey = "secpal" + ".asset-load-recovery";
+    const invalidVariableStorageKey = "secpal" + ".invalid-host.com";
     const acceptedCase = (suffix: string, source: string) =>
       [focusedKey(suffix), source, "ts"] as const;
     const rejectedCase = (suffix: string, source: string) =>
@@ -830,6 +832,19 @@ describe("preflight", () => {
         `localStorage.setItem("${storageKey}", "1");`,
       ].join("\n");
     const accepted = [
+      [
+        assetLoadRecoveryStorageKey,
+        [
+          `var assetLoadRecoveryStorageKey = "${assetLoadRecoveryStorageKey}";`,
+          'function hasPendingAssetLoadRecovery() { try { return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending"; } catch { return false; } }',
+          "function clearAssetLoadRecoveryFlag() { try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} }",
+          'function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } }',
+          "const pageStartedWithPendingAssetLoadRecovery = hasPendingAssetLoadRecovery();",
+          'window.addEventListener("app-bootstrap-ready", clearAssetLoadRecoveryFlag, { once: true });',
+          "markPendingAssetLoadRecovery();",
+        ].join("\n"),
+        "js",
+      ],
       [
         focusedKey("const-direct"),
         `const storageKey = "${focusedKey("const-direct")}";\nlocalStorage.setItem(storageKey, "1");`,
@@ -1238,6 +1253,13 @@ describe("preflight", () => {
       ),
     ] as const;
     const rejected = [
+      [
+        invalidVariableStorageKey,
+        [
+          `var storageKey = "${invalidVariableStorageKey}";`,
+          "try { window.sessionStorage.getItem(storageKey); } catch {}",
+        ].join("\n"),
+      ],
       [
         focusedKey("concatenated"),
         `const storageKey = "${focusedKey("concatenated")}" + ".com";\nlocalStorage.setItem(storageKey, "1");`,
