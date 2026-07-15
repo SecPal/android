@@ -767,6 +767,22 @@ describe("preflight", () => {
       acceptedCase(suffix, simpleHelperSource(suffix, calls));
     const rejectedHelperCase = (suffix: string, calls: string) =>
       rejectedCase(suffix, simpleHelperSource(suffix, calls));
+    const onceListener =
+      'window.addEventListener("ready", readLater, { once: true });';
+    const rejectedDeferredTryHelperCase = (
+      suffix: string,
+      options: Record<string, string> = {}
+    ) => {
+      const prefix = options.prefix ?? "";
+      const declaration = options.declaration ?? "function readLater()";
+      const helperPrefix = options.helperPrefix ?? "";
+      const tryBody = options.tryBody ?? "localStorage.getItem(storageKey);";
+      const references = options.references ?? onceListener;
+      return rejectedCase(
+        suffix,
+        `${prefix}${prefix && "\n"}const storageKey = "${focusedKey(suffix)}";\n${declaration} { ${helperPrefix}try { ${tryBody} } catch {} }${references && `\n${references}`}`
+      );
+    };
     const helperChain = (storageKey: string, helperCalls: number) =>
       [
         `const storageKey = "${storageKey}";`,
@@ -1322,6 +1338,53 @@ describe("preflight", () => {
           Array.from({ length: 9 }, () => "persist();").join("\n"),
         ].join("\n"),
       ],
+      rejectedCase(
+        "try-helper-before-key",
+        `readNow();\nconst storageKey = "${focusedKey("try-helper-before-key")}";\nfunction readNow() { try { localStorage.getItem(storageKey); } catch {} }`
+      ),
+      rejectedDeferredTryHelperCase("try-storage-prototype", {
+        prefix: "Storage.prototype.getItem = replacement;",
+      }),
+      rejectedDeferredTryHelperCase("try-dynamic-execution", {
+        prefix: 'Function("localStorage.getItem = replacement")();',
+      }),
+      rejectedCase(
+        "try-return-prefix",
+        `const storageKey = "${focusedKey("try-return-prefix")}";\nfunction readNow() { try { return localStorage.getItem("theme"); localStorage.getItem(storageKey); } catch {} }\nreadNow();`
+      ),
+      ...(
+        [
+          ["exported", "export function"],
+          ["async", "async function"],
+          ["generator", "function*"],
+        ] as const
+      ).map(([suffix, declaration]) =>
+        rejectedDeferredTryHelperCase(`try-${suffix}-helper`, {
+          declaration: `${declaration} readLater()`,
+        })
+      ),
+      rejectedDeferredTryHelperCase("try-parameterized-helper", {
+        declaration: "function readLater(value)",
+      }),
+      rejectedDeferredTryHelperCase("try-helper-prefix", {
+        helperPrefix: "initialize(); ",
+      }),
+      rejectedDeferredTryHelperCase("try-dormant-helper", { references: "" }),
+      rejectedDeferredTryHelperCase("try-reassigned-helper", {
+        references: `readLater = replacement;\n${onceListener}`,
+      }),
+      rejectedDeferredTryHelperCase("try-recursive-helper", {
+        tryBody: "localStorage.getItem(storageKey); readLater();",
+      }),
+      rejectedDeferredTryHelperCase("try-timer-helper", {
+        references: "setTimeout(readLater, 0);",
+      }),
+      rejectedDeferredTryHelperCase("try-loop-helper", {
+        references: "while (enabled) { readLater(); }",
+      }),
+      rejectedDeferredTryHelperCase("try-repeated-event-helper", {
+        references: 'window.addEventListener("ready", readLater);',
+      }),
       [
         invalidVariableStorageKey,
         [

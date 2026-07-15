@@ -52,10 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Domain-policy validation now accepts approved variable-backed browser-storage
-  keys used inside error-handling `try` blocks, including the frontend asset
-  recovery key, while retaining fail-closed execution-boundary, receiver-prefix,
-  declaration-order, helper-path, and unapproved-host checks (issue #366).
+- Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset
+  recovery key, while retaining fail-closed execution-boundary, receiver-prefix, declaration-order, eligible-helper, bounded one-shot callback, helper-prefix, and unapproved-host checks (issue #366).
 - Domain-policy validation now semantically checks executable HTML event-handler
   attributes and `javascript:` URLs, including SVG `xlink:href`, before
   exempting browser-storage keys, preserving source locations through complete
