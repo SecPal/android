@@ -32,6 +32,8 @@ const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const htmlExtensionPattern = /^\.html?$/;
+const inlineScriptMarker = ".secpal-inline-script-";
+const inlineScriptScopes = new Map();
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const javascriptMimeTypes = new Set([
@@ -79,11 +81,20 @@ function isAmbientDeclaration(declaration) {
 
 function isUnshadowedGlobal(checker, identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
-  return !symbol?.declarations?.some(
-    (declaration) =>
-      declaration.getSourceFile() === identifier.getSourceFile() &&
-      !isAmbientDeclaration(declaration)
-  );
+  const identifierSource = identifier.getSourceFile();
+  const identifierScope = inlineScriptScopes.get(identifierSource.fileName);
+  return !symbol?.declarations?.some((declaration) => {
+    const declarationSource = declaration.getSourceFile();
+    const declarationScope = inlineScriptScopes.get(declarationSource.fileName);
+    return (
+      !isAmbientDeclaration(declaration) &&
+      (declarationSource === identifierSource ||
+        (identifierScope !== undefined &&
+          declarationScope?.document === identifierScope.document &&
+          (identifierScope.module ||
+            declarationScope.index <= identifierScope.index)))
+    );
+  });
 }
 
 function isTransparentExpressionWrapper(node) {
@@ -1378,22 +1389,186 @@ function replaceExemptions(source, exemptions) {
   return source;
 }
 
-function executableHtmlScripts(source) {
-  const scripts = [];
-  const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/dgi;
-  let match;
-  while ((match = scriptPattern.exec(source))) {
-    const typeMatch = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(
-      match[1]
-    );
-    const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? typeMatch?.[3] ?? "")
-      .split(";", 1)[0]
-      .trim()
-      .toLowerCase();
-    if (type && type !== "module" && !javascriptMimeTypes.has(type)) {
+function htmlSpace(character) {
+  return character !== undefined && /[\t\n\f\r ]/.test(character);
+}
+
+function tagEnd(source, start) {
+  let quote;
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      }
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return index;
+    }
+  }
+  return undefined;
+}
+
+function htmlAttributes(source, start, end) {
+  const attributes = new Map();
+  let index = start;
+  while (index < end) {
+    while (htmlSpace(source[index]) || source[index] === "/") {
+      index += 1;
+    }
+    const nameStart = index;
+    while (
+      index < end &&
+      !htmlSpace(source[index]) &&
+      !["/", "=", ">"].includes(source[index])
+    ) {
+      index += 1;
+    }
+    if (index === nameStart) {
+      index += 1;
       continue;
     }
-    scripts.push({ end: match.indices[2][1], start: match.indices[2][0] });
+    const name = source.slice(nameStart, index).toLowerCase();
+    while (htmlSpace(source[index])) {
+      index += 1;
+    }
+    let value = "";
+    if (source[index] === "=") {
+      index += 1;
+      while (htmlSpace(source[index])) {
+        index += 1;
+      }
+      const quote = source[index];
+      if (quote === '"' || quote === "'") {
+        index += 1;
+        const valueStart = index;
+        while (index < end && source[index] !== quote) {
+          index += 1;
+        }
+        value = source.slice(valueStart, index);
+        if (source[index] === quote) {
+          index += 1;
+        }
+      } else {
+        const valueStart = index;
+        while (
+          index < end &&
+          !htmlSpace(source[index]) &&
+          source[index] !== ">"
+        ) {
+          index += 1;
+        }
+        value = source.slice(valueStart, index);
+      }
+    }
+    if (!attributes.has(name)) {
+      attributes.set(name, value);
+    }
+  }
+  return attributes;
+}
+
+function decodeHtmlType(value) {
+  const namedCharacters = new Map([
+    ["amp", "&"],
+    ["apos", "'"],
+    ["colon", ":"],
+    ["equals", "="],
+    ["gt", ">"],
+    ["lt", "<"],
+    ["period", "."],
+    ["quot", '"'],
+    ["semi", ";"],
+    ["sol", "/"],
+  ]);
+  return value.replace(
+    /&#(?:x([\da-f]+)|(\d+));?|&([a-z]+);/gi,
+    (reference, hexadecimal, decimal, named) => {
+      if (hexadecimal || decimal) {
+        const codePoint = Number.parseInt(
+          hexadecimal ?? decimal,
+          hexadecimal ? 16 : 10
+        );
+        return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : reference;
+      }
+      return namedCharacters.get(named.toLowerCase()) ?? reference;
+    }
+  );
+}
+
+function executableScriptType(rawType) {
+  if (rawType === undefined || rawType.trim() === "") {
+    return { executable: true, module: false };
+  }
+  const type = decodeHtmlType(rawType).split(";", 1)[0].trim().toLowerCase();
+  if (type === "module") {
+    return { executable: true, module: true };
+  }
+  if (javascriptMimeTypes.has(type)) {
+    return { executable: true, module: false };
+  }
+  return { executable: type.includes("&"), module: false };
+}
+
+function executableHtmlScripts(source) {
+  const scripts = [];
+  const lowerSource = source.toLowerCase();
+  let index = 0;
+  while (index < source.length) {
+    const tagStart = source.indexOf("<", index);
+    if (tagStart === -1) {
+      break;
+    }
+    if (source.startsWith("<!--", tagStart)) {
+      const commentEnd = source.indexOf("-->", tagStart + 4);
+      index = commentEnd === -1 ? source.length : commentEnd + 3;
+      continue;
+    }
+    const isScript =
+      lowerSource.startsWith("<script", tagStart) &&
+      (htmlSpace(source[tagStart + 7]) ||
+        ["/", ">"].includes(source[tagStart + 7]));
+    if (!isScript) {
+      const nextCharacter = source[tagStart + 1];
+      const markupStart =
+        nextCharacter !== undefined && /[A-Za-z!/?]/.test(nextCharacter);
+      const end = markupStart ? tagEnd(source, tagStart + 1) : undefined;
+      index = end === undefined ? tagStart + 1 : end + 1;
+      continue;
+    }
+    const openingEnd = tagEnd(source, tagStart + 7);
+    if (openingEnd === undefined) {
+      break;
+    }
+    const attributes = htmlAttributes(source, tagStart + 7, openingEnd);
+    const type = executableScriptType(attributes.get("type"));
+    const contentStart = openingEnd + 1;
+    let closingStart = lowerSource.indexOf("</script", contentStart);
+    while (
+      closingStart !== -1 &&
+      !(
+        htmlSpace(source[closingStart + 8]) ||
+        ["/", ">"].includes(source[closingStart + 8])
+      )
+    ) {
+      closingStart = lowerSource.indexOf("</script", closingStart + 8);
+    }
+    const contentEnd = closingStart === -1 ? source.length : closingStart;
+    if (type.executable && !attributes.has("src")) {
+      scripts.push({
+        end: contentEnd,
+        module: type.module,
+        start: contentStart,
+      });
+    }
+    if (closingStart === -1) {
+      break;
+    }
+    const closingEnd = tagEnd(source, closingStart + 8);
+    index = closingEnd === undefined ? source.length : closingEnd + 1;
   }
   return scripts;
 }
@@ -1409,13 +1584,17 @@ function replaceStorageKeysOutsideScripts(source, scripts) {
   return result + replaceNonSourceStorageKeys(source.slice(start));
 }
 
-function createDomainProgram(sourceFiles, virtualSources) {
+function createDomainProgram(
+  sourceFiles,
+  virtualSources,
+  moduleDetection = ts.ModuleDetectionKind.Force
+) {
   const options = {
     allowJs: true,
     checkJs: true,
     jsx: ts.JsxEmit.Preserve,
     module: ts.ModuleKind.ESNext,
-    moduleDetection: ts.ModuleDetectionKind.Force,
+    moduleDetection,
     noLib: true,
     noResolve: true,
     target: ts.ScriptTarget.Latest,
@@ -1450,24 +1629,42 @@ const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
 );
 const htmlScripts = new Map();
-const virtualSources = new Map();
 for (const file of files) {
   if (!htmlExtensionPattern.test(extname(file))) {
     continue;
   }
-  const scripts = executableHtmlScripts(readFileSync(file, "utf8")).map(
-    (script, index) => ({
-      ...script,
-      file: `${resolve(file)}.inline-script-${index}.js`,
-    })
-  );
-  htmlScripts.set(file, scripts);
+  const source = readFileSync(file, "utf8");
+  const document = resolve(file);
+  const scripts = executableHtmlScripts(source).map((script, index) => ({
+    ...script,
+    file: `${document}${inlineScriptMarker}${index}.js`,
+    index,
+  }));
+  const virtualSources = new Map();
   for (const script of scripts) {
-    const source = readFileSync(file, "utf8");
-    virtualSources.set(script.file, source.slice(script.start, script.end));
+    inlineScriptScopes.set(script.file, {
+      document,
+      index: script.index,
+      module: script.module,
+    });
+    const scriptSource = source.slice(script.start, script.end);
+    virtualSources.set(
+      script.file,
+      script.module ? `${scriptSource}\nexport {};` : scriptSource
+    );
   }
+  const program = createDomainProgram(
+    [],
+    virtualSources,
+    ts.ModuleDetectionKind.Legacy
+  );
+  htmlScripts.set(file, {
+    checker: program.getTypeChecker(),
+    program,
+    scripts,
+  });
 }
-const program = createDomainProgram(sourceFiles, virtualSources);
+const program = createDomainProgram(sourceFiles, new Map());
 const checker = program.getTypeChecker();
 
 for (const file of files) {
@@ -1478,17 +1675,19 @@ for (const file of files) {
       parserExemptions(file, program, checker)
     );
   } else {
-    const scripts = htmlScripts.get(file);
+    const html = htmlScripts.get(file);
     source = replaceExemptions(
       source,
-      (scripts ?? []).flatMap((script) =>
-        parserExemptions(script.file, program, checker).map((exemption) => ({
-          end: script.start + exemption.end,
-          start: script.start + exemption.start,
-        }))
+      (html?.scripts ?? []).flatMap((script) =>
+        parserExemptions(script.file, html.program, html.checker).map(
+          (exemption) => ({
+            end: script.start + exemption.end,
+            start: script.start + exemption.start,
+          })
+        )
       )
     );
-    source = scripts
+    source = html
       ? replaceStorageKeysOutsideScripts(source, executableHtmlScripts(source))
       : replaceNonSourceStorageKeys(source);
   }

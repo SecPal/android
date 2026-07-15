@@ -342,6 +342,97 @@ describe("preflight", () => {
       unlinkSync(join(tempRoot, "shadowed-storage.html"));
       unlinkSync(join(tempRoot, "storage-key.html"));
 
+      const crossScriptStorageHostname = "secpal" + ".cross-script-shadow";
+      const dataTypeStorageHostname = "secpal" + ".data-type-shadow";
+      const attributeValueStorageHostname =
+        "secpal" + ".attribute-value-shadow";
+      const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
+      writeFileSync(
+        join(tempRoot, "html-script-boundaries.html"),
+        [
+          "<script>const localStorage = fakeStorage;</script>",
+          "<script>",
+          `const key = "${crossScriptStorageHostname}";`,
+          'localStorage.setItem(key, "1");',
+          "</script>",
+          '<script data-type="application/json">',
+          "const sessionStorage = fakeStorage;",
+          `sessionStorage.setItem("${dataTypeStorageHostname}", "1");`,
+          "</script>",
+          `<script data-note='type="application/json"'>`,
+          "const window = fakeWindow;",
+          `window.localStorage.setItem("${attributeValueStorageHostname}", "1");`,
+          "</script>",
+          '<script type="text&#x2f;javascript">',
+          "const globalThis = fakeGlobal;",
+          `globalThis.sessionStorage.setItem("${encodedTypeStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      const htmlScriptBoundariesResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(htmlScriptBoundariesResult.status).toBe(1);
+      for (const hostname of [
+        crossScriptStorageHostname,
+        dataTypeStorageHostname,
+        attributeValueStorageHostname,
+        encodedTypeStorageHostname,
+      ]) {
+        expect(htmlScriptBoundariesResult.stdout).toContain(hostname);
+      }
+
+      unlinkSync(join(tempRoot, "html-script-boundaries.html"));
+
+      writeFileSync(
+        join(tempRoot, "html-script-scope-isolation.html"),
+        [
+          `<script>localStorage.setItem("${storageKey}", "1");</script>`,
+          "<script>const localStorage = fakeStorage;</script>",
+          '<script type="module">const sessionStorage = fakeStorage;</script>',
+          `<script>sessionStorage.setItem("${storageKey}", "1");</script>`,
+        ].join("\n")
+      );
+      writeFileSync(
+        join(tempRoot, "separate-html-shadow.html"),
+        "<script>const sessionStorage = fakeStorage;</script>\n"
+      );
+      writeFileSync(
+        join(tempRoot, "separate-html-storage.html"),
+        `<script>sessionStorage.setItem("${storageKey}", "1");</script>\n`
+      );
+
+      const htmlScriptScopeIsolationResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(htmlScriptScopeIsolationResult.status).toBe(0);
+
+      unlinkSync(join(tempRoot, "html-script-scope-isolation.html"));
+      unlinkSync(join(tempRoot, "separate-html-shadow.html"));
+      unlinkSync(join(tempRoot, "separate-html-storage.html"));
+
+      writeFileSync(
+        join(tempRoot, "quoted-script-attribute.html"),
+        `<script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`
+      );
+
+      const quotedScriptAttributeResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(quotedScriptAttributeResult.status).toBe(0);
+
+      unlinkSync(join(tempRoot, "quoted-script-attribute.html"));
+
       writeFileSync(
         join(tempRoot, "multiple-storage-keys.html"),
         [

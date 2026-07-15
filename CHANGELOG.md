@@ -53,9 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Domain-policy validation now analyzes executable inline HTML scripts with
-  the same receiver and shadowing checks as JavaScript and TypeScript source,
-  so shadowed browser-storage calls cannot hide unapproved domain-like keys
-  (issue #386).
+  quote-aware attribute parsing and document-ordered classic-script scopes,
+  so misleading attributes, encoded JavaScript MIME types, and cross-script
+  browser-storage shadows cannot hide unapproved domain-like keys (issue
+  #386).
 - Domain-policy storage-key exemptions now trace locally resolved helper calls
   before IIFE storage uses, including nested block IIFEs, and reject unapproved
   domain-like storage keys at any position while preserving ordinary keys and
