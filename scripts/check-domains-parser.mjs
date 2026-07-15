@@ -44,6 +44,13 @@ const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const htmlExtensionPattern = /^\.html?$/;
 const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
+const safeDeferredPropertyMethods = new Set([
+  "addEventListener",
+  "addListener",
+  "matchMedia",
+  "setAttribute",
+  "test",
+]);
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const htmlNamespace = "http://www.w3.org/1999/xhtml";
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -1125,8 +1132,9 @@ function hasSafeDeferredTryPrefix(
       ) &&
       identifierReferencesSymbol(checker, identifier, symbol)
   );
-  return (
+  const proven =
     references.length > 0 &&
+    references.length <= helperProofCallLimit &&
     references.every((identifier) => {
       const statement = deferredHelperReferenceStatement(
         identifier,
@@ -1145,8 +1153,8 @@ function hasSafeDeferredTryPrefix(
           new Set()
         )
       );
-    })
-  );
+    });
+  return proven ? references.length : 0;
 }
 
 const isInside = (node, root) => node.pos >= root.pos && node.end <= root.end;
@@ -1205,6 +1213,12 @@ function safeEventListener(invocation, callback, checker, onceOnly) {
     (!ts.isIdentifier(actualCallback) &&
       !ts.isFunctionExpression(actualCallback) &&
       !ts.isArrowFunction(actualCallback)) ||
+    actualCallback.parameters?.some(
+      (parameter) =>
+        parameter.initializer ||
+        parameter.dotDotDotToken ||
+        !ts.isIdentifier(parameter.name)
+    ) ||
     !passiveEventType(invocation.arguments[0]) ||
     (onceOnly
       ? !isOnceOnlyListenerOptions(invocation.arguments[2])
@@ -1264,7 +1278,39 @@ function deferredExitGuard(statement) {
   );
 }
 
-function safeDeferredExitGuard(statement, checker) {
+function safeDeferredTryStatement(statement, checker, proofContext) {
+  const catchStatements = ts.isTryStatement(statement)
+    ? statement.catchClause?.block.statements
+    : undefined;
+  const safeReturn = (candidate) =>
+    ts.isReturnStatement(candidate) &&
+    candidate.expression &&
+    passiveExpression(candidate.expression, checker);
+  return Boolean(
+    ts.isTryStatement(statement) &&
+    !statement.finallyBlock &&
+    statement.tryBlock.statements.length > 0 &&
+    statement.tryBlock.statements.every(
+      (candidate) =>
+        proofContext.callsByStatement.has(candidate) || safeReturn(candidate)
+    ) &&
+    (!catchStatements || catchStatements.every(safeReturn))
+  );
+}
+
+function safeDeferredHelperDeclaration(declaration, checker, proofContext) {
+  return (
+    proofContext.eligibleHelperDeclarations.has(declaration) &&
+    declaration.body?.statements.length === 1 &&
+    safeDeferredTryStatement(
+      declaration.body.statements[0],
+      checker,
+      proofContext
+    )
+  );
+}
+
+function safeDeferredExitGuard(statement, checker, proofContext) {
   if (passiveDeferredExitGuard(statement, checker)) {
     return true;
   }
@@ -1282,8 +1328,56 @@ function safeDeferredExitGuard(statement, checker) {
     ts.isCallExpression(condition) && ts.isIdentifier(condition.expression)
       ? checker.getSymbolAtLocation(condition.expression)
       : undefined;
-  return symbol?.declarations?.some((declaration) =>
-    ts.isFunctionDeclaration(declaration)
+  const declaration =
+    symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined;
+  return (
+    ts.isCallExpression(condition) &&
+    ((condition.arguments.length === 0 &&
+      symbol?.declarations?.some((candidate) =>
+        safeDeferredHelperDeclaration(candidate, checker, proofContext)
+      )) ||
+      (declaration &&
+        ts.isFunctionDeclaration(declaration) &&
+        declaration.body &&
+        declaration.parameters.length === condition.arguments.length &&
+        condition.arguments.every(
+          (argument) => !hasUnprovenDeferredCall(argument, checker)
+        ) &&
+        !hasUnprovenDeferredCall(
+          declaration.body,
+          checker,
+          new Set([declaration])
+        )))
+  );
+}
+
+function readOnlyDeferredExitGuard(statement, checker, proofContext) {
+  if (!deferredExitGuard(statement)) {
+    return false;
+  }
+  let condition = unwrapExpression(statement.expression);
+  if (
+    ts.isPrefixUnaryExpression(condition) &&
+    condition.operator === ts.SyntaxKind.ExclamationToken
+  ) {
+    condition = unwrapExpression(condition.operand);
+  }
+  const symbol =
+    ts.isCallExpression(condition) &&
+    condition.arguments.length === 0 &&
+    ts.isIdentifier(condition.expression)
+      ? checker.getSymbolAtLocation(condition.expression)
+      : undefined;
+  return Boolean(
+    symbol?.declarations?.some(
+      (declaration) =>
+        safeDeferredHelperDeclaration(declaration, checker, proofContext) &&
+        declaration.body.statements[0].tryBlock.statements.every(
+          (candidate) =>
+            !proofContext.callsByStatement.has(candidate) ||
+            proofContext.callsByStatement.get(candidate).method === "getItem"
+        )
+    )
   );
 }
 
@@ -1309,11 +1403,12 @@ function passiveDeferredExitGuard(statement, checker) {
 }
 
 function safeDeferredVariableStatement(statement, checker, proofContext) {
-  const initializer =
+  const declaration =
     ts.isVariableStatement(statement) &&
     statement.declarationList.declarations.length === 1
-      ? unwrapExpression(statement.declarationList.declarations[0].initializer)
+      ? statement.declarationList.declarations[0]
       : undefined;
+  const initializer = unwrapExpression(declaration?.initializer);
   if (!initializer || !ts.isCallExpression(initializer)) {
     return false;
   }
@@ -1322,39 +1417,48 @@ function safeDeferredVariableStatement(statement, checker, proofContext) {
     ? checker.getSymbolAtLocation(callee)
     : undefined;
   return Boolean(
-    symbol?.declarations?.some((declaration) => {
-      const body = declaration.body?.statements;
-      const tryStatement = body?.length === 1 ? body[0] : undefined;
-      const catchStatements =
-        tryStatement && ts.isTryStatement(tryStatement)
-          ? tryStatement.catchClause?.block.statements
-          : undefined;
-      return (
-        proofContext.eligibleHelperDeclarations.has(declaration) &&
-        tryStatement &&
-        ts.isTryStatement(tryStatement) &&
-        tryStatement.tryBlock.statements.length === 1 &&
-        proofContext.callsByStatement.has(
-          tryStatement.tryBlock.statements[0]
-        ) &&
-        (!catchStatements ||
-          catchStatements.every(
-            (statement) =>
-              ts.isReturnStatement(statement) &&
-              statement.expression &&
-              passiveExpression(statement.expression, checker)
-          ))
-      );
-    }) ||
-    (ts.isPropertyAccessExpression(callee) &&
-      callee.name.text === "querySelector" &&
-      ts.isIdentifier(callee.expression) &&
-      callee.expression.text === "document" &&
-      isUnshadowedGlobal(checker, callee.expression))
+    ts.isIdentifier(declaration.name) &&
+    ((initializer.arguments.length === 0 &&
+      symbol?.declarations?.some((candidate) =>
+        safeDeferredHelperDeclaration(candidate, checker, proofContext)
+      )) ||
+      (initializer.arguments.length === 1 &&
+        passiveExpression(initializer.arguments[0], checker) &&
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === "querySelector" &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === "document" &&
+        isUnshadowedGlobal(checker, callee.expression)))
   );
 }
 
-function safeDeferredScopeStatement(statement, checker, proofContext) {
+function safeDeferredListenerCallback(statement, checker, proofContext) {
+  const invocation = unwrapExpression(statement.expression);
+  const callback = ts.isCallExpression(invocation)
+    ? unwrapExpression(invocation.arguments[1])
+    : undefined;
+  const symbol = ts.isIdentifier(callback)
+    ? checker.getSymbolAtLocation(callback)
+    : undefined;
+  return Boolean(
+    symbol?.declarations?.some(
+      (declaration) =>
+        proofContext.eligibleHelperDeclarations.has(declaration) &&
+        declaration.body?.statements.every(
+          (candidate) =>
+            passiveDeferredExitGuard(candidate, checker) ||
+            safeDeferredTryStatement(candidate, checker, proofContext)
+        )
+    )
+  );
+}
+
+function safeDeferredScopeStatement(
+  statement,
+  checker,
+  proofContext,
+  proveListenerCallback
+) {
   return (
     ts.isFunctionDeclaration(statement) ||
     safePrecedingStatement(
@@ -1367,8 +1471,100 @@ function safeDeferredScopeStatement(statement, checker, proofContext) {
     ) ||
     safeDeferredVariableStatement(statement, checker, proofContext) ||
     (ts.isExpressionStatement(statement) &&
-      safeEventListener(statement.expression, undefined, checker, false))
+      ts.isVoidExpression(statement.expression) &&
+      ts.isIdentifier(unwrapExpression(statement.expression.expression))) ||
+    (ts.isExpressionStatement(statement) &&
+      safeEventListener(statement.expression, undefined, checker, false) &&
+      (!proveListenerCallback ||
+        safeDeferredListenerCallback(statement, checker, proofContext)))
   );
+}
+
+function hasUnprovenDeferredCall(node, checker, visiting = new Set()) {
+  const functionBody = (candidate) => {
+    const callable =
+      ts.isFunctionDeclaration(candidate) ||
+      ts.isFunctionExpression(candidate) ||
+      ts.isArrowFunction(candidate)
+        ? candidate
+        : ts.isVariableDeclaration(candidate)
+          ? unwrapExpression(candidate.initializer)
+          : undefined;
+    if (
+      !callable ||
+      (!ts.isFunctionDeclaration(callable) &&
+        !ts.isFunctionExpression(callable) &&
+        !ts.isArrowFunction(callable)) ||
+      visiting.has(candidate)
+    ) {
+      return undefined;
+    }
+    const next = new Set(visiting).add(candidate);
+    return (
+      callable.parameters.some(
+        (parameter) =>
+          parameter.initializer &&
+          hasUnprovenDeferredCall(parameter.initializer, checker, next)
+      ) || hasUnprovenDeferredCall(callable.body, checker, next)
+    );
+  };
+  if (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node)
+  ) {
+    return false;
+  }
+  if (
+    ts.isTaggedTemplateExpression(node) ||
+    ts.isAwaitExpression(node) ||
+    ts.isYieldExpression(node) ||
+    ts.isDeleteExpression(node)
+  ) {
+    return true;
+  }
+  if (ts.isNewExpression(node)) {
+    return !(
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "URL" &&
+      isUnshadowedGlobal(checker, node.expression) &&
+      !node.arguments?.some((argument) =>
+        hasUnprovenDeferredCall(argument, checker, visiting)
+      )
+    );
+  }
+  if (ts.isCallExpression(node)) {
+    const callee = unwrapExpression(node.expression);
+    if (
+      node.arguments.some((argument) =>
+        hasUnprovenDeferredCall(argument, checker, visiting)
+      )
+    ) {
+      return true;
+    }
+    if (ts.isIdentifier(callee)) {
+      const declarations = checker.getSymbolAtLocation(callee)?.declarations;
+      return (
+        declarations?.length !== 1 || functionBody(declarations[0]) !== false
+      );
+    }
+    if (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee)) {
+      return functionBody(callee) !== false;
+    }
+    if (
+      (ts.isPropertyAccessExpression(callee) ||
+        ts.isElementAccessExpression(callee)) &&
+      !safeDeferredPropertyMethods.has(staticPropertyName(callee))
+    ) {
+      return true;
+    }
+    return hasUnprovenDeferredCall(callee, checker, visiting);
+  }
+  let unsafe = false;
+  ts.forEachChild(node, (child) => {
+    unsafe ||= hasUnprovenDeferredCall(child, checker, visiting);
+  });
+  return unsafe;
 }
 
 function hasBoundedDeferredExecution(
@@ -1377,7 +1573,8 @@ function hasBoundedDeferredExecution(
   requiredPrecedingStatement,
   checker,
   proofContext,
-  visiting
+  visiting,
+  guarded = false
 ) {
   const container = statement.parent;
   if (!ts.isSourceFile(container) && !ts.isBlock(container)) {
@@ -1392,25 +1589,44 @@ function hasBoundedDeferredExecution(
       requiredPrecedingStatement,
       checker,
       proofContext,
-      visiting
+      visiting,
+      guarded
     );
   const statementIndex = container.statements.indexOf(statement);
   const requiredIndex = container.statements.indexOf(
     requiredPrecedingStatement
   );
   const prefixStart = requiredIndex >= 0 ? requiredIndex + 1 : 0;
+  const prefix = container.statements.slice(prefixStart, statementIndex);
   if (
     statementIndex < prefixStart ||
+    !prefix.every(
+      (candidate) =>
+        safeDeferredScopeStatement(candidate, checker, proofContext, true) ||
+        safeDeferredExitGuard(candidate, checker, proofContext)
+    )
+  ) {
+    return false;
+  }
+  const registration =
+    ts.isExpressionStatement(statement) &&
+    safeEventListener(statement.expression, undefined, checker, false);
+  if (
+    registration &&
     !container.statements
-      .slice(prefixStart, statementIndex)
+      .slice(statementIndex + 1)
       .every(
-        (prefix) =>
-          safeDeferredScopeStatement(prefix, checker, proofContext) ||
-          safeDeferredExitGuard(prefix, checker)
+        (candidate) =>
+          safeDeferredScopeStatement(candidate, checker, proofContext, false) ||
+          !hasUnprovenDeferredCall(candidate, checker)
       )
   ) {
     return false;
   }
+  guarded ||= prefix.some((candidate) =>
+    safeDeferredExitGuard(candidate, checker, proofContext)
+  );
+  guarded ||= readOnlyDeferredExitGuard(statement, checker, proofContext);
   if (ts.isSourceFile(container)) {
     return true;
   }
@@ -1441,10 +1657,12 @@ function hasBoundedDeferredExecution(
   ) {
     callback = callback.parent;
   }
-  const registration = callback.parent;
-  const entry = safeEventListener(registration, callback, checker, false)
-    ? containingExpressionStatement(registration)
-    : undefined;
+  const listener = callback.parent;
+  const entry =
+    safeEventListener(listener, callback, checker, true) ||
+    (guarded && safeEventListener(listener, callback, checker, false))
+      ? containingExpressionStatement(listener)
+      : undefined;
   return Boolean(bounded(entry));
 }
 
@@ -1830,15 +2048,18 @@ function parserExemptions(file, program, checker) {
   do {
     provedCandidate = false;
     for (const candidate of pendingCandidates) {
+      const deferredTryPrefixCounts = candidate.references.map((identifier) =>
+        hasSafeDeferredTryPrefix(
+          storageUses.get(identifier),
+          checker,
+          proofContext,
+          candidate.declaration.parent.parent
+        )
+      );
       const allReferencesHaveSafeDeferredTryPrefixes =
-        candidate.references.every((identifier) =>
-          hasSafeDeferredTryPrefix(
-            storageUses.get(identifier),
-            checker,
-            proofContext,
-            candidate.declaration.parent.parent
-          )
-        );
+        deferredTryPrefixCounts.every(Boolean) &&
+        deferredTryPrefixCounts.reduce((sum, count) => sum + count, 0) <=
+          helperProofCallLimit;
       const targetExecutions = [];
       for (const identifier of candidate.references) {
         targetExecutions.push(
