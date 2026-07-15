@@ -44,13 +44,6 @@ const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const htmlExtensionPattern = /^\.html?$/;
 const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
-const safeDeferredPropertyMethods = new Set([
-  "addEventListener",
-  "addListener",
-  "matchMedia",
-  "setAttribute",
-  "test",
-]);
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
 const htmlNamespace = "http://www.w3.org/1999/xhtml";
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -1071,14 +1064,14 @@ function hasStraightLinePrefix(
   );
 }
 
-function hasSafeDeferredTryPrefix(
+function deferredTryProof(
   call,
   checker,
   proofContext,
   requiredPrecedingStatement
 ) {
   if (proofContext.hasUnsafeBrowserStorageUse) {
-    return false;
+    return undefined;
   }
   const tryBlock = call.statement.parent;
   const tryStatement = ts.isBlock(tryBlock) ? tryBlock.parent : undefined;
@@ -1093,7 +1086,7 @@ function hasSafeDeferredTryPrefix(
     !proofContext.eligibleHelperDeclarations.has(owner) ||
     owner.parent !== requiredPrecedingStatement.parent
   ) {
-    return false;
+    return undefined;
   }
   const safePrefix = (statement) =>
     safePrecedingStatement(
@@ -1118,7 +1111,7 @@ function hasSafeDeferredTryPrefix(
     !tryBlock.statements.slice(0, callIndex).every(safePrefix) ||
     !owner.body.statements.slice(0, tryIndex).every(safePrefix)
   ) {
-    return false;
+    return undefined;
   }
   const symbol = checker.getSymbolAtLocation(owner.name);
   const references = proofContext.identifiers.filter(
@@ -1154,7 +1147,7 @@ function hasSafeDeferredTryPrefix(
         )
       );
     });
-  return proven ? references.length : 0;
+  return proven ? { referenceCount: references.length } : undefined;
 }
 
 const isInside = (node, root) => node.pos >= root.pos && node.end <= root.end;
@@ -1310,88 +1303,110 @@ function safeDeferredHelperDeclaration(declaration, checker, proofContext) {
   );
 }
 
+function deferredExitGuardCondition(statement) {
+  if (!deferredExitGuard(statement)) {
+    return undefined;
+  }
+  let condition = unwrapExpression(statement.expression);
+  if (
+    ts.isPrefixUnaryExpression(condition) &&
+    condition.operator === ts.SyntaxKind.ExclamationToken
+  ) {
+    condition = unwrapExpression(condition.operand);
+  }
+  return condition;
+}
+
+function deferredExitGuardCall(statement, checker) {
+  const condition = deferredExitGuardCondition(statement);
+  if (
+    !condition ||
+    !ts.isCallExpression(condition) ||
+    !ts.isIdentifier(condition.expression)
+  ) {
+    return undefined;
+  }
+  const symbol = checker.getSymbolAtLocation(condition.expression);
+  const declaration =
+    symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined;
+  return { condition, declaration, symbol };
+}
+
 function safeDeferredExitGuard(statement, checker, proofContext) {
   if (passiveDeferredExitGuard(statement, checker)) {
     return true;
   }
-  if (!deferredExitGuard(statement)) {
-    return false;
-  }
-  let condition = unwrapExpression(statement.expression);
-  if (
-    ts.isPrefixUnaryExpression(condition) &&
-    condition.operator === ts.SyntaxKind.ExclamationToken
-  ) {
-    condition = unwrapExpression(condition.operand);
-  }
-  const symbol =
-    ts.isCallExpression(condition) && ts.isIdentifier(condition.expression)
-      ? checker.getSymbolAtLocation(condition.expression)
-      : undefined;
-  const declaration =
-    symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined;
+  const guard = deferredExitGuardCall(statement, checker);
   return (
-    ts.isCallExpression(condition) &&
-    ((condition.arguments.length === 0 &&
-      symbol?.declarations?.some((candidate) =>
+    guard &&
+    ((guard.condition.arguments.length === 0 &&
+      guard.symbol?.declarations?.some((candidate) =>
         safeDeferredHelperDeclaration(candidate, checker, proofContext)
       )) ||
-      (declaration &&
-        ts.isFunctionDeclaration(declaration) &&
-        declaration.body &&
-        declaration.parameters.length === condition.arguments.length &&
-        condition.arguments.every(
-          (argument) => !hasUnprovenDeferredCall(argument, checker)
+      (guard.declaration &&
+        ts.isFunctionDeclaration(guard.declaration) &&
+        guard.declaration.body &&
+        guard.declaration.parameters.length ===
+          guard.condition.arguments.length &&
+        guard.declaration.parameters.every(
+          (parameter) =>
+            ts.isIdentifier(parameter.name) &&
+            !parameter.initializer &&
+            !parameter.dotDotDotToken
         ) &&
-        !hasUnprovenDeferredCall(
-          declaration.body,
+        guard.condition.arguments.every(
+          (argument) => !hasUnprovenDeferredEffect(argument, checker)
+        ) &&
+        !hasUnprovenDeferredEffect(
+          guard.declaration.body,
           checker,
-          new Set([declaration])
+          new Set([guard.declaration])
         )))
   );
 }
 
-function readOnlyDeferredExitGuard(statement, checker, proofContext) {
-  if (!deferredExitGuard(statement)) {
-    return false;
-  }
-  let condition = unwrapExpression(statement.expression);
-  if (
-    ts.isPrefixUnaryExpression(condition) &&
-    condition.operator === ts.SyntaxKind.ExclamationToken
-  ) {
-    condition = unwrapExpression(condition.operand);
-  }
-  const symbol =
-    ts.isCallExpression(condition) &&
-    condition.arguments.length === 0 &&
-    ts.isIdentifier(condition.expression)
-      ? checker.getSymbolAtLocation(condition.expression)
-      : undefined;
+function storageKeySymbol(statement, checker) {
+  const declaration = ts.isVariableStatement(statement)
+    ? statement.declarationList.declarations[0]
+    : undefined;
+  return ts.isIdentifier(declaration?.name)
+    ? checker.getSymbolAtLocation(declaration.name)
+    : undefined;
+}
+
+function readOnlyDeferredExitGuard(
+  statement,
+  checker,
+  proofContext,
+  requiredPrecedingStatement
+) {
+  const guard = deferredExitGuardCall(statement, checker);
+  const keySymbol = storageKeySymbol(requiredPrecedingStatement, checker);
   return Boolean(
-    symbol?.declarations?.some(
-      (declaration) =>
-        safeDeferredHelperDeclaration(declaration, checker, proofContext) &&
-        declaration.body.statements[0].tryBlock.statements.every(
-          (candidate) =>
-            !proofContext.callsByStatement.has(candidate) ||
-            proofContext.callsByStatement.get(candidate).method === "getItem"
+    keySymbol &&
+    guard?.condition.arguments.length === 0 &&
+    guard.symbol?.declarations?.some((declaration) => {
+      if (!safeDeferredHelperDeclaration(declaration, checker, proofContext)) {
+        return false;
+      }
+      const storageCalls = declaration.body.statements[0].tryBlock.statements
+        .map((candidate) => proofContext.callsByStatement.get(candidate))
+        .filter(Boolean);
+      return (
+        storageCalls.length > 0 &&
+        storageCalls.every(
+          (call) =>
+            call.method === "getItem" &&
+            ts.isIdentifier(call.key) &&
+            identifierReferencesSymbol(checker, call.key, keySymbol)
         )
-    )
+      );
+    })
   );
 }
 
 function passiveDeferredExitGuard(statement, checker) {
-  let condition = ts.isIfStatement(statement)
-    ? unwrapExpression(statement.expression)
-    : undefined;
-  if (
-    condition &&
-    ts.isPrefixUnaryExpression(condition) &&
-    condition.operator === ts.SyntaxKind.ExclamationToken
-  ) {
-    condition = unwrapExpression(condition.operand);
-  }
+  const condition = deferredExitGuardCondition(statement);
   const symbol =
     condition?.kind === ts.SyntaxKind.Identifier
       ? checker.getSymbolAtLocation(condition)
@@ -1432,7 +1447,13 @@ function safeDeferredVariableStatement(statement, checker, proofContext) {
   );
 }
 
-function safeDeferredListenerCallback(statement, checker, proofContext) {
+function safeDeferredListenerCallback(
+  statement,
+  checker,
+  proofContext,
+  requiredPrecedingStatement,
+  position
+) {
   const invocation = unwrapExpression(statement.expression);
   const callback = ts.isCallExpression(invocation)
     ? unwrapExpression(invocation.arguments[1])
@@ -1440,16 +1461,31 @@ function safeDeferredListenerCallback(statement, checker, proofContext) {
   const symbol = ts.isIdentifier(callback)
     ? checker.getSymbolAtLocation(callback)
     : undefined;
+  const keySymbol = storageKeySymbol(requiredPrecedingStatement, checker);
+  const declaration =
+    symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined;
+  const callbackBody =
+    ts.isFunctionExpression(callback) || ts.isArrowFunction(callback)
+      ? callback.body
+      : declaration &&
+          proofContext.eligibleHelperDeclarations.has(declaration) &&
+          ts.isFunctionDeclaration(declaration)
+        ? declaration.body
+        : undefined;
   return Boolean(
-    symbol?.declarations?.some(
-      (declaration) =>
-        proofContext.eligibleHelperDeclarations.has(declaration) &&
-        declaration.body?.statements.every(
-          (candidate) =>
-            passiveDeferredExitGuard(candidate, checker) ||
-            safeDeferredTryStatement(candidate, checker, proofContext)
-        )
-    )
+    (position === "prefix" &&
+      symbol?.declarations?.some(
+        (candidate) =>
+          proofContext.eligibleHelperDeclarations.has(candidate) &&
+          candidate.body?.statements.every(
+            (statement) =>
+              passiveDeferredExitGuard(statement, checker) ||
+              safeDeferredTryStatement(statement, checker, proofContext)
+          )
+      )) ||
+    (keySymbol &&
+      callbackBody &&
+      !hasDeferredStorageHazard(callbackBody, checker, keySymbol, true))
   );
 }
 
@@ -1457,7 +1493,8 @@ function safeDeferredScopeStatement(
   statement,
   checker,
   proofContext,
-  proveListenerCallback
+  listenerCallbackPosition,
+  requiredPrecedingStatement
 ) {
   return (
     ts.isFunctionDeclaration(statement) ||
@@ -1471,16 +1508,39 @@ function safeDeferredScopeStatement(
     ) ||
     safeDeferredVariableStatement(statement, checker, proofContext) ||
     (ts.isExpressionStatement(statement) &&
-      ts.isVoidExpression(statement.expression) &&
-      ts.isIdentifier(unwrapExpression(statement.expression.expression))) ||
-    (ts.isExpressionStatement(statement) &&
       safeEventListener(statement.expression, undefined, checker, false) &&
-      (!proveListenerCallback ||
-        safeDeferredListenerCallback(statement, checker, proofContext)))
+      (!listenerCallbackPosition ||
+        safeDeferredListenerCallback(
+          statement,
+          checker,
+          proofContext,
+          requiredPrecedingStatement,
+          listenerCallbackPosition
+        )))
   );
 }
 
-function hasUnprovenDeferredCall(node, checker, visiting = new Set()) {
+function isLocalEffectTarget(target, checker, scopeRoot) {
+  target = unwrapExpression(target);
+  const declarations = ts.isIdentifier(target)
+    ? checker.getSymbolAtLocation(target)?.declarations
+    : undefined;
+  return Boolean(
+    declarations?.length &&
+    declarations.every(
+      (declaration) =>
+        declaration.getSourceFile() === scopeRoot.getSourceFile() &&
+        isInside(declaration, scopeRoot)
+    )
+  );
+}
+
+function hasUnprovenDeferredEffect(
+  node,
+  checker,
+  visiting = new Set(),
+  scopeRoot = node
+) {
   const functionBody = (candidate) => {
     const callable =
       ts.isFunctionDeclaration(candidate) ||
@@ -1504,8 +1564,14 @@ function hasUnprovenDeferredCall(node, checker, visiting = new Set()) {
       callable.parameters.some(
         (parameter) =>
           parameter.initializer &&
-          hasUnprovenDeferredCall(parameter.initializer, checker, next)
-      ) || hasUnprovenDeferredCall(callable.body, checker, next)
+          hasUnprovenDeferredEffect(
+            parameter.initializer,
+            checker,
+            next,
+            callable.body
+          )
+      ) ||
+      hasUnprovenDeferredEffect(callable.body, checker, next, callable.body)
     );
   };
   if (
@@ -1519,25 +1585,46 @@ function hasUnprovenDeferredCall(node, checker, visiting = new Set()) {
     ts.isTaggedTemplateExpression(node) ||
     ts.isAwaitExpression(node) ||
     ts.isYieldExpression(node) ||
-    ts.isDeleteExpression(node)
+    ts.isDeleteExpression(node) ||
+    ts.isVoidExpression(node)
   ) {
     return true;
   }
+  if (
+    ts.isBinaryExpression(node) &&
+    ts.isAssignmentOperator(node.operatorToken.kind)
+  ) {
+    return (
+      !isLocalEffectTarget(node.left, checker, scopeRoot) ||
+      hasUnprovenDeferredEffect(node.right, checker, visiting, scopeRoot)
+    );
+  }
+  if (
+    (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+    [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(
+      node.operator
+    )
+  ) {
+    return !isLocalEffectTarget(node.operand, checker, scopeRoot);
+  }
   if (ts.isNewExpression(node)) {
-    return !(
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "URL" &&
-      isUnshadowedGlobal(checker, node.expression) &&
-      !node.arguments?.some((argument) =>
-        hasUnprovenDeferredCall(argument, checker, visiting)
+    return (
+      !isTrustedBrowserInvocation(node, checker) ||
+      Boolean(
+        node.arguments?.some((argument) =>
+          hasUnprovenDeferredEffect(argument, checker, visiting, scopeRoot)
+        )
       )
     );
   }
   if (ts.isCallExpression(node)) {
     const callee = unwrapExpression(node.expression);
+    if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+      return true;
+    }
     if (
       node.arguments.some((argument) =>
-        hasUnprovenDeferredCall(argument, checker, visiting)
+        hasUnprovenDeferredEffect(argument, checker, visiting, scopeRoot)
       )
     ) {
       return true;
@@ -1554,17 +1641,264 @@ function hasUnprovenDeferredCall(node, checker, visiting = new Set()) {
     if (
       (ts.isPropertyAccessExpression(callee) ||
         ts.isElementAccessExpression(callee)) &&
-      !safeDeferredPropertyMethods.has(staticPropertyName(callee))
+      !isTrustedBrowserInvocation(node, checker)
     ) {
       return true;
     }
-    return hasUnprovenDeferredCall(callee, checker, visiting);
+    return hasUnprovenDeferredEffect(callee, checker, visiting, scopeRoot);
   }
   let unsafe = false;
   ts.forEachChild(node, (child) => {
-    unsafe ||= hasUnprovenDeferredCall(child, checker, visiting);
+    unsafe ||= hasUnprovenDeferredEffect(child, checker, visiting, scopeRoot);
   });
   return unsafe;
+}
+
+function hasDeferredStorageHazard(
+  node,
+  checker,
+  keySymbol,
+  allowSameKeySet,
+  visiting = new Set(),
+  scopeRoot = node
+) {
+  const scan = (candidate, candidateScope = scopeRoot) =>
+    hasDeferredStorageHazard(
+      candidate,
+      checker,
+      keySymbol,
+      allowSameKeySet,
+      visiting,
+      candidateScope
+    );
+  const scanArgument = (argument) => {
+    argument = unwrapExpression(argument);
+    return ts.isFunctionExpression(argument) || ts.isArrowFunction(argument)
+      ? scan(argument.body, argument.body)
+      : scan(argument);
+  };
+  const scanCallable = (candidate) => {
+    const callable = ts.isVariableDeclaration(candidate)
+      ? unwrapExpression(candidate.initializer)
+      : candidate;
+    if (
+      (!ts.isFunctionDeclaration(callable) &&
+        !ts.isFunctionExpression(callable) &&
+        !ts.isArrowFunction(callable)) ||
+      !callable.body ||
+      visiting.has(candidate)
+    ) {
+      return true;
+    }
+    visiting.add(candidate);
+    const hazard =
+      callable.parameters.some(
+        (parameter) =>
+          parameter.initializer && scan(parameter.initializer, callable.body)
+      ) || scan(callable.body, callable.body);
+    visiting.delete(candidate);
+    return hazard;
+  };
+  if (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node)
+  ) {
+    return false;
+  }
+  if (
+    ts.isTaggedTemplateExpression(node) ||
+    ts.isDeleteExpression(node) ||
+    ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(
+        node.operator
+      ) &&
+      !isLocalEffectTarget(node.operand, checker, scopeRoot))
+  ) {
+    return true;
+  }
+  if (
+    ts.isBinaryExpression(node) &&
+    ts.isAssignmentOperator(node.operatorToken.kind)
+  ) {
+    return (
+      !isLocalEffectTarget(node.left, checker, scopeRoot) || scan(node.right)
+    );
+  }
+  if (ts.isNewExpression(node)) {
+    return (
+      !isTrustedBrowserInvocation(node, checker) ||
+      Boolean(node.arguments?.some(scanArgument))
+    );
+  }
+  if (ts.isCallExpression(node)) {
+    const callee = unwrapExpression(node.expression);
+    if (
+      callee.kind === ts.SyntaxKind.ImportKeyword ||
+      node.arguments.some(scanArgument)
+    ) {
+      return true;
+    }
+    const storageCall = syntacticStorageCall(
+      storageCallAccess(node, checker),
+      checker
+    );
+    if (storageCall) {
+      return !(
+        storageCall.method === "getItem" ||
+        (allowSameKeySet &&
+          storageCall.method === "setItem" &&
+          ts.isIdentifier(storageCall.key) &&
+          identifierReferencesSymbol(checker, storageCall.key, keySymbol))
+      );
+    }
+    if (ts.isIdentifier(callee)) {
+      const declaration = checker.getSymbolAtLocation(callee)?.declarations;
+      const callable = declaration?.length === 1 ? declaration[0] : undefined;
+      if (
+        !callable ||
+        (!ts.isFunctionDeclaration(callable) &&
+          !ts.isVariableDeclaration(callable))
+      ) {
+        return true;
+      }
+      return scanCallable(callable);
+    }
+    if (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee)) {
+      return scanCallable(callee);
+    }
+  }
+  let hazard = false;
+  ts.forEachChild(node, (child) => {
+    hazard ||= scan(child);
+  });
+  return hazard;
+}
+
+function isMutationTarget(target) {
+  while (isTransparentExpressionWrapper(target.parent)) {
+    target = target.parent;
+  }
+  const parent = target.parent;
+  return (
+    (ts.isBinaryExpression(parent) &&
+      parent.left === target &&
+      ts.isAssignmentOperator(parent.operatorToken.kind)) ||
+    ((ts.isPrefixUnaryExpression(parent) ||
+      ts.isPostfixUnaryExpression(parent)) &&
+      parent.operand === target) ||
+    (ts.isDeleteExpression(parent) && parent.expression === target)
+  );
+}
+
+function stableBrowserBindingInitializer(receiver, checker) {
+  if (!ts.isIdentifier(receiver)) {
+    return undefined;
+  }
+  const symbol = checker.getSymbolAtLocation(receiver);
+  const declaration =
+    symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined;
+  if (
+    !declaration ||
+    !ts.isVariableDeclaration(declaration) ||
+    !declaration.initializer ||
+    !(declaration.parent.flags & ts.NodeFlags.Const)
+  ) {
+    return undefined;
+  }
+  let stable = true;
+  const visit = (node) => {
+    if (
+      stable &&
+      ts.isIdentifier(node) &&
+      node !== declaration.name &&
+      identifierReferencesSymbol(checker, node, symbol)
+    ) {
+      let use = node;
+      while (isTransparentExpressionWrapper(use.parent)) {
+        use = use.parent;
+      }
+      const access = use.parent;
+      if (
+        (ts.isPropertyAccessExpression(access) ||
+          ts.isElementAccessExpression(access)) &&
+        access.expression === use
+      ) {
+        stable = !isMutationTarget(access);
+      } else {
+        while (
+          ts.isPrefixUnaryExpression(use.parent) &&
+          use.parent.operator === ts.SyntaxKind.ExclamationToken
+        ) {
+          use = use.parent;
+        }
+        stable = ts.isIfStatement(use.parent) && use.parent.expression === use;
+      }
+    }
+    if (stable) {
+      ts.forEachChild(node, visit);
+    }
+  };
+  visit(receiver.getSourceFile());
+  return stable ? unwrapExpression(declaration.initializer) : undefined;
+}
+
+function hasTrustedBrowserOrigin(initializer, globalName, method, checker) {
+  if (!initializer || !ts.isCallExpression(initializer)) {
+    return false;
+  }
+  const callee = unwrapExpression(initializer.expression);
+  if (
+    (ts.isPropertyAccessExpression(callee) ||
+      ts.isElementAccessExpression(callee)) &&
+    staticPropertyName(callee) === method
+  ) {
+    const receiver = unwrapExpression(callee.expression);
+    return (
+      ts.isIdentifier(receiver) &&
+      receiver.text === globalName &&
+      isUnshadowedGlobal(checker, receiver)
+    );
+  }
+  return false;
+}
+
+function isTrustedBrowserInvocation(invocation, checker) {
+  if (ts.isNewExpression(invocation)) {
+    return (
+      ts.isIdentifier(invocation.expression) &&
+      invocation.expression.text === "URL" &&
+      isUnshadowedGlobal(checker, invocation.expression)
+    );
+  }
+  const callee = unwrapExpression(invocation.expression);
+  if (
+    !ts.isPropertyAccessExpression(callee) &&
+    !ts.isElementAccessExpression(callee)
+  ) {
+    return false;
+  }
+  const method = staticPropertyName(callee);
+  const receiver = unwrapExpression(callee.expression);
+  if (method === "matchMedia") {
+    return hasTrustedBrowserOrigin(invocation, "window", "matchMedia", checker);
+  }
+  if (method === "test") {
+    return receiver.kind === ts.SyntaxKind.RegularExpressionLiteral;
+  }
+  const initializer = stableBrowserBindingInitializer(receiver, checker);
+  if (method === "setAttribute") {
+    return hasTrustedBrowserOrigin(
+      initializer,
+      "document",
+      "querySelector",
+      checker
+    );
+  }
+  return (
+    ["addEventListener", "addListener"].includes(method) &&
+    hasTrustedBrowserOrigin(initializer, "window", "matchMedia", checker)
+  );
 }
 
 function hasBoundedDeferredExecution(
@@ -1602,8 +1936,13 @@ function hasBoundedDeferredExecution(
     statementIndex < prefixStart ||
     !prefix.every(
       (candidate) =>
-        safeDeferredScopeStatement(candidate, checker, proofContext, true) ||
-        safeDeferredExitGuard(candidate, checker, proofContext)
+        safeDeferredScopeStatement(
+          candidate,
+          checker,
+          proofContext,
+          "prefix",
+          requiredPrecedingStatement
+        ) || safeDeferredExitGuard(candidate, checker, proofContext)
     )
   ) {
     return false;
@@ -1617,16 +1956,44 @@ function hasBoundedDeferredExecution(
       .slice(statementIndex + 1)
       .every(
         (candidate) =>
-          safeDeferredScopeStatement(candidate, checker, proofContext, false) ||
-          !hasUnprovenDeferredCall(candidate, checker)
+          safeDeferredScopeStatement(
+            candidate,
+            checker,
+            proofContext,
+            "suffix",
+            requiredPrecedingStatement
+          ) || !hasUnprovenDeferredEffect(candidate, checker)
+      )
+  ) {
+    return false;
+  }
+  const keySymbol = storageKeySymbol(requiredPrecedingStatement, checker);
+  if (
+    !registration &&
+    deferredExitGuardCall(statement, checker) &&
+    keySymbol &&
+    container.statements
+      .slice(statementIndex + 1)
+      .some((candidate) =>
+        hasDeferredStorageHazard(candidate, checker, keySymbol, true)
       )
   ) {
     return false;
   }
   guarded ||= prefix.some((candidate) =>
-    safeDeferredExitGuard(candidate, checker, proofContext)
+    readOnlyDeferredExitGuard(
+      candidate,
+      checker,
+      proofContext,
+      requiredPrecedingStatement
+    )
   );
-  guarded ||= readOnlyDeferredExitGuard(statement, checker, proofContext);
+  guarded ||= readOnlyDeferredExitGuard(
+    statement,
+    checker,
+    proofContext,
+    requiredPrecedingStatement
+  );
   if (ts.isSourceFile(container)) {
     return true;
   }
@@ -2048,8 +2415,8 @@ function parserExemptions(file, program, checker) {
   do {
     provedCandidate = false;
     for (const candidate of pendingCandidates) {
-      const deferredTryPrefixCounts = candidate.references.map((identifier) =>
-        hasSafeDeferredTryPrefix(
+      const deferredTryProofs = candidate.references.map((identifier) =>
+        deferredTryProof(
           storageUses.get(identifier),
           checker,
           proofContext,
@@ -2057,9 +2424,11 @@ function parserExemptions(file, program, checker) {
         )
       );
       const allReferencesHaveSafeDeferredTryPrefixes =
-        deferredTryPrefixCounts.every(Boolean) &&
-        deferredTryPrefixCounts.reduce((sum, count) => sum + count, 0) <=
-          helperProofCallLimit;
+        deferredTryProofs.every(Boolean) &&
+        deferredTryProofs.reduce(
+          (sum, proof) => sum + proof.referenceCount,
+          0
+        ) <= helperProofCallLimit;
       const targetExecutions = [];
       for (const identifier of candidate.references) {
         targetExecutions.push(
@@ -2098,7 +2467,7 @@ function parserExemptions(file, program, checker) {
               proofContext,
               candidate.declaration.parent.parent
             ) ||
-            hasSafeDeferredTryPrefix(
+            deferredTryProof(
               call,
               checker,
               proofContext,
