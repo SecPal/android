@@ -405,6 +405,32 @@ describe("preflight", () => {
       );
       expect(moduleBeforeDeferResult.status).toBe(0);
 
+      const validModuleModesResult = runDomainFixtures([
+        [
+          "module-before-nomodule.html",
+          `<script type="module">localStorage.setItem("${storageKey}","1")</script><script nomodule src="legacy.js"></script>`,
+        ],
+        [
+          "module-after-inline-nomodule.html",
+          `<script nomodule>const localStorage = null;</script><script type="module">localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "standalone-async-module.html",
+          `<script type="module" async>localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "nomodule-after-async-module.html",
+          `<script type="module" async>Storage.prototype.setItem = replacement;</script><script nomodule>localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "module-grammar.html",
+          `<script type="module">localStorage.setItem("${storageKey}","1"); await 0; import.meta; export {};</script>`,
+        ],
+      ]);
+      expect(validModuleModesResult.status, validModuleModesResult.stdout).toBe(
+        0
+      );
+
       const prefixHostnames =
         "svg-href svg-xlink mutated-storage-key external-script-key"
           .split(" ")
@@ -447,9 +473,31 @@ describe("preflight", () => {
       ]);
       bad(moduleBarriersResult, moduleBarrierHostnames);
 
+      const moduleDependencyHostnames =
+        "import-after export-after async-import-after"
+          .split(" ")
+          .map((suffix) => "secpal" + `.module-${suffix}`);
+      const moduleDependenciesResult = runDomainFixtures([
+        [
+          "module-import-after.html",
+          `<script type="module">localStorage.setItem("${moduleDependencyHostnames[0]}","1"); import "./mutate-storage.js";</script>`,
+        ],
+        [
+          "module-export-after.html",
+          `<script type="module">sessionStorage.setItem("${moduleDependencyHostnames[1]}","1"); export * from "./mutate-storage.js";</script>`,
+        ],
+        [
+          "async-module-import-after.html",
+          `<script type="module" async>localStorage.setItem("${moduleDependencyHostnames[2]}","1"); import "./mutate-storage.js";</script>`,
+        ],
+      ]);
+      bad(moduleDependenciesResult, moduleDependencyHostnames);
+
       const deferredModuleStorageHostname =
         "secpal" + ".deferred-module-shadow";
       const asyncModuleStorageHostname = "secpal" + ".async-module-order";
+      const shadowedAsyncModuleHostname = "secpal" + ".async-module-shadow";
+      const shadowedNoModuleHostname = "secpal" + ".nomodule-shadow";
       const deferredModuleStorageResult = runDomainFixture(
         "deferred-module-shadow.html",
         [
@@ -459,12 +507,16 @@ describe("preflight", () => {
           "<script>const localStorage = null;</script>",
           "<script type=module async>Storage.prototype.setItem=replacement</script>",
           `<script>sessionStorage.setItem("${asyncModuleStorageHostname}","1")</script>`,
+          `<script type=module async>const localStorage=null;localStorage.setItem("${shadowedAsyncModuleHostname}","1")</script>`,
+          `<script nomodule>const sessionStorage=null;sessionStorage.setItem("${shadowedNoModuleHostname}","1")</script>`,
         ].join("\n")
       );
 
       bad(deferredModuleStorageResult, [
         deferredModuleStorageHostname,
         asyncModuleStorageHostname,
+        shadowedAsyncModuleHostname,
+        shadowedNoModuleHostname,
       ]);
 
       const validHtmlStorageResult = runDomainFixtures([

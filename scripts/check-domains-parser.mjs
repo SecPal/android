@@ -534,12 +534,20 @@ function isErasedTypeOnlyStatement(statement) {
 }
 
 function hasHoistedRuntimeDependency(sourceFile) {
-  return sourceFile.statements.some(
-    (statement) =>
-      (ts.isImportDeclaration(statement) ||
-        (ts.isExportDeclaration(statement) && statement.moduleSpecifier)) &&
-      !isErasedTypeOnlyStatement(statement)
-  );
+  let dependency = false;
+  const visit = (node) => {
+    if (
+      (ts.isImportDeclaration(node) ||
+        (ts.isExportDeclaration(node) && node.moduleSpecifier)) &&
+      !isErasedTypeOnlyStatement(node)
+    ) {
+      dependency = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return dependency;
 }
 
 function resolvedLocalExport(statement, checker) {
@@ -1447,6 +1455,7 @@ function executableHtmlScript(node, source) {
       : attributes.has("src"),
     line: location.startTag.endLine,
     module: type.module,
+    noModule: !svg && !type.module && attributes.has("nomodule"),
     ranges: svg
       ? textChildren
           .filter((child) => child.sourceCodeLocation)
@@ -1540,44 +1549,58 @@ function mappedHtmlExemptions(document, entries, analysisIndex) {
 function sanitizedHtmlScripts(document, scripts) {
   const exemptions = new Map(scripts.map((script) => [script, new Map()]));
   let analysisIndex = 0;
-  const addAnalysis = (entries) => {
+  const addAnalysis = (entries, targetScript) => {
     const mapped = mappedHtmlExemptions(document, entries, analysisIndex);
     for (const exemption of mapped) {
+      if (targetScript && exemption.script !== targetScript) {
+        continue;
+      }
       const ranges = exemptions.get(exemption.script);
       ranges.set(`${exemption.start}:${exemption.end}`, exemption);
     }
     analysisIndex += 1;
   };
 
-  const classicEntries = [];
-  let classicPrefixBlocked = false;
-  for (const script of scripts) {
-    if (script.external) {
-      if (script.async || (!script.module && !script.defer)) {
-        classicPrefixBlocked = true;
+  const analyzeClassicScripts = (legacyOnly) => {
+    const entries = [];
+    let prefixBlocked = false;
+    for (const script of scripts) {
+      if (script.module) {
+        if (!legacyOnly && script.async) {
+          prefixBlocked = true;
+        }
+        continue;
       }
-      continue;
-    }
-    if (script.module) {
-      if (script.async) {
-        classicPrefixBlocked = true;
+      if (script.external) {
+        if (script.async || !script.defer) {
+          prefixBlocked = true;
+        }
+        continue;
       }
-      continue;
+      entries.push({ module: false, script });
+      if (!prefixBlocked && (!legacyOnly || script.noModule)) {
+        addAnalysis(entries, legacyOnly ? script : undefined);
+      }
     }
-    classicEntries.push({ module: false, script });
-    if (!classicPrefixBlocked) {
-      addAnalysis(classicEntries);
-    }
-  }
+    return entries;
+  };
 
-  const modulePrefix = [...classicEntries];
+  const classicEntries = analyzeClassicScripts(false);
+  analyzeClassicScripts(true);
+
+  const modulePrefix = classicEntries.filter(({ script }) => !script.noModule);
   let modulePrefixBlocked = scripts.some(
     (script) =>
-      (script.async && (script.external || script.module)) ||
-      (script.external && !script.module && !script.defer)
+      !script.noModule &&
+      ((script.async && (script.external || script.module)) ||
+        (script.external && !script.module && !script.defer))
   );
   for (const script of scripts) {
-    if (script.external && (script.module || script.defer)) {
+    if (
+      !script.noModule &&
+      script.external &&
+      (script.module || script.defer)
+    ) {
       modulePrefixBlocked = true;
       continue;
     }
@@ -1586,6 +1609,17 @@ function sanitizedHtmlScripts(document, scripts) {
       if (!modulePrefixBlocked) {
         addAnalysis(modulePrefix);
       }
+    }
+  }
+
+  for (const script of scripts) {
+    if (
+      script.module &&
+      script.async &&
+      !script.external &&
+      scripts.every((candidate) => candidate === script || candidate.noModule)
+    ) {
+      addAnalysis([{ module: true, script }]);
     }
   }
 
