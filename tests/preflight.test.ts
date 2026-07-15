@@ -1673,11 +1673,16 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const file = join(tempRoot, "storage-attributes.html");
+    const hazardFile = join(tempRoot, "storage-attribute-hazards.html");
     const storageKey = (suffix: string) => "secpal" + `.${suffix}`;
     const shadowedEventKey = storageKey("invalid-event-handler");
     const shadowedEscapedKey = storageKey("invalid-escaped-event-handler");
     const shadowedUrlKey = storageKey("invalid-javascript-url");
+    const shadowedNormalizedUrlKey = storageKey("invalid-normalized-url");
     const shadowedXlinkUrlKey = storageKey("invalid-xlink-javascript-url");
+    const inertSpacedSchemeKey = storageKey("invalid-inert-spaced-scheme");
+    const scriptHazardEventKey = storageKey("invalid-script-hazard-event");
+    const scriptElementEventKey = storageKey("invalid-script-element-event");
     const validEventKey = storageKey("valid-event-handler");
     const validNamedWhitespaceKey = storageKey("valid-named-whitespace");
     const validSemicolonlessNumericKey = storageKey(
@@ -1685,6 +1690,7 @@ describe("preflight", () => {
     );
     const validUrlKey = storageKey("valid-javascript-url");
     const validEscapedUrlKey = storageKey("valid-escaped-javascript-url");
+    const validPercentEncodedUrlKey = storageKey("valid-percent-encoded-url");
 
     try {
       writeFileSync(
@@ -1693,16 +1699,26 @@ describe("preflight", () => {
           `<button onclick="const localStorage = fakeStorage; localStorage.setItem(&quot;${shadowedEventKey}&quot;, &quot;1&quot;)">Save</button>`,
           `<button onclick="const localStorage = fakeStorage; localStorage.setItem(&quot;${shadowedEscapedKey.replace(".", "&period;")}&quot;, &quot;1&quot;)">Save</button>`,
           `<a href="javascript:const sessionStorage = fakeStorage; sessionStorage.setItem(&quot;${shadowedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
+          `<a href="java&#x0a;script:const localStorage = fakeStorage; localStorage.setItem('${shadowedNormalizedUrlKey}', '1')">Open</a>`,
           `<svg xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="javascript:const sessionStorage = fakeStorage; sessionStorage.setItem(&quot;${shadowedXlinkUrlKey}&quot;, &quot;1&quot;)">Open</a></svg>`,
+          `<a href="javascript :localStorage.setItem('${inertSpacedSchemeKey}', '1')">Open</a>`,
           `<button onclick="localStorage.setItem(&#x22;${validEventKey}&#x22;, &#x22;1&#x22;)">Save</button>`,
           `<button onclick="&nbsp;localStorage.setItem(&quot;${validNamedWhitespaceKey}&quot;, &quot;1&quot;)">Save</button>`,
           `<button onclick="localStorage.setItem(&#34${validSemicolonlessNumericKey}&#34, &#34;1&#34)">Save</button>`,
           `<a href="javascript:sessionStorage.setItem(&#34;${validUrlKey}&#34;, &#34;1&#34;)">Open</a>`,
           `<a href="java&#x73;cript&colon;localStorage.setItem(&quot;${validEscapedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
+          `<a href="javascript:localStorage.setItem(%22${validPercentEncodedUrlKey}%22,%221%22)">Open</a>`,
+        ].join("\n")
+      );
+      writeFileSync(
+        hazardFile,
+        [
+          `<script>Storage.prototype.setItem = replacement</script><button onclick="localStorage.setItem(&quot;${scriptHazardEventKey}&quot;, &quot;1&quot;)">Save</button>`,
+          `<script src="missing.js" onerror="const localStorage = fakeStorage; localStorage.setItem(&quot;${scriptElementEventKey}&quot;, &quot;1&quot;)"></script>`,
         ].join("\n")
       );
 
-      const result = spawnSync(process.execPath, [parser, file], {
+      const result = spawnSync(process.execPath, [parser, file, hazardFile], {
         encoding: "utf8",
         env: domainCheckerEnvironment,
       });
@@ -1719,7 +1735,19 @@ describe("preflight", () => {
         true
       );
       expect(
+        outputReportsExactValue(outputLines, file, shadowedNormalizedUrlKey)
+      ).toBe(true);
+      expect(
         outputReportsExactValue(outputLines, file, shadowedXlinkUrlKey)
+      ).toBe(true);
+      expect(
+        outputReportsExactValue(outputLines, file, inertSpacedSchemeKey)
+      ).toBe(true);
+      expect(
+        outputReportsExactValue(outputLines, hazardFile, scriptHazardEventKey)
+      ).toBe(true);
+      expect(
+        outputReportsExactValue(outputLines, hazardFile, scriptElementEventKey)
       ).toBe(true);
       expect(outputReportsExactValue(outputLines, file, validEventKey)).toBe(
         false
@@ -1735,6 +1763,9 @@ describe("preflight", () => {
       );
       expect(
         outputReportsExactValue(outputLines, file, validEscapedUrlKey)
+      ).toBe(false);
+      expect(
+        outputReportsExactValue(outputLines, file, validPercentEncodedUrlKey)
       ).toBe(false);
       expect(outputLines.some((line) => line.startsWith(`${file}:1:`))).toBe(
         true

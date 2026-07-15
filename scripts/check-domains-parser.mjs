@@ -1464,6 +1464,7 @@ function htmlAttributes(node) {
 }
 
 function htmlAttributeValueRange(source, location) {
+  if (!location) return undefined;
   const attribute = source.slice(location.startOffset, location.endOffset);
   const equals = attribute.indexOf("=");
   if (equals === -1) return undefined;
@@ -1511,31 +1512,46 @@ function decodeHtmlCharacterReferences(value) {
   return decoded;
 }
 
+function javascriptUrlBody(value) {
+  const normalized = value.replace(/[\t\n\r]/g, "");
+  const scheme = normalized.match(/^[\u0000-\u0020]*javascript:/i);
+  if (!scheme) return undefined;
+  const body = normalized.slice(scheme[0].length);
+  try {
+    return decodeURIComponent(body);
+  } catch {
+    return body;
+  }
+}
+
 function executableHtmlAttributes(node, source) {
   const location = node.sourceCodeLocation;
   if (!location?.attrs) return [];
   const attributes = [];
   for (const { name, prefix, value } of node.attrs) {
     const attributeName = prefix ? `${prefix}:${name}` : name;
-    const valueLocation = htmlAttributeValueRange(
-      source,
-      location.attrs[attributeName]
-    );
+    const attributeLocation = location.attrs[attributeName];
+    const valueLocation = htmlAttributeValueRange(source, attributeLocation);
     const eventHandler = attributeName.startsWith("on");
-    const javascriptUrl =
-      ["href", "xlink:href", "src", "action", "formaction"].includes(
-        attributeName
-      ) && /^\s*javascript\s*:/i.test(value);
-    if (!valueLocation || (!eventHandler && !javascriptUrl)) continue;
+    const urlAttribute = [
+      "href",
+      "xlink:href",
+      "src",
+      "action",
+      "formaction",
+    ].includes(attributeName);
+    const urlBody = urlAttribute ? javascriptUrlBody(value) : undefined;
+    if (!valueLocation || (!eventHandler && !urlAttribute)) continue;
     const decoded = decodeHtmlCharacterReferences(
       source.slice(valueLocation.start, valueLocation.end)
     );
-    const javascriptStart = javascriptUrl
-      ? decoded.match(/^\s*javascript\s*:/i)[0].length
-      : 0;
+    const decodedUrlBody = eventHandler
+      ? undefined
+      : javascriptUrlBody(decoded);
     attributes.push({
-      decoded: decoded.slice(javascriptStart),
-      line: location.attrs[attributeName].startLine,
+      analyzable: eventHandler || decodedUrlBody !== undefined,
+      decoded: eventHandler ? decoded : (decodedUrlBody ?? decoded),
+      line: attributeLocation.startLine,
       sourceEnd: valueLocation.end,
       sourceStart: valueLocation.start,
     });
@@ -1608,6 +1624,13 @@ function parsedHtmlDocument(source) {
         });
       }
     }
+    for (const attribute of executableHtmlAttributes(node, source)) {
+      attributes.push(attribute);
+      excludedRanges.push({
+        end: attribute.sourceEnd,
+        start: attribute.sourceStart,
+      });
+    }
     const script = executableHtmlScript(node, source);
     if (script) {
       scripts.push(script);
@@ -1615,13 +1638,6 @@ function parsedHtmlDocument(source) {
         excludedRanges.push(...script.ranges);
       }
       return;
-    }
-    for (const attribute of executableHtmlAttributes(node, source)) {
-      attributes.push(attribute);
-      excludedRanges.push({
-        end: attribute.sourceEnd,
-        start: attribute.sourceStart,
-      });
     }
     for (const child of node.childNodes ?? []) {
       visit(child);
@@ -1760,18 +1776,28 @@ function sanitizedHtmlScripts(document, scripts) {
     }));
 }
 
-function sanitizedHtmlAttribute(document, attribute, analysisIndex) {
+function sanitizedHtmlAttribute(document, attribute, scripts, analysisIndex) {
+  if (
+    !attribute.analyzable ||
+    scripts.some((script) => script.external || script.async)
+  ) {
+    return attribute.decoded;
+  }
   const prefix = "(()=>{\n";
   const file = `${document}.secpal-html-attribute-${analysisIndex}.js`;
+  const scriptPrefix = syntheticHtmlSource(
+    scripts.map((script) => ({ module: script.module, script }))
+  ).synthetic;
+  const attributeStart = scriptPrefix.length + prefix.length;
   const program = makeProgram(
     [],
-    new Map([[file, `${prefix}${attribute.decoded}\n})();`]]),
+    new Map([[file, `${scriptPrefix}${prefix}${attribute.decoded}\n})();`]]),
     ts.ModuleDetectionKind.Legacy
   );
   const exemptions = parserExemptions(file, program, program.getTypeChecker())
     .map(({ end, start }) => ({
-      end: end - prefix.length,
-      start: start - prefix.length,
+      end: end - attributeStart,
+      start: start - attributeStart,
     }))
     .filter(({ end, start }) => start >= 0 && end <= attribute.decoded.length);
   return replaceExemptions(attribute.decoded, exemptions);
@@ -1811,7 +1837,12 @@ function htmlAnalysisSources(source, document) {
     for (const [index, attribute] of parsed.attributes.entries()) {
       outputs.push({
         lineOffset: current.lineOffset + attribute.line - 1,
-        source: sanitizedHtmlAttribute(current.document, attribute, index),
+        source: sanitizedHtmlAttribute(
+          current.document,
+          attribute,
+          parsed.scripts,
+          index
+        ),
       });
     }
     for (const embedded of parsed.embeddedDocuments) {

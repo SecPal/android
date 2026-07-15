@@ -55,8 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain-policy validation now semantically checks executable HTML event-handler
   attributes and `javascript:` URLs, including SVG `xlink:href`, before
   exempting browser-storage keys, preserving source locations through complete
-  HTML character-reference decoding and rejecting shadowed browser-storage
-  receivers (issue #393).
+  HTML character-reference and URL decoding, incorporating page-script storage
+  hazards, and rejecting shadowed browser-storage receivers (issue #393).
 - Domain-policy validation now uses a WHATWG-compatible HTML parse tree to
   analyze executable inline HTML, SVG, and nested `srcdoc` scripts with
   document-ordered execution prefixes and position-aware deferred barriers,
