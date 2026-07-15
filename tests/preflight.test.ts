@@ -347,7 +347,7 @@ describe("preflight", () => {
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
       const scannerHostnames =
-        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped"
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type"
           .split(" ")
           .map((suffix) => "secpal" + `.scanner-${suffix}`);
       const htmlScriptBoundariesResult = runDomainFixture(
@@ -361,6 +361,7 @@ describe("preflight", () => {
           `<div ="><script>const localStorage=null;localStorage.setItem("${scannerHostnames[5]}","1")</script>`,
           `<script><!--\n/*<script>*/\n/*</script>*/\nconst localStorage=null;localStorage.setItem("${scannerHostnames[6]}","1")\n</script>`,
           `<script><!--\n--!>\n/*<script>*/\n/*</script>*/\nconst sessionStorage=null;sessionStorage.setItem("${scannerHostnames[7]}","1")\n</script>`,
+          `<script type="&Tab;">const window=null;window.localStorage.setItem("${scannerHostnames[8]}","1")</script>`,
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
           `const key = "${crossScriptStorageHostname}";`,
@@ -389,22 +390,28 @@ describe("preflight", () => {
         ...scannerHostnames,
       ]);
 
-      const mutatedStorageHostname = "secpal" + ".mutated-storage-key";
-      const externalScriptStorageHostname = "secpal" + ".external-script-key";
+      const prefixHostnames =
+        "svg-href svg-xlink mutated-storage-key external-script-key"
+          .split(" ")
+          .map((suffix) => "secpal" + `.${suffix}`);
+      for (const [index, attribute] of ["href", "xlink:href"].entries()) {
+        const result = runDomainFixture(
+          `svg-${index}.html`,
+          `<svg><script ${attribute}="setup.js"></script></svg><script>localStorage.setItem("${prefixHostnames[index]}","1")</script>`
+        );
+        bad(result, [prefixHostnames[index]]);
+      }
       const htmlScriptPrefixHazardsResult = runDomainFixture(
         "html-script-prefix-hazards.html",
         [
           "<script>Storage.prototype.setItem = replacement;</script>",
-          `<script>localStorage.setItem("${mutatedStorageHostname}", "1");</script>`,
+          `<script>localStorage.setItem("${prefixHostnames[2]}", "1");</script>`,
           '<script src="setup.js"></script>',
-          `<script>sessionStorage.setItem("${externalScriptStorageHostname}", "1");</script>`,
+          `<script>sessionStorage.setItem("${prefixHostnames[3]}", "1");</script>`,
         ].join("\n")
       );
 
-      bad(htmlScriptPrefixHazardsResult, [
-        mutatedStorageHostname,
-        externalScriptStorageHostname,
-      ]);
+      bad(htmlScriptPrefixHazardsResult, prefixHostnames.slice(2));
 
       const deferredModuleStorageHostname =
         "secpal" + ".deferred-module-shadow";
@@ -453,7 +460,7 @@ describe("preflight", () => {
         ],
         [
           "quoted-script-attribute.html",
-          `<!-- <script> --><div data-note="<script>"></div><script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`,
+          `<!-- <script> --><div data-note="<script>"></div><script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script><svg><script>sessionStorage.setItem("${storageKey}","1")</script></svg>\n`,
         ],
         [
           "multiple-storage-keys.html",

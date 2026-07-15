@@ -35,6 +35,7 @@ const htmlExtensionPattern = /^\.html?$/;
 const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
+const externalScriptAttributes = ["href", "src", "xlink:href"];
 const javascriptMimeTypes = new Set(
   [
     "application/ecmascript application/javascript application/x-ecmascript application/x-javascript",
@@ -1471,15 +1472,13 @@ function decodeHtmlType(value) {
 }
 
 function executableScriptType(rawType) {
-  if (rawType === undefined || rawType.trim() === "") {
+  const decodedType = decodeHtmlType(rawType ?? "");
+  const type = decodedType.split(";", 1)[0].trim().toLowerCase();
+  if (type === "" || javascriptMimeTypes.has(type)) {
     return { executable: true, module: false };
   }
-  const type = decodeHtmlType(rawType).split(";", 1)[0].trim().toLowerCase();
   if (type === "module") {
     return { executable: true, module: true };
-  }
-  if (javascriptMimeTypes.has(type)) {
-    return { executable: true, module: false };
   }
   return { executable: type.includes("&"), module: false };
 }
@@ -1547,7 +1546,7 @@ function executableHtmlScripts(source) {
         async: attributes.has("async"),
         defer: attributes.has("defer"),
         end: contentEnd,
-        external: attributes.has("src"),
+        external: externalScriptAttributes.some((name) => attributes.has(name)),
         module: type.module,
         start: contentStart,
       });
