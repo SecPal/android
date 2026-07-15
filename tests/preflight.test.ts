@@ -755,34 +755,18 @@ describe("preflight", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
     const focusedKey = (suffix: string) => "secpal" + `.focused-${suffix}`;
-    const assetLoadRecoveryStorageKey = "secpal" + ".asset-load-recovery";
-    const invalidVariableStorageKey = "secpal" + ".invalid-host.com";
     const acceptedCase = (suffix: string, source: string) =>
       [focusedKey(suffix), source, "ts"] as const;
     const rejectedCase = (suffix: string, source: string) =>
       [focusedKey(suffix), source] as const;
+    // prettier-ignore
+    const assetLoadRecoveryStorageKey = "secpal" + ".asset-load-recovery", invalidVariableStorageKey = "secpal" + ".invalid-host.com", rejectedStorageCase = (suffix: string, ...body: string[]) => rejectedCase(suffix, [`const storageKey = "${focusedKey(suffix)}";`, ...body].join("\n")), onceListener = 'window.addEventListener("ready", readLater, { once: true });', rejectedDeferredTryHelperCase = (suffix: string, options: Record<string, string> = {}) => rejectedCase(suffix, `${options.prefix ?? ""}${options.prefix ? "\n" : ""}const storageKey = "${focusedKey(suffix)}";\n${options.declaration ?? "function readLater()"} { ${options.helperPrefix ?? ""}try { ${options.tryBody ?? "localStorage.getItem(storageKey);"} } catch {} }${(options.references ?? onceListener) && `\n${options.references ?? onceListener}`}`);
     const simpleHelperSource = (suffix: string, calls: string) =>
       `const storageKey = "${focusedKey(suffix)}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n${calls}`;
     const simpleHelperCase = (suffix: string, calls = "persist();") =>
       acceptedCase(suffix, simpleHelperSource(suffix, calls));
     const rejectedHelperCase = (suffix: string, calls: string) =>
       rejectedCase(suffix, simpleHelperSource(suffix, calls));
-    const onceListener =
-      'window.addEventListener("ready", readLater, { once: true });';
-    const rejectedDeferredTryHelperCase = (
-      suffix: string,
-      options: Record<string, string> = {}
-    ) => {
-      const prefix = options.prefix ?? "";
-      const declaration = options.declaration ?? "function readLater()";
-      const helperPrefix = options.helperPrefix ?? "";
-      const tryBody = options.tryBody ?? "localStorage.getItem(storageKey);";
-      const references = options.references ?? onceListener;
-      return rejectedCase(
-        suffix,
-        `${prefix}${prefix && "\n"}const storageKey = "${focusedKey(suffix)}";\n${declaration} { ${helperPrefix}try { ${tryBody} } catch {} }${references && `\n${references}`}`
-      );
-    };
     const helperChain = (storageKey: string, helperCalls: number) =>
       [
         `const storageKey = "${storageKey}";`,
@@ -848,25 +832,8 @@ describe("preflight", () => {
         `localStorage.setItem("${storageKey}", "1");`,
       ].join("\n");
     const accepted = [
-      [
-        assetLoadRecoveryStorageKey,
-        [
-          "(function () {",
-          `var assetLoadRecoveryStorageKey = "${assetLoadRecoveryStorageKey}";`,
-          'var appBootstrapReadyEvent = "app-bootstrap-ready";',
-          "const themeColorMeta = document.querySelector('meta[name=\"theme-color\"]');",
-          'function hasPendingAssetLoadRecovery() { try { return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending"; } catch { return false; } }',
-          "const pageStartedWithPendingAssetLoadRecovery = hasPendingAssetLoadRecovery();",
-          "function clearAssetLoadRecoveryFlag() { if (!pageStartedWithPendingAssetLoadRecovery) return; try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} }",
-          "window.addEventListener(appBootstrapReadyEvent, clearAssetLoadRecoveryFlag, { once: true });",
-          'function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } }',
-          "function recoverFromStaleHashedAsset() { if (hasPendingAssetLoadRecovery()) return; if (!markPendingAssetLoadRecovery()) return; }",
-          'window.addEventListener("error", function () { recoverFromStaleHashedAsset(); }, true);',
-          "void themeColorMeta;",
-          "})();",
-        ].join("\n"),
-        "js",
-      ],
+      // prettier-ignore
+      [assetLoadRecoveryStorageKey, `(function () { var assetLoadRecoveryStorageKey = "${assetLoadRecoveryStorageKey}"; var appBootstrapReadyEvent = "app-bootstrap-ready"; const themeColorMeta = document.querySelector('meta[name="theme-color"]'); function hasPendingAssetLoadRecovery() { try { return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending"; } catch { return false; } } const pageStartedWithPendingAssetLoadRecovery = hasPendingAssetLoadRecovery(); function clearAssetLoadRecoveryFlag() { if (!pageStartedWithPendingAssetLoadRecovery) return; try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} } window.addEventListener(appBootstrapReadyEvent, clearAssetLoadRecoveryFlag, { once: true }); function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } } function recoverFromStaleHashedAsset() { if (hasPendingAssetLoadRecovery()) return; if (!markPendingAssetLoadRecovery()) return; } window.addEventListener("error", function () { recoverFromStaleHashedAsset(); }, true); void themeColorMeta; })();`, "js"],
       [
         focusedKey("const-direct"),
         `const storageKey = "${focusedKey("const-direct")}";\nlocalStorage.setItem(storageKey, "1");`,
@@ -1275,123 +1242,8 @@ describe("preflight", () => {
       ),
     ] as const;
     const rejected = [
-      [
-        focusedKey("deferred-concise-arrow-variable"),
-        [
-          `const storageKey = "${focusedKey("deferred-concise-arrow-variable")}";`,
-          'setTimeout(() => localStorage.setItem(storageKey, "1"), 0);',
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-receiver-method-mutation"),
-        [
-          `const storageKey = "${focusedKey("try-receiver-method-mutation")}";`,
-          'try { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); } catch {}',
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-deferred-receiver-escape"),
-        [
-          `const storageKey = "${focusedKey("try-deferred-receiver-escape")}";`,
-          "function readNow() { try { localStorage.getItem(storageKey); } catch {} }",
-          "function readLater() { try { localStorage.getItem(storageKey); } catch {} }",
-          "readNow();",
-          "const escapedStorage = localStorage;",
-          "setTimeout(readLater, 0);",
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-deferred-callback"),
-        [
-          `const storageKey = "${focusedKey("try-deferred-callback")}";`,
-          'try { setTimeout(() => localStorage.setItem(storageKey, "1"), 0); } catch {}',
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-deferred-function"),
-        [
-          "let readStorage;",
-          `const storageKey = "${focusedKey("try-deferred-function")}";`,
-          "try { readStorage = function () { localStorage.getItem(storageKey); }; } catch {}",
-          "readStorage();",
-        ].join("\n"),
-      ],
-      [
-        focusedKey("short-circuit-variable"),
-        [
-          `const storageKey = "${focusedKey("short-circuit-variable")}";`,
-          'enabled && localStorage.setItem(storageKey, "1");',
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-use-before-declaration"),
-        [
-          'try { localStorage.setItem(storageKey, "1"); } catch {}',
-          `var storageKey = "${focusedKey("try-use-before-declaration")}";`,
-        ].join("\n"),
-      ],
-      [
-        focusedKey("try-helper-call-limit"),
-        [
-          `const storageKey = "${focusedKey("try-helper-call-limit")}";`,
-          'function persist() { try { localStorage.setItem(storageKey, "1"); } catch {} }',
-          Array.from({ length: 9 }, () => "persist();").join("\n"),
-        ].join("\n"),
-      ],
-      rejectedCase(
-        "try-helper-before-key",
-        `readNow();\nconst storageKey = "${focusedKey("try-helper-before-key")}";\nfunction readNow() { try { localStorage.getItem(storageKey); } catch {} }`
-      ),
-      rejectedDeferredTryHelperCase("try-storage-prototype", {
-        prefix: "Storage.prototype.getItem = replacement;",
-      }),
-      rejectedDeferredTryHelperCase("try-dynamic-execution", {
-        prefix: 'Function("localStorage.getItem = replacement")();',
-      }),
-      rejectedCase(
-        "try-return-prefix",
-        `const storageKey = "${focusedKey("try-return-prefix")}";\nfunction readNow() { try { return localStorage.getItem("theme"); localStorage.getItem(storageKey); } catch {} }\nreadNow();`
-      ),
-      ...(
-        [
-          ["exported", "export function"],
-          ["async", "async function"],
-          ["generator", "function*"],
-        ] as const
-      ).map(([suffix, declaration]) =>
-        rejectedDeferredTryHelperCase(`try-${suffix}-helper`, {
-          declaration: `${declaration} readLater()`,
-        })
-      ),
-      rejectedDeferredTryHelperCase("try-parameterized-helper", {
-        declaration: "function readLater(value)",
-      }),
-      rejectedDeferredTryHelperCase("try-helper-prefix", {
-        helperPrefix: "initialize(); ",
-      }),
-      rejectedDeferredTryHelperCase("try-dormant-helper", { references: "" }),
-      rejectedDeferredTryHelperCase("try-reassigned-helper", {
-        references: `readLater = replacement;\n${onceListener}`,
-      }),
-      rejectedDeferredTryHelperCase("try-recursive-helper", {
-        tryBody: "localStorage.getItem(storageKey); readLater();",
-      }),
-      rejectedDeferredTryHelperCase("try-timer-helper", {
-        references: "setTimeout(readLater, 0);",
-      }),
-      rejectedDeferredTryHelperCase("try-loop-helper", {
-        references: "while (enabled) { readLater(); }",
-      }),
-      rejectedDeferredTryHelperCase("try-repeated-event-helper", {
-        references: 'window.addEventListener("ready", readLater);',
-      }),
-      [
-        invalidVariableStorageKey,
-        [
-          `var storageKey = "${invalidVariableStorageKey}";`,
-          "try { window.sessionStorage.getItem(storageKey); } catch {}",
-        ].join("\n"),
-      ],
+      // prettier-ignore
+      ...[...[rejectedStorageCase("deferred-concise-arrow-variable", 'setTimeout(() => localStorage.setItem(storageKey, "1"), 0);'), rejectedStorageCase("try-receiver-method-mutation", 'try { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); } catch {}'), rejectedStorageCase("try-deferred-receiver-escape", "function readNow() { try { localStorage.getItem(storageKey); } catch {} }", "function readLater() { try { localStorage.getItem(storageKey); } catch {} }", "readNow();", "const escapedStorage = localStorage;", "setTimeout(readLater, 0);"), rejectedStorageCase("try-deferred-callback", 'try { setTimeout(() => localStorage.setItem(storageKey, "1"), 0); } catch {}'), rejectedCase("try-deferred-function", `let readStorage;\nconst storageKey = "${focusedKey("try-deferred-function")}";\ntry { readStorage = function () { localStorage.getItem(storageKey); }; } catch {}\nreadStorage();`), rejectedStorageCase("short-circuit-variable", 'enabled && localStorage.setItem(storageKey, "1");'), rejectedCase("try-use-before-declaration", `try { localStorage.setItem(storageKey, "1"); } catch {}\nvar storageKey = "${focusedKey("try-use-before-declaration")}";`), rejectedStorageCase("try-helper-call-limit", 'function persist() { try { localStorage.setItem(storageKey, "1"); } catch {} }', Array.from({ length: 9 }, () => "persist();").join("\n")), rejectedCase("try-helper-before-key", `readNow();\nconst storageKey = "${focusedKey("try-helper-before-key")}";\nfunction readNow() { try { localStorage.getItem(storageKey); } catch {} }`), rejectedDeferredTryHelperCase("try-storage-prototype", { prefix: "Storage.prototype.getItem = replacement;" }), rejectedDeferredTryHelperCase("try-dynamic-execution", { prefix: 'Function("localStorage.getItem = replacement")();' })], ...[["pre-key-prefix", onceListener, "initialize();"], ["computed-dynamic-execution", `${onceListener}\nglobalThis["Function"]("localStorage.clear()")();`], ["active-event-name", "window.addEventListener(initialize(), readLater, { once: true });"], ["post-key-prefix", `initialize();\n${onceListener}`], ["post-key-variable-prefix", `const initialized = initialize();\n${onceListener}`], ["local-post-key-variable-prefix", `function initialize() { mutate(); try { localStorage.getItem("theme"); } catch {} }\nconst initialized = initialize();\n${onceListener}`], ["catch-post-key-variable-prefix", `function initialize() { try { localStorage.getItem("theme"); } catch { mutate(); } }\nconst initialized = initialize();\n${onceListener}`], ["exported-wrapper", "export function run() { readLater(); }"], ["loop-guard", "while (enabled) { if (readLater()) {} }"], ["exported-listener-wrapper", `export function setup() { ${onceListener} }`], ["caller-prefix", 'function run() { initialize(); if (readLater()) {} }\nwindow.addEventListener("ready", function () { run(); }, true);'], ["callback-prefix", 'function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { initialize(); run(); }, true);'], ["callback-guard-prefix", 'function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);']].map(([suffix, references, prefix]) => rejectedDeferredTryHelperCase(`try-${suffix}`, { references, prefix: prefix ?? "" })), rejectedCase("try-return-prefix", `const storageKey = "${focusedKey("try-return-prefix")}";\nfunction readNow() { try { return localStorage.getItem("theme"); localStorage.getItem(storageKey); } catch {} }\nreadNow();`), ...([ ["exported", "export function"], ["async", "async function"], ["generator", "function*"] ] as const).map(([suffix, declaration]) => rejectedDeferredTryHelperCase(`try-${suffix}-helper`, { declaration: `${declaration} readLater()` })), ...[rejectedDeferredTryHelperCase("try-parameterized-helper", { declaration: "function readLater(value)" }), rejectedDeferredTryHelperCase("try-helper-prefix", { helperPrefix: "initialize(); " }), rejectedDeferredTryHelperCase("try-dormant-helper", { references: "" }), rejectedDeferredTryHelperCase("try-reassigned-helper", { references: `readLater = replacement;\n${onceListener}` }), rejectedDeferredTryHelperCase("try-recursive-helper", { tryBody: "localStorage.getItem(storageKey); readLater();" }), rejectedDeferredTryHelperCase("try-timer-helper", { references: "setTimeout(readLater, 0);" }), rejectedDeferredTryHelperCase("try-loop-helper", { references: "while (enabled) { readLater(); }" }), rejectedDeferredTryHelperCase("try-repeated-event-helper", { references: 'window.addEventListener("ready", readLater);' })], [invalidVariableStorageKey, `var storageKey = "${invalidVariableStorageKey}";\ntry { window.sessionStorage.getItem(storageKey); } catch {}`]],
       [
         focusedKey("concatenated"),
         `const storageKey = "${focusedKey("concatenated")}" + ".com";\nlocalStorage.setItem(storageKey, "1");`,
