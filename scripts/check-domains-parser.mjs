@@ -435,15 +435,48 @@ function symbolAtIdentifier(checker, identifier) {
   return checker.getSymbolAtLocation(identifier);
 }
 
+function syntheticHtmlScope(node) {
+  const sourceFile = node.getSourceFile();
+  return syntheticHtmlScopes
+    .get(sourceFile.fileName)
+    ?.find(
+      (scope) =>
+        node.getStart(sourceFile) >= scope.syntheticStart &&
+        node.getEnd() <= scope.syntheticEnd
+    );
+}
+
+function declarationIsAvailableAtReference(reference, declaration) {
+  if (
+    declaration.getSourceFile() !== reference.getSourceFile() ||
+    isAmbientDeclaration(declaration)
+  ) {
+    return true;
+  }
+  const referenceScope = syntheticHtmlScope(reference);
+  const declarationScope = syntheticHtmlScope(declaration);
+  return !(
+    referenceScope &&
+    declarationScope &&
+    declarationScope.executionIndex > referenceScope.executionIndex
+  );
+}
+
 function identifierReferencesSymbol(checker, identifier, symbol) {
   const reference = symbolAtIdentifier(checker, identifier);
+  if (!reference) {
+    return false;
+  }
+  const declarations =
+    reference === symbol
+      ? symbol.declarations
+      : reference.declarations?.filter((declaration) =>
+          symbol.declarations?.includes(declaration)
+        );
   return (
-    reference === symbol ||
-    Boolean(
-      reference?.declarations?.some((declaration) =>
-        symbol.declarations?.includes(declaration)
-      )
-    )
+    declarations?.some((declaration) =>
+      declarationIsAvailableAtReference(identifier, declaration)
+    ) ?? reference === symbol
   );
 }
 

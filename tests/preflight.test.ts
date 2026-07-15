@@ -454,6 +454,20 @@ describe("preflight", () => {
 
       bad(htmlScriptPrefixHazardsResult, prefixHostnames.slice(2));
 
+      const laterHelperHostname = "secpal" + ".later-helper";
+      const laterHelperResult = runDomainFixture(
+        "later-html-helper.html",
+        [
+          "<script>",
+          "setup();",
+          `localStorage.setItem("${laterHelperHostname}", "1");`,
+          "</script>",
+          "<script>function setup() {}</script>",
+        ].join("\n")
+      );
+
+      bad(laterHelperResult, [laterHelperHostname]);
+
       const moduleBarrierHostnames = "defer-before blocking-after async-after"
         .split(" ")
         .map((suffix) => "secpal" + `.module-${suffix}`);
@@ -526,6 +540,17 @@ describe("preflight", () => {
             `<script>const storageKey = "${storageKey}";</script>`,
             '<script>localStorage.setItem(storageKey, "1");</script>',
           ].join("\n"),
+        ],
+        [
+          "previous-html-helper.html",
+          [
+            "<script>function setup() {}</script>",
+            `<script>setup();localStorage.setItem("${storageKey}", "1");</script>`,
+          ].join("\n"),
+        ],
+        [
+          "same-html-helper.html",
+          `<script>setup();function setup() {}localStorage.setItem("${storageKey}", "1");</script>`,
         ],
         [
           "html-script-scope-isolation.html",

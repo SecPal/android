@@ -58,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mutually exclusive `nomodule` fallbacks, standalone asynchronous modules,
   and fail-closed module dependencies, while preserving inert/raw-text and SVG
   markup for non-source scanning and distinguishing decoded content,
-  namespaces, module grammar, and cross-script shadows (#386).
+  namespaces, module grammar, cross-script shadows, and declaration
+  availability at each script's execution point (#386).
 - Domain-policy storage-key exemptions now trace locally resolved helper calls
   before IIFE storage uses, including nested block IIFEs, and reject unapproved
   domain-like storage keys at any position while preserving ordinary keys and
