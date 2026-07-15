@@ -71,7 +71,7 @@
     "postinstall": "npm run native:patch:capacitor-android"
   },
   "dependencies": {
-    "@capacitor/android": "^8.4.1",
+    "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.1"
   },
   "devDependencies": {
