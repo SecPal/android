@@ -1528,7 +1528,7 @@ function executableHtmlAttributes(node, source) {
   const location = node.sourceCodeLocation;
   if (!location?.attrs) return [];
   const attributes = [];
-  for (const { name, prefix, value } of node.attrs) {
+  for (const { name, prefix } of node.attrs) {
     const attributeName = prefix ? `${prefix}:${name}` : name;
     const attributeLocation = location.attrs[attributeName];
     const valueLocation = htmlAttributeValueRange(source, attributeLocation);
