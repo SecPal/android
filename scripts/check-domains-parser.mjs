@@ -1392,38 +1392,26 @@ function htmlSpace(character) {
   return character !== undefined && /[\t\n\f\r ]/.test(character);
 }
 
-function tagEnd(source, start) {
-  let quote;
-  for (let index = start; index < source.length; index += 1) {
-    const character = source[index];
-    if (quote) {
-      if (character === quote) {
-        quote = undefined;
-      }
-    } else if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === ">") {
-      return index;
-    }
-  }
-  return undefined;
+function htmlTokenEnd(source, start, delimiter) {
+  const offset = source.slice(start).search(delimiter);
+  return offset === -1 ? source.length : start + offset;
 }
 
-function htmlAttributes(source, start, end) {
+function htmlTag(source, start, readName = false) {
   const attributes = new Map();
   let index = start;
-  while (index < end) {
+  if (readName) {
+    index = htmlTokenEnd(source, index, /[\t\n\f\r />]/);
+  }
+  while (index < source.length) {
     while (htmlSpace(source[index]) || source[index] === "/") {
       index += 1;
     }
-    const nameStart = index;
-    while (
-      index < end &&
-      !htmlSpace(source[index]) &&
-      !["/", "=", ">"].includes(source[index])
-    ) {
-      index += 1;
+    if (source[index] === ">") {
+      return { attributes, end: index };
     }
+    const nameStart = index;
+    index = htmlTokenEnd(source, index, /[\t\n\f\r /=>]/);
     if (index === nameStart) {
       index += 1;
       continue;
@@ -1442,7 +1430,7 @@ function htmlAttributes(source, start, end) {
       if (quote === '"' || quote === "'") {
         index += 1;
         const valueStart = index;
-        while (index < end && source[index] !== quote) {
+        while (index < source.length && source[index] !== quote) {
           index += 1;
         }
         value = source.slice(valueStart, index);
@@ -1451,13 +1439,7 @@ function htmlAttributes(source, start, end) {
         }
       } else {
         const valueStart = index;
-        while (
-          index < end &&
-          !htmlSpace(source[index]) &&
-          source[index] !== ">"
-        ) {
-          index += 1;
-        }
+        index = htmlTokenEnd(source, index, /[\t\n\f\r >]/);
         value = source.slice(valueStart, index);
       }
     }
@@ -1465,22 +1447,12 @@ function htmlAttributes(source, start, end) {
       attributes.set(name, value);
     }
   }
-  return attributes;
+  return { attributes, end: undefined };
 }
 
 function decodeHtmlType(value) {
-  const namedCharacters = new Map([
-    ["amp", "&"],
-    ["apos", "'"],
-    ["colon", ":"],
-    ["equals", "="],
-    ["gt", ">"],
-    ["lt", "<"],
-    ["period", "."],
-    ["quot", '"'],
-    ["semi", ";"],
-    ["sol", "/"],
-  ]);
+  const names = ["newline", "period", "sol", "tab"];
+  const characters = ["\n", ".", "/", "\t"];
   return value.replace(
     /&#(?:x([\da-f]+)|(\d+));?|&([a-z]+);/gi,
     (reference, hexadecimal, decimal, named) => {
@@ -1493,7 +1465,7 @@ function decodeHtmlType(value) {
           ? String.fromCodePoint(codePoint)
           : reference;
       }
-      return namedCharacters.get(named.toLowerCase()) ?? reference;
+      return characters[names.indexOf(named.toLowerCase())] ?? reference;
     }
   );
 }
@@ -1512,9 +1484,29 @@ function executableScriptType(rawType) {
   return { executable: type.includes("&"), module: false };
 }
 
+function asciiMatch(source, index, value) {
+  return source.slice(index, index + value.length).toLowerCase() === value;
+}
+
+function scriptEnd(source, start) {
+  const tokens = /<!--|-->|<\/?script(?=[\t\n\f\r />])/gi;
+  tokens.lastIndex = start;
+  let state = 0;
+  for (const match of source.matchAll(tokens)) {
+    const token = match[0].toLowerCase();
+    if (token === "<!--" && state === 0) state = 1;
+    else if (token === "-->" && state === 1) state = 0;
+    else if (token === "<script" && state === 1) state = 2;
+    else if (token === "</script") {
+      if (state === 2) state = 1;
+      else return match.index;
+    }
+  }
+  return -1;
+}
+
 function executableHtmlScripts(source) {
   const scripts = [];
-  const lowerSource = source.toLowerCase();
   let index = 0;
   while (index < source.length) {
     const tagStart = source.indexOf("<", index);
@@ -1522,39 +1514,33 @@ function executableHtmlScripts(source) {
       break;
     }
     if (source.startsWith("<!--", tagStart)) {
-      const commentEnd = source.indexOf("-->", tagStart + 4);
-      index = commentEnd === -1 ? source.length : commentEnd + 3;
+      const match = /^(?:>|->)|--!?>/.exec(source.slice(tagStart + 4));
+      index = match
+        ? tagStart + 4 + match.index + match[0].length
+        : source.length;
       continue;
     }
     const isScript =
-      lowerSource.startsWith("<script", tagStart) &&
+      asciiMatch(source, tagStart, "<script") &&
       (htmlSpace(source[tagStart + 7]) ||
         ["/", ">"].includes(source[tagStart + 7]));
     if (!isScript) {
-      const nextCharacter = source[tagStart + 1];
-      const markupStart =
-        nextCharacter !== undefined && /[A-Za-z!/?]/.test(nextCharacter);
-      const end = markupStart ? tagEnd(source, tagStart + 1) : undefined;
-      index = end === undefined ? tagStart + 1 : end + 1;
+      const nameStart = tagStart + (source[tagStart + 1] === "/" ? 2 : 1);
+      if (/[A-Za-z]/.test(source[nameStart] ?? "")) {
+        const { end } = htmlTag(source, nameStart, true);
+        index = end === undefined ? source.length : end + 1;
+      } else {
+        index = tagStart + 1;
+      }
       continue;
     }
-    const openingEnd = tagEnd(source, tagStart + 7);
+    const { attributes, end: openingEnd } = htmlTag(source, tagStart + 7);
     if (openingEnd === undefined) {
       break;
     }
-    const attributes = htmlAttributes(source, tagStart + 7, openingEnd);
     const type = executableScriptType(attributes.get("type"));
     const contentStart = openingEnd + 1;
-    let closingStart = lowerSource.indexOf("</script", contentStart);
-    while (
-      closingStart !== -1 &&
-      !(
-        htmlSpace(source[closingStart + 8]) ||
-        ["/", ">"].includes(source[closingStart + 8])
-      )
-    ) {
-      closingStart = lowerSource.indexOf("</script", closingStart + 8);
-    }
+    const closingStart = scriptEnd(source, contentStart);
     const contentEnd = closingStart === -1 ? source.length : closingStart;
     if (type.executable) {
       scripts.push({
@@ -1569,7 +1555,7 @@ function executableHtmlScripts(source) {
     if (closingStart === -1) {
       break;
     }
-    const closingEnd = tagEnd(source, closingStart + 8);
+    const { end: closingEnd } = htmlTag(source, closingStart + 8);
     index = closingEnd === undefined ? source.length : closingEnd + 1;
   }
   return scripts;
@@ -1598,29 +1584,20 @@ function mappedHtmlExemptions(source, document, entries, analysisIndex) {
   const file = `${document}.secpal-html-analysis-${analysisIndex}.js`;
   const sources = new Map([[file, synthetic]]);
   syntheticHtmlScopes.set(file, mappings);
-  const program = createDomainProgram(
-    [],
-    sources,
-    ts.ModuleDetectionKind.Legacy
-  );
-  return parserExemptions(file, program, program.getTypeChecker()).flatMap(
-    (exemption) => {
-      const mapping = mappings.find(
-        (candidate) =>
-          exemption.start >= candidate.syntheticStart &&
-          exemption.end <= candidate.syntheticEnd
-      );
-      return mapping
-        ? [
-            {
-              end: mapping.sourceStart + exemption.end - mapping.syntheticStart,
-              start:
-                mapping.sourceStart + exemption.start - mapping.syntheticStart,
-            },
-          ]
-        : [];
+  const program = makeProgram([], sources, ts.ModuleDetectionKind.Legacy);
+  const mapped = [];
+  const exemptions = parserExemptions(file, program, program.getTypeChecker());
+  for (const item of exemptions) {
+    const mapping = mappings.find(
+      ({ syntheticEnd, syntheticStart }) =>
+        item.start >= syntheticStart && item.end <= syntheticEnd
+    );
+    if (mapping) {
+      const offset = mapping.sourceStart - mapping.syntheticStart;
+      mapped.push({ end: item.end + offset, start: item.start + offset });
     }
-  );
+  }
+  return mapped;
 }
 
 function htmlParserExemptions(source, document, scripts) {
@@ -1648,6 +1625,9 @@ function htmlParserExemptions(source, document, scripts) {
       continue;
     }
     if (script.module) {
+      if (script.async) {
+        classicPrefixBlocked = true;
+      }
       continue;
     }
     classicEntries.push({ module: false, script });
@@ -1656,7 +1636,11 @@ function htmlParserExemptions(source, document, scripts) {
     }
   }
 
-  if (!scripts.some((script) => script.external)) {
+  if (
+    !scripts.some(
+      (script) => script.external || (script.module && script.async)
+    )
+  ) {
     const modulePrefix = [...classicEntries];
     for (const script of scripts) {
       if (!script.module) {
@@ -1681,7 +1665,7 @@ function replaceStorageKeysOutsideScripts(source, scripts) {
   return result + replaceNonSourceStorageKeys(source.slice(start));
 }
 
-function createDomainProgram(
+function makeProgram(
   sourceFiles,
   virtualSources,
   moduleDetection = ts.ModuleDetectionKind.Force
@@ -1738,7 +1722,7 @@ for (const file of files) {
     scripts,
   });
 }
-const program = createDomainProgram(sourceFiles, new Map());
+const program = makeProgram(sourceFiles, new Map());
 const checker = program.getTypeChecker();
 
 for (const file of files) {

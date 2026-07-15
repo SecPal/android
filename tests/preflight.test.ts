@@ -20,6 +20,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+type SpawnResult = ReturnType<typeof spawnSync>;
+
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const domainCheckerEnvironment = {
   ...process.env,
@@ -231,10 +233,7 @@ describe("preflight", () => {
       };
       const runDomainFixture = (fileName: string, contents: string) =>
         runDomainFixtures([[fileName, contents]]);
-      const assertBad = (
-        result: ReturnType<typeof spawnSync>,
-        hostnames: string[]
-      ) => {
+      const bad = (result: SpawnResult, hostnames: string[]) => {
         expect(result.status).toBe(1);
         for (const hostname of hostnames) {
           expect(result.stdout).toContain(hostname);
@@ -340,16 +339,27 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      assertBad(shadowedHtmlStorageResult, [shadowedHtmlStorageHostname]);
+      bad(shadowedHtmlStorageResult, [shadowedHtmlStorageHostname]);
 
       const crossScriptStorageHostname = "secpal" + ".cross-script-shadow";
       const dataTypeStorageHostname = "secpal" + ".data-type-shadow";
       const attributeValueStorageHostname =
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
+      const scannerHostnames =
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped"
+          .split(" ")
+          .map((suffix) => "secpal" + `.scanner-${suffix}`);
       const htmlScriptBoundariesResult = runDomainFixture(
         "html-script-boundaries.html",
         [
+          `<script type="module&Tab;">globalThis.localStorage.setItem("${scannerHostnames[2]}","1")</script>`,
+          "<script>const globalThis=null</script>",
+          `<p>İ</p><script>const sessionStorage=null;sessionStorage.setItem("${scannerHostnames[1]}","1")</script>`,
+          `<script data-note=foo">const window=null;window.localStorage.setItem("${scannerHostnames[0]}","1")</script>`,
+          `<!--><script>const localStorage=null;localStorage.setItem("${scannerHostnames[3]}","1")</script><!--x--!><script>const sessionStorage=null;sessionStorage.setItem("${scannerHostnames[4]}","1")</script>`,
+          `<div ="><script>const localStorage=null;localStorage.setItem("${scannerHostnames[5]}","1")</script>`,
+          `<script><!--\n/*<script>*/\n/*</script>*/\nconst localStorage=null;localStorage.setItem("${scannerHostnames[6]}","1")\n</script>`,
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
           `const key = "${crossScriptStorageHostname}";`,
@@ -370,11 +380,12 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      assertBad(htmlScriptBoundariesResult, [
+      bad(htmlScriptBoundariesResult, [
         crossScriptStorageHostname,
         dataTypeStorageHostname,
         attributeValueStorageHostname,
         encodedTypeStorageHostname,
+        ...scannerHostnames,
       ]);
 
       const mutatedStorageHostname = "secpal" + ".mutated-storage-key";
@@ -389,13 +400,14 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      assertBad(htmlScriptPrefixHazardsResult, [
+      bad(htmlScriptPrefixHazardsResult, [
         mutatedStorageHostname,
         externalScriptStorageHostname,
       ]);
 
       const deferredModuleStorageHostname =
         "secpal" + ".deferred-module-shadow";
+      const asyncModuleStorageHostname = "secpal" + ".async-module-order";
       const deferredModuleStorageResult = runDomainFixture(
         "deferred-module-shadow.html",
         [
@@ -403,16 +415,17 @@ describe("preflight", () => {
           `localStorage.setItem("${deferredModuleStorageHostname}", "1");`,
           "</script>",
           "<script>const localStorage = null;</script>",
+          "<script type=module async>Storage.prototype.setItem=replacement</script>",
+          `<script>sessionStorage.setItem("${asyncModuleStorageHostname}","1")</script>`,
         ].join("\n")
       );
 
-      assertBad(deferredModuleStorageResult, [deferredModuleStorageHostname]);
+      bad(deferredModuleStorageResult, [
+        deferredModuleStorageHostname,
+        asyncModuleStorageHostname,
+      ]);
 
       const validHtmlStorageResult = runDomainFixtures([
-        [
-          "storage-key.html",
-          `<script>localStorage.setItem("${storageKey}", "1");</script>\n`,
-        ],
         [
           "shared-html-storage-key.html",
           [
@@ -439,7 +452,7 @@ describe("preflight", () => {
         ],
         [
           "quoted-script-attribute.html",
-          `<script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`,
+          `<!-- <script> --><div data-note="<script>"></div><script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`,
         ],
         [
           "multiple-storage-keys.html",
@@ -466,7 +479,7 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      assertBad(legacyJavascriptStorageResult, [shadowedHtmlStorageHostname]);
+      bad(legacyJavascriptStorageResult, [shadowedHtmlStorageHostname]);
 
       const nestedDirectory = join(tempRoot, "nested");
       mkdirSync(nestedDirectory);
