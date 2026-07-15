@@ -692,6 +692,30 @@ describe("preflight", () => {
         "ts",
       ],
       [
+        focusedKey("iife-outer-theme-helper"),
+        `function persistTheme() { localStorage.setItem("theme", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-theme-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("iife-outer-approved-domain-helper"),
+        `function persistApprovedDomains() { localStorage.setItem("secpal.app", "homepage"); localStorage.setItem("secpal.dev", "development"); }
+(() => { persistApprovedDomains(); localStorage.setItem("${focusedKey("iife-outer-approved-domain-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("iife-outer-approved-domain-url-helper"),
+        `function persistApprovedDomains() { localStorage.setItem("https://secpal.app", "homepage"); localStorage.setItem("apk.secpal.app", "artifact"); localStorage.setItem("https://api.secpal.dev/v1", "api"); localStorage.setItem(".api.secpal.dev", "cookie-domain"); localStorage.setItem("*.staging.secpal.dev", "wildcard"); }
+(() => { persistApprovedDomains(); localStorage.setItem("${focusedKey("iife-outer-approved-domain-url-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
+        focusedKey("iife-outer-approved-domain-nested-iife-helper"),
+        `function persistApprovedDomains() { (() => { localStorage.setItem("https://secpal.app", "homepage"); })(); }
+(() => { persistApprovedDomains(); localStorage.setItem("${focusedKey("iife-outer-approved-domain-nested-iife-helper")}", "1"); })();`,
+        "ts",
+      ],
+      [
         focusedKey("sequential-iife"),
         `(() => { localStorage.setItem("theme", "dark"); })();\n(() => { localStorage.setItem("${focusedKey("sequential-iife")}", "1"); })();`,
         "ts",
@@ -1231,6 +1255,26 @@ describe("preflight", () => {
         focusedKey("iife-inner-prefix"),
         `(() => { initialize(); localStorage.setItem("${focusedKey("iife-inner-prefix")}", "1"); })();`,
       ],
+      rejectedCase(
+        "iife-outer-helper-storage-hazard",
+        `function persistTheme() { localStorage.setItem("${"secpal" + ".unapproved-host.com"}", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-storage-hazard")}", "1"); })();`
+      ),
+      rejectedCase(
+        "iife-outer-helper-url-storage-hazard",
+        `function persistTheme() { localStorage.setItem("https://${"secpal" + ".unapproved-host.com"}", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-url-storage-hazard")}", "1"); })();`
+      ),
+      rejectedCase(
+        "iife-outer-helper-subdomain-storage-hazard",
+        `function persistTheme() { localStorage.setItem("prefix.${"secpal" + ".unapproved-host.com"}", "dark"); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-subdomain-storage-hazard")}", "1"); })();`
+      ),
+      rejectedCase(
+        "iife-outer-helper-nested-iife-storage-hazard",
+        `function persistTheme() { (() => { localStorage.setItem("${"secpal" + ".unapproved-host.com"}", "dark"); })(); }
+(() => { persistTheme(); localStorage.setItem("${focusedKey("iife-outer-helper-nested-iife-storage-hazard")}", "1"); })();`
+      ),
       [
         focusedKey("async-suspension"),
         `(async () => { await ready; localStorage.setItem("${focusedKey("async-suspension")}", "1"); })();`,

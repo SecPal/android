@@ -52,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Domain-policy storage-key exemptions now trace locally resolved helper calls
+  before IIFE storage uses, including nested block IIFEs, and reject unapproved
+  domain-like storage keys at any position while preserving ordinary keys and
+  approved domain occurrences (issue #375).
 - Domain-policy storage-key exemptions now prove bounded, straight-line
   execution through concise, nested, and consecutive zero-argument IIFEs while
   execution remains synchronous, stop at async suspension or deferred
