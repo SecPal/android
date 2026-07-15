@@ -215,6 +215,31 @@ describe("preflight", () => {
         resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
         join(tempRoot, "check-domains-parser.mjs")
       );
+      const runDomainFixtures = (fixtures: [string, string][]) => {
+        const files = fixtures.map(([fileName, contents]) => {
+          const file = join(tempRoot, fileName);
+          writeFileSync(file, contents);
+          return file;
+        });
+        const result = spawnSync("bash", [checker], {
+          cwd: tempRoot,
+          encoding: "utf8",
+          env: domainCheckerEnvironment,
+        });
+        files.forEach((file) => unlinkSync(file));
+        return result;
+      };
+      const runDomainFixture = (fileName: string, contents: string) =>
+        runDomainFixtures([[fileName, contents]]);
+      const assertBad = (
+        result: ReturnType<typeof spawnSync>,
+        hostnames: string[]
+      ) => {
+        expect(result.status).toBe(1);
+        for (const hostname of hostnames) {
+          expect(result.stdout).toContain(hostname);
+        }
+      };
       writeFileSync(
         join(tempRoot, "theme-color.js"),
         `localStorage.setItem("${storageKey}", "1");\n`
@@ -304,22 +329,9 @@ describe("preflight", () => {
 
       unlinkSync(join(tempRoot, "shadowed-storage-globals.js"));
 
-      writeFileSync(
-        join(tempRoot, "storage-key.html"),
-        `<script>localStorage.setItem("${storageKey}", "1");</script>\n`
-      );
-
-      const htmlStorageKeyResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(htmlStorageKeyResult.status).toBe(0);
-
       const shadowedHtmlStorageHostname = "secpal" + ".invalid-host";
-      writeFileSync(
-        join(tempRoot, "shadowed-storage.html"),
+      const shadowedHtmlStorageResult = runDomainFixture(
+        "shadowed-storage.html",
         [
           "<script>",
           "const localStorage = fakeStorage;",
@@ -328,27 +340,15 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      const shadowedHtmlStorageResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(shadowedHtmlStorageResult.status).toBe(1);
-      expect(shadowedHtmlStorageResult.stdout).toContain(
-        shadowedHtmlStorageHostname
-      );
-
-      unlinkSync(join(tempRoot, "shadowed-storage.html"));
-      unlinkSync(join(tempRoot, "storage-key.html"));
+      assertBad(shadowedHtmlStorageResult, [shadowedHtmlStorageHostname]);
 
       const crossScriptStorageHostname = "secpal" + ".cross-script-shadow";
       const dataTypeStorageHostname = "secpal" + ".data-type-shadow";
       const attributeValueStorageHostname =
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
-      writeFileSync(
-        join(tempRoot, "html-script-boundaries.html"),
+      const htmlScriptBoundariesResult = runDomainFixture(
+        "html-script-boundaries.html",
         [
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
@@ -370,90 +370,94 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      const htmlScriptBoundariesResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(htmlScriptBoundariesResult.status).toBe(1);
-      for (const hostname of [
+      assertBad(htmlScriptBoundariesResult, [
         crossScriptStorageHostname,
         dataTypeStorageHostname,
         attributeValueStorageHostname,
         encodedTypeStorageHostname,
-      ]) {
-        expect(htmlScriptBoundariesResult.stdout).toContain(hostname);
-      }
+      ]);
 
-      unlinkSync(join(tempRoot, "html-script-boundaries.html"));
-
-      writeFileSync(
-        join(tempRoot, "html-script-scope-isolation.html"),
+      const mutatedStorageHostname = "secpal" + ".mutated-storage-key";
+      const externalScriptStorageHostname = "secpal" + ".external-script-key";
+      const htmlScriptPrefixHazardsResult = runDomainFixture(
+        "html-script-prefix-hazards.html",
         [
-          `<script>localStorage.setItem("${storageKey}", "1");</script>`,
-          "<script>const localStorage = fakeStorage;</script>",
-          '<script type="module">const sessionStorage = fakeStorage;</script>',
-          `<script>sessionStorage.setItem("${storageKey}", "1");</script>`,
-        ].join("\n")
-      );
-      writeFileSync(
-        join(tempRoot, "separate-html-shadow.html"),
-        "<script>const sessionStorage = fakeStorage;</script>\n"
-      );
-      writeFileSync(
-        join(tempRoot, "separate-html-storage.html"),
-        `<script>sessionStorage.setItem("${storageKey}", "1");</script>\n`
-      );
-
-      const htmlScriptScopeIsolationResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(htmlScriptScopeIsolationResult.status).toBe(0);
-
-      unlinkSync(join(tempRoot, "html-script-scope-isolation.html"));
-      unlinkSync(join(tempRoot, "separate-html-shadow.html"));
-      unlinkSync(join(tempRoot, "separate-html-storage.html"));
-
-      writeFileSync(
-        join(tempRoot, "quoted-script-attribute.html"),
-        `<script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`
-      );
-
-      const quotedScriptAttributeResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(quotedScriptAttributeResult.status).toBe(0);
-
-      unlinkSync(join(tempRoot, "quoted-script-attribute.html"));
-
-      writeFileSync(
-        join(tempRoot, "multiple-storage-keys.html"),
-        [
-          `<script>localStorage.setItem("${"secpal" + ".first-key"}", "1");</script>`,
-          `<script>localStorage.setItem("${"secpal" + ".second-key"}", "1");</script>`,
-          `<script>localStorage.setItem("${"secpal" + ".third-key"}", "1");</script>`,
+          "<script>Storage.prototype.setItem = replacement;</script>",
+          `<script>localStorage.setItem("${mutatedStorageHostname}", "1");</script>`,
+          '<script src="setup.js"></script>',
+          `<script>sessionStorage.setItem("${externalScriptStorageHostname}", "1");</script>`,
         ].join("\n")
       );
 
-      const multipleHtmlStorageKeysResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
+      assertBad(htmlScriptPrefixHazardsResult, [
+        mutatedStorageHostname,
+        externalScriptStorageHostname,
+      ]);
 
-      expect(multipleHtmlStorageKeysResult.status).toBe(0);
+      const deferredModuleStorageHostname =
+        "secpal" + ".deferred-module-shadow";
+      const deferredModuleStorageResult = runDomainFixture(
+        "deferred-module-shadow.html",
+        [
+          '<script type="module">',
+          `localStorage.setItem("${deferredModuleStorageHostname}", "1");`,
+          "</script>",
+          "<script>const localStorage = null;</script>",
+        ].join("\n")
+      );
 
-      unlinkSync(join(tempRoot, "multiple-storage-keys.html"));
+      assertBad(deferredModuleStorageResult, [deferredModuleStorageHostname]);
 
-      writeFileSync(
-        join(tempRoot, "legacy-javascript-storage.html"),
+      const validHtmlStorageResult = runDomainFixtures([
+        [
+          "storage-key.html",
+          `<script>localStorage.setItem("${storageKey}", "1");</script>\n`,
+        ],
+        [
+          "shared-html-storage-key.html",
+          [
+            `<script>const storageKey = "${storageKey}";</script>`,
+            '<script>localStorage.setItem(storageKey, "1");</script>',
+          ].join("\n"),
+        ],
+        [
+          "html-script-scope-isolation.html",
+          [
+            `<script>localStorage.setItem("${storageKey}", "1");</script>`,
+            "<script>const localStorage = null;</script>",
+            '<script type="module">const sessionStorage = null;</script>',
+            `<script>sessionStorage.setItem("${storageKey}", "1");</script>`,
+          ].join("\n"),
+        ],
+        [
+          "separate-html-shadow.html",
+          "<script>const sessionStorage = fakeStorage;</script>\n",
+        ],
+        [
+          "separate-html-storage.html",
+          `<script>sessionStorage.setItem("${storageKey}", "1");</script>\n`,
+        ],
+        [
+          "quoted-script-attribute.html",
+          `<script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script>\n`,
+        ],
+        [
+          "multiple-storage-keys.html",
+          ["first-key", "second-key", "third-key"]
+            .map(
+              (suffix) =>
+                `<script>localStorage.setItem("secpal.${suffix}", "1");</script>`
+            )
+            .join("\n"),
+        ],
+      ]);
+
+      expect(validHtmlStorageResult.status, validHtmlStorageResult.stdout).toBe(
+        0
+      );
+
+      const legacyJavascriptStorageResult = runDomainFixture(
+        "legacy-javascript-storage.html",
         [
           '<script type="application/x-javascript">',
           "const localStorage = fakeStorage;",
@@ -462,18 +466,7 @@ describe("preflight", () => {
         ].join("\n")
       );
 
-      const legacyJavascriptStorageResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(legacyJavascriptStorageResult.status).toBe(1);
-      expect(legacyJavascriptStorageResult.stdout).toContain(
-        shadowedHtmlStorageHostname
-      );
-
-      unlinkSync(join(tempRoot, "legacy-javascript-storage.html"));
+      assertBad(legacyJavascriptStorageResult, [shadowedHtmlStorageHostname]);
 
       const nestedDirectory = join(tempRoot, "nested");
       mkdirSync(nestedDirectory);

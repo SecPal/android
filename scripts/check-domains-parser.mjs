@@ -32,28 +32,16 @@ const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const htmlExtensionPattern = /^\.html?$/;
-const inlineScriptMarker = ".secpal-inline-script-";
-const inlineScriptScopes = new Map();
+const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
-const javascriptMimeTypes = new Set([
-  "application/ecmascript",
-  "application/javascript",
-  "application/x-ecmascript",
-  "application/x-javascript",
-  "text/ecmascript",
-  "text/javascript",
-  "text/javascript1.0",
-  "text/javascript1.1",
-  "text/javascript1.2",
-  "text/javascript1.3",
-  "text/javascript1.4",
-  "text/javascript1.5",
-  "text/jscript",
-  "text/livescript",
-  "text/x-ecmascript",
-  "text/x-javascript",
-]);
+const javascriptMimeTypes = new Set(
+  [
+    "application/ecmascript application/javascript application/x-ecmascript application/x-javascript",
+    "text/ecmascript text/javascript text/jscript text/livescript text/x-ecmascript text/x-javascript",
+    ...Array.from({ length: 6 }, (_, index) => `text/javascript1.${index}`),
+  ].flatMap((types) => types.split(" "))
+);
 const storageMethods = new Map([
   ["getItem", 1],
   ["removeItem", 1],
@@ -81,18 +69,29 @@ function isAmbientDeclaration(declaration) {
 
 function isUnshadowedGlobal(checker, identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
-  const identifierSource = identifier.getSourceFile();
-  const identifierScope = inlineScriptScopes.get(identifierSource.fileName);
+  const sourceFile = identifier.getSourceFile();
+  const scopes = syntheticHtmlScopes.get(sourceFile.fileName);
+  const identifierScope = scopes?.find(
+    (scope) =>
+      identifier.getStart(sourceFile) >= scope.syntheticStart &&
+      identifier.getEnd() <= scope.syntheticEnd
+  );
   return !symbol?.declarations?.some((declaration) => {
-    const declarationSource = declaration.getSourceFile();
-    const declarationScope = inlineScriptScopes.get(declarationSource.fileName);
-    return (
-      !isAmbientDeclaration(declaration) &&
-      (declarationSource === identifierSource ||
-        (identifierScope !== undefined &&
-          declarationScope?.document === identifierScope.document &&
-          (identifierScope.module ||
-            declarationScope.index <= identifierScope.index)))
+    if (
+      declaration.getSourceFile() !== sourceFile ||
+      isAmbientDeclaration(declaration)
+    ) {
+      return false;
+    }
+    const declarationScope = scopes?.find(
+      (scope) =>
+        declaration.getStart(sourceFile) >= scope.syntheticStart &&
+        declaration.getEnd() <= scope.syntheticEnd
+    );
+    return !(
+      identifierScope &&
+      declarationScope &&
+      declarationScope.executionIndex > identifierScope.executionIndex
     );
   });
 }
@@ -1557,9 +1556,12 @@ function executableHtmlScripts(source) {
       closingStart = lowerSource.indexOf("</script", closingStart + 8);
     }
     const contentEnd = closingStart === -1 ? source.length : closingStart;
-    if (type.executable && !attributes.has("src")) {
+    if (type.executable) {
       scripts.push({
+        async: attributes.has("async"),
+        defer: attributes.has("defer"),
         end: contentEnd,
+        external: attributes.has("src"),
         module: type.module,
         start: contentStart,
       });
@@ -1571,6 +1573,101 @@ function executableHtmlScripts(source) {
     index = closingEnd === undefined ? source.length : closingEnd + 1;
   }
   return scripts;
+}
+
+function syntheticHtmlSource(source, entries) {
+  const mappings = [];
+  let synthetic = "";
+  for (const entry of entries) {
+    synthetic += entry.module ? "(() => {\n" : "";
+    const syntheticStart = synthetic.length;
+    synthetic += source.slice(entry.script.start, entry.script.end);
+    mappings.push({
+      executionIndex: mappings.length,
+      sourceStart: entry.script.start,
+      syntheticEnd: synthetic.length,
+      syntheticStart,
+    });
+    synthetic += entry.module ? "\n})();\n" : "\n;\n";
+  }
+  return { mappings, synthetic };
+}
+
+function mappedHtmlExemptions(source, document, entries, analysisIndex) {
+  const { mappings, synthetic } = syntheticHtmlSource(source, entries);
+  const file = `${document}.secpal-html-analysis-${analysisIndex}.js`;
+  const sources = new Map([[file, synthetic]]);
+  syntheticHtmlScopes.set(file, mappings);
+  const program = createDomainProgram(
+    [],
+    sources,
+    ts.ModuleDetectionKind.Legacy
+  );
+  return parserExemptions(file, program, program.getTypeChecker()).flatMap(
+    (exemption) => {
+      const mapping = mappings.find(
+        (candidate) =>
+          exemption.start >= candidate.syntheticStart &&
+          exemption.end <= candidate.syntheticEnd
+      );
+      return mapping
+        ? [
+            {
+              end: mapping.sourceStart + exemption.end - mapping.syntheticStart,
+              start:
+                mapping.sourceStart + exemption.start - mapping.syntheticStart,
+            },
+          ]
+        : [];
+    }
+  );
+}
+
+function htmlParserExemptions(source, document, scripts) {
+  const exemptions = new Map();
+  let analysisIndex = 0;
+  const addAnalysis = (entries) => {
+    for (const exemption of mappedHtmlExemptions(
+      source,
+      document,
+      entries,
+      analysisIndex
+    )) {
+      exemptions.set(`${exemption.start}:${exemption.end}`, exemption);
+    }
+    analysisIndex += 1;
+  };
+
+  const classicEntries = [];
+  let classicPrefixBlocked = false;
+  for (const script of scripts) {
+    if (script.external) {
+      if (script.async || (!script.module && !script.defer)) {
+        classicPrefixBlocked = true;
+      }
+      continue;
+    }
+    if (script.module) {
+      continue;
+    }
+    classicEntries.push({ module: false, script });
+    if (!classicPrefixBlocked) {
+      addAnalysis(classicEntries);
+    }
+  }
+
+  if (!scripts.some((script) => script.external)) {
+    const modulePrefix = [...classicEntries];
+    for (const script of scripts) {
+      if (!script.module) {
+        continue;
+      }
+      modulePrefix.push({ module: true, script });
+      addAnalysis(modulePrefix);
+    }
+  }
+
+  return [...exemptions.values()];
 }
 
 function replaceStorageKeysOutsideScripts(source, scripts) {
@@ -1600,10 +1697,10 @@ function createDomainProgram(
     target: ts.ScriptTarget.Latest,
   };
   const host = ts.createCompilerHost(options, true);
+  const fileExists = host.fileExists.bind(host);
   const readFile = host.readFile.bind(host);
   const getSourceFile = host.getSourceFile.bind(host);
-  host.fileExists = (file) =>
-    virtualSources.has(file) || readFile(file) !== undefined;
+  host.fileExists = (file) => virtualSources.has(file) || fileExists(file);
   host.readFile = (file) => virtualSources.get(file) ?? readFile(file);
   host.getSourceFile = (file, languageVersion) => {
     const source = virtualSources.get(file);
@@ -1635,32 +1732,9 @@ for (const file of files) {
   }
   const source = readFileSync(file, "utf8");
   const document = resolve(file);
-  const scripts = executableHtmlScripts(source).map((script, index) => ({
-    ...script,
-    file: `${document}${inlineScriptMarker}${index}.js`,
-    index,
-  }));
-  const virtualSources = new Map();
-  for (const script of scripts) {
-    inlineScriptScopes.set(script.file, {
-      document,
-      index: script.index,
-      module: script.module,
-    });
-    const scriptSource = source.slice(script.start, script.end);
-    virtualSources.set(
-      script.file,
-      script.module ? `${scriptSource}\nexport {};` : scriptSource
-    );
-  }
-  const program = createDomainProgram(
-    [],
-    virtualSources,
-    ts.ModuleDetectionKind.Legacy
-  );
+  const scripts = executableHtmlScripts(source);
   htmlScripts.set(file, {
-    checker: program.getTypeChecker(),
-    program,
+    exemptions: htmlParserExemptions(source, document, scripts),
     scripts,
   });
 }
@@ -1676,19 +1750,12 @@ for (const file of files) {
     );
   } else {
     const html = htmlScripts.get(file);
-    source = replaceExemptions(
-      source,
-      (html?.scripts ?? []).flatMap((script) =>
-        parserExemptions(script.file, html.program, html.checker).map(
-          (exemption) => ({
-            end: script.start + exemption.end,
-            start: script.start + exemption.start,
-          })
-        )
-      )
-    );
+    source = replaceExemptions(source, html?.exemptions ?? []);
     source = html
-      ? replaceStorageKeysOutsideScripts(source, executableHtmlScripts(source))
+      ? replaceStorageKeysOutsideScripts(
+          source,
+          executableHtmlScripts(source).filter((script) => !script.external)
+        )
       : replaceNonSourceStorageKeys(source);
   }
 
