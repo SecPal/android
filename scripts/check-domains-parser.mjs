@@ -1433,22 +1433,28 @@ function executableHtmlScript(node, source) {
   const start = location.startTag.endOffset;
   const end = location.endTag?.startOffset ?? location.endOffset;
   const svg = node.namespaceURI === svgNamespace;
+  const textChildren = node.childNodes.filter(
+    (child) => child.nodeName === "#text"
+  );
   return {
     async: !svg && attributes.has("async"),
     content: svg
-      ? node.childNodes
-          .filter((child) => child.nodeName === "#text")
-          .map((child) => child.value)
-          .join("")
+      ? textChildren.map((child) => child.value).join("")
       : source.slice(start, end),
     defer: !svg && attributes.has("defer"),
-    end,
     external: svg
       ? attributes.has("href") || attributes.has("xlink:href")
       : attributes.has("src"),
     line: location.startTag.endLine,
     module: type.module,
-    start,
+    ranges: svg
+      ? textChildren
+          .filter((child) => child.sourceCodeLocation)
+          .map(({ sourceCodeLocation: child }) => ({
+            end: child.endOffset,
+            start: child.startOffset,
+          }))
+      : [{ end, start }],
   };
 }
 
@@ -1477,7 +1483,7 @@ function parsedHtmlDocument(source) {
     if (script) {
       scripts.push(script);
       if (!script.external) {
-        excludedRanges.push({ end: script.end, start: script.start });
+        excludedRanges.push(...script.ranges);
       }
       return;
     }
@@ -1564,18 +1570,22 @@ function sanitizedHtmlScripts(document, scripts) {
     }
   }
 
-  if (
-    !scripts.some(
-      (script) => script.external || (script.module && script.async)
-    )
-  ) {
-    const modulePrefix = [...classicEntries];
-    for (const script of scripts) {
-      if (!script.module) {
-        continue;
-      }
+  const modulePrefix = [...classicEntries];
+  let modulePrefixBlocked = scripts.some(
+    (script) =>
+      (script.async && (script.external || script.module)) ||
+      (script.external && !script.module && !script.defer)
+  );
+  for (const script of scripts) {
+    if (script.external && (script.module || script.defer)) {
+      modulePrefixBlocked = true;
+      continue;
+    }
+    if (script.module && !script.async) {
       modulePrefix.push({ module: true, script });
-      addAnalysis(modulePrefix);
+      if (!modulePrefixBlocked) {
+        addAnalysis(modulePrefix);
+      }
     }
   }
 

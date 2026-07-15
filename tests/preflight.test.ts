@@ -346,7 +346,7 @@ describe("preflight", () => {
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
       const scannerHostnames =
-        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type html-href srcdoc svg-cdata html-xlink svg-src srcdoc-encoded svg-entity foreign-html-href"
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type html-href srcdoc svg-cdata html-xlink svg-src srcdoc-encoded svg-entity foreign-html-href svg-comment svg-markup"
           .split(" ")
           .map((suffix) => "secpal" + `.scanner-${suffix}`);
       const htmlScriptBoundariesResult = runDomainFixture(
@@ -369,6 +369,8 @@ describe("preflight", () => {
           `<iframe srcdoc="&lt;script>const window=null;window.localStorage.setItem(&quot;secpal&#46;scanner-srcdoc-encoded&quot;,&quot;1&quot;)&lt;/script>"></iframe>`,
           `<svg><script>const sessionStorage=null;sessionStorage.setItem(&quot;secpal&#46;scanner-svg-entity&quot;,&quot;1&quot;)</script></svg>`,
           `<svg><foreignObject><script href="ignored.js">const globalThis=null;globalThis.sessionStorage.setItem("${scannerHostnames[16]}","1")</script></foreignObject></svg>`,
+          `<svg><script>localStorage.setItem("${storageKey}","1");<!-- ${scannerHostnames[17]} --></script></svg>`,
+          `<svg><script><g data-host="${scannerHostnames[18]}"></g></script></svg>`,
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
           `const key = "${crossScriptStorageHostname}";`,
@@ -397,6 +399,12 @@ describe("preflight", () => {
         ...scannerHostnames,
       ]);
 
+      const moduleBeforeDeferResult = runDomainFixture(
+        "module-before-defer.html",
+        `<script type="module">localStorage.setItem("${storageKey}","1")</script><script defer src="later.js"></script><script type="module" src="later.mjs"></script>`
+      );
+      expect(moduleBeforeDeferResult.status).toBe(0);
+
       const prefixHostnames =
         "svg-href svg-xlink mutated-storage-key external-script-key"
           .split(" ")
@@ -419,6 +427,25 @@ describe("preflight", () => {
       );
 
       bad(htmlScriptPrefixHazardsResult, prefixHostnames.slice(2));
+
+      const moduleBarrierHostnames = "defer-before blocking-after async-after"
+        .split(" ")
+        .map((suffix) => "secpal" + `.module-${suffix}`);
+      const moduleBarriersResult = runDomainFixtures([
+        [
+          "defer-before.html",
+          `<script defer src="before.js"></script><script type="module">localStorage.setItem("${moduleBarrierHostnames[0]}","1")</script>`,
+        ],
+        [
+          "blocking-after.html",
+          `<script type="module">localStorage.setItem("${moduleBarrierHostnames[1]}","1")</script><script src="after.js"></script>`,
+        ],
+        [
+          "async-after.html",
+          `<script type="module">localStorage.setItem("${moduleBarrierHostnames[2]}","1")</script><script async src="after.js"></script>`,
+        ],
+      ]);
+      bad(moduleBarriersResult, moduleBarrierHostnames);
 
       const deferredModuleStorageHostname =
         "secpal" + ".deferred-module-shadow";
@@ -484,7 +511,7 @@ describe("preflight", () => {
         ],
         [
           "decoded-html-storage.html",
-          `<iframe srcdoc="&lt;script>localStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;)&lt;/script>"></iframe><svg><script>sessionStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;);<![CDATA[localStorage.setItem("${storageKey}","1")]]></script></svg>`,
+          `<iframe srcdoc="&lt;script>localStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;)&lt;/script>"></iframe><svg><script>sessionStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;);<![CDATA[const key="${storageKey}";localStorage.setItem(key,"1")]]></script></svg>`,
         ],
       ]);
 
