@@ -20,6 +20,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+type SpawnResult = ReturnType<typeof spawnSync>;
+
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const domainCheckerEnvironment = {
   ...process.env,
@@ -215,6 +217,28 @@ describe("preflight", () => {
         resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
         join(tempRoot, "check-domains-parser.mjs")
       );
+      const runDomainFixtures = (fixtures: [string, string][]) => {
+        const files = fixtures.map(([fileName, contents]) => {
+          const file = join(tempRoot, fileName);
+          writeFileSync(file, contents);
+          return file;
+        });
+        const result = spawnSync("bash", [checker], {
+          cwd: tempRoot,
+          encoding: "utf8",
+          env: domainCheckerEnvironment,
+        });
+        files.forEach((file) => unlinkSync(file));
+        return result;
+      };
+      const runDomainFixture = (fileName: string, contents: string) =>
+        runDomainFixtures([[fileName, contents]]);
+      const bad = (result: SpawnResult, hostnames: string[]) => {
+        expect(result.status).toBe(1);
+        for (const hostname of hostnames) {
+          expect(result.stdout).toContain(hostname);
+        }
+      };
       writeFileSync(
         join(tempRoot, "theme-color.js"),
         `localStorage.setItem("${storageKey}", "1");\n`
@@ -303,6 +327,286 @@ describe("preflight", () => {
       expect(shadowedStorageGlobalsResult.stdout).toContain(storageKey);
 
       unlinkSync(join(tempRoot, "shadowed-storage-globals.js"));
+
+      const shadowedHtmlStorageHostname = "secpal" + ".invalid-host";
+      const shadowedHtmlStorageResult = runDomainFixture(
+        "shadowed-storage.html",
+        [
+          "<script>",
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${shadowedHtmlStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      bad(shadowedHtmlStorageResult, [shadowedHtmlStorageHostname]);
+      const crossScriptStorageHostname = "secpal" + ".cross-script-shadow";
+      const dataTypeStorageHostname = "secpal" + ".data-type-shadow";
+      const attributeValueStorageHostname =
+        "secpal" + ".attribute-value-shadow";
+      const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
+      const scannerHostnames =
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type html-href srcdoc svg-cdata html-xlink svg-src srcdoc-encoded svg-entity foreign-html-href svg-comment svg-markup"
+          .split(" ")
+          .map((suffix) => "secpal" + `.scanner-${suffix}`);
+      const htmlScriptBoundariesResult = runDomainFixture(
+        "html-script-boundaries.html",
+        [
+          `<script type="module&Tab;">globalThis.localStorage.setItem("${scannerHostnames[2]}","1")</script>`,
+          "<script>const globalThis=null</script>",
+          `<p>İ</p><script>const sessionStorage=null;sessionStorage.setItem("${scannerHostnames[1]}","1")</script>`,
+          `<script data-note=foo">const window=null;window.localStorage.setItem("${scannerHostnames[0]}","1")</script>`,
+          `<!--><script>const localStorage=null;localStorage.setItem("${scannerHostnames[3]}","1")</script><!--x--!><script>const sessionStorage=null;sessionStorage.setItem("${scannerHostnames[4]}","1")</script>`,
+          `<div ="><script>const localStorage=null;localStorage.setItem("${scannerHostnames[5]}","1")</script>`,
+          `<script><!--\n/*<script>*/\n/*</script>*/\nconst localStorage=null;localStorage.setItem("${scannerHostnames[6]}","1")\n</script>`,
+          `<script><!--\n--!>\n/*<script>*/\n/*</script>*/\nconst sessionStorage=null;sessionStorage.setItem("${scannerHostnames[7]}","1")\n</script>`,
+          `<script type="&Tab;">const window=null;window.localStorage.setItem("${scannerHostnames[8]}","1")</script>`,
+          `<script href="ignored.js">const localStorage=null;localStorage.setItem("${scannerHostnames[9]}","1")</script>`,
+          `<iframe srcdoc="<script>const sessionStorage=null;sessionStorage.setItem('${scannerHostnames[10]}','1')</script>"></iframe>`,
+          `<svg><script><![CDATA[const globalThis=null;globalThis.localStorage.setItem("${scannerHostnames[11]}","1")]]></script></svg>`,
+          `<script xlink:href="ignored.js">const window=null;window.localStorage.setItem("${scannerHostnames[12]}","1")</script>`,
+          `<svg><script src="ignored.js">const localStorage=null;localStorage.setItem("${scannerHostnames[13]}","1")</script></svg>`,
+          `<iframe srcdoc="&lt;script>const window=null;window.localStorage.setItem(&quot;secpal&#46;scanner-srcdoc-encoded&quot;,&quot;1&quot;)&lt;/script>"></iframe>`,
+          `<svg><script>const sessionStorage=null;sessionStorage.setItem(&quot;secpal&#46;scanner-svg-entity&quot;,&quot;1&quot;)</script></svg>`,
+          `<svg><foreignObject><script href="ignored.js">const globalThis=null;globalThis.sessionStorage.setItem("${scannerHostnames[16]}","1")</script></foreignObject></svg>`,
+          `<svg><script>localStorage.setItem("${storageKey}","1");<!-- ${scannerHostnames[17]} --></script></svg>`,
+          `<svg><script><g data-host="${scannerHostnames[18]}"></g></script></svg>`,
+          "<script>const localStorage = fakeStorage;</script>",
+          "<script>",
+          `const key = "${crossScriptStorageHostname}";`,
+          'localStorage.setItem(key, "1");',
+          "</script>",
+          '<script data-type="application/json">',
+          "const sessionStorage = fakeStorage;",
+          `sessionStorage.setItem("${dataTypeStorageHostname}", "1");`,
+          "</script>",
+          `<script data-note='type="application/json"'>`,
+          "const window = fakeWindow;",
+          `window.localStorage.setItem("${attributeValueStorageHostname}", "1");`,
+          "</script>",
+          '<script type="text&#x2f;javascript">',
+          "const globalThis = fakeGlobal;",
+          `globalThis.sessionStorage.setItem("${encodedTypeStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      bad(htmlScriptBoundariesResult, [
+        crossScriptStorageHostname,
+        dataTypeStorageHostname,
+        attributeValueStorageHostname,
+        encodedTypeStorageHostname,
+        ...scannerHostnames,
+      ]);
+
+      const moduleBeforeDeferResult = runDomainFixture(
+        "module-before-defer.html",
+        `<script type="module">localStorage.setItem("${storageKey}","1")</script><script defer src="later.js"></script><script type="module" src="later.mjs"></script>`
+      );
+      expect(moduleBeforeDeferResult.status).toBe(0);
+
+      const validModuleModesResult = runDomainFixtures([
+        [
+          "module-before-nomodule.html",
+          `<script type="module">localStorage.setItem("${storageKey}","1")</script><script nomodule src="legacy.js"></script>`,
+        ],
+        [
+          "module-after-inline-nomodule.html",
+          `<script nomodule>const localStorage = null;</script><script type="module">localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "standalone-async-module.html",
+          `<script type="module" async>localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "nomodule-after-async-module.html",
+          `<script type="module" async>Storage.prototype.setItem = replacement;</script><script nomodule>localStorage.setItem("${storageKey}","1")</script>`,
+        ],
+        [
+          "module-grammar.html",
+          `<script type="module">localStorage.setItem("${storageKey}","1"); await 0; import.meta; export {};</script>`,
+        ],
+      ]);
+      expect(validModuleModesResult.status, validModuleModesResult.stdout).toBe(
+        0
+      );
+
+      const prefixHostnames =
+        "svg-href svg-xlink mutated-storage-key external-script-key"
+          .split(" ")
+          .map((suffix) => "secpal" + `.${suffix}`);
+      for (const [index, attribute] of ["href", "xlink:href"].entries()) {
+        const result = runDomainFixture(
+          `svg-${index}.html`,
+          `<svg><script ${attribute}="setup.js"></script></svg><script>localStorage.setItem("${prefixHostnames[index]}","1")</script>`
+        );
+        bad(result, [prefixHostnames[index]]);
+      }
+      const htmlScriptPrefixHazardsResult = runDomainFixture(
+        "html-script-prefix-hazards.html",
+        [
+          "<script>Storage.prototype.setItem = replacement;</script>",
+          `<script>localStorage.setItem("${prefixHostnames[2]}", "1");</script>`,
+          '<script src="setup.js"></script>',
+          `<script>sessionStorage.setItem("${prefixHostnames[3]}", "1");</script>`,
+        ].join("\n")
+      );
+
+      bad(htmlScriptPrefixHazardsResult, prefixHostnames.slice(2));
+
+      const laterHelperHostname = "secpal" + ".later-helper";
+      const laterHelperResult = runDomainFixture(
+        "later-html-helper.html",
+        [
+          "<script>",
+          "setup();",
+          `localStorage.setItem("${laterHelperHostname}", "1");`,
+          "</script>",
+          "<script>function setup() {}</script>",
+        ].join("\n")
+      );
+
+      bad(laterHelperResult, [laterHelperHostname]);
+
+      const moduleBarrierHostnames = "defer-before blocking-after async-after"
+        .split(" ")
+        .map((suffix) => "secpal" + `.module-${suffix}`);
+      const moduleBarriersResult = runDomainFixtures([
+        [
+          "defer-before.html",
+          `<script defer src="before.js"></script><script type="module">localStorage.setItem("${moduleBarrierHostnames[0]}","1")</script>`,
+        ],
+        [
+          "blocking-after.html",
+          `<script type="module">localStorage.setItem("${moduleBarrierHostnames[1]}","1")</script><script src="after.js"></script>`,
+        ],
+        [
+          "async-after.html",
+          `<script type="module">localStorage.setItem("${moduleBarrierHostnames[2]}","1")</script><script async src="after.js"></script>`,
+        ],
+      ]);
+      bad(moduleBarriersResult, moduleBarrierHostnames);
+
+      const moduleDependencyHostnames =
+        "import-after export-after async-import-after"
+          .split(" ")
+          .map((suffix) => "secpal" + `.module-${suffix}`);
+      const moduleDependenciesResult = runDomainFixtures([
+        [
+          "module-import-after.html",
+          `<script type="module">localStorage.setItem("${moduleDependencyHostnames[0]}","1"); import "./mutate-storage.js";</script>`,
+        ],
+        [
+          "module-export-after.html",
+          `<script type="module">sessionStorage.setItem("${moduleDependencyHostnames[1]}","1"); export * from "./mutate-storage.js";</script>`,
+        ],
+        [
+          "async-module-import-after.html",
+          `<script type="module" async>localStorage.setItem("${moduleDependencyHostnames[2]}","1"); import "./mutate-storage.js";</script>`,
+        ],
+      ]);
+      bad(moduleDependenciesResult, moduleDependencyHostnames);
+
+      const deferredModuleStorageHostname =
+        "secpal" + ".deferred-module-shadow";
+      const asyncModuleStorageHostname = "secpal" + ".async-module-order";
+      const shadowedAsyncModuleHostname = "secpal" + ".async-module-shadow";
+      const shadowedNoModuleHostname = "secpal" + ".nomodule-shadow";
+      const deferredModuleStorageResult = runDomainFixture(
+        "deferred-module-shadow.html",
+        [
+          '<script type="module">',
+          `localStorage.setItem("${deferredModuleStorageHostname}", "1");`,
+          "</script>",
+          "<script>const localStorage = null;</script>",
+          "<script type=module async>Storage.prototype.setItem=replacement</script>",
+          `<script>sessionStorage.setItem("${asyncModuleStorageHostname}","1")</script>`,
+          `<script type=module async>const localStorage=null;localStorage.setItem("${shadowedAsyncModuleHostname}","1")</script>`,
+          `<script nomodule>const sessionStorage=null;sessionStorage.setItem("${shadowedNoModuleHostname}","1")</script>`,
+        ].join("\n")
+      );
+
+      bad(deferredModuleStorageResult, [
+        deferredModuleStorageHostname,
+        asyncModuleStorageHostname,
+        shadowedAsyncModuleHostname,
+        shadowedNoModuleHostname,
+      ]);
+
+      const validHtmlStorageResult = runDomainFixtures([
+        [
+          "shared-html-storage-key.html",
+          [
+            `<script>const storageKey = "${storageKey}";</script>`,
+            '<script>localStorage.setItem(storageKey, "1");</script>',
+          ].join("\n"),
+        ],
+        [
+          "previous-html-helper.html",
+          [
+            "<script>function setup() {}</script>",
+            `<script>setup();localStorage.setItem("${storageKey}", "1");</script>`,
+          ].join("\n"),
+        ],
+        [
+          "same-html-helper.html",
+          `<script>setup();function setup() {}localStorage.setItem("${storageKey}", "1");</script>`,
+        ],
+        [
+          "html-script-scope-isolation.html",
+          [
+            `<script>localStorage.setItem("${storageKey}", "1");</script>`,
+            "<script>const localStorage = null;</script>",
+            '<script type="module">const sessionStorage = null;</script>',
+            `<script>sessionStorage.setItem("${storageKey}", "1");</script>`,
+          ].join("\n"),
+        ],
+        [
+          "separate-html-shadow.html",
+          "<script>const sessionStorage = fakeStorage;</script>\n",
+        ],
+        [
+          "separate-html-storage.html",
+          `<script>sessionStorage.setItem("${storageKey}", "1");</script>\n`,
+        ],
+        [
+          "quoted-script-attribute.html",
+          `<!-- <script> --><div data-note="<script>"></div><script data-note="1 > 0">localStorage.setItem("${storageKey}", "1");</script><svg><script>sessionStorage.setItem("${storageKey}","1")</script></svg>\n`,
+        ],
+        [
+          "multiple-storage-keys.html",
+          ["first-key", "second-key", "third-key"]
+            .map(
+              (suffix) =>
+                `<script>localStorage.setItem("secpal.${suffix}", "1");</script>`
+            )
+            .join("\n"),
+        ],
+        [
+          "inert-html-storage.html",
+          `<template><script>const localStorage=null;localStorage.setItem("${storageKey}","1")</script></template><textarea><script>const sessionStorage=null;sessionStorage.setItem("${storageKey}","1")</script></textarea>`,
+        ],
+        [
+          "decoded-html-storage.html",
+          `<iframe srcdoc="&lt;script>localStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;)&lt;/script>"></iframe><svg><script>sessionStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;);<![CDATA[const key="${storageKey}";localStorage.setItem(key,"1")]]></script></svg>`,
+        ],
+      ]);
+
+      expect(validHtmlStorageResult.status, validHtmlStorageResult.stdout).toBe(
+        0
+      );
+
+      const legacyJavascriptStorageResult = runDomainFixture(
+        "legacy-javascript-storage.html",
+        [
+          '<script type="application/x-javascript">',
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${shadowedHtmlStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      bad(legacyJavascriptStorageResult, [shadowedHtmlStorageHostname]);
 
       const nestedDirectory = join(tempRoot, "nested");
       mkdirSync(nestedDirectory);
@@ -1507,7 +1811,7 @@ describe("preflight", () => {
     }
   });
 
-  it("explains how to restore the TypeScript parser dependency", () => {
+  it("explains how to restore the domain parser dependencies", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
     const emptyModuleRoot = join(tempRoot, "without-node-modules");
@@ -1537,7 +1841,7 @@ describe("preflight", () => {
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(
-        "TypeScript is required to validate domain usage; run npm ci."
+        "TypeScript and parse5 are required to validate domain usage; run npm ci."
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });

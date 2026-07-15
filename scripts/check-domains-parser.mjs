@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
@@ -13,13 +13,17 @@ const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
   : resolve(scriptDirectory, "..");
 const require = createRequire(join(moduleRoot, "package.json"));
 
+let parseHtml;
 let ts;
 try {
   ts = require("typescript");
+  ({ parse: parseHtml } = await import(
+    pathToFileURL(require.resolve("parse5")).href
+  ));
 } catch (error) {
-  if (error?.code === "MODULE_NOT_FOUND") {
+  if (["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(error?.code)) {
     process.stderr.write(
-      "TypeScript is required to validate domain usage; run npm ci.\n"
+      "TypeScript and parse5 are required to validate domain usage; run npm ci.\n"
     );
     process.exit(1);
   }
@@ -31,8 +35,19 @@ const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
+const htmlExtensionPattern = /^\.html?$/;
+const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
+const htmlNamespace = "http://www.w3.org/1999/xhtml";
+const svgNamespace = "http://www.w3.org/2000/svg";
+const javascriptMimeTypes = new Set(
+  [
+    "application/ecmascript application/javascript application/x-ecmascript application/x-javascript",
+    "text/ecmascript text/javascript text/jscript text/livescript text/x-ecmascript text/x-javascript",
+    ...Array.from({ length: 6 }, (_, index) => `text/javascript1.${index}`),
+  ].flatMap((types) => types.split(" "))
+);
 const storageMethods = new Map([
   ["getItem", 1],
   ["removeItem", 1],
@@ -60,11 +75,31 @@ function isAmbientDeclaration(declaration) {
 
 function isUnshadowedGlobal(checker, identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
-  return !symbol?.declarations?.some(
-    (declaration) =>
-      declaration.getSourceFile() === identifier.getSourceFile() &&
-      !isAmbientDeclaration(declaration)
+  const sourceFile = identifier.getSourceFile();
+  const scopes = syntheticHtmlScopes.get(sourceFile.fileName);
+  const identifierScope = scopes?.find(
+    (scope) =>
+      identifier.getStart(sourceFile) >= scope.syntheticStart &&
+      identifier.getEnd() <= scope.syntheticEnd
   );
+  return !symbol?.declarations?.some((declaration) => {
+    if (
+      declaration.getSourceFile() !== sourceFile ||
+      isAmbientDeclaration(declaration)
+    ) {
+      return false;
+    }
+    const declarationScope = scopes?.find(
+      (scope) =>
+        declaration.getStart(sourceFile) >= scope.syntheticStart &&
+        declaration.getEnd() <= scope.syntheticEnd
+    );
+    return !(
+      identifierScope &&
+      declarationScope &&
+      declarationScope.executionIndex > identifierScope.executionIndex
+    );
+  });
 }
 
 function isTransparentExpressionWrapper(node) {
@@ -400,15 +435,48 @@ function symbolAtIdentifier(checker, identifier) {
   return checker.getSymbolAtLocation(identifier);
 }
 
+function syntheticHtmlScope(node) {
+  const sourceFile = node.getSourceFile();
+  return syntheticHtmlScopes
+    .get(sourceFile.fileName)
+    ?.find(
+      (scope) =>
+        node.getStart(sourceFile) >= scope.syntheticStart &&
+        node.getEnd() <= scope.syntheticEnd
+    );
+}
+
+function declarationIsAvailableAtReference(reference, declaration) {
+  if (
+    declaration.getSourceFile() !== reference.getSourceFile() ||
+    isAmbientDeclaration(declaration)
+  ) {
+    return true;
+  }
+  const referenceScope = syntheticHtmlScope(reference);
+  const declarationScope = syntheticHtmlScope(declaration);
+  return !(
+    referenceScope &&
+    declarationScope &&
+    declarationScope.executionIndex > referenceScope.executionIndex
+  );
+}
+
 function identifierReferencesSymbol(checker, identifier, symbol) {
   const reference = symbolAtIdentifier(checker, identifier);
+  if (!reference) {
+    return false;
+  }
+  const declarations =
+    reference === symbol
+      ? symbol.declarations
+      : reference.declarations?.filter((declaration) =>
+          symbol.declarations?.includes(declaration)
+        );
   return (
-    reference === symbol ||
-    Boolean(
-      reference?.declarations?.some((declaration) =>
-        symbol.declarations?.includes(declaration)
-      )
-    )
+    declarations?.some((declaration) =>
+      declarationIsAvailableAtReference(identifier, declaration)
+    ) ?? reference === symbol
   );
 }
 
@@ -499,12 +567,20 @@ function isErasedTypeOnlyStatement(statement) {
 }
 
 function hasHoistedRuntimeDependency(sourceFile) {
-  return sourceFile.statements.some(
-    (statement) =>
-      (ts.isImportDeclaration(statement) ||
-        (ts.isExportDeclaration(statement) && statement.moduleSpecifier)) &&
-      !isErasedTypeOnlyStatement(statement)
-  );
+  let dependency = false;
+  const visit = (node) => {
+    if (
+      (ts.isImportDeclaration(node) ||
+        (ts.isExportDeclaration(node) && node.moduleSpecifier)) &&
+      !isErasedTypeOnlyStatement(node)
+    ) {
+      dependency = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return dependency;
 }
 
 function resolvedLocalExport(statement, checker) {
@@ -1347,40 +1423,369 @@ function replaceNonSourceStorageKeys(source) {
   );
 }
 
+function replaceExemptions(source, exemptions) {
+  for (const exemption of exemptions.sort(
+    (left, right) => right.start - left.start
+  )) {
+    source =
+      source.slice(0, exemption.start) +
+      "__secpal_storage_identifier__" +
+      source.slice(exemption.end);
+  }
+  return source;
+}
+
+function executableScriptType(rawType) {
+  const type = (rawType ?? "").split(";", 1)[0].trim().toLowerCase();
+  const module = type === "module";
+  return {
+    executable:
+      module ||
+      type === "" ||
+      javascriptMimeTypes.has(type) ||
+      type.includes("&"),
+    module,
+  };
+}
+
+function htmlAttributes(node) {
+  return new Map(
+    node.attrs.map(({ name, prefix, value }) => [
+      prefix ? `${prefix}:${name}` : name,
+      value,
+    ])
+  );
+}
+
+function executableHtmlScript(node, source) {
+  const location = node.sourceCodeLocation;
+  if (
+    node.tagName !== "script" ||
+    ![htmlNamespace, svgNamespace].includes(node.namespaceURI) ||
+    !location?.startTag
+  ) {
+    return undefined;
+  }
+  const attributes = htmlAttributes(node);
+  const type = executableScriptType(attributes.get("type"));
+  if (!type.executable) {
+    return undefined;
+  }
+  const start = location.startTag.endOffset;
+  const end = location.endTag?.startOffset ?? location.endOffset;
+  const svg = node.namespaceURI === svgNamespace;
+  const textChildren = node.childNodes.filter(
+    (child) => child.nodeName === "#text"
+  );
+  return {
+    async: !svg && attributes.has("async"),
+    content: svg
+      ? textChildren.map((child) => child.value).join("")
+      : source.slice(start, end),
+    defer: !svg && attributes.has("defer"),
+    external: svg
+      ? attributes.has("href") || attributes.has("xlink:href")
+      : attributes.has("src"),
+    line: location.startTag.endLine,
+    module: type.module,
+    noModule: !svg && !type.module && attributes.has("nomodule"),
+    ranges: svg
+      ? textChildren
+          .filter((child) => child.sourceCodeLocation)
+          .map(({ sourceCodeLocation: child }) => ({
+            end: child.endOffset,
+            start: child.startOffset,
+          }))
+      : [{ end, start }],
+  };
+}
+
+function parsedHtmlDocument(source) {
+  const scripts = [];
+  const embeddedDocuments = [];
+  const excludedRanges = [];
+  const root = parseHtml(source, {
+    scriptingEnabled: true,
+    sourceCodeLocationInfo: true,
+  });
+  const visit = (node) => {
+    if (node.namespaceURI === htmlNamespace && node.tagName === "iframe") {
+      const attributes = htmlAttributes(node);
+      const location = node.sourceCodeLocation?.attrs?.srcdoc;
+      if (attributes.has("srcdoc") && location) {
+        const srcdoc = attributes.get("srcdoc");
+        embeddedDocuments.push({ line: location.startLine, source: srcdoc });
+        excludedRanges.push({
+          end: location.endOffset,
+          start: location.startOffset,
+        });
+      }
+    }
+    const script = executableHtmlScript(node, source);
+    if (script) {
+      scripts.push(script);
+      if (!script.external) {
+        excludedRanges.push(...script.ranges);
+      }
+      return;
+    }
+    for (const child of node.childNodes ?? []) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return { embeddedDocuments, excludedRanges, scripts };
+}
+
+function syntheticHtmlSource(entries) {
+  const mappings = [];
+  let synthetic = "";
+  for (const entry of entries) {
+    synthetic += entry.module ? "(() => {\n" : "";
+    const syntheticStart = synthetic.length;
+    synthetic += entry.script.content;
+    mappings.push({
+      executionIndex: mappings.length,
+      script: entry.script,
+      syntheticEnd: synthetic.length,
+      syntheticStart,
+    });
+    synthetic += entry.module ? "\n})();\n" : "\n;\n";
+  }
+  return { mappings, synthetic };
+}
+
+function mappedHtmlExemptions(document, entries, analysisIndex) {
+  const { mappings, synthetic } = syntheticHtmlSource(entries);
+  const file = `${document}.secpal-html-analysis-${analysisIndex}.js`;
+  const sources = new Map([[file, synthetic]]);
+  syntheticHtmlScopes.set(file, mappings);
+  const program = makeProgram([], sources, ts.ModuleDetectionKind.Legacy);
+  const mapped = [];
+  const exemptions = parserExemptions(file, program, program.getTypeChecker());
+  for (const item of exemptions) {
+    const mapping = mappings.find(
+      ({ syntheticEnd, syntheticStart }) =>
+        item.start >= syntheticStart && item.end <= syntheticEnd
+    );
+    if (mapping) {
+      mapped.push({
+        end: item.end - mapping.syntheticStart,
+        script: mapping.script,
+        start: item.start - mapping.syntheticStart,
+      });
+    }
+  }
+  return mapped;
+}
+
+function sanitizedHtmlScripts(document, scripts) {
+  const exemptions = new Map(scripts.map((script) => [script, new Map()]));
+  let analysisIndex = 0;
+  const addAnalysis = (entries, targetScript) => {
+    const mapped = mappedHtmlExemptions(document, entries, analysisIndex);
+    for (const exemption of mapped) {
+      if (targetScript && exemption.script !== targetScript) {
+        continue;
+      }
+      const ranges = exemptions.get(exemption.script);
+      ranges.set(`${exemption.start}:${exemption.end}`, exemption);
+    }
+    analysisIndex += 1;
+  };
+
+  const analyzeClassicScripts = (legacyOnly) => {
+    const entries = [];
+    let prefixBlocked = false;
+    for (const script of scripts) {
+      if (script.module) {
+        if (!legacyOnly && script.async) {
+          prefixBlocked = true;
+        }
+        continue;
+      }
+      if (script.external) {
+        if (script.async || !script.defer) {
+          prefixBlocked = true;
+        }
+        continue;
+      }
+      entries.push({ module: false, script });
+      if (!prefixBlocked && (!legacyOnly || script.noModule)) {
+        addAnalysis(entries, legacyOnly ? script : undefined);
+      }
+    }
+    return entries;
+  };
+
+  const classicEntries = analyzeClassicScripts(false);
+  analyzeClassicScripts(true);
+
+  const modulePrefix = classicEntries.filter(({ script }) => !script.noModule);
+  let modulePrefixBlocked = scripts.some(
+    (script) =>
+      !script.noModule &&
+      ((script.async && (script.external || script.module)) ||
+        (script.external && !script.module && !script.defer))
+  );
+  for (const script of scripts) {
+    if (
+      !script.noModule &&
+      script.external &&
+      (script.module || script.defer)
+    ) {
+      modulePrefixBlocked = true;
+      continue;
+    }
+    if (script.module && !script.async) {
+      modulePrefix.push({ module: true, script });
+      if (!modulePrefixBlocked) {
+        addAnalysis(modulePrefix);
+      }
+    }
+  }
+
+  for (const script of scripts) {
+    if (
+      script.module &&
+      script.async &&
+      !script.external &&
+      scripts.every((candidate) => candidate === script || candidate.noModule)
+    ) {
+      addAnalysis([{ module: true, script }]);
+    }
+  }
+
+  return scripts
+    .filter((script) => !script.external)
+    .map((script) => ({
+      ...script,
+      content: replaceExemptions(script.content, [
+        ...exemptions.get(script).values(),
+      ]),
+    }));
+}
+
+function replaceStorageKeysOutsideRanges(source, ranges) {
+  let result = "";
+  let start = 0;
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    result += replaceNonSourceStorageKeys(source.slice(start, range.start));
+    result += source.slice(range.start, range.end).replace(/[^\n]/g, "");
+    start = range.end;
+  }
+  return result + replaceNonSourceStorageKeys(source.slice(start));
+}
+
+function htmlAnalysisSources(source, document) {
+  const outputs = [];
+  const pending = [{ document, lineOffset: 0, source }];
+  let embeddedIndex = 0;
+  for (const current of pending) {
+    const parsed = parsedHtmlDocument(current.source);
+    outputs.push({
+      lineOffset: current.lineOffset,
+      source: replaceStorageKeysOutsideRanges(
+        current.source,
+        parsed.excludedRanges
+      ),
+    });
+    const scripts = sanitizedHtmlScripts(current.document, parsed.scripts);
+    for (const script of scripts) {
+      outputs.push({
+        lineOffset: current.lineOffset + script.line - 1,
+        source: script.content,
+      });
+    }
+    for (const embedded of parsed.embeddedDocuments) {
+      pending.push({
+        document: `${document}.secpal-srcdoc-${embeddedIndex}`,
+        lineOffset: current.lineOffset + embedded.line - 1,
+        source: embedded.source,
+      });
+      embeddedIndex += 1;
+    }
+  }
+  return outputs;
+}
+
+function makeProgram(
+  sourceFiles,
+  virtualSources,
+  moduleDetection = ts.ModuleDetectionKind.Force
+) {
+  const options = {
+    allowJs: true,
+    checkJs: true,
+    jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext,
+    moduleDetection,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = ts.createCompilerHost(options, true);
+  const fileExists = host.fileExists.bind(host);
+  const readFile = host.readFile.bind(host);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.fileExists = (file) => virtualSources.has(file) || fileExists(file);
+  host.readFile = (file) => virtualSources.get(file) ?? readFile(file);
+  host.getSourceFile = (file, languageVersion) => {
+    const source = virtualSources.get(file);
+    return source === undefined
+      ? getSourceFile(file, languageVersion)
+      : ts.createSourceFile(
+          file,
+          source,
+          languageVersion,
+          true,
+          ts.ScriptKind.JS
+        );
+  };
+  return ts.createProgram(
+    [...sourceFiles, ...virtualSources.keys()],
+    options,
+    host
+  );
+}
+
 const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
 );
-const program = ts.createProgram(sourceFiles, {
-  allowJs: true,
-  checkJs: true,
-  jsx: ts.JsxEmit.Preserve,
-  module: ts.ModuleKind.ESNext,
-  moduleDetection: ts.ModuleDetectionKind.Force,
-  noLib: true,
-  noResolve: true,
-  target: ts.ScriptTarget.Latest,
-});
+const htmlSources = new Map();
+for (const file of files) {
+  if (!htmlExtensionPattern.test(extname(file))) {
+    continue;
+  }
+  const source = readFileSync(file, "utf8");
+  htmlSources.set(file, htmlAnalysisSources(source, resolve(file)));
+}
+const program = makeProgram(sourceFiles, new Map());
 const checker = program.getTypeChecker();
 
 for (const file of files) {
   let source = readFileSync(file, "utf8");
+  let analyzedSources;
   if (sourceExtensionPattern.test(extname(file))) {
-    for (const exemption of parserExemptions(file, program, checker).sort(
-      (left, right) => right.start - left.start
-    )) {
-      source =
-        source.slice(0, exemption.start) +
-        "__secpal_storage_identifier__" +
-        source.slice(exemption.end);
-    }
+    source = replaceExemptions(
+      source,
+      parserExemptions(file, program, checker)
+    );
+    analyzedSources = [{ lineOffset: 0, source }];
   } else {
-    source = replaceNonSourceStorageKeys(source);
+    analyzedSources = htmlSources.get(file) ?? [
+      { lineOffset: 0, source: replaceNonSourceStorageKeys(source) },
+    ];
   }
 
-  source.split("\n").forEach((line, index) => {
-    if (secpalDomainPattern.test(line)) {
-      process.stdout.write(`${file}:${index + 1}:${line}\n`);
-    }
-  });
+  for (const analyzed of analyzedSources) {
+    analyzed.source.split("\n").forEach((line, index) => {
+      if (secpalDomainPattern.test(line)) {
+        process.stdout.write(
+          `${file}:${analyzed.lineOffset + index + 1}:${line}\n`
+        );
+      }
+    });
+  }
 }
