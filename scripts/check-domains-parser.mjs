@@ -1489,7 +1489,7 @@ function asciiMatch(source, index, value) {
 }
 
 function scriptEnd(source, start) {
-  const tokens = /<!--|-->|<\/?script(?=[\t\n\f\r />])/gi;
+  const tokens = /<!--|-->|--!>|<\/?script(?=[\t\n\f\r />])/gi;
   tokens.lastIndex = start;
   let state = 0;
   for (const match of source.matchAll(tokens)) {

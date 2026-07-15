@@ -347,7 +347,7 @@ describe("preflight", () => {
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
       const scannerHostnames =
-        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped"
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped"
           .split(" ")
           .map((suffix) => "secpal" + `.scanner-${suffix}`);
       const htmlScriptBoundariesResult = runDomainFixture(
@@ -360,6 +360,7 @@ describe("preflight", () => {
           `<!--><script>const localStorage=null;localStorage.setItem("${scannerHostnames[3]}","1")</script><!--x--!><script>const sessionStorage=null;sessionStorage.setItem("${scannerHostnames[4]}","1")</script>`,
           `<div ="><script>const localStorage=null;localStorage.setItem("${scannerHostnames[5]}","1")</script>`,
           `<script><!--\n/*<script>*/\n/*</script>*/\nconst localStorage=null;localStorage.setItem("${scannerHostnames[6]}","1")\n</script>`,
+          `<script><!--\n--!>\n/*<script>*/\n/*</script>*/\nconst sessionStorage=null;sessionStorage.setItem("${scannerHostnames[7]}","1")\n</script>`,
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
           `const key = "${crossScriptStorageHostname}";`,
