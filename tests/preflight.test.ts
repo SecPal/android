@@ -1669,6 +1669,62 @@ describe("preflight", () => {
     }
   });
 
+  it("semantically validates browser-storage keys in executable HTML attributes", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");
+    const file = join(tempRoot, "storage-attributes.html");
+    const storageKey = (suffix: string) => "secpal" + `.${suffix}`;
+    const shadowedEventKey = storageKey("invalid-event-handler");
+    const shadowedUrlKey = storageKey("invalid-javascript-url");
+    const validEventKey = storageKey("valid-event-handler");
+    const validUrlKey = storageKey("valid-javascript-url");
+    const validEscapedUrlKey = storageKey("valid-escaped-javascript-url");
+
+    try {
+      writeFileSync(
+        file,
+        [
+          `<button onclick="const localStorage = fakeStorage; localStorage.setItem(&quot;${shadowedEventKey}&quot;, &quot;1&quot;)">Save</button>`,
+          `<a href="javascript:const sessionStorage = fakeStorage; sessionStorage.setItem(&quot;${shadowedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
+          `<button onclick="localStorage.setItem(&#x22;${validEventKey}&#x22;, &#x22;1&#x22;)">Save</button>`,
+          `<a href="javascript:sessionStorage.setItem(&#34;${validUrlKey}&#34;, &#34;1&#34;)">Open</a>`,
+          `<a href="java&#x73;cript&colon;localStorage.setItem(&quot;${validEscapedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
+        ].join("\n")
+      );
+
+      const result = spawnSync(process.execPath, [parser, file], {
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+      const outputLines = result.stdout.split("\n");
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(outputReportsExactValue(outputLines, file, shadowedEventKey)).toBe(
+        true
+      );
+      expect(outputReportsExactValue(outputLines, file, shadowedUrlKey)).toBe(
+        true
+      );
+      expect(outputReportsExactValue(outputLines, file, validEventKey)).toBe(
+        false
+      );
+      expect(outputReportsExactValue(outputLines, file, validUrlKey)).toBe(
+        false
+      );
+      expect(
+        outputReportsExactValue(outputLines, file, validEscapedUrlKey)
+      ).toBe(false);
+      expect(outputLines.some((line) => line.startsWith(`${file}:1:`))).toBe(
+        true
+      );
+      expect(outputLines.some((line) => line.startsWith(`${file}:2:`))).toBe(
+        true
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsafe storage-key exemption proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");

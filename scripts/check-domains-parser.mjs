@@ -53,6 +53,16 @@ const storageMethods = new Map([
   ["removeItem", 1],
   ["setItem", 2],
 ]);
+const htmlCharacterReferences = new Map([
+  ["amp", 38],
+  ["apos", 39],
+  ["colon", 58],
+  ["gt", 62],
+  ["lt", 60],
+  ["NewLine", 10],
+  ["quot", 34],
+  ["Tab", 9],
+]);
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -1457,6 +1467,104 @@ function htmlAttributes(node) {
   );
 }
 
+function htmlAttributeValueRange(source, location) {
+  const attribute = source.slice(location.startOffset, location.endOffset);
+  const equals = attribute.indexOf("=");
+  if (equals === -1) return undefined;
+  let start = equals + 1;
+  while (/\s/.test(attribute[start] ?? "")) start += 1;
+  const quote = attribute[start];
+  if (quote === '"' || quote === "'") {
+    start += 1;
+    const end = attribute.lastIndexOf(quote);
+    return {
+      end: location.startOffset + (end > start ? end : attribute.length),
+      start: location.startOffset + start,
+    };
+  }
+  return { end: location.endOffset, start: location.startOffset + start };
+}
+
+function decodeHtmlCharacterReferences(value, offset) {
+  const starts = [];
+  const ends = [];
+  let decoded = "";
+  for (let index = 0; index < value.length;) {
+    const reference = value
+      .slice(index)
+      .match(
+        /^&(#[xX][0-9A-Fa-f]+|#\d+|quot|apos|amp|lt|gt|colon|NewLine|Tab);/
+      );
+    if (!reference) {
+      decoded += value[index];
+      starts.push(offset + index);
+      ends.push(offset + index + 1);
+      index += 1;
+      continue;
+    }
+    const entity = reference[1];
+    const codePoint =
+      entity.startsWith("#x") || entity.startsWith("#X")
+        ? Number.parseInt(entity.slice(2), 16)
+        : entity.startsWith("#")
+          ? Number.parseInt(entity.slice(1), 10)
+          : htmlCharacterReferences.get(entity);
+    const character = String.fromCodePoint(
+      Number.isInteger(codePoint) &&
+        codePoint <= 0x10ffff &&
+        (codePoint < 0xd800 || codePoint > 0xdfff)
+        ? codePoint
+        : 0xfffd
+    );
+    decoded += character;
+    for (
+      let characterIndex = 0;
+      characterIndex < character.length;
+      characterIndex += 1
+    ) {
+      starts.push(offset + index);
+      ends.push(offset + index + reference[0].length);
+    }
+    index += reference[0].length;
+  }
+  return { decoded, ends, starts };
+}
+
+function executableHtmlAttributes(node, source) {
+  const location = node.sourceCodeLocation;
+  if (!location?.attrs) return [];
+  const attributes = [];
+  for (const { name, prefix, value } of node.attrs) {
+    const attributeName = prefix ? `${prefix}:${name}` : name;
+    const valueLocation = htmlAttributeValueRange(
+      source,
+      location.attrs[attributeName]
+    );
+    const eventHandler = attributeName.startsWith("on");
+    const javascriptUrl =
+      ["href", "src", "action", "formaction"].includes(attributeName) &&
+      /^\s*javascript\s*:/i.test(value);
+    if (!valueLocation || (!eventHandler && !javascriptUrl)) continue;
+    const decoded = decodeHtmlCharacterReferences(
+      source.slice(valueLocation.start, valueLocation.end),
+      valueLocation.start
+    );
+    const javascriptStart = javascriptUrl
+      ? decoded.decoded.match(/^\s*javascript\s*:/i)[0].length
+      : 0;
+    attributes.push({
+      decoded: decoded.decoded.slice(javascriptStart),
+      ends: decoded.ends.slice(javascriptStart),
+      line: location.attrs[attributeName].startLine,
+      source: source.slice(valueLocation.start, valueLocation.end),
+      sourceEnd: valueLocation.end,
+      sourceStart: valueLocation.start,
+      starts: decoded.starts.slice(javascriptStart),
+    });
+  }
+  return attributes;
+}
+
 function executableHtmlScript(node, source) {
   const location = node.sourceCodeLocation;
   if (
@@ -1501,6 +1609,7 @@ function executableHtmlScript(node, source) {
 }
 
 function parsedHtmlDocument(source) {
+  const attributes = [];
   const scripts = [];
   const embeddedDocuments = [];
   const excludedRanges = [];
@@ -1529,12 +1638,19 @@ function parsedHtmlDocument(source) {
       }
       return;
     }
+    for (const attribute of executableHtmlAttributes(node, source)) {
+      attributes.push(attribute);
+      excludedRanges.push({
+        end: attribute.sourceEnd,
+        start: attribute.sourceStart,
+      });
+    }
     for (const child of node.childNodes ?? []) {
       visit(child);
     }
   };
   visit(root);
-  return { embeddedDocuments, excludedRanges, scripts };
+  return { attributes, embeddedDocuments, excludedRanges, scripts };
 }
 
 function syntheticHtmlSource(entries) {
@@ -1666,6 +1782,29 @@ function sanitizedHtmlScripts(document, scripts) {
     }));
 }
 
+function sanitizedHtmlAttribute(document, attribute, analysisIndex) {
+  const prefix = "(()=>{\n";
+  const file = `${document}.secpal-html-attribute-${analysisIndex}.js`;
+  const program = makeProgram(
+    [],
+    new Map([[file, `${prefix}${attribute.decoded}\n})();`]]),
+    ts.ModuleDetectionKind.Legacy
+  );
+  const exemptions = parserExemptions(file, program, program.getTypeChecker())
+    .map(({ end, start }) => ({
+      end: attribute.ends[end - prefix.length - 1],
+      start: attribute.starts[start - prefix.length],
+    }))
+    .filter(({ end, start }) => start !== undefined && end !== undefined);
+  return replaceExemptions(
+    attribute.source,
+    exemptions.map(({ end, start }) => ({
+      end: end - attribute.sourceStart,
+      start: start - attribute.sourceStart,
+    }))
+  );
+}
+
 function replaceStorageKeysOutsideRanges(source, ranges) {
   let result = "";
   let start = 0;
@@ -1695,6 +1834,12 @@ function htmlAnalysisSources(source, document) {
       outputs.push({
         lineOffset: current.lineOffset + script.line - 1,
         source: script.content,
+      });
+    }
+    for (const [index, attribute] of parsed.attributes.entries()) {
+      outputs.push({
+        lineOffset: current.lineOffset + attribute.line - 1,
+        source: sanitizedHtmlAttribute(current.document, attribute, index),
       });
     }
     for (const embedded of parsed.embeddedDocuments) {
