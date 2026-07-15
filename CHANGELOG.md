@@ -52,11 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Domain-policy validation now analyzes executable inline HTML scripts with
-  quote-aware tag and script-data parsing plus document-ordered execution
-  prefixes, so misleading attributes, encoded JavaScript MIME types, HTML/SVG
-  external or asynchronous barriers, prior mutations, and cross-script storage
-  shadows cannot hide unapproved domain-like keys (issue #386).
+- Domain-policy validation now uses a WHATWG-compatible HTML parse tree to
+  analyze executable inline HTML, SVG, and nested `srcdoc` scripts with
+  document-ordered execution prefixes, while distinguishing inert/raw-text
+  content, decoded attributes and CDATA, namespace-specific external scripts,
+  prior mutations, and cross-script storage shadows (issue #386).
 - Domain-policy storage-key exemptions now trace locally resolved helper calls
   before IIFE storage uses, including nested block IIFEs, and reject unapproved
   domain-like storage keys at any position while preserving ordinary keys and

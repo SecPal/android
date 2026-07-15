@@ -340,14 +340,13 @@ describe("preflight", () => {
       );
 
       bad(shadowedHtmlStorageResult, [shadowedHtmlStorageHostname]);
-
       const crossScriptStorageHostname = "secpal" + ".cross-script-shadow";
       const dataTypeStorageHostname = "secpal" + ".data-type-shadow";
       const attributeValueStorageHostname =
         "secpal" + ".attribute-value-shadow";
       const encodedTypeStorageHostname = "secpal" + ".encoded-type-shadow";
       const scannerHostnames =
-        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type"
+        "quote unicode tab-module abrupt-comment bang-comment equals-name double-escaped bang-escaped empty-type html-href srcdoc svg-cdata html-xlink svg-src srcdoc-encoded svg-entity foreign-html-href"
           .split(" ")
           .map((suffix) => "secpal" + `.scanner-${suffix}`);
       const htmlScriptBoundariesResult = runDomainFixture(
@@ -362,6 +361,14 @@ describe("preflight", () => {
           `<script><!--\n/*<script>*/\n/*</script>*/\nconst localStorage=null;localStorage.setItem("${scannerHostnames[6]}","1")\n</script>`,
           `<script><!--\n--!>\n/*<script>*/\n/*</script>*/\nconst sessionStorage=null;sessionStorage.setItem("${scannerHostnames[7]}","1")\n</script>`,
           `<script type="&Tab;">const window=null;window.localStorage.setItem("${scannerHostnames[8]}","1")</script>`,
+          `<script href="ignored.js">const localStorage=null;localStorage.setItem("${scannerHostnames[9]}","1")</script>`,
+          `<iframe srcdoc="<script>const sessionStorage=null;sessionStorage.setItem('${scannerHostnames[10]}','1')</script>"></iframe>`,
+          `<svg><script><![CDATA[const globalThis=null;globalThis.localStorage.setItem("${scannerHostnames[11]}","1")]]></script></svg>`,
+          `<script xlink:href="ignored.js">const window=null;window.localStorage.setItem("${scannerHostnames[12]}","1")</script>`,
+          `<svg><script src="ignored.js">const localStorage=null;localStorage.setItem("${scannerHostnames[13]}","1")</script></svg>`,
+          `<iframe srcdoc="&lt;script>const window=null;window.localStorage.setItem(&quot;secpal&#46;scanner-srcdoc-encoded&quot;,&quot;1&quot;)&lt;/script>"></iframe>`,
+          `<svg><script>const sessionStorage=null;sessionStorage.setItem(&quot;secpal&#46;scanner-svg-entity&quot;,&quot;1&quot;)</script></svg>`,
+          `<svg><foreignObject><script href="ignored.js">const globalThis=null;globalThis.sessionStorage.setItem("${scannerHostnames[16]}","1")</script></foreignObject></svg>`,
           "<script>const localStorage = fakeStorage;</script>",
           "<script>",
           `const key = "${crossScriptStorageHostname}";`,
@@ -470,6 +477,14 @@ describe("preflight", () => {
                 `<script>localStorage.setItem("secpal.${suffix}", "1");</script>`
             )
             .join("\n"),
+        ],
+        [
+          "inert-html-storage.html",
+          `<template><script>const localStorage=null;localStorage.setItem("${storageKey}","1")</script></template><textarea><script>const sessionStorage=null;sessionStorage.setItem("${storageKey}","1")</script></textarea>`,
+        ],
+        [
+          "decoded-html-storage.html",
+          `<iframe srcdoc="&lt;script>localStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;)&lt;/script>"></iframe><svg><script>sessionStorage.setItem(&quot;secpal&#46;asset-load-recovery&quot;,&quot;1&quot;);<![CDATA[localStorage.setItem("${storageKey}","1")]]></script></svg>`,
         ],
       ]);
 
@@ -1692,7 +1707,7 @@ describe("preflight", () => {
     }
   });
 
-  it("explains how to restore the TypeScript parser dependency", () => {
+  it("explains how to restore the domain parser dependencies", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const checker = join(tempRoot, "check-domains.sh");
     const emptyModuleRoot = join(tempRoot, "without-node-modules");
@@ -1722,7 +1737,7 @@ describe("preflight", () => {
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(
-        "TypeScript is required to validate domain usage; run npm ci."
+        "TypeScript and parse5 are required to validate domain usage; run npm ci."
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });

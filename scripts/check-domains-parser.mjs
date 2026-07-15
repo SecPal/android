@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
@@ -13,13 +13,17 @@ const moduleRoot = process.env.SECPAL_NODE_MODULES_ROOT
   : resolve(scriptDirectory, "..");
 const require = createRequire(join(moduleRoot, "package.json"));
 
+let parseHtml;
 let ts;
 try {
   ts = require("typescript");
+  ({ parse: parseHtml } = await import(
+    pathToFileURL(require.resolve("parse5")).href
+  ));
 } catch (error) {
-  if (error?.code === "MODULE_NOT_FOUND") {
+  if (["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(error?.code)) {
     process.stderr.write(
-      "TypeScript is required to validate domain usage; run npm ci.\n"
+      "TypeScript and parse5 are required to validate domain usage; run npm ci.\n"
     );
     process.exit(1);
   }
@@ -35,7 +39,8 @@ const htmlExtensionPattern = /^\.html?$/;
 const syntheticHtmlScopes = new Map();
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
-const externalScriptAttributes = ["href", "src", "xlink:href"];
+const htmlNamespace = "http://www.w3.org/1999/xhtml";
+const svgNamespace = "http://www.w3.org/2000/svg";
 const javascriptMimeTypes = new Set(
   [
     "application/ecmascript application/javascript application/x-ecmascript application/x-javascript",
@@ -1389,187 +1394,111 @@ function replaceExemptions(source, exemptions) {
   return source;
 }
 
-function htmlSpace(character) {
-  return character !== undefined && /[\t\n\f\r ]/.test(character);
+function executableScriptType(rawType) {
+  const type = (rawType ?? "").split(";", 1)[0].trim().toLowerCase();
+  const module = type === "module";
+  return {
+    executable:
+      module ||
+      type === "" ||
+      javascriptMimeTypes.has(type) ||
+      type.includes("&"),
+    module,
+  };
 }
 
-function htmlTokenEnd(source, start, delimiter) {
-  const offset = source.slice(start).search(delimiter);
-  return offset === -1 ? source.length : start + offset;
-}
-
-function htmlTag(source, start, readName = false) {
-  const attributes = new Map();
-  let index = start;
-  if (readName) {
-    index = htmlTokenEnd(source, index, /[\t\n\f\r />]/);
-  }
-  while (index < source.length) {
-    while (htmlSpace(source[index]) || source[index] === "/") {
-      index += 1;
-    }
-    if (source[index] === ">") {
-      return { attributes, end: index };
-    }
-    const nameStart = index;
-    index = htmlTokenEnd(source, index, /[\t\n\f\r /=>]/);
-    if (index === nameStart) {
-      index += 1;
-      continue;
-    }
-    const name = source.slice(nameStart, index).toLowerCase();
-    while (htmlSpace(source[index])) {
-      index += 1;
-    }
-    let value = "";
-    if (source[index] === "=") {
-      index += 1;
-      while (htmlSpace(source[index])) {
-        index += 1;
-      }
-      const quote = source[index];
-      if (quote === '"' || quote === "'") {
-        index += 1;
-        const valueStart = index;
-        while (index < source.length && source[index] !== quote) {
-          index += 1;
-        }
-        value = source.slice(valueStart, index);
-        if (source[index] === quote) {
-          index += 1;
-        }
-      } else {
-        const valueStart = index;
-        index = htmlTokenEnd(source, index, /[\t\n\f\r >]/);
-        value = source.slice(valueStart, index);
-      }
-    }
-    if (!attributes.has(name)) {
-      attributes.set(name, value);
-    }
-  }
-  return { attributes, end: undefined };
-}
-
-function decodeHtmlType(value) {
-  const names = ["newline", "period", "sol", "tab"];
-  const characters = ["\n", ".", "/", "\t"];
-  return value.replace(
-    /&#(?:x([\da-f]+)|(\d+));?|&([a-z]+);/gi,
-    (reference, hexadecimal, decimal, named) => {
-      if (hexadecimal || decimal) {
-        const codePoint = Number.parseInt(
-          hexadecimal ?? decimal,
-          hexadecimal ? 16 : 10
-        );
-        return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
-          ? String.fromCodePoint(codePoint)
-          : reference;
-      }
-      return characters[names.indexOf(named.toLowerCase())] ?? reference;
-    }
+function htmlAttributes(node) {
+  return new Map(
+    node.attrs.map(({ name, prefix, value }) => [
+      prefix ? `${prefix}:${name}` : name,
+      value,
+    ])
   );
 }
 
-function executableScriptType(rawType) {
-  const decodedType = decodeHtmlType(rawType ?? "");
-  const type = decodedType.split(";", 1)[0].trim().toLowerCase();
-  if (type === "" || javascriptMimeTypes.has(type)) {
-    return { executable: true, module: false };
+function executableHtmlScript(node, source) {
+  const location = node.sourceCodeLocation;
+  if (
+    node.tagName !== "script" ||
+    ![htmlNamespace, svgNamespace].includes(node.namespaceURI) ||
+    !location?.startTag
+  ) {
+    return undefined;
   }
-  if (type === "module") {
-    return { executable: true, module: true };
+  const attributes = htmlAttributes(node);
+  const type = executableScriptType(attributes.get("type"));
+  if (!type.executable) {
+    return undefined;
   }
-  return { executable: type.includes("&"), module: false };
+  const start = location.startTag.endOffset;
+  const end = location.endTag?.startOffset ?? location.endOffset;
+  const svg = node.namespaceURI === svgNamespace;
+  return {
+    async: !svg && attributes.has("async"),
+    content: svg
+      ? node.childNodes
+          .filter((child) => child.nodeName === "#text")
+          .map((child) => child.value)
+          .join("")
+      : source.slice(start, end),
+    defer: !svg && attributes.has("defer"),
+    end,
+    external: svg
+      ? attributes.has("href") || attributes.has("xlink:href")
+      : attributes.has("src"),
+    line: location.startTag.endLine,
+    module: type.module,
+    start,
+  };
 }
 
-function asciiMatch(source, index, value) {
-  return source.slice(index, index + value.length).toLowerCase() === value;
-}
-
-function scriptEnd(source, start) {
-  const tokens = /<!--|-->|--!>|<\/?script(?=[\t\n\f\r />])/gi;
-  tokens.lastIndex = start;
-  let state = 0;
-  for (const match of source.matchAll(tokens)) {
-    const token = match[0].toLowerCase();
-    if (token === "<!--" && state === 0) state = 1;
-    else if (token === "-->" && state === 1) state = 0;
-    else if (token === "<script" && state === 1) state = 2;
-    else if (token === "</script") {
-      if (state === 2) state = 1;
-      else return match.index;
-    }
-  }
-  return -1;
-}
-
-function executableHtmlScripts(source) {
+function parsedHtmlDocument(source) {
   const scripts = [];
-  let index = 0;
-  while (index < source.length) {
-    const tagStart = source.indexOf("<", index);
-    if (tagStart === -1) {
-      break;
-    }
-    if (source.startsWith("<!--", tagStart)) {
-      const match = /^(?:>|->)|--!?>/.exec(source.slice(tagStart + 4));
-      index = match
-        ? tagStart + 4 + match.index + match[0].length
-        : source.length;
-      continue;
-    }
-    const isScript =
-      asciiMatch(source, tagStart, "<script") &&
-      (htmlSpace(source[tagStart + 7]) ||
-        ["/", ">"].includes(source[tagStart + 7]));
-    if (!isScript) {
-      const nameStart = tagStart + (source[tagStart + 1] === "/" ? 2 : 1);
-      if (/[A-Za-z]/.test(source[nameStart] ?? "")) {
-        const { end } = htmlTag(source, nameStart, true);
-        index = end === undefined ? source.length : end + 1;
-      } else {
-        index = tagStart + 1;
+  const embeddedDocuments = [];
+  const excludedRanges = [];
+  const root = parseHtml(source, {
+    scriptingEnabled: true,
+    sourceCodeLocationInfo: true,
+  });
+  const visit = (node) => {
+    if (node.namespaceURI === htmlNamespace && node.tagName === "iframe") {
+      const attributes = htmlAttributes(node);
+      const location = node.sourceCodeLocation?.attrs?.srcdoc;
+      if (attributes.has("srcdoc") && location) {
+        const srcdoc = attributes.get("srcdoc");
+        embeddedDocuments.push({ line: location.startLine, source: srcdoc });
+        excludedRanges.push({
+          end: location.endOffset,
+          start: location.startOffset,
+        });
       }
-      continue;
     }
-    const { attributes, end: openingEnd } = htmlTag(source, tagStart + 7);
-    if (openingEnd === undefined) {
-      break;
+    const script = executableHtmlScript(node, source);
+    if (script) {
+      scripts.push(script);
+      if (!script.external) {
+        excludedRanges.push({ end: script.end, start: script.start });
+      }
+      return;
     }
-    const type = executableScriptType(attributes.get("type"));
-    const contentStart = openingEnd + 1;
-    const closingStart = scriptEnd(source, contentStart);
-    const contentEnd = closingStart === -1 ? source.length : closingStart;
-    if (type.executable) {
-      scripts.push({
-        async: attributes.has("async"),
-        defer: attributes.has("defer"),
-        end: contentEnd,
-        external: externalScriptAttributes.some((name) => attributes.has(name)),
-        module: type.module,
-        start: contentStart,
-      });
+    for (const child of node.childNodes ?? []) {
+      visit(child);
     }
-    if (closingStart === -1) {
-      break;
-    }
-    const { end: closingEnd } = htmlTag(source, closingStart + 8);
-    index = closingEnd === undefined ? source.length : closingEnd + 1;
-  }
-  return scripts;
+  };
+  visit(root);
+  return { embeddedDocuments, excludedRanges, scripts };
 }
 
-function syntheticHtmlSource(source, entries) {
+function syntheticHtmlSource(entries) {
   const mappings = [];
   let synthetic = "";
   for (const entry of entries) {
     synthetic += entry.module ? "(() => {\n" : "";
     const syntheticStart = synthetic.length;
-    synthetic += source.slice(entry.script.start, entry.script.end);
+    synthetic += entry.script.content;
     mappings.push({
       executionIndex: mappings.length,
-      sourceStart: entry.script.start,
+      script: entry.script,
       syntheticEnd: synthetic.length,
       syntheticStart,
     });
@@ -1578,8 +1507,8 @@ function syntheticHtmlSource(source, entries) {
   return { mappings, synthetic };
 }
 
-function mappedHtmlExemptions(source, document, entries, analysisIndex) {
-  const { mappings, synthetic } = syntheticHtmlSource(source, entries);
+function mappedHtmlExemptions(document, entries, analysisIndex) {
+  const { mappings, synthetic } = syntheticHtmlSource(entries);
   const file = `${document}.secpal-html-analysis-${analysisIndex}.js`;
   const sources = new Map([[file, synthetic]]);
   syntheticHtmlScopes.set(file, mappings);
@@ -1592,24 +1521,24 @@ function mappedHtmlExemptions(source, document, entries, analysisIndex) {
         item.start >= syntheticStart && item.end <= syntheticEnd
     );
     if (mapping) {
-      const offset = mapping.sourceStart - mapping.syntheticStart;
-      mapped.push({ end: item.end + offset, start: item.start + offset });
+      mapped.push({
+        end: item.end - mapping.syntheticStart,
+        script: mapping.script,
+        start: item.start - mapping.syntheticStart,
+      });
     }
   }
   return mapped;
 }
 
-function htmlParserExemptions(source, document, scripts) {
-  const exemptions = new Map();
+function sanitizedHtmlScripts(document, scripts) {
+  const exemptions = new Map(scripts.map((script) => [script, new Map()]));
   let analysisIndex = 0;
   const addAnalysis = (entries) => {
-    for (const exemption of mappedHtmlExemptions(
-      source,
-      document,
-      entries,
-      analysisIndex
-    )) {
-      exemptions.set(`${exemption.start}:${exemption.end}`, exemption);
+    const mapped = mappedHtmlExemptions(document, entries, analysisIndex);
+    for (const exemption of mapped) {
+      const ranges = exemptions.get(exemption.script);
+      ranges.set(`${exemption.start}:${exemption.end}`, exemption);
     }
     analysisIndex += 1;
   };
@@ -1650,18 +1579,57 @@ function htmlParserExemptions(source, document, scripts) {
     }
   }
 
-  return [...exemptions.values()];
+  return scripts
+    .filter((script) => !script.external)
+    .map((script) => ({
+      ...script,
+      content: replaceExemptions(script.content, [
+        ...exemptions.get(script).values(),
+      ]),
+    }));
 }
 
-function replaceStorageKeysOutsideScripts(source, scripts) {
+function replaceStorageKeysOutsideRanges(source, ranges) {
   let result = "";
   let start = 0;
-  for (const script of scripts) {
-    result += replaceNonSourceStorageKeys(source.slice(start, script.start));
-    result += source.slice(script.start, script.end);
-    start = script.end;
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    result += replaceNonSourceStorageKeys(source.slice(start, range.start));
+    result += source.slice(range.start, range.end).replace(/[^\n]/g, "");
+    start = range.end;
   }
   return result + replaceNonSourceStorageKeys(source.slice(start));
+}
+
+function htmlAnalysisSources(source, document) {
+  const outputs = [];
+  const pending = [{ document, lineOffset: 0, source }];
+  let embeddedIndex = 0;
+  for (const current of pending) {
+    const parsed = parsedHtmlDocument(current.source);
+    outputs.push({
+      lineOffset: current.lineOffset,
+      source: replaceStorageKeysOutsideRanges(
+        current.source,
+        parsed.excludedRanges
+      ),
+    });
+    const scripts = sanitizedHtmlScripts(current.document, parsed.scripts);
+    for (const script of scripts) {
+      outputs.push({
+        lineOffset: current.lineOffset + script.line - 1,
+        source: script.content,
+      });
+    }
+    for (const embedded of parsed.embeddedDocuments) {
+      pending.push({
+        document: `${document}.secpal-srcdoc-${embeddedIndex}`,
+        lineOffset: current.lineOffset + embedded.line - 1,
+        source: embedded.source,
+      });
+      embeddedIndex += 1;
+    }
+  }
+  return outputs;
 }
 
 function makeProgram(
@@ -1708,43 +1676,39 @@ const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
 );
-const htmlScripts = new Map();
+const htmlSources = new Map();
 for (const file of files) {
   if (!htmlExtensionPattern.test(extname(file))) {
     continue;
   }
   const source = readFileSync(file, "utf8");
-  const document = resolve(file);
-  const scripts = executableHtmlScripts(source);
-  htmlScripts.set(file, {
-    exemptions: htmlParserExemptions(source, document, scripts),
-    scripts,
-  });
+  htmlSources.set(file, htmlAnalysisSources(source, resolve(file)));
 }
 const program = makeProgram(sourceFiles, new Map());
 const checker = program.getTypeChecker();
 
 for (const file of files) {
   let source = readFileSync(file, "utf8");
+  let analyzedSources;
   if (sourceExtensionPattern.test(extname(file))) {
     source = replaceExemptions(
       source,
       parserExemptions(file, program, checker)
     );
+    analyzedSources = [{ lineOffset: 0, source }];
   } else {
-    const html = htmlScripts.get(file);
-    source = replaceExemptions(source, html?.exemptions ?? []);
-    source = html
-      ? replaceStorageKeysOutsideScripts(
-          source,
-          executableHtmlScripts(source).filter((script) => !script.external)
-        )
-      : replaceNonSourceStorageKeys(source);
+    analyzedSources = htmlSources.get(file) ?? [
+      { lineOffset: 0, source: replaceNonSourceStorageKeys(source) },
+    ];
   }
 
-  source.split("\n").forEach((line, index) => {
-    if (secpalDomainPattern.test(line)) {
-      process.stdout.write(`${file}:${index + 1}:${line}\n`);
-    }
-  });
+  for (const analyzed of analyzedSources) {
+    analyzed.source.split("\n").forEach((line, index) => {
+      if (secpalDomainPattern.test(line)) {
+        process.stdout.write(
+          `${file}:${analyzed.lineOffset + index + 1}:${line}\n`
+        );
+      }
+    });
+  }
 }
