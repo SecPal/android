@@ -59,6 +59,12 @@ const storageMethods = new Map([
   ["removeItem", 1],
   ["setItem", 2],
 ]);
+const equalityOperators = new Set([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
 
 function isAmbientDeclaration(declaration) {
   if (declaration.getSourceFile().isDeclarationFile) {
@@ -153,7 +159,7 @@ function storageKeyLiteral(expression) {
     : undefined;
 }
 
-function passiveExpression(expression, checker) {
+function passiveLiteralExpression(expression) {
   expression = unwrapExpression(expression);
   return (
     ts.isStringLiteral(expression) ||
@@ -162,7 +168,14 @@ function passiveExpression(expression, checker) {
     ts.isBigIntLiteral(expression) ||
     expression.kind === ts.SyntaxKind.TrueKeyword ||
     expression.kind === ts.SyntaxKind.FalseKeyword ||
-    expression.kind === ts.SyntaxKind.NullKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword
+  );
+}
+
+function passiveExpression(expression, checker) {
+  expression = unwrapExpression(expression);
+  return (
+    passiveLiteralExpression(expression) ||
     (ts.isIdentifier(expression) &&
       expression.text === "undefined" &&
       isUnshadowedGlobal(checker, expression))
@@ -195,14 +208,23 @@ function browserStorageReceiver(expression, checker) {
 
 function containingExpressionStatement(expression) {
   let outer = expression;
-  while (
-    isTransparentExpressionWrapper(outer.parent) &&
-    outer.parent.expression === outer
-  ) {
-    outer = outer.parent;
-  }
-  while (ts.isExpression(outer.parent)) {
-    outer = outer.parent;
+  while (true) {
+    const parent = outer.parent;
+    if (isTransparentExpressionWrapper(parent) && parent.expression === outer) {
+      outer = parent;
+      continue;
+    }
+    if (
+      ts.isBinaryExpression(parent) &&
+      equalityOperators.has(parent.operatorToken.kind)
+    ) {
+      const other = parent.left === outer ? parent.right : parent.left;
+      if (passiveLiteralExpression(other)) {
+        outer = parent;
+        continue;
+      }
+    }
+    break;
   }
   return ts.isExpressionStatement(outer.parent) &&
     outer.parent.expression === outer &&
@@ -212,7 +234,14 @@ function containingExpressionStatement(expression) {
         outer.parent.expression === outer &&
         ts.isBlock(outer.parent.parent)
       ? outer.parent
-      : undefined;
+      : ts.isVariableDeclaration(outer.parent) &&
+          outer.parent.initializer === outer &&
+          outer.parent.parent.declarations.length === 1 &&
+          ts.isVariableStatement(outer.parent.parent.parent) &&
+          (ts.isSourceFile(outer.parent.parent.parent.parent) ||
+            ts.isBlock(outer.parent.parent.parent.parent))
+        ? outer.parent.parent.parent
+        : undefined;
 }
 
 function immediateInvocation(functionExpression) {
@@ -411,18 +440,6 @@ function syntacticStorageCall(access, checker) {
     return undefined;
   }
   return { ...access, key, statement };
-}
-
-function isTryProtectedStorageCall(call) {
-  let node = call.statement;
-  while (node.parent) {
-    const parent = node.parent;
-    if (ts.isTryStatement(parent)) {
-      return parent.tryBlock === node;
-    }
-    node = parent;
-  }
-  return false;
 }
 
 function isTypeOnlyReference(identifier) {
@@ -782,6 +799,13 @@ function containingNamedHelperOwner(statement) {
     if (ts.isFunctionDeclaration(owner)) {
       return owner;
     }
+    if (
+      ts.isTryStatement(owner) &&
+      owner.tryBlock === executionStatement.parent
+    ) {
+      executionStatement = owner;
+      continue;
+    }
     const immediate = immediateInvocation(owner);
     const entry = immediate && containingExecutionStatement(immediate);
     if (!entry) {
@@ -881,6 +905,8 @@ function helperExecutionCountThroughTargets(
           return;
         }
         scan(declaration.body.statements, nestedTargets);
+      } else if (ts.isTryStatement(statement)) {
+        scan(statement.tryBlock.statements, nestedTargets);
       } else {
         const functionExpression =
           ts.isExpressionStatement(statement) &&
@@ -899,7 +925,11 @@ function helperExecutionCountThroughTargets(
     }
   }
   scan(sourceFile.statements);
-  return remainingTargets.size === 0 ? helperCalls : Number.POSITIVE_INFINITY;
+  return helperCalls > helperProofCallLimit
+    ? helperCalls
+    : remainingTargets.size === 0
+      ? helperCalls
+      : Number.POSITIVE_INFINITY;
 }
 function hasStraightLinePrefix(
   call,
@@ -943,6 +973,20 @@ function hasStraightLinePrefix(
   }
   if (ts.isSourceFile(container)) {
     return !unresolvedPrecedingStatement;
+  }
+
+  const tryStatement = container.parent;
+  if (ts.isTryStatement(tryStatement) && tryStatement.tryBlock === container) {
+    return hasStraightLinePrefix(
+      { statement: tryStatement },
+      callsByStatement,
+      safeStorageKeyUses,
+      checker,
+      proofContext,
+      unresolvedPrecedingStatement,
+      proofState,
+      remainingHelperDepth
+    );
   }
 
   const functionExpression = container.parent;
@@ -992,6 +1036,72 @@ function hasStraightLinePrefix(
       remainingHelperDepth
     )
   );
+}
+
+function hasSafeDeferredTryPrefix(
+  call,
+  callsByStatement,
+  safeStorageKeyUses,
+  checker,
+  proofContext,
+  requiredPrecedingStatement
+) {
+  if (proofContext.hasUnsafeBrowserStorageUse) {
+    return false;
+  }
+  const container = call.statement.parent;
+  if (!ts.isBlock(container)) {
+    return false;
+  }
+  const tryStatement = container.parent;
+  if (!ts.isTryStatement(tryStatement) || tryStatement.tryBlock !== container) {
+    return false;
+  }
+  const statementIndex = container.statements.indexOf(call.statement);
+  if (
+    statementIndex < 0 ||
+    !container.statements
+      .slice(0, statementIndex)
+      .every((statement) =>
+        safePrecedingStatement(
+          statement,
+          callsByStatement,
+          safeStorageKeyUses,
+          checker,
+          proofContext,
+          { validatingHelperInvocations: new Set() }
+        )
+      )
+  ) {
+    return false;
+  }
+  const owner = containingNamedHelperOwner(tryStatement);
+  if (!owner || owner.parent !== requiredPrecedingStatement.parent) {
+    return false;
+  }
+  const statements = owner.parent.statements;
+  const declarationIndex = statements.indexOf(requiredPrecedingStatement);
+  const ownerIndex = statements.indexOf(owner);
+  return declarationIndex >= 0 && declarationIndex < ownerIndex;
+}
+
+function hasUnsafeBrowserStorageUse(sourceFile, calls, checker) {
+  const safeReceivers = new Set(
+    calls.map((call) => call.node.expression.expression)
+  );
+  let unsafe = false;
+  function visit(node) {
+    if (unsafe || safeReceivers.has(node)) {
+      return;
+    }
+    if (ts.isExpression(node) && browserStorageReceiver(node, checker)) {
+      unsafe = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return unsafe;
 }
 
 function declarationIsExported(declaration) {
@@ -1335,6 +1445,11 @@ function parserExemptions(file, program, checker) {
     callsByStatement,
     checker,
     dormantExecutionRegions,
+    hasUnsafeBrowserStorageUse: hasUnsafeBrowserStorageUse(
+      sourceFile,
+      calls,
+      checker
+    ),
     helperDeclarationsByInvocation,
     helperInvocations,
     safeStorageKeyUses,
@@ -1345,22 +1460,34 @@ function parserExemptions(file, program, checker) {
   do {
     provedCandidate = false;
     for (const candidate of pendingCandidates) {
-      const allReferencesAreTryProtected = candidate.references.every(
-        (identifier) => isTryProtectedStorageCall(storageUses.get(identifier))
-      );
+      const allReferencesHaveSafeDeferredTryPrefixes =
+        candidate.references.every((identifier) =>
+          hasSafeDeferredTryPrefix(
+            storageUses.get(identifier),
+            callsByStatement,
+            safeStorageKeyUses,
+            checker,
+            proofContext,
+            candidate.declaration.parent.parent
+          )
+        );
       const targetExecutions = [];
       for (const identifier of candidate.references) {
         targetExecutions.push(
           ...proofTargetExecutions(storageUses.get(identifier), proofContext)
         );
       }
+      const helperExecutionCount = helperExecutionCountThroughTargets(
+        sourceFile,
+        targetExecutions,
+        proofContext
+      );
       if (
-        helperExecutionCountThroughTargets(
-          sourceFile,
-          targetExecutions,
-          proofContext
-        ) > helperProofCallLimit &&
-        !allReferencesAreTryProtected
+        helperExecutionCount > helperProofCallLimit &&
+        !(
+          helperExecutionCount === Number.POSITIVE_INFINITY &&
+          allReferencesHaveSafeDeferredTryPrefixes
+        )
       ) {
         pendingCandidates.delete(candidate);
         continue;
@@ -1374,8 +1501,15 @@ function parserExemptions(file, program, checker) {
           safeStorageKeyUses.add(identifier);
           const call = storageUses.get(identifier);
           if (
-            isTryProtectedStorageCall(call) ||
             hasStraightLinePrefix(
+              call,
+              callsByStatement,
+              safeStorageKeyUses,
+              checker,
+              proofContext,
+              candidate.declaration.parent.parent
+            ) ||
+            hasSafeDeferredTryPrefix(
               call,
               callsByStatement,
               safeStorageKeyUses,

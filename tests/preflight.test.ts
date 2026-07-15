@@ -835,13 +835,19 @@ describe("preflight", () => {
       [
         assetLoadRecoveryStorageKey,
         [
+          "(function () {",
           `var assetLoadRecoveryStorageKey = "${assetLoadRecoveryStorageKey}";`,
+          'var appBootstrapReadyEvent = "app-bootstrap-ready";',
+          "const themeColorMeta = document.querySelector('meta[name=\"theme-color\"]');",
           'function hasPendingAssetLoadRecovery() { try { return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending"; } catch { return false; } }',
-          "function clearAssetLoadRecoveryFlag() { try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} }",
-          'function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } }',
           "const pageStartedWithPendingAssetLoadRecovery = hasPendingAssetLoadRecovery();",
-          'window.addEventListener("app-bootstrap-ready", clearAssetLoadRecoveryFlag, { once: true });',
-          "markPendingAssetLoadRecovery();",
+          "function clearAssetLoadRecoveryFlag() { if (!pageStartedWithPendingAssetLoadRecovery) return; try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} }",
+          "window.addEventListener(appBootstrapReadyEvent, clearAssetLoadRecoveryFlag, { once: true });",
+          'function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } }',
+          "function recoverFromStaleHashedAsset() { if (hasPendingAssetLoadRecovery()) return; if (!markPendingAssetLoadRecovery()) return; }",
+          'window.addEventListener("error", function () { recoverFromStaleHashedAsset(); }, true);',
+          "void themeColorMeta;",
+          "})();",
         ].join("\n"),
         "js",
       ],
@@ -1253,6 +1259,69 @@ describe("preflight", () => {
       ),
     ] as const;
     const rejected = [
+      [
+        focusedKey("deferred-concise-arrow-variable"),
+        [
+          `const storageKey = "${focusedKey("deferred-concise-arrow-variable")}";`,
+          'setTimeout(() => localStorage.setItem(storageKey, "1"), 0);',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-receiver-method-mutation"),
+        [
+          `const storageKey = "${focusedKey("try-receiver-method-mutation")}";`,
+          'try { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); } catch {}',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-deferred-receiver-escape"),
+        [
+          `const storageKey = "${focusedKey("try-deferred-receiver-escape")}";`,
+          "function readNow() { try { localStorage.getItem(storageKey); } catch {} }",
+          "function readLater() { try { localStorage.getItem(storageKey); } catch {} }",
+          "readNow();",
+          "const escapedStorage = localStorage;",
+          "setTimeout(readLater, 0);",
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-deferred-callback"),
+        [
+          `const storageKey = "${focusedKey("try-deferred-callback")}";`,
+          'try { setTimeout(() => localStorage.setItem(storageKey, "1"), 0); } catch {}',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-deferred-function"),
+        [
+          "let readStorage;",
+          `const storageKey = "${focusedKey("try-deferred-function")}";`,
+          "try { readStorage = function () { localStorage.getItem(storageKey); }; } catch {}",
+          "readStorage();",
+        ].join("\n"),
+      ],
+      [
+        focusedKey("short-circuit-variable"),
+        [
+          `const storageKey = "${focusedKey("short-circuit-variable")}";`,
+          'enabled && localStorage.setItem(storageKey, "1");',
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-use-before-declaration"),
+        [
+          'try { localStorage.setItem(storageKey, "1"); } catch {}',
+          `var storageKey = "${focusedKey("try-use-before-declaration")}";`,
+        ].join("\n"),
+      ],
+      [
+        focusedKey("try-helper-call-limit"),
+        [
+          `const storageKey = "${focusedKey("try-helper-call-limit")}";`,
+          'function persist() { try { localStorage.setItem(storageKey, "1"); } catch {} }',
+          Array.from({ length: 9 }, () => "persist();").join("\n"),
+        ].join("\n"),
+      ],
       [
         invalidVariableStorageKey,
         [
