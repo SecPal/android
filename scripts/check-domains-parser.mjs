@@ -15,10 +15,16 @@ const require = createRequire(join(moduleRoot, "package.json"));
 
 let parseHtml;
 let ts;
+let DecodingMode;
+let EntityDecoder;
+let htmlDecodeTree;
 try {
   ts = require("typescript");
   ({ parse: parseHtml } = await import(
     pathToFileURL(require.resolve("parse5")).href
+  ));
+  ({ DecodingMode, EntityDecoder, htmlDecodeTree } = await import(
+    pathToFileURL(require.resolve("entities/decode")).href
   ));
 } catch (error) {
   if (["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(error?.code)) {
@@ -1457,6 +1463,101 @@ function htmlAttributes(node) {
   );
 }
 
+function htmlAttributeValueRange(source, location) {
+  if (!location) return undefined;
+  const attribute = source.slice(location.startOffset, location.endOffset);
+  const equals = attribute.indexOf("=");
+  if (equals === -1) return undefined;
+  let start = equals + 1;
+  while (/\s/.test(attribute[start] ?? "")) start += 1;
+  const quote = attribute[start];
+  if (quote === '"' || quote === "'") {
+    start += 1;
+    const end = attribute.lastIndexOf(quote);
+    return {
+      end: location.startOffset + (end > start ? end : attribute.length),
+      start: location.startOffset + start,
+    };
+  }
+  return { end: location.endOffset, start: location.startOffset + start };
+}
+
+function decodeHtmlCharacterReferences(value) {
+  let decoded = "";
+  for (let index = 0; index < value.length;) {
+    if (value[index] !== "&") {
+      decoded += value[index];
+      index += 1;
+      continue;
+    }
+
+    const decodedReference = [];
+    const decoder = new EntityDecoder(htmlDecodeTree, (codePoint) =>
+      decodedReference.push(codePoint)
+    );
+    decoder.startEntity(DecodingMode.Attribute);
+    let consumed = decoder.write(value, index + 1);
+    if (consumed === -1) consumed = decoder.end();
+    if (decodedReference.length === 0 || consumed <= 0) {
+      decoded += value[index];
+      index += 1;
+      continue;
+    }
+    for (const codePoint of decodedReference) {
+      const character = String.fromCodePoint(codePoint);
+      decoded += character;
+    }
+    index += consumed;
+  }
+  return decoded;
+}
+
+function javascriptUrlBody(value) {
+  const normalized = value.replace(/[\t\n\r]/g, "");
+  const scheme = normalized.match(/^[\u0000-\u0020]*javascript:/i);
+  if (!scheme) return undefined;
+  const body = normalized.slice(scheme[0].length);
+  try {
+    return decodeURIComponent(body);
+  } catch {
+    return body;
+  }
+}
+
+function executableHtmlAttributes(node, source) {
+  const location = node.sourceCodeLocation;
+  if (!location?.attrs) return [];
+  const attributes = [];
+  for (const { name, prefix } of node.attrs) {
+    const attributeName = prefix ? `${prefix}:${name}` : name;
+    const attributeLocation = location.attrs[attributeName];
+    const valueLocation = htmlAttributeValueRange(source, attributeLocation);
+    const eventHandler = attributeName.startsWith("on");
+    const urlAttribute = [
+      "href",
+      "xlink:href",
+      "src",
+      "action",
+      "formaction",
+    ].includes(attributeName);
+    if (!valueLocation || (!eventHandler && !urlAttribute)) continue;
+    const decoded = decodeHtmlCharacterReferences(
+      source.slice(valueLocation.start, valueLocation.end)
+    );
+    const decodedUrlBody = eventHandler
+      ? undefined
+      : javascriptUrlBody(decoded);
+    attributes.push({
+      analyzable: eventHandler || decodedUrlBody !== undefined,
+      decoded: eventHandler ? decoded : (decodedUrlBody ?? decoded),
+      line: attributeLocation.startLine,
+      sourceEnd: valueLocation.end,
+      sourceStart: valueLocation.start,
+    });
+  }
+  return attributes;
+}
+
 function executableHtmlScript(node, source) {
   const location = node.sourceCodeLocation;
   if (
@@ -1501,6 +1602,7 @@ function executableHtmlScript(node, source) {
 }
 
 function parsedHtmlDocument(source) {
+  const attributes = [];
   const scripts = [];
   const embeddedDocuments = [];
   const excludedRanges = [];
@@ -1521,6 +1623,13 @@ function parsedHtmlDocument(source) {
         });
       }
     }
+    for (const attribute of executableHtmlAttributes(node, source)) {
+      attributes.push(attribute);
+      excludedRanges.push({
+        end: attribute.sourceEnd,
+        start: attribute.sourceStart,
+      });
+    }
     const script = executableHtmlScript(node, source);
     if (script) {
       scripts.push(script);
@@ -1534,7 +1643,7 @@ function parsedHtmlDocument(source) {
     }
   };
   visit(root);
-  return { embeddedDocuments, excludedRanges, scripts };
+  return { attributes, embeddedDocuments, excludedRanges, scripts };
 }
 
 function syntheticHtmlSource(entries) {
@@ -1666,6 +1775,33 @@ function sanitizedHtmlScripts(document, scripts) {
     }));
 }
 
+function sanitizedHtmlAttribute(document, attribute, scripts, analysisIndex) {
+  if (
+    !attribute.analyzable ||
+    scripts.some((script) => script.external || script.async)
+  ) {
+    return attribute.decoded;
+  }
+  const prefix = "(()=>{\n";
+  const file = `${document}.secpal-html-attribute-${analysisIndex}.js`;
+  const scriptPrefix = syntheticHtmlSource(
+    scripts.map((script) => ({ module: script.module, script }))
+  ).synthetic;
+  const attributeStart = scriptPrefix.length + prefix.length;
+  const program = makeProgram(
+    [],
+    new Map([[file, `${scriptPrefix}${prefix}${attribute.decoded}\n})();`]]),
+    ts.ModuleDetectionKind.Legacy
+  );
+  const exemptions = parserExemptions(file, program, program.getTypeChecker())
+    .map(({ end, start }) => ({
+      end: end - attributeStart,
+      start: start - attributeStart,
+    }))
+    .filter(({ end, start }) => start >= 0 && end <= attribute.decoded.length);
+  return replaceExemptions(attribute.decoded, exemptions);
+}
+
 function replaceStorageKeysOutsideRanges(source, ranges) {
   let result = "";
   let start = 0;
@@ -1695,6 +1831,17 @@ function htmlAnalysisSources(source, document) {
       outputs.push({
         lineOffset: current.lineOffset + script.line - 1,
         source: script.content,
+      });
+    }
+    for (const [index, attribute] of parsed.attributes.entries()) {
+      outputs.push({
+        lineOffset: current.lineOffset + attribute.line - 1,
+        source: sanitizedHtmlAttribute(
+          current.document,
+          attribute,
+          parsed.scripts,
+          index
+        ),
       });
     }
     for (const embedded of parsed.embeddedDocuments) {
