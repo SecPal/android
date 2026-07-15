@@ -1675,8 +1675,14 @@ describe("preflight", () => {
     const file = join(tempRoot, "storage-attributes.html");
     const storageKey = (suffix: string) => "secpal" + `.${suffix}`;
     const shadowedEventKey = storageKey("invalid-event-handler");
+    const shadowedEscapedKey = storageKey("invalid-escaped-event-handler");
     const shadowedUrlKey = storageKey("invalid-javascript-url");
+    const shadowedXlinkUrlKey = storageKey("invalid-xlink-javascript-url");
     const validEventKey = storageKey("valid-event-handler");
+    const validNamedWhitespaceKey = storageKey("valid-named-whitespace");
+    const validSemicolonlessNumericKey = storageKey(
+      "valid-semicolonless-numeric"
+    );
     const validUrlKey = storageKey("valid-javascript-url");
     const validEscapedUrlKey = storageKey("valid-escaped-javascript-url");
 
@@ -1685,8 +1691,12 @@ describe("preflight", () => {
         file,
         [
           `<button onclick="const localStorage = fakeStorage; localStorage.setItem(&quot;${shadowedEventKey}&quot;, &quot;1&quot;)">Save</button>`,
+          `<button onclick="const localStorage = fakeStorage; localStorage.setItem(&quot;${shadowedEscapedKey.replace(".", "&period;")}&quot;, &quot;1&quot;)">Save</button>`,
           `<a href="javascript:const sessionStorage = fakeStorage; sessionStorage.setItem(&quot;${shadowedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
+          `<svg xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="javascript:const sessionStorage = fakeStorage; sessionStorage.setItem(&quot;${shadowedXlinkUrlKey}&quot;, &quot;1&quot;)">Open</a></svg>`,
           `<button onclick="localStorage.setItem(&#x22;${validEventKey}&#x22;, &#x22;1&#x22;)">Save</button>`,
+          `<button onclick="&nbsp;localStorage.setItem(&quot;${validNamedWhitespaceKey}&quot;, &quot;1&quot;)">Save</button>`,
+          `<button onclick="localStorage.setItem(&#34${validSemicolonlessNumericKey}&#34, &#34;1&#34)">Save</button>`,
           `<a href="javascript:sessionStorage.setItem(&#34;${validUrlKey}&#34;, &#34;1&#34;)">Open</a>`,
           `<a href="java&#x73;cript&colon;localStorage.setItem(&quot;${validEscapedUrlKey}&quot;, &quot;1&quot;)">Open</a>`,
         ].join("\n")
@@ -1702,12 +1712,24 @@ describe("preflight", () => {
       expect(outputReportsExactValue(outputLines, file, shadowedEventKey)).toBe(
         true
       );
+      expect(
+        outputReportsExactValue(outputLines, file, shadowedEscapedKey)
+      ).toBe(true);
       expect(outputReportsExactValue(outputLines, file, shadowedUrlKey)).toBe(
         true
       );
+      expect(
+        outputReportsExactValue(outputLines, file, shadowedXlinkUrlKey)
+      ).toBe(true);
       expect(outputReportsExactValue(outputLines, file, validEventKey)).toBe(
         false
       );
+      expect(
+        outputReportsExactValue(outputLines, file, validNamedWhitespaceKey)
+      ).toBe(false);
+      expect(
+        outputReportsExactValue(outputLines, file, validSemicolonlessNumericKey)
+      ).toBe(false);
       expect(outputReportsExactValue(outputLines, file, validUrlKey)).toBe(
         false
       );

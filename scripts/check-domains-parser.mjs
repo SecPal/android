@@ -15,10 +15,16 @@ const require = createRequire(join(moduleRoot, "package.json"));
 
 let parseHtml;
 let ts;
+let DecodingMode;
+let EntityDecoder;
+let htmlDecodeTree;
 try {
   ts = require("typescript");
   ({ parse: parseHtml } = await import(
     pathToFileURL(require.resolve("parse5")).href
+  ));
+  ({ DecodingMode, EntityDecoder, htmlDecodeTree } = await import(
+    pathToFileURL(require.resolve("entities/decode")).href
   ));
 } catch (error) {
   if (["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(error?.code)) {
@@ -52,16 +58,6 @@ const storageMethods = new Map([
   ["getItem", 1],
   ["removeItem", 1],
   ["setItem", 2],
-]);
-const htmlCharacterReferences = new Map([
-  ["amp", 38],
-  ["apos", 39],
-  ["colon", 58],
-  ["gt", 62],
-  ["lt", 60],
-  ["NewLine", 10],
-  ["quot", 34],
-  ["Tab", 9],
 ]);
 
 function isAmbientDeclaration(declaration) {
@@ -1485,49 +1481,34 @@ function htmlAttributeValueRange(source, location) {
   return { end: location.endOffset, start: location.startOffset + start };
 }
 
-function decodeHtmlCharacterReferences(value, offset) {
-  const starts = [];
-  const ends = [];
+function decodeHtmlCharacterReferences(value) {
   let decoded = "";
   for (let index = 0; index < value.length;) {
-    const reference = value
-      .slice(index)
-      .match(
-        /^&(#[xX][0-9A-Fa-f]+|#\d+|quot|apos|amp|lt|gt|colon|NewLine|Tab);/
-      );
-    if (!reference) {
+    if (value[index] !== "&") {
       decoded += value[index];
-      starts.push(offset + index);
-      ends.push(offset + index + 1);
       index += 1;
       continue;
     }
-    const entity = reference[1];
-    const codePoint =
-      entity.startsWith("#x") || entity.startsWith("#X")
-        ? Number.parseInt(entity.slice(2), 16)
-        : entity.startsWith("#")
-          ? Number.parseInt(entity.slice(1), 10)
-          : htmlCharacterReferences.get(entity);
-    const character = String.fromCodePoint(
-      Number.isInteger(codePoint) &&
-        codePoint <= 0x10ffff &&
-        (codePoint < 0xd800 || codePoint > 0xdfff)
-        ? codePoint
-        : 0xfffd
+
+    const decodedReference = [];
+    const decoder = new EntityDecoder(htmlDecodeTree, (codePoint) =>
+      decodedReference.push(codePoint)
     );
-    decoded += character;
-    for (
-      let characterIndex = 0;
-      characterIndex < character.length;
-      characterIndex += 1
-    ) {
-      starts.push(offset + index);
-      ends.push(offset + index + reference[0].length);
+    decoder.startEntity(DecodingMode.Attribute);
+    let consumed = decoder.write(value, index + 1);
+    if (consumed === -1) consumed = decoder.end();
+    if (decodedReference.length === 0 || consumed <= 0) {
+      decoded += value[index];
+      index += 1;
+      continue;
     }
-    index += reference[0].length;
+    for (const codePoint of decodedReference) {
+      const character = String.fromCodePoint(codePoint);
+      decoded += character;
+    }
+    index += consumed;
   }
-  return { decoded, ends, starts };
+  return decoded;
 }
 
 function executableHtmlAttributes(node, source) {
@@ -1542,24 +1523,21 @@ function executableHtmlAttributes(node, source) {
     );
     const eventHandler = attributeName.startsWith("on");
     const javascriptUrl =
-      ["href", "src", "action", "formaction"].includes(attributeName) &&
-      /^\s*javascript\s*:/i.test(value);
+      ["href", "xlink:href", "src", "action", "formaction"].includes(
+        attributeName
+      ) && /^\s*javascript\s*:/i.test(value);
     if (!valueLocation || (!eventHandler && !javascriptUrl)) continue;
     const decoded = decodeHtmlCharacterReferences(
-      source.slice(valueLocation.start, valueLocation.end),
-      valueLocation.start
+      source.slice(valueLocation.start, valueLocation.end)
     );
     const javascriptStart = javascriptUrl
-      ? decoded.decoded.match(/^\s*javascript\s*:/i)[0].length
+      ? decoded.match(/^\s*javascript\s*:/i)[0].length
       : 0;
     attributes.push({
-      decoded: decoded.decoded.slice(javascriptStart),
-      ends: decoded.ends.slice(javascriptStart),
+      decoded: decoded.slice(javascriptStart),
       line: location.attrs[attributeName].startLine,
-      source: source.slice(valueLocation.start, valueLocation.end),
       sourceEnd: valueLocation.end,
       sourceStart: valueLocation.start,
-      starts: decoded.starts.slice(javascriptStart),
     });
   }
   return attributes;
@@ -1792,17 +1770,11 @@ function sanitizedHtmlAttribute(document, attribute, analysisIndex) {
   );
   const exemptions = parserExemptions(file, program, program.getTypeChecker())
     .map(({ end, start }) => ({
-      end: attribute.ends[end - prefix.length - 1],
-      start: attribute.starts[start - prefix.length],
+      end: end - prefix.length,
+      start: start - prefix.length,
     }))
-    .filter(({ end, start }) => start !== undefined && end !== undefined);
-  return replaceExemptions(
-    attribute.source,
-    exemptions.map(({ end, start }) => ({
-      end: end - attribute.sourceStart,
-      start: start - attribute.sourceStart,
-    }))
-  );
+    .filter(({ end, start }) => start >= 0 && end <= attribute.decoded.length);
+  return replaceExemptions(attribute.decoded, exemptions);
 }
 
 function replaceStorageKeysOutsideRanges(source, ranges) {
