@@ -31,8 +31,27 @@ const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
+const htmlExtensionPattern = /^\.html?$/;
 const helperProofCallLimit = 8;
 const browserStorageKinds = new Set(["localStorage", "sessionStorage"]);
+const javascriptMimeTypes = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
 const storageMethods = new Map([
   ["getItem", 1],
   ["removeItem", 1],
@@ -1347,35 +1366,131 @@ function replaceNonSourceStorageKeys(source) {
   );
 }
 
+function replaceExemptions(source, exemptions) {
+  for (const exemption of exemptions.sort(
+    (left, right) => right.start - left.start
+  )) {
+    source =
+      source.slice(0, exemption.start) +
+      "__secpal_storage_identifier__" +
+      source.slice(exemption.end);
+  }
+  return source;
+}
+
+function executableHtmlScripts(source) {
+  const scripts = [];
+  const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/dgi;
+  let match;
+  while ((match = scriptPattern.exec(source))) {
+    const typeMatch = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(
+      match[1]
+    );
+    const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? typeMatch?.[3] ?? "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (type && type !== "module" && !javascriptMimeTypes.has(type)) {
+      continue;
+    }
+    scripts.push({ end: match.indices[2][1], start: match.indices[2][0] });
+  }
+  return scripts;
+}
+
+function replaceStorageKeysOutsideScripts(source, scripts) {
+  let result = "";
+  let start = 0;
+  for (const script of scripts) {
+    result += replaceNonSourceStorageKeys(source.slice(start, script.start));
+    result += source.slice(script.start, script.end);
+    start = script.end;
+  }
+  return result + replaceNonSourceStorageKeys(source.slice(start));
+}
+
+function createDomainProgram(sourceFiles, virtualSources) {
+  const options = {
+    allowJs: true,
+    checkJs: true,
+    jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext,
+    moduleDetection: ts.ModuleDetectionKind.Force,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = ts.createCompilerHost(options, true);
+  const readFile = host.readFile.bind(host);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.fileExists = (file) =>
+    virtualSources.has(file) || readFile(file) !== undefined;
+  host.readFile = (file) => virtualSources.get(file) ?? readFile(file);
+  host.getSourceFile = (file, languageVersion) => {
+    const source = virtualSources.get(file);
+    return source === undefined
+      ? getSourceFile(file, languageVersion)
+      : ts.createSourceFile(
+          file,
+          source,
+          languageVersion,
+          true,
+          ts.ScriptKind.JS
+        );
+  };
+  return ts.createProgram(
+    [...sourceFiles, ...virtualSources.keys()],
+    options,
+    host
+  );
+}
+
 const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
 );
-const program = ts.createProgram(sourceFiles, {
-  allowJs: true,
-  checkJs: true,
-  jsx: ts.JsxEmit.Preserve,
-  module: ts.ModuleKind.ESNext,
-  moduleDetection: ts.ModuleDetectionKind.Force,
-  noLib: true,
-  noResolve: true,
-  target: ts.ScriptTarget.Latest,
-});
+const htmlScripts = new Map();
+const virtualSources = new Map();
+for (const file of files) {
+  if (!htmlExtensionPattern.test(extname(file))) {
+    continue;
+  }
+  const scripts = executableHtmlScripts(readFileSync(file, "utf8")).map(
+    (script, index) => ({
+      ...script,
+      file: `${resolve(file)}.inline-script-${index}.js`,
+    })
+  );
+  htmlScripts.set(file, scripts);
+  for (const script of scripts) {
+    const source = readFileSync(file, "utf8");
+    virtualSources.set(script.file, source.slice(script.start, script.end));
+  }
+}
+const program = createDomainProgram(sourceFiles, virtualSources);
 const checker = program.getTypeChecker();
 
 for (const file of files) {
   let source = readFileSync(file, "utf8");
   if (sourceExtensionPattern.test(extname(file))) {
-    for (const exemption of parserExemptions(file, program, checker).sort(
-      (left, right) => right.start - left.start
-    )) {
-      source =
-        source.slice(0, exemption.start) +
-        "__secpal_storage_identifier__" +
-        source.slice(exemption.end);
-    }
+    source = replaceExemptions(
+      source,
+      parserExemptions(file, program, checker)
+    );
   } else {
-    source = replaceNonSourceStorageKeys(source);
+    const scripts = htmlScripts.get(file);
+    source = replaceExemptions(
+      source,
+      (scripts ?? []).flatMap((script) =>
+        parserExemptions(script.file, program, checker).map((exemption) => ({
+          end: script.start + exemption.end,
+          start: script.start + exemption.start,
+        }))
+      )
+    );
+    source = scripts
+      ? replaceStorageKeysOutsideScripts(source, executableHtmlScripts(source))
+      : replaceNonSourceStorageKeys(source);
   }
 
   source.split("\n").forEach((line, index) => {

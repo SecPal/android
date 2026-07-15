@@ -304,6 +304,86 @@ describe("preflight", () => {
 
       unlinkSync(join(tempRoot, "shadowed-storage-globals.js"));
 
+      writeFileSync(
+        join(tempRoot, "storage-key.html"),
+        `<script>localStorage.setItem("${storageKey}", "1");</script>\n`
+      );
+
+      const htmlStorageKeyResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(htmlStorageKeyResult.status).toBe(0);
+
+      const shadowedHtmlStorageHostname = "secpal" + ".invalid-host";
+      writeFileSync(
+        join(tempRoot, "shadowed-storage.html"),
+        [
+          "<script>",
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${shadowedHtmlStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      const shadowedHtmlStorageResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(shadowedHtmlStorageResult.status).toBe(1);
+      expect(shadowedHtmlStorageResult.stdout).toContain(
+        shadowedHtmlStorageHostname
+      );
+
+      unlinkSync(join(tempRoot, "shadowed-storage.html"));
+      unlinkSync(join(tempRoot, "storage-key.html"));
+
+      writeFileSync(
+        join(tempRoot, "multiple-storage-keys.html"),
+        [
+          `<script>localStorage.setItem("${"secpal" + ".first-key"}", "1");</script>`,
+          `<script>localStorage.setItem("${"secpal" + ".second-key"}", "1");</script>`,
+          `<script>localStorage.setItem("${"secpal" + ".third-key"}", "1");</script>`,
+        ].join("\n")
+      );
+
+      const multipleHtmlStorageKeysResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(multipleHtmlStorageKeysResult.status).toBe(0);
+
+      unlinkSync(join(tempRoot, "multiple-storage-keys.html"));
+
+      writeFileSync(
+        join(tempRoot, "legacy-javascript-storage.html"),
+        [
+          '<script type="application/x-javascript">',
+          "const localStorage = fakeStorage;",
+          `localStorage.setItem("${shadowedHtmlStorageHostname}", "1");`,
+          "</script>",
+        ].join("\n")
+      );
+
+      const legacyJavascriptStorageResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(legacyJavascriptStorageResult.status).toBe(1);
+      expect(legacyJavascriptStorageResult.stdout).toContain(
+        shadowedHtmlStorageHostname
+      );
+
+      unlinkSync(join(tempRoot, "legacy-javascript-storage.html"));
+
       const nestedDirectory = join(tempRoot, "nested");
       mkdirSync(nestedDirectory);
       writeFileSync(
