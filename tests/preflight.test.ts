@@ -759,6 +759,8 @@ describe("preflight", () => {
       [focusedKey(suffix), source, "ts"] as const;
     const rejectedCase = (suffix: string, source: string) =>
       [focusedKey(suffix), source] as const;
+    // prettier-ignore
+    const assetLoadRecoveryStorageKey = "secpal" + ".asset-load-recovery", invalidVariableStorageKey = "secpal" + ".invalid-host.com", rejectedStorageCase = (suffix: string, ...body: string[]) => rejectedCase(suffix, [`const storageKey = "${focusedKey(suffix)}";`, ...body].join("\n")), onceListener = 'window.addEventListener("ready", readLater, { once: true });', rejectedDeferredTryHelperCase = (suffix: string, options: Record<string, string> = {}) => rejectedCase(suffix, `${options.prefix ?? ""}${options.prefix ? "\n" : ""}const storageKey = "${focusedKey(suffix)}";\n${options.declaration ?? "function readLater()"} { ${options.helperPrefix ?? ""}try { ${options.tryBody ?? "localStorage.getItem(storageKey);"} } catch {} }${(options.references ?? onceListener) && `\n${options.references ?? onceListener}`}`);
     const simpleHelperSource = (suffix: string, calls: string) =>
       `const storageKey = "${focusedKey(suffix)}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\n${calls}`;
     const simpleHelperCase = (suffix: string, calls = "persist();") =>
@@ -830,6 +832,8 @@ describe("preflight", () => {
         `localStorage.setItem("${storageKey}", "1");`,
       ].join("\n");
     const accepted = [
+      // prettier-ignore
+      [assetLoadRecoveryStorageKey, `(function () { var assetLoadRecoveryStorageKey = "${assetLoadRecoveryStorageKey}"; var appBootstrapReadyEvent = "app-bootstrap-ready"; const themeColorMeta = document.querySelector('meta[name="theme-color"]'); function hasPendingAssetLoadRecovery() { try { return window.sessionStorage.getItem(assetLoadRecoveryStorageKey) === "pending"; } catch { return false; } } const pageStartedWithPendingAssetLoadRecovery = hasPendingAssetLoadRecovery(); function clearAssetLoadRecoveryFlag() { if (!pageStartedWithPendingAssetLoadRecovery) return; try { window.sessionStorage.removeItem(assetLoadRecoveryStorageKey); } catch {} } window.addEventListener(appBootstrapReadyEvent, clearAssetLoadRecoveryFlag, { once: true }); function markPendingAssetLoadRecovery() { try { window.sessionStorage.setItem(assetLoadRecoveryStorageKey, "pending"); return true; } catch { return false; } } function recoverFromStaleHashedAsset() { if (hasPendingAssetLoadRecovery()) return; if (!markPendingAssetLoadRecovery()) return; } window.addEventListener("error", function () { recoverFromStaleHashedAsset(); }, true); if (themeColorMeta) {} })();`, "js"],
       [
         focusedKey("const-direct"),
         `const storageKey = "${focusedKey("const-direct")}";\nlocalStorage.setItem(storageKey, "1");`,
@@ -1217,6 +1221,10 @@ describe("preflight", () => {
         `const storageKey = "${focusedKey("multiple-helper-reference-fixpoint")}";\nfunction persistFirst() { localStorage.setItem(storageKey, "1"); }\nfunction persistSecond() { localStorage.setItem(storageKey, "1"); }\nlocalStorage.setItem(storageKey, "1");\npersistSecond();\npersistFirst();`
       ),
       acceptedCase(
+        "try-browser-api-suffix",
+        `const storageKey = "${focusedKey("try-browser-api-suffix")}";\nfunction readLater() { try { localStorage.getItem(storageKey); } catch {} }\n${onceListener}\nconst element = document.querySelector("meta");\nif (element) { element.setAttribute("content", "ready"); }\nconst mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");\nmediaQuery.addEventListener("change", function () {});\nmediaQuery.addListener(function () {});\n/ready/.test("ready");\nnew URL("https://secpal.app");`
+      ),
+      acceptedCase(
         "dormant-arrow-before-helper-call",
         `const storageKey = "${focusedKey("dormant-arrow-before-helper-call")}";\nfunction persist() { localStorage.setItem(storageKey, "1"); }\nconst unused = () => { persist(); };\npersist();`
       ),
@@ -1238,6 +1246,127 @@ describe("preflight", () => {
       ),
     ] as const;
     const rejected = [
+      rejectedDeferredTryHelperCase("try-declared-registration-suffix", {
+        references: `function initialize() { mutate(); }\n${onceListener}\ninitialize();`,
+      }),
+      rejectedDeferredTryHelperCase("try-nested-registration-suffix", {
+        references: `${onceListener}\nif (enabled) { initialize(); }`,
+      }),
+      rejectedDeferredTryHelperCase("try-constructed-registration-suffix", {
+        references: `${onceListener}\nnew Initialize();`,
+      }),
+      rejectedDeferredTryHelperCase("try-tagged-registration-suffix", {
+        references: `${onceListener}\ninitialize\`now\`;`,
+      }),
+      rejectedDeferredTryHelperCase("try-property-registration-suffix", {
+        references: `${onceListener}\nstate.initialize();`,
+      }),
+      rejectedDeferredTryHelperCase("try-property-callback-guard", {
+        prefix: "function initialize() { state.mutate(); return false; }",
+        references: `function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);`,
+      }),
+      rejectedCase(
+        "try-aggregate-listener-limit",
+        `const storageKey = "${focusedKey("try-aggregate-listener-limit")}";\nfunction readFirst() { try { localStorage.getItem(storageKey); } catch {} }\nfunction readSecond() { try { localStorage.removeItem(storageKey); } catch {} }\n${[...Array.from({ length: 5 }, () => 'window.addEventListener("first", readFirst, { once: true });'), ...Array.from({ length: 5 }, () => 'window.addEventListener("second", readSecond, { once: true });')].join("\n")}`
+      ),
+      ...[
+        "addEventListener",
+        "addListener",
+        "matchMedia",
+        "setAttribute",
+        "test",
+      ].map((method) =>
+        rejectedDeferredTryHelperCase(`try-spoofed-${method}-suffix`, {
+          references: `${onceListener}\nstate.${method}();`,
+        })
+      ),
+      rejectedDeferredTryHelperCase("try-spoofed-method-guard", {
+        prefix: "function initialize() { state.setAttribute(); return false; }",
+        references: `function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);`,
+      }),
+      ...[
+        ["element", "Element", 'state.setAttribute("content", "ready");'],
+        [
+          "media-event",
+          "MediaQueryList",
+          'state.addEventListener("change", function () {});',
+        ],
+        [
+          "media-listener",
+          "MediaQueryList",
+          "state.addListener(function () {});",
+        ],
+        ["media-match", "Window", 'state.matchMedia("screen");'],
+        ["regexp", "RegExp", 'state.test("ready");'],
+      ].map(([suffix, type, effect]) =>
+        rejectedDeferredTryHelperCase(`try-typed-spoof-${suffix}`, {
+          references: `${onceListener}\nconst state = {} as ${type};\n${effect}`,
+        })
+      ),
+      rejectedDeferredTryHelperCase("try-mutated-browser-method", {
+        prefix:
+          "const mediaQuery = window.matchMedia('screen'); mediaQuery.addListener = replacement;",
+        references: `${onceListener}\nmediaQuery.addListener(function () {});`,
+      }),
+      rejectedDeferredTryHelperCase("try-dynamic-import-suffix", {
+        references: `${onceListener}\nimport("./mutate-storage.js");`,
+      }),
+      rejectedDeferredTryHelperCase("try-global-void-suffix", {
+        references: `${onceListener}\nvoid recoveryProbe;`,
+      }),
+      rejectedDeferredTryHelperCase("try-later-active-listener", {
+        references: `${onceListener}\nwindow.addEventListener("error", function () { initialize(); }, { once: true });`,
+      }),
+      rejectedCase(
+        "try-later-named-storage-reset",
+        `const storageKey = "${focusedKey("try-later-named-storage-reset")}";\nfunction readLater() { try { localStorage.getItem(storageKey); } catch {} }\nfunction clearLater() { try { localStorage.removeItem(storageKey); } catch {} }\n${onceListener}\nwindow.addEventListener("error", clearLater, { once: true });`
+      ),
+      rejectedCase(
+        "try-later-default-storage-reset",
+        `const storageKey = "${focusedKey("try-later-default-storage-reset")}";\nfunction readLater() { try { localStorage.getItem(storageKey); } catch {} }\nfunction clearLater() { try { localStorage.removeItem("theme"); } catch {} }\nfunction initialize(value = clearLater()) {}\n${onceListener}\nwindow.addEventListener("error", function () { initialize(); }, { once: true });`
+      ),
+      rejectedCase(
+        "try-direct-guard-storage-reset",
+        `const storageKey = "${focusedKey("try-direct-guard-storage-reset")}";\nfunction hasPending() { try { return localStorage.getItem(storageKey); } catch { return false; } }\nfunction clearPending() { try { localStorage.removeItem(storageKey); } catch {} }\nfunction run() { if (hasPending()) return; clearPending(); }\nwindow.addEventListener("ready", function () { run(); }, true);`
+      ),
+      rejectedCase(
+        "try-unrelated-repeated-listener-guard",
+        `function readTheme() { try { return localStorage.getItem("theme"); } catch { return false; } }\nconst storageKey = "${focusedKey("try-unrelated-repeated-listener-guard")}";\nfunction markPending() { try { localStorage.setItem(storageKey, "pending"); return true; } catch { return false; } }\nfunction run() { if (readTheme()) return; if (!markPending()) return; }\nwindow.addEventListener("ready", function () { run(); }, true);`
+      ),
+      rejectedCase(
+        "try-empty-repeated-listener-guard",
+        `function shouldSkip() { try { return false; } catch { return false; } }\nconst storageKey = "${focusedKey("try-empty-repeated-listener-guard")}";\nfunction markPending() { try { localStorage.setItem(storageKey, "pending"); return true; } catch { return false; } }\nfunction run() { if (shouldSkip()) return; if (!markPending()) return; }\nwindow.addEventListener("ready", function () { run(); }, true);`
+      ),
+      rejectedDeferredTryHelperCase("try-assignment-registration-suffix", {
+        references: `${onceListener}\nstate.value = replacement;`,
+      }),
+      rejectedDeferredTryHelperCase("try-update-registration-suffix", {
+        references: `${onceListener}\nstate.value++;`,
+      }),
+      rejectedDeferredTryHelperCase("try-assignment-guard", {
+        prefix:
+          "function initialize() { state.value = replacement; return false; }",
+        references: `function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);`,
+      }),
+      ...[
+        "Object.assign(state, replacement);",
+        "Reflect.set(state, 'value', replacement);",
+      ].map((effect, index) =>
+        rejectedDeferredTryHelperCase(`try-mutating-ambient-suffix-${index}`, {
+          references: `${onceListener}\n${effect}`,
+        })
+      ),
+      ...[
+        ["default", "value = initialize()", "undefined"],
+        ["destructured", "{ value }", "state"],
+      ].map(([suffix, parameter, argument]) =>
+        rejectedDeferredTryHelperCase(`try-${suffix}-guard-parameter`, {
+          prefix: `function validate(${parameter}) { return false; }`,
+          references: `function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (validate(${argument})) return; run(); }, true);`,
+        })
+      ),
+      // prettier-ignore
+      ...[...[rejectedStorageCase("deferred-concise-arrow-variable", 'setTimeout(() => localStorage.setItem(storageKey, "1"), 0);'), rejectedStorageCase("try-receiver-method-mutation", 'try { localStorage.setItem = replacement; localStorage.setItem(storageKey, "1"); } catch {}'), rejectedStorageCase("try-deferred-receiver-escape", "function readNow() { try { localStorage.getItem(storageKey); } catch {} }", "function readLater() { try { localStorage.getItem(storageKey); } catch {} }", "readNow();", "const escapedStorage = localStorage;", "setTimeout(readLater, 0);"), rejectedStorageCase("try-deferred-callback", 'try { setTimeout(() => localStorage.setItem(storageKey, "1"), 0); } catch {}'), rejectedCase("try-deferred-function", `let readStorage;\nconst storageKey = "${focusedKey("try-deferred-function")}";\ntry { readStorage = function () { localStorage.getItem(storageKey); }; } catch {}\nreadStorage();`), rejectedStorageCase("short-circuit-variable", 'enabled && localStorage.setItem(storageKey, "1");'), rejectedCase("try-use-before-declaration", `try { localStorage.setItem(storageKey, "1"); } catch {}\nvar storageKey = "${focusedKey("try-use-before-declaration")}";`), rejectedStorageCase("try-helper-call-limit", 'function persist() { try { localStorage.setItem(storageKey, "1"); } catch {} }', Array.from({ length: 9 }, () => "persist();").join("\n")), rejectedCase("try-helper-before-key", `readNow();\nconst storageKey = "${focusedKey("try-helper-before-key")}";\nfunction readNow() { try { localStorage.getItem(storageKey); } catch {} }`), rejectedDeferredTryHelperCase("try-storage-prototype", { prefix: "Storage.prototype.getItem = replacement;" }), rejectedDeferredTryHelperCase("try-dynamic-execution", { prefix: 'Function("localStorage.getItem = replacement")();' })], ...[["pre-key-prefix", onceListener, "initialize();"], ["computed-dynamic-execution", `${onceListener}\nglobalThis["Function"]("localStorage.clear()")();`], ["active-event-name", "window.addEventListener(initialize(), readLater, { once: true });"], ["post-key-prefix", `initialize();\n${onceListener}`], ["post-key-variable-prefix", `const initialized = initialize();\n${onceListener}`], ["local-post-key-variable-prefix", `function initialize() { mutate(); try { localStorage.getItem("theme"); } catch {} }\nconst initialized = initialize();\n${onceListener}`], ["catch-post-key-variable-prefix", `function initialize() { try { localStorage.getItem("theme"); } catch { mutate(); } }\nconst initialized = initialize();\n${onceListener}`], ["exported-wrapper", "export function run() { readLater(); }"], ["loop-guard", "while (enabled) { if (readLater()) {} }"], ["exported-listener-wrapper", `export function setup() { ${onceListener} }`], ["caller-prefix", 'function run() { initialize(); if (readLater()) {} }\nwindow.addEventListener("ready", function () { run(); }, true);'], ["callback-prefix", 'function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { initialize(); run(); }, true);'], ["callback-guard-prefix", 'function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);'], ["declared-callback-guard-prefix", 'function initialize() { mutate(); return false; }\nfunction run() { if (readLater()) {} }\nwindow.addEventListener("ready", function () { if (initialize()) return; run(); }, true);'], ["helper-argument-prefix", `function readTheme() { try { localStorage.getItem("theme"); } catch {} }\nconst theme = readTheme(initialize());\n${onceListener}`], ["destructured-helper-prefix", `function readTheme() { try { localStorage.getItem("theme"); } catch {} }\nconst { theme } = readTheme();\n${onceListener}`], ["listener-limit", Array.from({ length: 9 }, () => onceListener).join("\n")], ["repeated-listener", 'window.addEventListener("ready", readLater, true);'], ["registration-suffix", `${onceListener}\ninitialize();`], ["active-prior-listener", `window.addEventListener("ready", () => initialize(), { once: true });\n${onceListener}`], ["finally-prefix-helper", `function readTheme() { try { localStorage.getItem("theme"); } finally { initialize(); } }\nconst theme = readTheme();\n${onceListener}`], ["query-argument-prefix", `const theme = document.querySelector(initialize());\n${onceListener}`], ["callback-default-prefix", 'function run() { if (readLater()) {} }\nwindow.addEventListener("ready", function (event = initialize()) { run(); }, { once: true });']].map(([suffix, references, prefix]) => rejectedDeferredTryHelperCase(`try-${suffix}`, { references, prefix: prefix ?? "" })), rejectedCase("try-return-prefix", `const storageKey = "${focusedKey("try-return-prefix")}";\nfunction readNow() { try { return localStorage.getItem("theme"); localStorage.getItem(storageKey); } catch {} }\nreadNow();`), ...([ ["exported", "export function"], ["async", "async function"], ["generator", "function*"] ] as const).map(([suffix, declaration]) => rejectedDeferredTryHelperCase(`try-${suffix}-helper`, { declaration: `${declaration} readLater()` })), ...[rejectedDeferredTryHelperCase("try-parameterized-helper", { declaration: "function readLater(value)" }), rejectedDeferredTryHelperCase("try-helper-prefix", { helperPrefix: "initialize(); " }), rejectedDeferredTryHelperCase("try-dormant-helper", { references: "" }), rejectedDeferredTryHelperCase("try-reassigned-helper", { references: `readLater = replacement;\n${onceListener}` }), rejectedDeferredTryHelperCase("try-recursive-helper", { tryBody: "localStorage.getItem(storageKey); readLater();" }), rejectedDeferredTryHelperCase("try-timer-helper", { references: "setTimeout(readLater, 0);" }), rejectedDeferredTryHelperCase("try-loop-helper", { references: "while (enabled) { readLater(); }" }), rejectedDeferredTryHelperCase("try-repeated-event-helper", { references: 'window.addEventListener("ready", readLater);' })], [invalidVariableStorageKey, `var storageKey = "${invalidVariableStorageKey}";\ntry { window.sessionStorage.getItem(storageKey); } catch {}`]],
       [
         focusedKey("concatenated"),
         `const storageKey = "${focusedKey("concatenated")}" + ".com";\nlocalStorage.setItem(storageKey, "1");`,
