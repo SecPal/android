@@ -295,10 +295,10 @@ SecPal uses [Codecov](https://codecov.io) for automated code coverage tracking a
 
 ```bash
 # Run tests with coverage
-ddev exec php artisan test --coverage-clover coverage.xml
+php artisan test --coverage-clover coverage.xml
 
 # View HTML report
-ddev exec php artisan test --coverage-html coverage-html/
+php artisan test --coverage-html coverage-html/
 open coverage-html/index.html
 ```
 
