@@ -35,7 +35,6 @@ class SecPalAndroidPublishLockTest < Minitest::Test
       end
       ready_writer.close
       release_reader.close
-      child_status = nil
 
       begin
         assert_equal "1", ready_reader.read(1)
