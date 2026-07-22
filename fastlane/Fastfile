@@ -112,20 +112,10 @@ end
 
 def persist_last_published_version_code!(version_code)
   ensure_local_file!(DEFAULT_RELEASE_ENV_FILE, "Android release env file")
-
-  replacement = "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=#{Shellwords.escape(version_code.to_s)}"
-  found_version_code = false
-  lines = File.readlines(DEFAULT_RELEASE_ENV_FILE, chomp: true).map do |line|
-    if line.strip.match(/\A(?:export\s+)?SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=/)
-      found_version_code = true
-      replacement
-    else
-      line
-    end
-  end
-  lines << replacement unless found_version_code
-
-  File.write(DEFAULT_RELEASE_ENV_FILE, "#{lines.join("\n")}\n")
+  SecPalAndroidRelease.persist_last_published_version_code!(
+    path: DEFAULT_RELEASE_ENV_FILE,
+    version_code: version_code
+  )
 end
 
 def requested_deploy_version_code
@@ -153,13 +143,7 @@ end
 
 def direct_channel_version_code(channel)
   metadata = JSON.parse(URI.open(direct_channel_metadata_url(channel), &:read))
-  release_available = metadata.fetch("release_available")
-  unless [true, false].include?(release_available)
-    raise "release_available must be a boolean"
-  end
-  return false unless release_available
-
-  metadata.fetch("version_code")
+  SecPalAndroidRelease.direct_version_code_from_metadata(metadata)
 end
 
 def collect_known_android_version_codes!(json_key_path)
@@ -185,10 +169,6 @@ def select_publish_version_code!(json_key_path)
     date: Time.now.utc.to_date,
     known_codes: collect_known_android_version_codes!(json_key_path),
     override: requested_deploy_version_code
-  )
-  ENV["SECPAL_ANDROID_VERSION_CODE"] = selected.to_s
-  UI.message(
-    "Using temporary SECPAL_ANDROID_VERSION_CODE=#{selected} for this publication."
   )
   selected
 rescue SecPalAndroidVersioning::VersioningError => e
@@ -220,9 +200,16 @@ def with_selected_publish_version_code(lane:)
 
   with_android_publish_lock do
     version_code = select_publish_version_code!(json_key_path)
-    yield version_code, json_key_path
-  ensure
-    ENV.delete("SECPAL_ANDROID_VERSION_CODE")
+    UI.message(
+      "Using temporary SECPAL_ANDROID_VERSION_CODE=#{version_code} for this publication."
+    )
+    SecPalAndroidRelease.publish_with_version_code!(
+      environment: ENV,
+      version_code: version_code,
+      persist: method(:persist_last_published_version_code!)
+    ) do |selected_code|
+      yield selected_code, json_key_path
+    end
   end
 end
 
@@ -614,7 +601,7 @@ platform :android do
 
   desc "Upload the signed SecPal release AAB to the Google Play internal track"
   lane :deploy_internal do
-    with_selected_publish_version_code(lane: "deploy_internal") do |version_code, json_key_path|
+    with_selected_publish_version_code(lane: "deploy_internal") do |_version_code, json_key_path|
       build_signed_aab
 
       upload_to_play_store(
@@ -627,7 +614,6 @@ platform :android do
         skip_upload_screenshots: true,
         skip_upload_changelogs: true
       )
-      persist_last_published_version_code!(version_code)
     end
   end
 
@@ -644,27 +630,24 @@ platform :android do
         track: PLAY_INTERNAL_TRACK,
         metadata_path: ensure_play_metadata!
       )
-      persist_last_published_version_code!(version_code)
     end
   end
 
   desc "Build the signed SecPal release APK and publish it to apk.secpal.app"
   lane :deploy_direct_apk do
     lane_name = "deploy_direct_apk (#{direct_deploy_channel})"
-    with_selected_publish_version_code(lane: lane_name) do |version_code, _json_key_path|
+    with_selected_publish_version_code(lane: lane_name) do |_version_code, _json_key_path|
       build_signed_apk
       upload_direct_apk_artifacts(signed_apk_path)
-      persist_last_published_version_code!(version_code)
     end
   end
 
   desc "Build the signed SecPal release APK and publish it to the beta direct-download channel on apk.secpal.app"
   lane :deploy_direct_apk_beta do
     ENV["SECPAL_ANDROID_DIRECT_CHANNEL"] = "beta"
-    with_selected_publish_version_code(lane: "deploy_direct_apk (beta)") do |version_code, _json_key_path|
+    with_selected_publish_version_code(lane: "deploy_direct_apk (beta)") do |_version_code, _json_key_path|
       build_signed_apk
       upload_direct_apk_artifacts(signed_apk_path)
-      persist_last_published_version_code!(version_code)
     end
   end
 end

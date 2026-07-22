@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "tmpdir"
 require_relative "../lib/secpal_android_release"
 
 class SecPalAndroidReleaseTest < Minitest::Test
@@ -126,14 +127,122 @@ class SecPalAndroidReleaseTest < Minitest::Test
   end
 
   def test_accepts_an_explicitly_unpublished_direct_channel
+    unavailable = SecPalAndroidRelease.direct_version_code_from_metadata(
+      "release_available" => false
+    )
     known_codes = SecPalAndroidRelease.collect_known_codes(
       local_baseline: 2_026_072_201,
       play_tracks: [],
       direct_channels: %w[beta],
       play_reader: ->(_track) { [] },
-      direct_reader: ->(_channel) { false }
+      direct_reader: ->(_channel) { unavailable }
     )
 
     assert_equal({ "local release baseline" => 2_026_072_201 }, known_codes)
+  end
+
+  def test_fails_closed_when_available_direct_metadata_contains_false_version_code
+    error = assert_raises(SecPalAndroidRelease::InvalidDirectMetadataError) do
+      SecPalAndroidRelease.direct_version_code_from_metadata(
+        "release_available" => true,
+        "version_code" => false
+      )
+    end
+
+    assert_includes error.message, "version_code"
+  end
+
+  def test_fails_closed_when_a_direct_reader_returns_false_as_a_version_code
+    error = assert_raises(SecPalAndroidRelease::SourceReadError) do
+      SecPalAndroidRelease.collect_known_codes(
+        local_baseline: 2_026_072_201,
+        play_tracks: [],
+        direct_channels: %w[stable],
+        play_reader: ->(_track) { [] },
+        direct_reader: ->(_channel) { false }
+      )
+    end
+
+    assert_includes error.message, "Direct stable"
+  end
+
+  def test_persists_the_release_baseline_atomically_and_preserves_permissions
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "android-release.env")
+      File.write(path, "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072201\n")
+      File.chmod(0o600, path)
+
+      SecPalAndroidRelease.persist_last_published_version_code!(
+        path: path,
+        version_code: 2_026_072_202
+      )
+
+      assert_equal "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072202\n",
+                   File.read(path)
+      assert_equal 0o600, File.stat(path).mode & 0o777
+      assert_equal ["android-release.env"], Dir.children(directory)
+    end
+  end
+
+  def test_keeps_the_existing_baseline_when_atomic_replacement_fails
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "android-release.env")
+      original = "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072201\n"
+      File.write(path, original)
+      File.chmod(0o600, path)
+
+      File.stub(:rename, ->(*) { raise IOError, "simulated rename failure" }) do
+        assert_raises(IOError) do
+          SecPalAndroidRelease.persist_last_published_version_code!(
+            path: path,
+            version_code: 2_026_072_202
+          )
+        end
+      end
+
+      assert_equal original, File.read(path)
+      assert_equal ["android-release.env"], Dir.children(directory)
+    end
+  end
+
+  def test_persists_only_after_successful_publication_and_clears_the_build_code
+    environment = {}
+    events = []
+
+    result = SecPalAndroidRelease.publish_with_version_code!(
+      environment: environment,
+      version_code: 2_026_072_202,
+      persist: ->(code) { events << [:persist, code] }
+    ) do |code|
+      assert_equal "2026072202", environment["SECPAL_ANDROID_VERSION_CODE"]
+      events << [:publish, code]
+      :uploaded
+    end
+
+    assert_equal :uploaded, result
+    assert_equal [
+      [:publish, 2_026_072_202],
+      [:persist, 2_026_072_202]
+    ], events
+    refute environment.key?("SECPAL_ANDROID_VERSION_CODE")
+  end
+
+  def test_does_not_persist_after_failed_publication_and_clears_the_build_code
+    environment = {}
+    persisted = false
+
+    error = assert_raises(RuntimeError) do
+      SecPalAndroidRelease.publish_with_version_code!(
+        environment: environment,
+        version_code: 2_026_072_202,
+        persist: ->(_code) { persisted = true }
+      ) do
+        raise "simulated upload failure"
+      end
+    end
+
+    assert_equal "simulated upload failure", error.message
+    refute persisted
+    refute environment.key?("SECPAL_ANDROID_VERSION_CODE")
   end
 end
