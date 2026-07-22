@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Pinned transitive `brace-expansion` and `tar` dependencies to releases that
+  resolve their published denial-of-service vulnerabilities.
 - Added regression coverage that keeps domain-policy storage-key exemptions
   fail-closed when browser-global aliases, storage constructors or prototypes,
   dynamic execution, or escaped storage receivers could mutate the receiver.
@@ -52,8 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Pinned transitive `brace-expansion` and `tar` dependencies to releases that
-  resolve their published denial-of-service vulnerabilities.
 - Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset
   recovery key, while retaining fail-closed execution-boundary, receiver-provenance, declaration-order, eligible-helper, same-key guard, callback-suffix,
   helper-prefix, and unapproved-host checks (issue #366).
