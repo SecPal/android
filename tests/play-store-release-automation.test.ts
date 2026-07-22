@@ -280,12 +280,12 @@ describe("Play Store release automation", () => {
     );
 
     expect(fastfile).toContain('require "open-uri"');
-    expect(fastfile).toContain("def highest_known_direct_version_code");
-    expect(fastfile).toContain("APK_DIRECT_CHANNELS.filter_map");
+    expect(fastfile).toContain("def direct_channel_version_code");
+    expect(fastfile).toContain("direct_channels: APK_DIRECT_CHANNELS");
     expect(fastfile).toContain("direct_channel_metadata_url(channel)");
-    expect(fastfile).toContain("configured_release_version_code_value");
-    expect(fastfile).toContain("highest_known_android_version_code");
-    expect(fastfile).toContain("highest_known_version_code + 1");
+    expect(fastfile).toContain("configured_last_published_version_code_value");
+    expect(fastfile).toContain("collect_known_android_version_codes!");
+    expect(fastfile).toContain("SecPalAndroidVersioning.next_version_code");
   });
 
   it("keeps generated Android version codes monotonic across Play and direct APK releases", () => {
@@ -294,14 +294,12 @@ describe("Play Store release automation", () => {
       "utf8"
     );
 
-    expect(fastfile).toContain("def highest_known_android_version_code");
-    expect(fastfile).toMatch(
-      /def next_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: json_key_path[\s\S]*\)/
-    );
-    expect(fastfile).toMatch(
-      /def next_direct_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: play_json_key_path[\s\S]*\)/
-    );
-    expect(fastfile).toContain("persist_configured_release_version_code!");
+    expect(fastfile).toContain("def with_selected_publish_version_code");
+    expect(fastfile).toContain("collect_known_android_version_codes!");
+    expect(fastfile).toContain("play_tracks: PLAY_VERSION_CODE_TRACKS");
+    expect(fastfile).toContain("direct_channels: APK_DIRECT_CHANNELS");
+    expect(fastfile).toContain("persist_last_published_version_code!");
+    expect(fastfile).not.toContain("Time.now.utc.strftime");
   });
 
   it("parses shell-compatible release env assignments before using the configured version baseline", () => {
@@ -315,6 +313,31 @@ describe("Play Store release automation", () => {
       "line.match(/\\A(?:export\\s+)?#{Regexp.escape(key)}=(.*)\\z/)"
     );
     expect(fastfile).toContain("Shellwords.split");
+    expect(fastfile).toMatch(
+      /release_env_assignment_value\(\s*"SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"\s*\)/
+    );
+    expect(fastfile).toContain(
+      "SecPalAndroidRelease.resolve_last_published_version_code"
+    );
+    expect(fastfile).toContain("environment: ENV");
+  });
+
+  it("requires explicit codes for build-only lanes and locks every publishing lane", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toMatch(
+      /lane :build_signed_apk[\s\S]*require_signed_build_version_code!\("build_signed_apk"\)/
+    );
+    expect(fastfile).toMatch(
+      /lane :build_signed_aab[\s\S]*require_signed_build_version_code!\("build_signed_aab"\)/
+    );
+    expect(fastfile).toContain("SecPalAndroidPublishLock.with_lock");
+    expect(
+      fastfile.match(/^\s{4}with_selected_publish_version_code\(lane:/gm)
+    ).toHaveLength(4);
   });
 
   it("keeps direct APK metadata aligned with the actual signing key and latest checksum name", () => {
@@ -358,13 +381,32 @@ describe("Play Store release automation", () => {
       resolve(repoRoot, "fastlane", "Fastfile"),
       "utf8"
     );
-
-    expect(fastfile).toContain(
-      "Failed to resolve the highest known direct APK version code"
+    const releaseHelper = readFileSync(
+      resolve(repoRoot, "fastlane", "lib", "secpal_android_release.rb"),
+      "utf8"
     );
+
+    expect(releaseHelper).toContain(
+      "Failed to read required Direct #{channel}"
+    );
+    expect(releaseHelper).toContain("Failed to read required Play #{track}");
     expect(fastfile).not.toContain(
       "Skipping direct APK channel '#{channel}' while resolving the next version code"
     );
+    expect(fastfile).not.toContain("Skipping Google Play track");
+  });
+
+  it("pins the third-party Ruby setup action to an immutable commit", () => {
+    const qualityWorkflow = readFileSync(
+      resolve(repoRoot, ".github", "workflows", "quality.yml"),
+      "utf8"
+    );
+    const setupRubyReference = qualityWorkflow.match(
+      /uses:\s*ruby\/setup-ruby@([^\s#]+)/
+    );
+
+    expect(setupRubyReference).not.toBeNull();
+    expect(setupRubyReference?.[1]).toMatch(/^[0-9a-f]{40}$/);
   });
 
   it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {

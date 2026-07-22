@@ -8,8 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_ENV_FILE="${SECPAL_ANDROID_RELEASE_ENV_FILE:-$HOME/.config/secpal/android-release.env}"
 OVERRIDABLE_KEYS=(
     SECPAL_ANDROID_DIRECT_CHANNEL
+    SECPAL_ANDROID_DEPLOY_VERSION_CODE
+    SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE
     SECPAL_ANDROID_VERSION_CODE
-    SECPAL_ANDROID_VERSION_NAME
+    SECPAL_ANDROID_PLAY_JSON_KEY_PATH
     SECPAL_ANDROID_KEYSTORE_PATH
     SECPAL_ANDROID_KEYSTORE_PASSWORD
     SECPAL_ANDROID_KEY_ALIAS
@@ -18,6 +20,7 @@ OVERRIDABLE_KEYS=(
     SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA
 )
 overrides=()
+legacy_version_name_present=false
 
 if [[ ! -f "$RELEASE_ENV_FILE" ]]; then
     echo "Missing Android release env file: $RELEASE_ENV_FILE" >&2
@@ -49,11 +52,37 @@ for key in "${OVERRIDABLE_KEYS[@]}"; do
     if [[ -v "$key" ]]; then
         overrides+=("$key=${!key}")
     fi
+    unset "$key"
 done
+
+if [[ -v SECPAL_ANDROID_VERSION_NAME ]]; then
+    legacy_version_name_present=true
+fi
+unset SECPAL_ANDROID_VERSION_NAME
 
 set -a
 # shellcheck source=/dev/null
 source "$RELEASE_ENV_FILE"
 set +a
+
+legacy_baseline="${SECPAL_ANDROID_VERSION_CODE:-}"
+persisted_baseline="${SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE:-}"
+if [[ -n "$legacy_baseline" ]]; then
+    if [[ -z "$persisted_baseline" ]]; then
+        export SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE="$legacy_baseline"
+        echo "Deprecated SECPAL_ANDROID_VERSION_CODE baseline loaded as SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE for this process only; the env file was not modified." >&2
+    else
+        echo "Ignoring deprecated SECPAL_ANDROID_VERSION_CODE baseline because SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE is already configured; the env file was not modified." >&2
+    fi
+fi
+unset SECPAL_ANDROID_VERSION_CODE
+
+if [[ -v SECPAL_ANDROID_VERSION_NAME ]]; then
+    legacy_version_name_present=true
+fi
+unset SECPAL_ANDROID_VERSION_NAME
+if [[ "$legacy_version_name_present" == true ]]; then
+    echo "Ignoring deprecated SECPAL_ANDROID_VERSION_NAME; VERSION is the only app-version source." >&2
+fi
 
 exec env "${overrides[@]}" bash "$SCRIPT_DIR/with-android-env.sh" "$@"

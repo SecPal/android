@@ -12,6 +12,8 @@ the Android native auth plugin, injected WebView bridge, and persisted bootstrap
 payloads. The Android code listed below is still required by the merged
 frontend behavior and must be kept while the shared flow depends on it.
 
+Runtime identity keeps the visible version and technical build separate. `appVersion` comes from the repository-root `VERSION` file through Android `versionName`; `appBuild` is the decimal Android `versionCode`, including the ten-digit UTC `YYYYMMDDXX` release format. The value remains below Google Play's integer ceiling and is carried through the native Java `long` and JSON number paths without truncation.
+
 ## Source Surfaces
 
 - Frontend facade:

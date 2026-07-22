@@ -58,11 +58,11 @@ That preserves compatibility with direct distribution while still using the stan
 Before any public rollout:
 
 1. create an internal testing track
-2. upload the signed AAB produced by `npm run native:bundle:release:signed` or `npm run fastlane:android:deploy:internal`
+2. upload the signed AAB produced by `SECPAL_ANDROID_VERSION_CODE=2026072201 npm run native:bundle:release:signed` or `npm run fastlane:android:deploy:internal`
 3. verify package name, version code, and release notes
 4. confirm that the uploaded package name is still `app.secpal`
 
-When you use `npm run fastlane:android:deploy:internal`, the lane can generate a fresh Play-safe `versionCode` automatically. If you need to force a specific value for a one-off upload, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...` explicitly in the shell. A directly exported `SECPAL_ANDROID_VERSION_CODE=...` also overrides the local release env file when it differs from the stored baseline value.
+When you use `npm run fastlane:android:deploy:internal`, the lane selects a fresh UTC `YYYYMMDDXX` `versionCode` after checking the local published baseline, Direct Stable, Direct Beta, and the configured Play tracks `internal`, `alpha`, `beta`, and `production`. If you need to force a specific value for a one-off upload, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...` explicitly in the shell. `SECPAL_ANDROID_VERSION_CODE` is reserved for Fastlane's temporary Gradle build value and is not a publishing override.
 
 ## 5. Store Listing Requirements
 
