@@ -151,18 +151,22 @@ Fastlane can drive the same local signing flow and optionally upload the signed 
 npm run fastlane:install
 npm run fastlane:android:sync:play-assets
 npm run fastlane:android:validate:play-assets
-npm run fastlane:android:build:signed-aab
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run fastlane:android:build:signed-aab
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
   npm run fastlane:android:deploy:internal
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
   npm run fastlane:android:deploy:internal:with-metadata
-SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
+  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk
-SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
+  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk:beta
 ```
 
-`deploy_internal` automatically generates a fresh Play-safe `SECPAL_ANDROID_VERSION_CODE` when you do not pass one explicitly. If you need to force a one-off deploy value, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...` on the command line. A directly exported `SECPAL_ANDROID_VERSION_CODE=...` also wins when it differs from the baseline value stored in `~/.config/secpal/android-release.env`.
+`VERSION` is the only visible app-version source and currently contains `0.1.0`; `npm run version:check` verifies that both npm metadata files match it. `SECPAL_ANDROID_VERSION_NAME` is obsolete and ignored.
+Publishing lanes reserve a UTC `YYYYMMDDXX` code from `01` through `99` after reading the local baseline, Direct Stable, Direct Beta, and the configured Google Play tracks. `SECPAL_ANDROID_DEPLOY_VERSION_CODE` is the only manual publishing override. `SECPAL_ANDROID_VERSION_CODE` is only the temporary Gradle value; signed build-only lanes require it explicitly and never reuse the published baseline.
 `fastlane:android:sync:play-assets` imports curated texts, screenshots, and localized graphics from `./.local/play-assets` by default, or from `SECPAL_ANDROID_PLAY_ASSETS_SOURCE` when set, into `fastlane/metadata/android`, normalizing the icon to a Play-safe `512x512` canvas on the way.
 `fastlane:android:validate:play-assets` checks the copied assets for required text limits, image sizes, screenshot counts, promotion-eligibility sizing, Play-safe preview image color modes, and screenshot aspect-ratio limits before a Play upload.
 `deploy_internal_with_metadata` uploads the signed AAB together with the local `fastlane/metadata/android` store-listing payload and auto-materializes localized versioned Play changelogs from `fastlane/metadata/android/*/changelogs/default.txt` when the exact `versionCode` file is still missing.
@@ -180,16 +184,17 @@ Direct channel endpoints are therefore:
 - `https://apk.secpal.app/android/beta/app.secpal-latest.apk`
 - `https://apk.secpal.app/android/beta/SHA256SUMS.txt`
 
-Release signing is picked up from environment variables when present:
+Release signing and version-code state use these environment variables:
 
-- `SECPAL_ANDROID_VERSION_CODE`
-- `SECPAL_ANDROID_VERSION_NAME`
+- `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` for the local successfully published baseline
+- `SECPAL_ANDROID_DEPLOY_VERSION_CODE` for an optional publishing override
+- `SECPAL_ANDROID_VERSION_CODE` for one explicit build-only invocation or Fastlane's temporary Gradle value
 - `SECPAL_ANDROID_KEYSTORE_PATH`
 - `SECPAL_ANDROID_KEYSTORE_PASSWORD`
 - `SECPAL_ANDROID_KEY_ALIAS`
 - `SECPAL_ANDROID_KEY_PASSWORD`
 
-Google Play upload through Fastlane additionally expects:
+Every Fastlane publishing lane, including Direct Stable and Direct Beta, expects:
 
 - `SECPAL_ANDROID_PLAY_JSON_KEY_PATH`
 
@@ -206,7 +211,7 @@ Samsung managed-device hard-key partner metadata can also be injected through en
 
 If those variables are unset, SecPal keeps the manifest entries present with empty values so the Android wrapper stays buildable across non-Samsung and local development flows.
 
-The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts.
+The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts. The loader migrates an old `SECPAL_ANDROID_VERSION_CODE` baseline in memory, warns about and removes `SECPAL_ANDROID_VERSION_NAME` from the child environment, and never rewrites the file.
 For Fastlane-based Play deployment, keep the Play service-account JSON outside the repository as well, for example at `~/.config/secpal/google-play-service-account.json`.
 
 See `docs/ANDROID_RELEASE_DISTRIBUTION.md` for the distribution split between direct APK delivery and Google Play.

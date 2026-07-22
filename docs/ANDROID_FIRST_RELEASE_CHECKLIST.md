@@ -25,6 +25,7 @@ This checklist is the baseline for the first real SecPal Android release.
 
 ## Repository Validation
 
+- `npm run version:check`
 - `npm run lint`
 - `npm run typecheck`
 - `npm run test:run`
@@ -36,7 +37,10 @@ This checklist is the baseline for the first real SecPal Android release.
 ## Direct Download Readiness
 
 - signed release APK exists
-- version code is set and does not move backwards
+- `VERSION`, `package.json`, and `package-lock.json` identify the visible release consistently
+- the shared UTC `YYYYMMDDXX` version code is above the local baseline, both Direct channels, and all configured Play tracks
+- Google Play credentials are available even for Direct publication
+- the release is running on the authorized SecPal VPS and the shared publishing lock is available
 - upgrade path from older internal builds is understood
 - installation instructions for enterprise customers are prepared
 - DPC-related onboarding assumes the same app package and signature as the public app
@@ -48,6 +52,7 @@ This checklist is the baseline for the first real SecPal Android release.
 - Google Play App Signing decision is documented
 - store listing text, screenshots, icon, privacy URL, and support URL are ready
 - internal testing track is prepared before production rollout
+- configured code checks cover `internal`, `alpha`, `beta`, and `production`; any new custom or closed track is added before use
 
 See `docs/ANDROID_PLAY_CONSOLE_SETUP.md` for the operational Play Console setup sequence.
 
@@ -66,3 +71,4 @@ Do not publish if any of these are still unclear:
 - final public support address
 - Play Console owner identity
 - versioning policy for updates
+- a single authorized release runner; the local process lock is not treated as a central reservation service

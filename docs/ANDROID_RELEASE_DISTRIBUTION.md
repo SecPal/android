@@ -155,10 +155,13 @@ If Android Enterprise distribution through managed Google Play is a target, Play
 
 ## Environment Variables For Release Builds
 
-The Gradle app module reads these variables when present:
+The Gradle app module reads the canonical visible app version from the root `VERSION` file. `package.json` and `package-lock.json` must match it; verify this with `npm run version:check`. `SECPAL_ANDROID_VERSION_NAME` is obsolete and has no effect.
 
-- `SECPAL_ANDROID_VERSION_CODE`
-- `SECPAL_ANDROID_VERSION_NAME`
+Release code and signing inputs are separated as follows:
+
+- `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE`: local baseline of the last successful publication
+- `SECPAL_ANDROID_DEPLOY_VERSION_CODE`: optional publishing-only operator override
+- `SECPAL_ANDROID_VERSION_CODE`: temporary current Gradle build code; build-only Fastlane lanes require it explicitly
 - `SECPAL_ANDROID_KEYSTORE_PATH`
 - `SECPAL_ANDROID_KEYSTORE_PASSWORD`
 - `SECPAL_ANDROID_KEY_ALIAS`
@@ -185,7 +188,7 @@ npm run native:assemble:release:signed
 npm run native:bundle:release:signed
 ```
 
-The setup script creates both the keystore and the local env file, with file mode `600` to reduce accidental exposure on shared systems.
+The setup script creates both the keystore and the local env file, with file mode `600` to reduce accidental exposure on shared systems. It writes neither a visible version nor a current build code. When an older env file contains a `SECPAL_ANDROID_VERSION_CODE` baseline, the loader exposes it as `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` to the child process only. It does not modify or delete entries in the file. A legacy `SECPAL_ANDROID_VERSION_NAME` is warned about, ignored, and removed from the child environment.
 
 ## Fastlane For Local Build And Play Upload
 
@@ -199,12 +202,20 @@ Fastlane lanes in this repository call the existing signed Gradle build flow and
 
 - `bundle install`
 - `SECPAL_ANDROID_RELEASE_ENV_FILE` when you do not use the default `~/.config/secpal/android-release.env`
-- `SECPAL_ANDROID_PLAY_JSON_KEY_PATH` when uploading to Google Play
+- `SECPAL_ANDROID_PLAY_JSON_KEY_PATH` for every publication, including Direct Stable and Direct Beta
 - `SECPAL_ANDROID_DIRECT_SSH_HOST` when publishing the direct APK to a non-default SSH host
 - `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
 - `SECPAL_ANDROID_DIRECT_CHANNEL` when publishing to the `beta` direct-download channel instead of `stable`
 
-For Google Play deployment, `fastlane android deploy_internal` now generates a fresh `SECPAL_ANDROID_VERSION_CODE` automatically when the caller does not provide one. If you need to force a one-off deploy value, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...`. A directly exported `SECPAL_ANDROID_VERSION_CODE=...` also overrides the baseline local env-file value when it differs from that stored release default.
+Signed build-only lanes do not reserve or persist a code. `build_signed_apk` and `build_signed_aab` require an explicit valid `SECPAL_ANDROID_VERSION_CODE` in `YYYYMMDDXX` format and abort if it is absent. Debug and store-listing builds keep their independent Gradle defaults.
+
+All publishing lanes share one allocator. It reads the local baseline, Direct Stable metadata, Direct Beta metadata, and the Google Play tracks `internal`, `alpha`, `beta`, and `production`. Every configured source is required: one unreadable Play track or Direct channel aborts the publication. New custom or closed-testing Play tracks must be added to `PLAY_VERSION_CODE_TRACKS` before they are used for a release. Direct publication cannot run without working Google Play credentials because otherwise the shared monotonic sequence cannot be proven.
+
+The allocator uses UTC ranges `YYYYMMDD01` through `YYYYMMDD99`. It selects `01` when today has no known code, otherwise increments today's highest known code. It aborts on `99`, on a known future code, or on invalid source data. A `SECPAL_ANDROID_DEPLOY_VERSION_CODE` override must use the same format, fall in today's UTC range, and exceed every known code. Historical nine-digit codes remain valid monotonic floors but are never generated. Google Play's `2,100,000,000` limit means this date scheme is valid through 2099 and intentionally fails for 2100 dates.
+
+The SecPal VPS is currently the only authorized release runner. Google Play, Direct Stable, and Direct Beta publishing all hold the same non-blocking local `flock`-backed `~/.config/secpal/android-publish.lock` for source collection, allocation, build, upload, and baseline persistence. A concurrent process aborts, and the lock is released on success, failure, or process termination. This runner-local lock is not a substitute for a future central release reservation service.
+
+Fastlane writes `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` only after the upload has succeeded. During build and upload, the selected code exists only as `SECPAL_ANDROID_VERSION_CODE` and is removed afterwards.
 
 For direct APK publication on `apk.secpal.app`, the repository now treats the canonical machine-facing URLs as `stable` plus `beta`, while keeping `/android/...` as the stable alias:
 
@@ -240,18 +251,21 @@ Example:
 
 ```bash
 npm run fastlane:install
-npm run fastlane:android:build:signed-aab
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run fastlane:android:build:signed-aab
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
   npm run fastlane:android:deploy:internal
 ```
 
 ```bash
-SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
+  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk
 ```
 
 ```bash
-SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
+  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk:beta
 ```
 

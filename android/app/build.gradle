@@ -12,7 +12,17 @@ try {
 } catch (NumberFormatException e) {
     throw new GradleException("Invalid SECPAL_ANDROID_VERSION_CODE environment variable value '${releaseVersionCodeEnv}'. Expected a numeric integer version code.")
 }
-def releaseVersionName = System.getenv('SECPAL_ANDROID_VERSION_NAME') ?: '1.0.0'
+if (releaseVersionCode <= 0 || releaseVersionCode > 2100000000) {
+    throw new GradleException("Invalid SECPAL_ANDROID_VERSION_CODE environment variable value '${releaseVersionCodeEnv}'. Expected an integer from 1 through 2100000000.")
+}
+def canonicalVersionFile = new File(rootProject.projectDir.parentFile, 'VERSION')
+if (!canonicalVersionFile.isFile()) {
+    throw new GradleException("Missing canonical Android version file: ${canonicalVersionFile}")
+}
+def releaseVersionName = canonicalVersionFile.getText('UTF-8').trim()
+if (!(releaseVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)) {
+    throw new GradleException("Invalid canonical Android version '${releaseVersionName}' in ${canonicalVersionFile}. Expected semantic version syntax.")
+}
 def releaseKeystorePath = System.getenv('SECPAL_ANDROID_KEYSTORE_PATH')
 def releaseKeystorePassword = System.getenv('SECPAL_ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('SECPAL_ANDROID_KEY_ALIAS')

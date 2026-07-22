@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added canonical Android `0.1.0` versioning, a fail-closed Ruby UTC build-code allocator, shared Play/Direct publication source checks, and a VPS publishing process lock (issue #424).
 - Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.
 
 ### Changed
 
+- Separated the persisted Android publication baseline, manual deploy override, and temporary Gradle build code; signed build-only lanes now require an explicit code and legacy version-name environment values are ignored.
 - Domain-policy storage-key exemptions now use fail-closed candidate and per-reference fixpoint proofs for initialized keys and reachable, zero-argument named helpers, dynamically count at most eight aggregate live helper execution paths through their target storage statements and prefixes, ignore erased type references and proven dormant declarations, closures, constructors, methods, accessors, or instance initializers without hiding live computed names or static initialization, and reject unproven prefixes, longer paths, exports, asynchronous or parameterized helpers, generators, decorators, optional calls, deferred calls, and escaped flows.
 - Replaced regex-only browser-storage key exemptions in domain-policy validation with a fail-closed TypeScript syntax-tree whitelist for straight-line top-level calls and single-variable declarations, including passive declarations, classes, and directives, matching TypeScript literal annotations, erased type-only imports and exports, module-hoisted runtime dependency checks, scoped setup hazards, unrelated and repeated direct storage calls, lexical context, scope, shadowing, exact call arity, complete literal initializers, TypeScript wrappers, template-use tracking, and rejection of aliases before use, runtime exports, indirect execution, concatenation, and dual use.
 - Upgraded the Android build toolchain to compile SDK 36 and Android Gradle Plugin 8.9.1, raised the minimum SDK to 24, and moved the native open-source notices UI to Google Play services OSS licenses 17.5.1 and its v2 activity.

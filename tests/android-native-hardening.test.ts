@@ -724,12 +724,13 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("versioned_checksum_url");
     expect(fastfile).toContain("release_available: false");
     expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
-    expect(fastfile).toContain("next_deploy_version_code");
-    expect(fastfile).toContain("configured_release_version_code");
+    expect(fastfile).toContain("select_publish_version_code!");
+    expect(fastfile).toContain("configured_last_published_version_code");
     expect(fastfile).toContain("SECPAL_ANDROID_DEPLOY_VERSION_CODE");
     expect(fastfile).toContain("google_play_track_version_codes");
     expect(fastfile).toContain("PLAY_VERSION_CODE_TRACKS");
-    expect(fastfile).toContain("Time.now.utc.strftime");
+    expect(fastfile).toContain("SecPalAndroidVersioning.next_version_code");
+    expect(fastfile).toContain("with_android_publish_lock");
     expect(fastfile).toContain('ENV["SECPAL_ANDROID_VERSION_CODE"]');
     expect(fastfile).toContain("load-android-release-env.sh");
     expect(releaseEnvLoader).toContain('$(dirname "${BASH_SOURCE[0]}")');
