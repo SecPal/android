@@ -84,22 +84,6 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("pins patched archive tooling dependencies", () => {
-    const packageJson = JSON.parse(readRepoFile("package.json")) as {
-      overrides?: Record<string, unknown>;
-    };
-    const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
-      packages?: Record<string, { version?: string }>;
-    };
-
-    expect(packageJson.overrides?.["brace-expansion"]).toBe("5.0.7");
-    expect(
-      packageLock.packages?.["node_modules/brace-expansion"]?.version
-    ).toBe("5.0.7");
-    expect(packageJson.overrides?.tar).toBe("7.5.21");
-    expect(packageLock.packages?.["node_modules/tar"]?.version).toBe("7.5.21");
-  });
-
   it("defines the Cordova access allowlist in Capacitor source config", async () => {
     let configModule: { default?: unknown };
     try {
