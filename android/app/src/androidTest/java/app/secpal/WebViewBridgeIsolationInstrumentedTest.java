@@ -7,12 +7,14 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.webkit.WebView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -34,7 +36,8 @@ import org.junit.runner.RunWith;
 
 @RunWith(AndroidJUnit4.class)
 public class WebViewBridgeIsolationInstrumentedTest {
-    private static final String CONTROLLED_PAGE_URL = "https://app.secpal.dev/bridge-isolation-test.html#";
+    private static final String CONTROLLED_ORIGIN = "https://app.secpal.dev";
+    private static final String CONTROLLED_PAGE_URL = CONTROLLED_ORIGIN + "/bridge-isolation-test.html#";
     private static final long TIMEOUT_SECONDS = 30L;
     private static final String TEST_RESULT_OBJECT = "secpalTestResult";
 
@@ -49,8 +52,8 @@ public class WebViewBridgeIsolationInstrumentedTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             ResultCollector results = loadControlledPage(scenario, "main");
 
-            assertEquals("main-type:object", results.await());
-            assertEquals("main-reply", results.await());
+            assertResult(results.await(), "main-type:object", true, true);
+            assertResult(results.await(), "main-reply", true, true);
         }
     }
 
@@ -59,8 +62,8 @@ public class WebViewBridgeIsolationInstrumentedTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             ResultCollector results = loadControlledPage(scenario, "child");
 
-            assertEquals("child-type:object", results.await());
-            assertEquals("child-barrier", results.await());
+            assertResult(results.await(), "child-type:object", false, false);
+            assertResult(results.await(), "child-barrier", true, true);
             List<String> invocations = CountingEnterprisePlugin.invocations();
             assertTrue(invocations.contains("barrier"));
             assertFalse(invocations.contains("child"));
@@ -72,7 +75,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             ResultCollector results = loadControlledPage(scenario, "foreign");
 
-            assertEquals("foreign-type:undefined", results.await());
+            assertResult(results.await(), "foreign-type:undefined", true, true);
         }
     }
 
@@ -81,9 +84,11 @@ public class WebViewBridgeIsolationInstrumentedTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             ResultCollector results = loadControlledPage(scenario, "legacy");
 
-            assertEquals(
+            assertResult(
+                results.await(),
                 "legacy-types:undefined,undefined,undefined,undefined",
-                results.await()
+                true,
+                true
             );
         }
     }
@@ -102,11 +107,26 @@ public class WebViewBridgeIsolationInstrumentedTest {
                 webView,
                 TEST_RESULT_OBJECT,
                 Collections.singleton("*"),
-                (view, message, sourceOrigin, isMainFrame, replyProxy) -> results.add(message.getData())
+                (view, message, sourceOrigin, isMainFrame, replyProxy) ->
+                    results.add(webView, view, message.getData(), sourceOrigin.toString(), isMainFrame, replyProxy)
             );
             webView.loadUrl(CONTROLLED_PAGE_URL + mode);
         });
         return results;
+    }
+
+    private static void assertResult(
+        BridgeResult result,
+        String message,
+        boolean mainFrame,
+        boolean trustedOrigin
+    ) {
+        assertNotNull(result);
+        assertEquals(message, result.message);
+        assertTrue(result.expectedView == result.actualView);
+        assertEquals(mainFrame, result.mainFrame);
+        assertEquals(trustedOrigin, CONTROLLED_ORIGIN.equals(result.sourceOrigin));
+        assertNotNull(result.replyProxy);
     }
 
     @CapacitorPlugin(name = "SecPalEnterprise")
@@ -132,18 +152,50 @@ public class WebViewBridgeIsolationInstrumentedTest {
     }
 
     private static final class ResultCollector {
-        private final LinkedBlockingQueue<String> messages = new LinkedBlockingQueue<>();
+        private final LinkedBlockingQueue<BridgeResult> messages = new LinkedBlockingQueue<>();
 
-        void add(String message) {
-            messages.add(message);
+        void add(
+            WebView expectedView,
+            WebView actualView,
+            String message,
+            String sourceOrigin,
+            boolean mainFrame,
+            JavaScriptReplyProxy replyProxy
+        ) {
+            messages.add(new BridgeResult(expectedView, actualView, message, sourceOrigin, mainFrame, replyProxy));
         }
 
-        String await() throws InterruptedException {
+        BridgeResult await() throws InterruptedException {
             return poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
 
-        String poll(long timeout, TimeUnit unit) throws InterruptedException {
+        BridgeResult poll(long timeout, TimeUnit unit) throws InterruptedException {
             return messages.poll(timeout, unit);
+        }
+    }
+
+    private static final class BridgeResult {
+        private final WebView expectedView;
+        private final WebView actualView;
+        private final String message;
+        private final String sourceOrigin;
+        private final boolean mainFrame;
+        private final JavaScriptReplyProxy replyProxy;
+
+        BridgeResult(
+            WebView expectedView,
+            WebView actualView,
+            String message,
+            String sourceOrigin,
+            boolean mainFrame,
+            JavaScriptReplyProxy replyProxy
+        ) {
+            this.expectedView = expectedView;
+            this.actualView = actualView;
+            this.message = message;
+            this.sourceOrigin = sourceOrigin;
+            this.mainFrame = mainFrame;
+            this.replyProxy = replyProxy;
         }
     }
 }

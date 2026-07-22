@@ -94,6 +94,16 @@ describe("Android native hardening", () => {
       "main",
       "AndroidManifest.xml"
     );
+    const bridgeIsolationTest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "androidTest",
+      "java",
+      "app",
+      "secpal",
+      "WebViewBridgeIsolationInstrumentedTest.java"
+    );
 
     expect(mainActivity).toContain("WEB_MESSAGE_LISTENER");
     expect(mainActivity).toContain("WebViewCompat.getCurrentWebViewPackage");
@@ -141,6 +151,9 @@ describe("Android native hardening", () => {
     expect(compatibilityActivity).not.toContain("WebViewAssetLoader");
     expect(compatibilityActivity).not.toContain("addJavascriptInterface");
     expect(manifest).toContain('android:name=".WebViewCompatibilityActivity"');
+    expect(bridgeIsolationTest).toContain(
+      "results.add(webView, view, message.getData(), sourceOrigin.toString(), isMainFrame, replyProxy)"
+    );
     expect(
       existsSync(
         resolve(
