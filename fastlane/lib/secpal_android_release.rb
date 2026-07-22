@@ -15,6 +15,22 @@ module SecPalAndroidRelease
 
   module_function
 
+  def resolve_last_published_version_code(
+    environment:,
+    persisted_value:,
+    legacy_value:
+  )
+    environment_value = environment[
+      "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"
+    ].to_s.strip
+    return environment_value unless environment_value.empty?
+
+    persisted = persisted_value.to_s.strip
+    return persisted unless persisted.empty?
+
+    legacy_value.to_s.strip
+  end
+
   def required_signed_build_version_code!(lane:, environment:)
     value = environment["SECPAL_ANDROID_VERSION_CODE"].to_s.strip
     if value.empty?

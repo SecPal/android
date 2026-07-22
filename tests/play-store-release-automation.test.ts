@@ -316,6 +316,10 @@ describe("Play Store release automation", () => {
     expect(fastfile).toMatch(
       /release_env_assignment_value\(\s*"SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"\s*\)/
     );
+    expect(fastfile).toContain(
+      "SecPalAndroidRelease.resolve_last_published_version_code"
+    );
+    expect(fastfile).toContain("environment: ENV");
   });
 
   it("requires explicit codes for build-only lanes and locks every publishing lane", () => {

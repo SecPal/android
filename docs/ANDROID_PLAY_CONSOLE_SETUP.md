@@ -58,7 +58,7 @@ That preserves compatibility with direct distribution while still using the stan
 Before any public rollout:
 
 1. create an internal testing track
-2. upload the signed AAB produced by `npm run native:bundle:release:signed` or `npm run fastlane:android:deploy:internal`
+2. upload the signed AAB produced by `SECPAL_ANDROID_VERSION_CODE=2026072201 npm run native:bundle:release:signed` or `npm run fastlane:android:deploy:internal`
 3. verify package name, version code, and release notes
 4. confirm that the uploaded package name is still `app.secpal`
 

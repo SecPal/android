@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -71,6 +72,28 @@ describe("canonical app version", () => {
     );
   });
 
+  it.each(["0.1.0-01", "0.1.0-alpha.01"])(
+    "rejects SemVer-invalid numeric prerelease identifiers in %s",
+    async (version) => {
+      const { verifyVersionSync } = await loadVersionSyncModule();
+
+      expect(() =>
+        verifyVersionSync({ repoRoot: createVersionTree(version) })
+      ).toThrow(/valid semantic version/);
+
+      const buildGradle = readFileSync(
+        join(repoRoot, "android", "app", "build.gradle"),
+        "utf8"
+      );
+      const gradlePattern = buildGradle.match(
+        /releaseVersionName ==~ \/(.+)\//
+      )?.[1];
+
+      expect(gradlePattern).toBeDefined();
+      expect(new RegExp(gradlePattern ?? "").test(version)).toBe(false);
+    }
+  );
+
   it("rejects a package.json version mismatch", async () => {
     const { verifyVersionSync } = await loadVersionSyncModule();
     expect(() =>
@@ -124,5 +147,51 @@ describe("canonical app version", () => {
     expect(setupScript).not.toContain(
       'write_env_assignment "SECPAL_ANDROID_VERSION_NAME"'
     );
+  });
+
+  it("requires a valid explicit code before native signed Gradle builds", () => {
+    const wrapperPath = join(
+      repoRoot,
+      "scripts",
+      "require-android-build-version-code.rb"
+    );
+    const environment = { ...process.env };
+    delete environment.SECPAL_ANDROID_VERSION_CODE;
+
+    const missing = spawnSync(
+      "ruby",
+      [wrapperPath, "native:bundle:release:signed", "printf", "unreachable"],
+      { cwd: repoRoot, env: environment, encoding: "utf8" }
+    );
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain("native:bundle:release:signed");
+    expect(missing.stderr).toContain("SECPAL_ANDROID_VERSION_CODE");
+
+    const invalid = spawnSync(
+      "ruby",
+      [wrapperPath, "native:bundle:release:signed", "printf", "unreachable"],
+      {
+        cwd: repoRoot,
+        env: { ...environment, SECPAL_ANDROID_VERSION_CODE: "1" },
+        encoding: "utf8",
+      }
+    );
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toContain("YYYYMMDDXX");
+
+    const valid = spawnSync(
+      "ruby",
+      [wrapperPath, "native:bundle:release:signed", "printf", "validated"],
+      {
+        cwd: repoRoot,
+        env: {
+          ...environment,
+          SECPAL_ANDROID_VERSION_CODE: "2026072201",
+        },
+        encoding: "utf8",
+      }
+    );
+    expect(valid.status).toBe(0);
+    expect(valid.stdout).toBe("validated");
   });
 });

@@ -184,8 +184,10 @@ Example:
 
 ```bash
 bash ./scripts/setup-android-release-keystore.sh
-npm run native:assemble:release:signed
-npm run native:bundle:release:signed
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run native:assemble:release:signed
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run native:bundle:release:signed
 ```
 
 The setup script creates both the keystore and the local env file, with file mode `600` to reduce accidental exposure on shared systems. It writes neither a visible version nor a current build code. When an older env file contains a `SECPAL_ANDROID_VERSION_CODE` baseline, the loader exposes it as `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` to the child process only. It does not modify or delete entries in the file. A legacy `SECPAL_ANDROID_VERSION_NAME` is warned about, ignored, and removed from the child environment.
@@ -207,7 +209,7 @@ Fastlane lanes in this repository call the existing signed Gradle build flow and
 - `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
 - `SECPAL_ANDROID_DIRECT_CHANNEL` when publishing to the `beta` direct-download channel instead of `stable`
 
-Signed build-only lanes do not reserve or persist a code. `build_signed_apk` and `build_signed_aab` require an explicit valid `SECPAL_ANDROID_VERSION_CODE` in `YYYYMMDDXX` format and abort if it is absent. Debug and store-listing builds keep their independent Gradle defaults.
+Signed build-only commands do not reserve or persist a code. Both native signed-build scripts and the Fastlane `build_signed_apk` and `build_signed_aab` lanes require an explicit valid `SECPAL_ANDROID_VERSION_CODE` in `YYYYMMDDXX` format and abort if it is absent. Debug and store-listing builds keep their independent Gradle defaults.
 
 All publishing lanes share one allocator. It reads the local baseline, Direct Stable metadata, Direct Beta metadata, and the Google Play tracks `internal`, `alpha`, `beta`, and `production`. Every configured source is required: one unreadable Play track or Direct channel aborts the publication. New custom or closed-testing Play tracks must be added to `PLAY_VERSION_CODE_TRACKS` before they are used for a release. Direct publication cannot run without working Google Play credentials because otherwise the shared monotonic sequence cannot be proven.
 

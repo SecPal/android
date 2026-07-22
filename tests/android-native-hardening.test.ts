@@ -664,6 +664,12 @@ describe("Android native hardening", () => {
     expect(existsSync(appfilePath)).toBe(true);
     expect(existsSync(fastfilePath)).toBe(true);
     expect(packageJson.scripts["fastlane:install"]).toContain("bundle install");
+    expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
+      "require-android-build-version-code.rb"
+    );
+    expect(packageJson.scripts["native:bundle:release:signed"]).toContain(
+      "require-android-build-version-code.rb"
+    );
     expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
       "./gradlew assembleStoreListing"
     );

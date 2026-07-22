@@ -20,7 +20,7 @@ if (!canonicalVersionFile.isFile()) {
     throw new GradleException("Missing canonical Android version file: ${canonicalVersionFile}")
 }
 def releaseVersionName = canonicalVersionFile.getText('UTF-8').trim()
-if (!(releaseVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)) {
+if (!(releaseVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)) {
     throw new GradleException("Invalid canonical Android version '${releaseVersionName}' in ${canonicalVersionFile}. Expected semantic version syntax.")
 }
 def releaseKeystorePath = System.getenv('SECPAL_ANDROID_KEYSTORE_PATH')

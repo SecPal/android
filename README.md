@@ -141,8 +141,10 @@ Signed release artifacts with a local upload key:
 
 ```bash
 bash ./scripts/setup-android-release-keystore.sh
-npm run native:assemble:release:signed
-npm run native:bundle:release:signed
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run native:assemble:release:signed
+SECPAL_ANDROID_VERSION_CODE=2026072201 \
+  npm run native:bundle:release:signed
 ```
 
 Fastlane can drive the same local signing flow and optionally upload the signed AAB to the Google Play internal testing track:
@@ -165,8 +167,8 @@ SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-acco
   npm run fastlane:android:deploy:direct-apk:beta
 ```
 
-`VERSION` is the only visible app-version source and currently contains `0.1.0`; `npm run version:check` verifies that both npm metadata files match it. `SECPAL_ANDROID_VERSION_NAME` is obsolete and ignored.
-Publishing lanes reserve a UTC `YYYYMMDDXX` code from `01` through `99` after reading the local baseline, Direct Stable, Direct Beta, and the configured Google Play tracks. `SECPAL_ANDROID_DEPLOY_VERSION_CODE` is the only manual publishing override. `SECPAL_ANDROID_VERSION_CODE` is only the temporary Gradle value; signed build-only lanes require it explicitly and never reuse the published baseline.
+`VERSION` is the only visible app-version source and currently contains `0.1.0`; `npm run version:check` verifies its SemVer syntax, including numeric prerelease rules, and confirms that both npm metadata files match it. `SECPAL_ANDROID_VERSION_NAME` is obsolete and ignored.
+Publishing lanes reserve a UTC `YYYYMMDDXX` code from `01` through `99` after reading the local baseline, Direct Stable, Direct Beta, and the configured Google Play tracks. `SECPAL_ANDROID_DEPLOY_VERSION_CODE` is the only manual publishing override. `SECPAL_ANDROID_VERSION_CODE` is only the temporary Gradle value; signed build-only commands require it explicitly and never reuse the published baseline.
 `fastlane:android:sync:play-assets` imports curated texts, screenshots, and localized graphics from `./.local/play-assets` by default, or from `SECPAL_ANDROID_PLAY_ASSETS_SOURCE` when set, into `fastlane/metadata/android`, normalizing the icon to a Play-safe `512x512` canvas on the way.
 `fastlane:android:validate:play-assets` checks the copied assets for required text limits, image sizes, screenshot counts, promotion-eligibility sizing, Play-safe preview image color modes, and screenshot aspect-ratio limits before a Play upload.
 `deploy_internal_with_metadata` uploads the signed AAB together with the local `fastlane/metadata/android` store-listing payload and auto-materializes localized versioned Play changelogs from `fastlane/metadata/android/*/changelogs/default.txt` when the exact `versionCode` file is still missing.

@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Required explicit shared-sequence codes for every signed build-only entry point, honored caller-provided publication baselines, and rejected SemVer-invalid numeric prerelease identifiers.
 - Pinned the third-party Ruby setup action used by Android release tests to an immutable reviewed commit.
 - Made Direct release metadata validation unambiguous and fail-closed, persisted the successful publication baseline atomically, and regression-tested publication failure cleanup.
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.

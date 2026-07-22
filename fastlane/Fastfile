@@ -66,18 +66,23 @@ def ensure_local_file!(path, description)
 end
 
 def configured_last_published_version_code
-  configured = release_env_assignment_value(
+  persisted = release_env_assignment_value(
     "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"
   )
-  return configured unless configured.to_s.empty?
-
   legacy = release_env_assignment_value("SECPAL_ANDROID_VERSION_CODE")
-  unless legacy.to_s.empty?
+  resolved = SecPalAndroidRelease.resolve_last_published_version_code(
+    environment: ENV,
+    persisted_value: persisted,
+    legacy_value: legacy
+  )
+  if ENV["SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"].to_s.strip.empty? &&
+      persisted.to_s.strip.empty? &&
+      !legacy.to_s.strip.empty?
     UI.important(
       "Using deprecated SECPAL_ANDROID_VERSION_CODE as the local published baseline for this run. It will migrate to SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE only after a successful publication."
     )
   end
-  legacy
+  resolved
 end
 
 def release_env_assignment_value(key)
