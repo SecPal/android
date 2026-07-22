@@ -41,6 +41,15 @@ const failClosedMessageHandlerConstruction = `        try {
             handlerThread.quitSafely();
             throw exception;
         }`;
+const hardenedSystemBarsDispatch = `    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        if ("SystemBars".equals(pluginId)) {
+            Logger.error("unable to find plugin : " + pluginId);
+            call.errorCallback("unable to find plugin : " + pluginId);
+            return;
+        }
+
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);`;
 const retainedPluginPaths = [
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorCookies.java",
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorHttp.java",
@@ -244,6 +253,44 @@ ${upstreamCorePluginRegistration}
     );
   });
 
+  it("upgrades the exact previously hardened core registration state", () => {
+    const source = `
+${failClosedMessageHandlerConstruction}
+
+${hardenedSystemBarsDispatch}
+
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+    const patched = patchCapacitorCorePluginRegistrationSource(source);
+
+    expect(patched).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorCorePluginRegistrationSource(patched)).toBe(patched);
+  });
+
+  it("rejects incomplete or duplicated previous hardening markers", () => {
+    const retainedRegistration = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+    const ambiguousSources = [
+      `${failClosedMessageHandlerConstruction}\n${retainedRegistration}`,
+      `${hardenedSystemBarsDispatch}\n${retainedRegistration}`,
+      `${failClosedMessageHandlerConstruction}\n${hardenedSystemBarsDispatch}\n${retainedRegistration}\nthis.registerPlugin(SystemBars.class);`,
+    ];
+
+    for (const source of ambiguousSources) {
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Expected Capacitor core plugin registration pattern was not found"
+      );
+    }
+  });
+
   it("fails closed when a forbidden core registration is reformatted", () => {
     const source = `
     private void registerAllPlugins() {
@@ -321,7 +368,14 @@ public void setAnimation(final PluginCall call) {}
   });
 
   it("rejects additional unfiltered plugin export loops", () => {
-    const source = `
+    const additionalLoops = [
+      "for (PluginHandle plugin : additionalPlugins)",
+      "for (final PluginHandle plugin : additionalPlugins)",
+      "for (@NonNull final com.getcapacitor.PluginHandle plugin : additionalPlugins)",
+    ];
+
+    for (const additionalLoop of additionalLoops) {
+      const source = `
         for (PluginHandle plugin : plugins) {
             if (plugin.getId().equals("SystemBars")) {
                 continue;
@@ -329,13 +383,14 @@ public void setAnimation(final PluginCall call) {}
 
             lines.add(
 
-        for (PluginHandle plugin : additionalPlugins) {
+        ${additionalLoop} {
             lines.add(
 `;
 
-    expect(() => patchCapacitorPluginExportSource(source)).toThrow(
-      "Expected exactly one Capacitor plugin export loop"
-    );
+      expect(() => patchCapacitorPluginExportSource(source)).toThrow(
+        "Expected exactly one Capacitor plugin export loop"
+      );
+    }
   });
 
   it("rejects raw SystemBars dispatch before resolving its plugin handle", () => {
@@ -356,7 +411,15 @@ public void setAnimation(final PluginCall call) {}
   });
 
   it("rejects additional unguarded plugin dispatch entry points", () => {
-    const source = `
+    const additionalDeclarations = [
+      "public static void callPluginMethod(String pluginId, final PluginCall call)",
+      "public final void callPluginMethod(String pluginId, final PluginCall call)",
+      "protected synchronized final void callPluginMethod(String pluginId, final PluginCall call)",
+      "void callPluginMethod(String pluginId, final PluginCall call)",
+    ];
+
+    for (const additionalDeclaration of additionalDeclarations) {
+      const source = `
     public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
         if ("SystemBars".equals(pluginId)) {
             Logger.error("unable to find plugin : " + pluginId);
@@ -367,13 +430,14 @@ public void setAnimation(final PluginCall call) {}
         try {
             final PluginHandle plugin = this.getPlugin(pluginId);
 
-    public void callPluginMethod(String pluginId, final PluginCall call) {
+    ${additionalDeclaration} {
         final PluginHandle plugin = this.getPlugin(pluginId);
 `;
 
-    expect(() => patchCapacitorSystemBarsDispatchSource(source)).toThrow(
-      "Expected exactly one Capacitor plugin dispatch entry point"
-    );
+      expect(() => patchCapacitorSystemBarsDispatchSource(source)).toThrow(
+        "Expected exactly one Capacitor plugin dispatch entry point"
+      );
+    }
   });
 
   it("fails closed when Capacitor's security-sensitive sources drift", () => {

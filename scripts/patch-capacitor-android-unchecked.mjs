@@ -157,12 +157,20 @@ const hardenedPluginExport = `        for (PluginHandle plugin : plugins) {
 
             lines.add(`;
 const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"];
-const pluginDispatchEntryPointPattern =
-  /\b(?:public|protected|private)\s+void\s+callPluginMethod\s*\(/g;
-const pluginExportLoopPattern =
-  /\bfor\s*\(\s*PluginHandle\s+[A-Za-z_$][A-Za-z0-9_$]*\s*:/g;
+const pluginDispatchEntryPointPattern = /\bvoid\s+callPluginMethod\s*\(/g;
+const javaAnnotationPattern = String.raw`@[A-Za-z_$][A-Za-z0-9_$.]*(?:\s*\([^\r\n)]*\))?`;
+const pluginExportLoopPattern = new RegExp(
+  String.raw`\bfor\s*\(\s*(?:(?:${javaAnnotationPattern}|final)\s+)*(?:com\.getcapacitor\.)?PluginHandle\s+[A-Za-z_$][A-Za-z0-9_$]*\s*:`,
+  "g"
+);
+const systemBarsRegistrationPattern =
+  /\bregisterPlugin\s*\(\s*(?:com\.getcapacitor\.plugin\.)?SystemBars\s*\.\s*class\b/g;
 const anyPluginMethodAnnotationPattern =
   /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
+
+function stripJavaComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\r\n]*/g, "");
+}
 
 function countMatches(source, pattern) {
   return Array.from(source.matchAll(pattern)).length;
@@ -175,12 +183,19 @@ function removeJavascriptInterfaceAnnotations(source) {
 }
 
 function containsForbiddenCorePluginClass(source) {
-  const sourceWithoutComments = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\r\n]*/g, "");
+  const sourceWithoutComments = stripJavaComments(source);
 
   return forbiddenCorePluginClasses.some((className) =>
     new RegExp(`\\b${className}\\s*\\.\\s*class\\b`).test(sourceWithoutComments)
+  );
+}
+
+function hasPreviousHardenedCorePluginRegistration(source) {
+  return (
+    source.includes(retainedSystemBarsRegistration) &&
+    countMatches(source, systemBarsRegistrationPattern) === 1 &&
+    source.includes(failClosedMessageHandlerConstruction) &&
+    source.includes(hardenedSystemBarsDispatch)
   );
 }
 
@@ -241,6 +256,11 @@ export function patchCapacitorCorePluginRegistrationSource(source) {
     throw new Error("Forbidden Capacitor core plugin registration remains");
   } else if (source.includes(hardenedCorePluginRegistration)) {
     patchedSource = source;
+  } else if (hasPreviousHardenedCorePluginRegistration(source)) {
+    patchedSource = source.replace(
+      retainedSystemBarsRegistration,
+      hardenedCorePluginRegistration
+    );
   } else {
     throw new Error(
       "Expected Capacitor core plugin registration pattern was not found"
