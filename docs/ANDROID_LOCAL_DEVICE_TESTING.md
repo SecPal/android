@@ -107,6 +107,19 @@ npm run native:assemble:debug
 
 If Gradle asks for a missing Android Build-Tools package, allow the installation or install the requested version with `sdkmanager` and rerun the command.
 
+## Android System WebView Requirement
+
+SecPal requires Android System WebView or Google Chrome version 83 or later.
+The installed provider must expose AndroidX `WEB_MESSAGE_LISTENER`; SecPal
+checks this capability at runtime because an OEM, enterprise policy, or
+provider rollout can leave a newer-looking device without the required feature.
+
+On managed devices, administrators must approve and deploy the Android System
+WebView or Chrome update through their EMM/managed Google Play policy. Until
+that update is installed, SecPal shows its packaged local update screen and
+does not start Capacitor or expose native plugins. The screen has JavaScript
+and network loading disabled; it cannot load the application or remote content.
+
 ## Install On The Device
 
 Install or replace the debug build on the connected device:

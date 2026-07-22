@@ -1,0 +1,60 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal Contributors
+SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bridge isolation test</title>
+  </head>
+  <body>
+    <script>
+      const mode = window.location.hash.slice(1);
+      const bridgeCall = (target, callbackId) => {
+        target.androidBridge.postMessage(
+          JSON.stringify({
+            callbackId,
+            pluginId: "SecPalEnterprise",
+            methodName: "getManagedState",
+            options: {},
+          })
+        );
+      };
+
+      if (mode === "main") {
+        secpalTestResult.postMessage(
+          `main-type:${typeof window.androidBridge}`
+        );
+        window.androidBridge.onmessage = () =>
+          secpalTestResult.postMessage("main-reply");
+        bridgeCall(window, "main");
+      } else if (mode === "child") {
+        const frame = document.createElement("iframe");
+        frame.srcdoc = `<script>
+          secpalTestResult.postMessage('child-type:' + typeof window.androidBridge);
+          window.androidBridge.onmessage = () => secpalTestResult.postMessage('child-reply');
+          window.androidBridge.postMessage(JSON.stringify({callbackId:'child',pluginId:'SecPalEnterprise',methodName:'getManagedState',options:{}}));
+        <\/script>`;
+        document.body.append(frame);
+      } else if (mode === "foreign") {
+        window.addEventListener("message", (event) => {
+          secpalTestResult.postMessage(`foreign-type:${event.data}`);
+        });
+        const frame = document.createElement("iframe");
+        frame.sandbox = "allow-scripts";
+        frame.srcdoc = `<script>parent.postMessage(typeof window.androidBridge, '*')<\/script>`;
+        document.body.append(frame);
+      } else if (mode === "legacy") {
+        secpalTestResult.postMessage(
+          `legacy-types:${[
+            typeof window.CapacitorCookiesAndroidInterface,
+            typeof window.CapacitorHttpAndroidInterface,
+            typeof window.CapacitorSystemBarsAndroidInterface,
+            typeof window.androidBridge.postMessageLegacy,
+          ].join(",")}`
+        );
+      }
+    </script>
+  </body>
+</html>

@@ -97,6 +97,10 @@ public void postMessage(String jsonStr) {}
     expect(patched).toContain(
       'throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex)'
     );
+    expect(patched).toContain("try {");
+    expect(patched).toContain(
+      'throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception)'
+    );
   });
 
   it("removes direct legacy interfaces from retained Capacitor plugins", () => {

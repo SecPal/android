@@ -11,6 +11,7 @@ const config: CapacitorConfig = {
   appName: "SecPal",
   webDir: "../frontend/dist",
   android: {
+    minWebViewVersion: 83,
     useLegacyBridge: false,
   },
   cordova: {
