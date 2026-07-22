@@ -39,10 +39,37 @@ const insecureMessageHandler = `        if (WebViewFeature.isFeatureSupported(We
             webView.addJavascriptInterface(this, "androidBridge");
         }`;
 
-const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+const previousFailClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
             throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
         }
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+
+        WebViewCompat.WebMessageListener capListener = (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+            if (isMainFrame) {
+                postMessage(message.getData());
+                javaScriptReplyProxy = replyProxy;
+            } else {
+                Logger.warn("Plugin execution is allowed in Main Frame only");
+            }
+        };
+        try {
+            WebViewCompat.addWebMessageListener(webView, "androidBridge", bridge.getAllowedOriginRules(), capListener);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
+        }`;
+
+const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+        final boolean webMessageListenerSupported;
+        try {
+            webMessageListenerSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception);
+        }
+        if (!webMessageListenerSupported) {
             throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
         }
 
@@ -81,6 +108,11 @@ export function patchCapacitorMessageHandlerSource(source) {
   if (source.includes(insecureMessageHandler)) {
     patchedSource = source.replace(
       insecureMessageHandler,
+      failClosedMessageHandler
+    );
+  } else if (source.includes(previousFailClosedMessageHandler)) {
+    patchedSource = source.replace(
+      previousFailClosedMessageHandler,
       failClosedMessageHandler
     );
   } else if (source.includes(failClosedMessageHandler)) {

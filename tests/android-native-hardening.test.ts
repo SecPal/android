@@ -56,6 +56,141 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("fails closed to a packaged local screen when the origin-aware bridge is unavailable", () => {
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const compatibilityActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "WebViewCompatibilityActivity.java"
+    );
+    const bridgeSupport = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecureWebViewBridgeSupport.java"
+    );
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const bridgeIsolationTest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "androidTest",
+      "java",
+      "app",
+      "secpal",
+      "WebViewBridgeIsolationInstrumentedTest.java"
+    );
+
+    expect(mainActivity).toContain("WEB_MESSAGE_LISTENER");
+    expect(mainActivity).toContain("WebViewCompat.getCurrentWebViewPackage");
+    expect(bridgeSupport).toContain("MINIMUM_WEBVIEW_MAJOR_VERSION = 83");
+    expect(mainActivity).toContain("openWebViewCompatibilityScreen()");
+    expect(mainActivity).toContain("destroyUntrustedWebViews");
+    const compatibilityMethodIndex = mainActivity.indexOf(
+      "private void openWebViewCompatibilityScreen()"
+    );
+    const destroyWebViewsIndex = mainActivity.indexOf(
+      "destroyUntrustedWebViews(findViewById(android.R.id.content))",
+      compatibilityMethodIndex
+    );
+    const startCompatibilityActivityIndex = mainActivity.indexOf(
+      "startActivity(new Intent(this, WebViewCompatibilityActivity.class))",
+      compatibilityMethodIndex
+    );
+    expect(destroyWebViewsIndex).toBeGreaterThan(compatibilityMethodIndex);
+    expect(startCompatibilityActivityIndex).toBeGreaterThan(
+      destroyWebViewsIndex
+    );
+    expect(mainActivity).toContain("parentGroup.removeView(webView)");
+    expect(
+      mainActivity.indexOf("parentGroup.removeView(webView)")
+    ).toBeLessThan(mainActivity.indexOf("webView.destroy()"));
+    expect(mainActivity).toContain("if (!secureBridgeStarted)");
+    expect(mainActivity).toContain(
+      "if (!secureBridgeLoadAttempted && !compatibilityScreenOpened)"
+    );
+    expect(mainActivity).toMatch(
+      /super\.onCreate\(savedInstanceState\);\s+if \(!secureBridgeStarted\) \{[\s\S]*?openWebViewCompatibilityScreen\(\);[\s\S]*?return;/
+    );
+    expect(mainActivity).toMatch(
+      /private void scheduleProvisioningBootstrapSync\(\) \{\s+if \(!secureBridgeStarted\) \{\s+return;/
+    );
+    expect(
+      mainActivity.indexOf("SecureWebViewBridgeSupport.isAvailable")
+    ).toBeLessThan(
+      mainActivity.indexOf("registerPlugin(SecPalNativeAuthPlugin.class)")
+    );
+    expect(compatibilityActivity).toContain(
+      "setContentView(R.layout.activity_webview_compatibility)"
+    );
+    expect(compatibilityActivity).not.toContain("new WebView");
+    expect(compatibilityActivity).not.toContain("WebViewAssetLoader");
+    expect(compatibilityActivity).not.toContain("addJavascriptInterface");
+    expect(manifest).toContain('android:name=".WebViewCompatibilityActivity"');
+    expect(bridgeIsolationTest).toContain("sourceOrigin.toString(),");
+    expect(bridgeIsolationTest).toContain("isMainFrame,");
+    expect(bridgeIsolationTest).toContain("replyProxy != null");
+    expect(bridgeIsolationTest).not.toContain(
+      "private final JavaScriptReplyProxy"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "WebViewCompat.removeWebMessageListener("
+    );
+    expect(bridgeIsolationTest).toContain('webView.loadUrl("about:blank")');
+    expect(bridgeIsolationTest).toContain("webView.postVisualStateCallback(");
+    expect(
+      existsSync(
+        resolve(
+          repoRoot,
+          "android",
+          "app",
+          "src",
+          "main",
+          "res",
+          "layout",
+          "activity_webview_compatibility.xml"
+        )
+      )
+    ).toBe(true);
+    expect(
+      existsSync(
+        resolve(
+          repoRoot,
+          "android",
+          "app",
+          "src",
+          "main",
+          "assets",
+          "secure-webview-update.html"
+        )
+      )
+    ).toBe(false);
+  });
+
   it("pins a patched xmldom version for Capacitor CLI tooling", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       overrides?: Record<string, unknown>;
@@ -100,6 +235,7 @@ describe("Android native hardening", () => {
     expect(configModule.default).toBeDefined();
 
     const config = configModule.default as {
+      android?: { minWebViewVersion?: number };
       cordova?: { accessOrigins?: string[] };
     };
 
@@ -111,6 +247,7 @@ describe("Android native hardening", () => {
       "https://api.secpal.dev",
       "https://app.secpal.dev",
     ]);
+    expect(config.android?.minWebViewVersion).toBe(83);
   });
 
   it("hardens release builds with R8, resource shrinking, and keep rules", () => {

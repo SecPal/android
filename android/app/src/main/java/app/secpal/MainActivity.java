@@ -14,11 +14,15 @@ import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.WindowManager;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import java.io.File;
@@ -40,6 +44,9 @@ public class MainActivity extends BridgeActivity {
         "app_webview/Default/Code Cache",
         "app_webview/Code Cache"
     };
+    private boolean secureBridgeLoadAttempted;
+    private boolean secureBridgeStarted;
+    private boolean compatibilityScreenOpened;
     private final ExecutorService provisioningBootstrapExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean provisioningBootstrapSyncInFlight = new AtomicBoolean(false);
     private final OnBackPressedCallback webViewBackPressedCallback = new OnBackPressedCallback(true) {
@@ -61,8 +68,6 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(SecPalNativeAuthPlugin.class);
-        registerPlugin(SecPalEnterprisePlugin.class);
         purgeLegacyPwaStateIfAppUpdated();
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
@@ -74,6 +79,12 @@ public class MainActivity extends BridgeActivity {
             );
         }
         super.onCreate(savedInstanceState);
+        if (!secureBridgeStarted) {
+            if (!secureBridgeLoadAttempted && !compatibilityScreenOpened) {
+                openWebViewCompatibilityScreen();
+            }
+            return;
+        }
         enableWebViewPasskeySupport();
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
         handleSamsungHardwareButtonLaunch(getIntent());
@@ -82,8 +93,48 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    protected void load() {
+        secureBridgeLoadAttempted = true;
+        if (!isSecureWebViewBridgeAvailable()) {
+            openWebViewCompatibilityScreen();
+            return;
+        }
+
+        try {
+            createSecureBridge();
+            secureBridgeStarted = true;
+        } catch (IllegalStateException exception) {
+            if (!SecureWebViewBridgeSupport.isBridgeSecurityFailure(exception)) {
+                throw exception;
+            }
+
+            Log.w(LOG_TAG, "Origin-aware WebView bridge installation failed", exception);
+            openWebViewCompatibilityScreen();
+        }
+    }
+
+    boolean isSecureWebViewBridgeAvailable() {
+        return SecureWebViewBridgeSupport.isAvailable(
+            () -> WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
+            () -> {
+                PackageInfo webViewPackage = WebViewCompat.getCurrentWebViewPackage(this);
+                return webViewPackage == null ? null : webViewPackage.versionName;
+            }
+        );
+    }
+
+    void createSecureBridge() {
+        registerPlugin(SecPalNativeAuthPlugin.class);
+        registerPlugin(SecPalEnterprisePlugin.class);
+        super.load();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (!secureBridgeStarted) {
+            return;
+        }
         setIntent(intent);
         handleSamsungHardwareButtonLaunch(intent);
         scheduleProvisioningBootstrapSync();
@@ -93,6 +144,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        if (!secureBridgeStarted) {
+            return;
+        }
         scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
     }
@@ -105,6 +159,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!secureBridgeStarted) {
+            return super.dispatchKeyEvent(event);
+        }
         maybeOpenHardwareButtonRoute(EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(event));
         SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
         return super.dispatchKeyEvent(event);
@@ -180,6 +237,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void refreshManagedPolicyState() {
+        if (!secureBridgeStarted) {
+            return;
+        }
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
 
         if (EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(getIntent(), managedState)) {
@@ -197,6 +257,37 @@ public class MainActivity extends BridgeActivity {
         dedicatedHomeIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(dedicatedHomeIntent);
         finish();
+    }
+
+    private void openWebViewCompatibilityScreen() {
+        if (compatibilityScreenOpened) {
+            return;
+        }
+        compatibilityScreenOpened = true;
+        destroyUntrustedWebViews(findViewById(android.R.id.content));
+        startActivity(new Intent(this, WebViewCompatibilityActivity.class));
+        finish();
+    }
+
+    static void destroyUntrustedWebViews(View view) {
+        if (view instanceof WebView webView) {
+            ViewParent parent = webView.getParent();
+            if (parent instanceof ViewGroup parentGroup) {
+                parentGroup.removeView(webView);
+            }
+            webView.stopLoading();
+            webView.removeAllViews();
+            webView.destroy();
+            return;
+        }
+
+        if (!(view instanceof ViewGroup viewGroup)) {
+            return;
+        }
+
+        for (int index = viewGroup.getChildCount() - 1; index >= 0; index--) {
+            destroyUntrustedWebViews(viewGroup.getChildAt(index));
+        }
     }
 
     private void handleSamsungHardwareButtonLaunch(Intent intent) {
@@ -282,6 +373,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void scheduleProvisioningBootstrapSync() {
+        if (!secureBridgeStarted) {
+            return;
+        }
         if (!provisioningBootstrapSyncInFlight.compareAndSet(false, true)) {
             return;
         }

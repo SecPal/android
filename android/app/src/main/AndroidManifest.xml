@@ -65,6 +65,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
         </activity>
 
         <activity
+            android:name=".WebViewCompatibilityActivity"
+            android:exported="false"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <activity
             android:name="com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity"
             android:exported="false"
             android:theme="@style/AppTheme"

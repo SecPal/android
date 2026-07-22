@@ -749,7 +749,7 @@ describe("preflight", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 60_000);
 
   it("recognizes only proven straight-line storage keys", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));

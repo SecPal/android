@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- SecPal now requires Android System WebView or Chrome 83 or later with the
+  AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
+  installation fails, the Capacitor bridge is not created and the app shows a
+  native update screen without a WebView or network capability instead (issue
+  #407). That compatibility screen now reapplies managed-device lock-task
+  policy and preserves screenshot protection.
 - Constrained transitive `brace-expansion` and `tar` dependencies to compatible
   release lines starting at their patched versions, including the
   `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving
@@ -59,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
+- Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.
 - Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset
   recovery key, while retaining fail-closed execution-boundary, receiver-provenance, declaration-order, eligible-helper, same-key guard, callback-suffix,
   helper-prefix, and unapproved-host checks (issue #366).
