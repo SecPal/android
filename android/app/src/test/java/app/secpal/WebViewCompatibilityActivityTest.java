@@ -7,9 +7,11 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.TextView;
 
@@ -21,6 +23,24 @@ import org.robolectric.android.controller.ActivityController;
 
 @RunWith(RobolectricTestRunner.class)
 public final class WebViewCompatibilityActivityTest {
+    @Test
+    public void appliesScreenshotProtectionBeforeRendering() {
+        try (ActivityController<WebViewCompatibilityActivity> controller =
+            Robolectric.buildActivity(WebViewCompatibilityActivity.class).create()) {
+            int windowFlags = controller.get().getWindow().getAttributes().flags;
+
+            assertTrue((windowFlags & WindowManager.LayoutParams.FLAG_SECURE) != 0);
+        }
+    }
+
+    @Test
+    public void enforcesManagedPolicyWhenResumed() {
+        try (ActivityController<RecordingCompatibilityActivity> controller =
+            Robolectric.buildActivity(RecordingCompatibilityActivity.class).setup()) {
+            assertTrue(controller.get().managedPolicyEnforced);
+        }
+    }
+
     @Test
     public void rendersActionableUpdateMessageWithoutWebView() {
         try (ActivityController<WebViewCompatibilityActivity> controller =
@@ -49,5 +69,14 @@ public final class WebViewCompatibilityActivityTest {
             }
         }
         return false;
+    }
+
+    public static final class RecordingCompatibilityActivity extends WebViewCompatibilityActivity {
+        private boolean managedPolicyEnforced;
+
+        @Override
+        void enforceManagedPolicy() {
+            managedPolicyEnforced = true;
+        }
     }
 }

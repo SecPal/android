@@ -43,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a
   native update screen without a WebView or network capability instead (issue
-  #407).
+  #407). That compatibility screen now reapplies managed-device lock-task
+  policy and preserves screenshot protection.
 - Constrained transitive `brace-expansion` and `tar` dependencies to compatible
   release lines starting at their patched versions, including the
   `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving

@@ -97,7 +97,8 @@ public void postMessage(String jsonStr) {}
     expect(patched).toContain(
       'throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex)'
     );
-    expect(patched).toContain("try {");
+    expect(patched).toContain("final boolean webMessageListenerSupported;");
+    expect(patched).toContain("catch (RuntimeException exception)");
     expect(patched).toContain(
       'throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception)'
     );
