@@ -392,6 +392,19 @@ describe("Play Store release automation", () => {
     expect(fastfile).not.toContain("Skipping Google Play track");
   });
 
+  it("pins the third-party Ruby setup action to an immutable commit", () => {
+    const qualityWorkflow = readFileSync(
+      resolve(repoRoot, ".github", "workflows", "quality.yml"),
+      "utf8"
+    );
+    const setupRubyReference = qualityWorkflow.match(
+      /uses:\s*ruby\/setup-ruby@([^\s#]+)/
+    );
+
+    expect(setupRubyReference).not.toBeNull();
+    expect(setupRubyReference?.[1]).toMatch(/^[0-9a-f]{40}$/);
+  });
+
   it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "play-store-validate-"));
 
