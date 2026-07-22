@@ -19,6 +19,12 @@ const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
 const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
+const corePluginRegistrationPattern = (pluginId: string) =>
+  new RegExp(
+    `\\bregisterPlugin\\s*\\(\\s*(?:com\\.getcapacitor\\.plugin\\.)?${pluginId}\\s*\\.\\s*class\\b`
+  );
+const PLUGIN_METHOD_ANNOTATION_PATTERN =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
 
 describe("Android native hardening", () => {
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
@@ -115,19 +121,18 @@ describe("Android native hardening", () => {
     );
     const architecture = readRepoFile("docs", "ANDROID_AUTH_ARCHITECTURE.md");
 
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);"
+    expect(bridge).not.toMatch(
+      corePluginRegistrationPattern("CapacitorCookies")
     );
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);"
-    );
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.WebView.class);"
-    );
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("CapacitorHttp"));
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("WebView"));
     expect(bridge).toContain(
       "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
     );
-    expect(systemBars).not.toContain("@PluginMethod");
+    expect(bridge).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(systemBars).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
     expect(bridge).toContain('if ("SystemBars".equals(pluginId))');
     expect(jsExport).toContain('if (plugin.getId().equals("SystemBars"))');
     expect(systemBars).toContain("public void setStyle(final PluginCall call)");

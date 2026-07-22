@@ -127,8 +127,10 @@ const upstreamCorePluginRegistration = `        this.registerPlugin(com.getcapac
         this.registerPlugin(com.getcapacitor.plugin.WebView.class);
         this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);
         this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);`;
-const hardenedCorePluginRegistration =
+const retainedSystemBarsRegistration =
   "        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);";
+const hardenedCorePluginRegistration = `        // SecPal: retain SystemBars for native lifecycle behavior only.
+${retainedSystemBarsRegistration}`;
 const forbiddenCorePluginClasses = [
   "CapacitorCookies",
   "WebView",
@@ -155,6 +157,16 @@ const hardenedPluginExport = `        for (PluginHandle plugin : plugins) {
 
             lines.add(`;
 const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"];
+const pluginDispatchEntryPointPattern =
+  /\b(?:public|protected|private)\s+void\s+callPluginMethod\s*\(/g;
+const pluginExportLoopPattern =
+  /\bfor\s*\(\s*PluginHandle\s+[A-Za-z_$][A-Za-z0-9_$]*\s*:/g;
+const anyPluginMethodAnnotationPattern =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
+
+function countMatches(source, pattern) {
+  return Array.from(source.matchAll(pattern)).length;
+}
 
 function removeJavascriptInterfaceAnnotations(source) {
   return source
@@ -243,6 +255,12 @@ export function patchCapacitorCorePluginRegistrationSource(source) {
 }
 
 export function patchCapacitorSystemBarsDispatchSource(source) {
+  if (countMatches(source, pluginDispatchEntryPointPattern) > 1) {
+    throw new Error(
+      "Expected exactly one Capacitor plugin dispatch entry point"
+    );
+  }
+
   if (source.includes(hardenedSystemBarsDispatch)) {
     return source;
   }
@@ -256,6 +274,10 @@ export function patchCapacitorSystemBarsDispatchSource(source) {
 }
 
 export function patchCapacitorPluginExportSource(source) {
+  if (countMatches(source, pluginExportLoopPattern) > 1) {
+    throw new Error("Expected exactly one Capacitor plugin export loop");
+  }
+
   if (source.includes(hardenedPluginExport)) {
     return source;
   }
@@ -354,7 +376,7 @@ export function patchSystemBarsCallableSurfaceSource(source) {
     if (
       hasExpectedPublicMethods &&
       !source.includes("import com.getcapacitor.PluginMethod;") &&
-      !source.includes("@PluginMethod")
+      !anyPluginMethodAnnotationPattern.test(source)
     ) {
       return source;
     }
@@ -375,11 +397,19 @@ export function patchSystemBarsCallableSurfaceSource(source) {
     );
   }
 
-  return source
+  const patchedSource = source
     .replace("import com.getcapacitor.PluginMethod;\n", "")
     .replace(pluginMethodPattern, (match) =>
       match.replace(/^[ \t]*@PluginMethod(?:\([^)]*\))?[ \t]*\r?\n/, "")
     );
+
+  if (anyPluginMethodAnnotationPattern.test(patchedSource)) {
+    throw new Error(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  }
+
+  return patchedSource;
 }
 
 export function patchCapacitorAndroidSource(

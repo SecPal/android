@@ -52,6 +52,13 @@ const upstreamCorePluginRegistration = `        this.registerPlugin(com.getcapac
         this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);
         this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);`;
 
+const corePluginRegistrationPattern = (pluginId: string) =>
+  new RegExp(
+    `\\bregisterPlugin\\s*\\(\\s*(?:com\\.getcapacitor\\.plugin\\.)?${pluginId}\\s*\\.\\s*class\\b`
+  );
+const PLUGIN_METHOD_ANNOTATION_PATTERN =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
+
 function writeFixture(repoRoot: string, path: string, source: string) {
   const absolutePath = join(repoRoot, path);
   mkdirSync(dirname(absolutePath), { recursive: true });
@@ -198,6 +205,43 @@ ${upstreamCorePluginRegistration}
     expect(patched).toContain(
       "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
     );
+    expect(patched).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorCorePluginRegistrationSource(patched)).toBe(patched);
+  });
+
+  it("rejects formatting drift that leaves forbidden core plugins registered", () => {
+    const driftedRegistrations = [
+      "this.registerPlugin( com.getcapacitor.plugin.CapacitorCookies.class);",
+      "registerPlugin(com.getcapacitor.plugin.WebView.class);",
+      "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp . class);",
+    ];
+
+    for (const registration of driftedRegistrations) {
+      const source = `
+    private void registerAllPlugins() {
+        ${registration}
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Forbidden Capacitor core plugin registration remains"
+      );
+    }
+  });
+
+  it("rejects an ambiguous markerless core registration state", () => {
+    const source = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+    expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+      "Expected Capacitor core plugin registration pattern was not found"
+    );
   });
 
   it("fails closed when a forbidden core registration is reformatted", () => {
@@ -244,6 +288,26 @@ public void setAnimation(final PluginCall call) {}
     );
   });
 
+  it("rejects fully qualified SystemBars plugin method annotations", () => {
+    const source = `
+@com.getcapacitor.PluginMethod
+public void setStyle(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void show(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void hide(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void setAnimation(final PluginCall call) {}
+`;
+
+    expect(() => patchSystemBarsCallableSurfaceSource(source)).toThrow(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  });
+
   it("keeps SystemBars out of generated plugin headers and proxies", () => {
     const source = `
         for (PluginHandle plugin : plugins) {
@@ -254,6 +318,24 @@ public void setAnimation(final PluginCall call) {}
 
     expect(patched).toContain('if (plugin.getId().equals("SystemBars"))');
     expect(patched).toContain("continue;");
+  });
+
+  it("rejects additional unfiltered plugin export loops", () => {
+    const source = `
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+
+        for (PluginHandle plugin : additionalPlugins) {
+            lines.add(
+`;
+
+    expect(() => patchCapacitorPluginExportSource(source)).toThrow(
+      "Expected exactly one Capacitor plugin export loop"
+    );
   });
 
   it("rejects raw SystemBars dispatch before resolving its plugin handle", () => {
@@ -270,6 +352,27 @@ public void setAnimation(final PluginCall call) {}
     );
     expect(patched).toContain(
       'call.errorCallback("unable to find plugin : " + pluginId);'
+    );
+  });
+
+  it("rejects additional unguarded plugin dispatch entry points", () => {
+    const source = `
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        if ("SystemBars".equals(pluginId)) {
+            Logger.error("unable to find plugin : " + pluginId);
+            call.errorCallback("unable to find plugin : " + pluginId);
+            return;
+        }
+
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+
+    public void callPluginMethod(String pluginId, final PluginCall call) {
+        final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+
+    expect(() => patchCapacitorSystemBarsDispatchSource(source)).toThrow(
+      "Expected exactly one Capacitor plugin dispatch entry point"
     );
   });
 
@@ -337,17 +440,16 @@ public void setAnimation(final PluginCall call) {}
     );
     expect(messageHandler).not.toContain("addJavascriptInterface");
     expect(bridge).toContain(failClosedMessageHandlerConstruction);
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);"
+    expect(bridge).not.toMatch(
+      corePluginRegistrationPattern("CapacitorCookies")
     );
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.WebView.class);"
-    );
-    expect(bridge).not.toContain(
-      "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);"
-    );
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("WebView"));
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("CapacitorHttp"));
     expect(bridge).toContain(
       "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(bridge).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
     );
 
     for (const pluginPath of retainedPluginPaths) {
@@ -365,7 +467,7 @@ public void setAnimation(final PluginCall call) {}
       "public void onPageLoaded(WebView webView)"
     );
     expect(systemBarsSource).toContain("onDOMReady();");
-    expect(systemBarsSource).not.toContain("@PluginMethod");
+    expect(systemBarsSource).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
     expect(systemBarsSource).not.toContain(
       "import com.getcapacitor.PluginMethod;"
     );

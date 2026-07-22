@@ -119,6 +119,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
 
             PluginHandle systemBars = activity.getBridge().getPlugin("SystemBars");
             assertNotNull(systemBars);
+            assertNotNull(systemBars.getInstance());
             List<String> methodNames = new ArrayList<>();
             for (PluginMethodHandle method : systemBars.getMethods()) {
                 methodNames.add(method.getName());
