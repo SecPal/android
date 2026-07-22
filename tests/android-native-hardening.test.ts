@@ -151,9 +151,17 @@ describe("Android native hardening", () => {
     expect(compatibilityActivity).not.toContain("WebViewAssetLoader");
     expect(compatibilityActivity).not.toContain("addJavascriptInterface");
     expect(manifest).toContain('android:name=".WebViewCompatibilityActivity"');
-    expect(bridgeIsolationTest).toContain(
-      "results.add(webView, view, message.getData(), sourceOrigin.toString(), isMainFrame, replyProxy)"
+    expect(bridgeIsolationTest).toContain("sourceOrigin.toString(),");
+    expect(bridgeIsolationTest).toContain("isMainFrame,");
+    expect(bridgeIsolationTest).toContain("replyProxy != null");
+    expect(bridgeIsolationTest).not.toContain(
+      "private final JavaScriptReplyProxy"
     );
+    expect(bridgeIsolationTest).toContain(
+      "WebViewCompat.removeWebMessageListener("
+    );
+    expect(bridgeIsolationTest).toContain('webView.loadUrl("about:blank")');
+    expect(bridgeIsolationTest).toContain("webView.postVisualStateCallback(");
     expect(
       existsSync(
         resolve(
