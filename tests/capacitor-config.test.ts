@@ -74,6 +74,10 @@ describe("capacitor Android wrapper configuration", () => {
     expect(config.server?.androidScheme).toBe("https");
   });
 
+  it("disables Capacitor's legacy Android bridge mode", () => {
+    expect(config.android?.useLegacyBridge).toBe(false);
+  });
+
   it("installs a native auth bridge without exposing the API origin to plugin calls", async () => {
     pluginMocks.login.mockResolvedValue({ user: { id: 1 } });
     pluginMocks.request.mockResolvedValue({

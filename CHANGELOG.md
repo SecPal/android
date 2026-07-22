@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed Capacitor's `addJavascriptInterface()` fallback for unavailable or failed origin-aware bridge listeners, removed retained direct legacy plugin interfaces, preserved SystemBars initialization through the native page lifecycle, and added source-drift tests that fail if an upgrade restores the insecure bridge path (issue #414, part of #407).
 - Added regression coverage that keeps domain-policy storage-key exemptions
   fail-closed when browser-global aliases, storage constructors or prototypes,
   dynamic execution, or escaped storage receivers could mutate the receiver.
