@@ -31,6 +31,12 @@ const messageHandlerPath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/MessageHandler.java";
 const bridgePath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java";
+const failClosedMessageHandlerConstruction = `        try {
+            this.msgHandler = new MessageHandler(this, webView, pluginManager);
+        } catch (RuntimeException exception) {
+            handlerThread.quitSafely();
+            throw exception;
+        }`;
 const retainedPluginPaths = [
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorCookies.java",
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorHttp.java",
@@ -174,9 +180,7 @@ public void onDOMReady() {}
       "        this.msgHandler = new MessageHandler(this, webView, pluginManager);";
     const patched = patchCapacitorBridgeCleanupSource(source);
 
-    expect(patched).toContain("catch (RuntimeException exception)");
-    expect(patched).toContain("handlerThread.quitSafely()");
-    expect(patched).toContain("throw exception");
+    expect(patched).toBe(failClosedMessageHandlerConstruction);
   });
 
   it("keeps the installed Capacitor bridge origin-aware and main-frame-only", () => {
@@ -196,7 +200,7 @@ public void onDOMReady() {}
       'throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex)'
     );
     expect(messageHandler).not.toContain("addJavascriptInterface");
-    expect(bridge).toContain("handlerThread.quitSafely()");
+    expect(bridge).toContain(failClosedMessageHandlerConstruction);
 
     for (const pluginPath of retainedPluginPaths) {
       const pluginSource = readFileSync(join(repoRoot, pluginPath), "utf8");
