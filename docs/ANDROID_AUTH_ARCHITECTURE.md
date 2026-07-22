@@ -126,8 +126,11 @@ contract.
 
 SystemBars remains registered internally only for its native lifecycle
 initialization, safe-area CSS, and inset handling. It is omitted from generated
-plugin headers and `Capacitor.Plugins`, and the native dispatcher rejects raw
-SystemBars calls before resolving the plugin handle. Its own
+native plugin headers, `Capacitor.isPluginAvailable("SystemBars")` returns
+`false`, and the native dispatcher rejects raw SystemBars calls before resolving
+the plugin handle. The shared frontend bundle can still contain Capacitor's
+web-only JavaScript proxies for core plugins; those proxies are not evidence of
+native availability. Its own
 `setStyle`, `show`, `hide`, and `setAnimation` annotations are also removed as
 defense in depth.
 

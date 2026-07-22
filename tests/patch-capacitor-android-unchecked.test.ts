@@ -110,6 +110,9 @@ public void postMessage(String jsonStr) {}
     expect(patched).toContain(
       'throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception)'
     );
+    expect(patched.indexOf("javaScriptReplyProxy = replyProxy;")).toBeLessThan(
+      patched.indexOf("postMessage(message.getData());")
+    );
   });
 
   it("removes direct legacy interfaces from retained Capacitor plugins", () => {
@@ -194,6 +197,21 @@ ${upstreamCorePluginRegistration}
     expect(patched).not.toContain("CapacitorHttp.class");
     expect(patched).toContain(
       "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+  });
+
+  it("fails closed when a forbidden core registration is reformatted", () => {
+    const source = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+        this.registerPlugin(
+            com.getcapacitor.plugin.CapacitorHttp.class
+        );
+    }
+`;
+
+    expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+      "Forbidden Capacitor core plugin registration remains"
     );
   });
 

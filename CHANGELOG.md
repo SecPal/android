@@ -72,6 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made the Capacitor core-plugin exclusion guard reject reformatted forbidden
+  class registrations, initialized each WebMessage reply proxy before dispatch
+  can synchronously reject a call, waited for destroyed WebViews to leave the
+  UI queue between instrumentation cases, and aligned packaged-frontend bridge
+  tests with Capacitor's harmless web-only JavaScript proxies.
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
 - Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.
 - Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset

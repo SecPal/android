@@ -104,6 +104,16 @@ describe("Android native hardening", () => {
       "secpal",
       "WebViewBridgeIsolationInstrumentedTest.java"
     );
+    const bridgeIsolationPage = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "assets",
+      "public",
+      "bridge-isolation-test.html"
+    );
+    const architecture = readRepoFile("docs", "ANDROID_AUTH_ARCHITECTURE.md");
 
     expect(bridge).not.toContain(
       "this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);"
@@ -124,10 +134,33 @@ describe("Android native hardening", () => {
     expect(systemBars).toContain("public void show(final PluginCall call)");
     expect(systemBars).toContain("public void hide(final PluginCall call)");
     expect(bridgeIsolationTest).toContain(
-      "unusedCorePluginsAreAbsentFromTheNativeRegistry"
+      "allBridgeIsolationGuaranteesHoldInSingleWebViewSession"
+    );
+    expect(bridgeIsolationTest.match(/@Test/g)).toHaveLength(1);
+    expect(bridgeIsolationTest).toContain(
+      "assertUnusedCorePluginsAreAbsentFromTheNativeRegistry"
     );
     expect(bridgeIsolationTest).toContain(
-      "packagedWebViewCannotInvokeForbiddenCorePlugins"
+      "assertPackagedWebViewCannotInvokeForbiddenCorePlugins"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "assertPackagedFrontendCannotExposeForbiddenNativePlugins"
+    );
+    expect(bridgeIsolationTest).not.toContain("moveToState(");
+    expect(bridgeIsolationTest).not.toContain("registerPluginInstance(");
+    expect(bridgeIsolationTest).toContain(
+      "Child frame unexpectedly received a native plugin reply"
+    );
+    expect(bridgeIsolationTest).toContain("waitForIdleSync()");
+    expect(bridgeIsolationPage).toContain("isPluginAvailable");
+    expect(bridgeIsolationPage).toContain("child-reply");
+    expect(bridgeIsolationPage).not.toContain("forbiddenProxiesAbsent");
+    expect(architecture).toContain(
+      '`Capacitor.isPluginAvailable("SystemBars")` returns'
+    );
+    expect(architecture).toContain("web-only JavaScript proxies");
+    expect(architecture).not.toContain(
+      "It is omitted from generated\nplugin headers and `Capacitor.Plugins`"
     );
   });
 

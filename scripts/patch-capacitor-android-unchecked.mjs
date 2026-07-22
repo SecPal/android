@@ -60,7 +60,7 @@ const previousFailClosedMessageHandler = `        if (bridge.getConfig().isUsing
             throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
         }`;
 
-const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+const replyAfterDispatchFailClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
             throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
         }
         final boolean webMessageListenerSupported;
@@ -87,6 +87,33 @@ const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBr
             throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
         }`;
 
+const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+        final boolean webMessageListenerSupported;
+        try {
+            webMessageListenerSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception);
+        }
+        if (!webMessageListenerSupported) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+
+        WebViewCompat.WebMessageListener capListener = (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+            if (isMainFrame) {
+                javaScriptReplyProxy = replyProxy;
+                postMessage(message.getData());
+            } else {
+                Logger.warn("Plugin execution is allowed in Main Frame only");
+            }
+        };
+        try {
+            WebViewCompat.addWebMessageListener(webView, "androidBridge", bridge.getAllowedOriginRules(), capListener);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
+        }`;
+
 const messageHandlerConstruction =
   "        this.msgHandler = new MessageHandler(this, webView, pluginManager);";
 const failClosedMessageHandlerConstruction = `        try {
@@ -102,10 +129,10 @@ const upstreamCorePluginRegistration = `        this.registerPlugin(com.getcapac
         this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);`;
 const hardenedCorePluginRegistration =
   "        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);";
-const forbiddenCorePluginRegistrations = [
-  "this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);",
-  "this.registerPlugin(com.getcapacitor.plugin.WebView.class);",
-  "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);",
+const forbiddenCorePluginClasses = [
+  "CapacitorCookies",
+  "WebView",
+  "CapacitorHttp",
 ];
 const upstreamSystemBarsDispatch = `    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
         try {
@@ -135,6 +162,16 @@ function removeJavascriptInterfaceAnnotations(source) {
     .replace(/^[ \t]*@JavascriptInterface[ \t]*\r?\n/gm, "");
 }
 
+function containsForbiddenCorePluginClass(source) {
+  const sourceWithoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\r\n]*/g, "");
+
+  return forbiddenCorePluginClasses.some((className) =>
+    new RegExp(`\\b${className}\\s*\\.\\s*class\\b`).test(sourceWithoutComments)
+  );
+}
+
 export function patchCapacitorMessageHandlerSource(source) {
   let patchedSource;
 
@@ -146,6 +183,11 @@ export function patchCapacitorMessageHandlerSource(source) {
   } else if (source.includes(previousFailClosedMessageHandler)) {
     patchedSource = source.replace(
       previousFailClosedMessageHandler,
+      failClosedMessageHandler
+    );
+  } else if (source.includes(replyAfterDispatchFailClosedMessageHandler)) {
+    patchedSource = source.replace(
+      replyAfterDispatchFailClosedMessageHandler,
       failClosedMessageHandler
     );
   } else if (source.includes(failClosedMessageHandler)) {
@@ -183,12 +225,9 @@ export function patchCapacitorCorePluginRegistrationSource(source) {
       upstreamCorePluginRegistration,
       hardenedCorePluginRegistration
     );
-  } else if (
-    source.includes(hardenedCorePluginRegistration) &&
-    forbiddenCorePluginRegistrations.every(
-      (registration) => !source.includes(registration)
-    )
-  ) {
+  } else if (containsForbiddenCorePluginClass(source)) {
+    throw new Error("Forbidden Capacitor core plugin registration remains");
+  } else if (source.includes(hardenedCorePluginRegistration)) {
     patchedSource = source;
   } else {
     throw new Error(
@@ -196,11 +235,7 @@ export function patchCapacitorCorePluginRegistrationSource(source) {
     );
   }
 
-  if (
-    forbiddenCorePluginRegistrations.some((registration) =>
-      patchedSource.includes(registration)
-    )
-  ) {
+  if (containsForbiddenCorePluginClass(patchedSource)) {
     throw new Error("Forbidden Capacitor core plugin registration remains");
   }
 
