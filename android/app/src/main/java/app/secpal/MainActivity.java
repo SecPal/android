@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.WindowManager;
 import android.webkit.WebView;
 
@@ -43,7 +44,9 @@ public class MainActivity extends BridgeActivity {
         "app_webview/Default/Code Cache",
         "app_webview/Code Cache"
     };
+    private boolean secureBridgeLoadAttempted;
     private boolean secureBridgeStarted;
+    private boolean compatibilityScreenOpened;
     private final ExecutorService provisioningBootstrapExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean provisioningBootstrapSyncInFlight = new AtomicBoolean(false);
     private final OnBackPressedCallback webViewBackPressedCallback = new OnBackPressedCallback(true) {
@@ -77,6 +80,9 @@ public class MainActivity extends BridgeActivity {
         }
         super.onCreate(savedInstanceState);
         if (!secureBridgeStarted) {
+            if (!secureBridgeLoadAttempted && !compatibilityScreenOpened) {
+                openWebViewCompatibilityScreen();
+            }
             return;
         }
         enableWebViewPasskeySupport();
@@ -88,21 +94,14 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void load() {
-        if (!SecureWebViewBridgeSupport.isAvailable(
-            () -> WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
-            () -> {
-                PackageInfo webViewPackage = WebViewCompat.getCurrentWebViewPackage(this);
-                return webViewPackage == null ? null : webViewPackage.versionName;
-            }
-        )) {
+        secureBridgeLoadAttempted = true;
+        if (!isSecureWebViewBridgeAvailable()) {
             openWebViewCompatibilityScreen();
             return;
         }
 
         try {
-            registerPlugin(SecPalNativeAuthPlugin.class);
-            registerPlugin(SecPalEnterprisePlugin.class);
-            super.load();
+            createSecureBridge();
             secureBridgeStarted = true;
         } catch (IllegalStateException exception) {
             if (!SecureWebViewBridgeSupport.isBridgeSecurityFailure(exception)) {
@@ -112,6 +111,22 @@ public class MainActivity extends BridgeActivity {
             Log.w(LOG_TAG, "Origin-aware WebView bridge installation failed", exception);
             openWebViewCompatibilityScreen();
         }
+    }
+
+    boolean isSecureWebViewBridgeAvailable() {
+        return SecureWebViewBridgeSupport.isAvailable(
+            () -> WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
+            () -> {
+                PackageInfo webViewPackage = WebViewCompat.getCurrentWebViewPackage(this);
+                return webViewPackage == null ? null : webViewPackage.versionName;
+            }
+        );
+    }
+
+    void createSecureBridge() {
+        registerPlugin(SecPalNativeAuthPlugin.class);
+        registerPlugin(SecPalEnterprisePlugin.class);
+        super.load();
     }
 
     @Override
@@ -245,13 +260,21 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void openWebViewCompatibilityScreen() {
+        if (compatibilityScreenOpened) {
+            return;
+        }
+        compatibilityScreenOpened = true;
         destroyUntrustedWebViews(findViewById(android.R.id.content));
         startActivity(new Intent(this, WebViewCompatibilityActivity.class));
         finish();
     }
 
-    private void destroyUntrustedWebViews(View view) {
+    static void destroyUntrustedWebViews(View view) {
         if (view instanceof WebView webView) {
+            ViewParent parent = webView.getParent();
+            if (parent instanceof ViewGroup parentGroup) {
+                parentGroup.removeView(webView);
+            }
             webView.stopLoading();
             webView.removeAllViews();
             webView.destroy();

@@ -6,7 +6,8 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.webkit.WebView;
 
@@ -15,7 +16,14 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import com.getcapacitor.JSObject;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +41,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
     @Before
     public void requireOriginAwareBridgeSupport() {
         Assume.assumeTrue(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER));
+        CountingEnterprisePlugin.resetInvocations();
     }
 
     @Test
@@ -51,7 +60,10 @@ public class WebViewBridgeIsolationInstrumentedTest {
             ResultCollector results = loadControlledPage(scenario, "child");
 
             assertEquals("child-type:object", results.await());
-            assertNull(results.poll(1L, TimeUnit.SECONDS));
+            assertEquals("child-barrier", results.await());
+            List<String> invocations = CountingEnterprisePlugin.invocations();
+            assertTrue(invocations.contains("barrier"));
+            assertFalse(invocations.contains("child"));
         }
     }
 
@@ -83,6 +95,9 @@ public class WebViewBridgeIsolationInstrumentedTest {
         ResultCollector results = new ResultCollector();
         scenario.onActivity(activity -> {
             WebView webView = activity.getBridge().getWebView();
+            if ("child".equals(mode)) {
+                activity.getBridge().registerPlugin(CountingEnterprisePlugin.class);
+            }
             WebViewCompat.addWebMessageListener(
                 webView,
                 TEST_RESULT_OBJECT,
@@ -92,6 +107,28 @@ public class WebViewBridgeIsolationInstrumentedTest {
             webView.loadUrl(CONTROLLED_PAGE_URL + mode);
         });
         return results;
+    }
+
+    @CapacitorPlugin(name = "SecPalEnterprise")
+    public static final class CountingEnterprisePlugin extends SecPalEnterprisePlugin {
+        private static final List<String> INVOCATIONS = Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        @PluginMethod
+        public void getManagedState(PluginCall call) {
+            INVOCATIONS.add(call.getCallbackId());
+            call.resolve(new JSObject());
+        }
+
+        static void resetInvocations() {
+            INVOCATIONS.clear();
+        }
+
+        static List<String> invocations() {
+            synchronized (INVOCATIONS) {
+                return new ArrayList<>(INVOCATIONS);
+            }
+        }
     }
 
     private static final class ResultCollector {

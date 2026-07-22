@@ -1,4 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal Contributors
+SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+-->
 <resources>
     <string name="app_name">SecPal</string>
     <string name="title_activity_main">SecPal</string>
@@ -17,4 +21,6 @@
     <string name="enterprise_home_sms_label">SMS</string>
     <string name="enterprise_home_empty_state">No approved apps are currently available.</string>
     <string name="oss_licenses_title">Open-source licenses</string>
+    <string name="webview_compatibility_title">Android System WebView update required</string>
+    <string name="webview_compatibility_message">SecPal cannot start securely because this device does not provide the required origin-aware WebView bridge. Update Android System WebView or Google Chrome to version 83 or later, then restart SecPal. On managed devices, ask your administrator to approve and deploy the update.</string>
 </resources>

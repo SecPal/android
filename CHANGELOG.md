@@ -42,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SecPal now requires Android System WebView or Chrome 83 or later with the
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a
-  packaged, network-disabled update screen instead (issue #407).
+  native update screen without a WebView or network capability instead (issue
+  #407).
 - Constrained transitive `brace-expansion` and `tar` dependencies to compatible
   release lines starting at their patched versions, including the
   `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving

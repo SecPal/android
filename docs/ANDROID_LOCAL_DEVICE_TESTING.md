@@ -116,9 +116,9 @@ provider rollout can leave a newer-looking device without the required feature.
 
 On managed devices, administrators must approve and deploy the Android System
 WebView or Chrome update through their EMM/managed Google Play policy. Until
-that update is installed, SecPal shows its packaged local update screen and
-does not start Capacitor or expose native plugins. The screen has JavaScript
-and network loading disabled; it cannot load the application or remote content.
+that update is installed, SecPal shows a native update screen and does not start
+Capacitor or expose native plugins. Compatibility mode does not create another
+WebView and cannot load the application or remote content.
 
 ## Install On The Device
 
