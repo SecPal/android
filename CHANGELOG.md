@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed the unused Capacitor HTTP, cookie, and WebView path-management core
+  plugins from Android's native registration boundary, retained only native
+  SystemBars lifecycle/inset behavior while hiding it from plugin exports and
+  rejecting all direct JavaScript dispatch to it,
+  and added fail-closed install/sync plus packaged-WebView regressions so
+  Capacitor upgrades cannot silently restore the capabilities (issue #409,
+  part of #402).
 - SecPal now requires Android System WebView or Chrome 83 or later with the
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a

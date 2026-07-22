@@ -8,6 +8,7 @@ package app.secpal;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.webkit.WebView;
@@ -19,8 +20,10 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PluginHandle;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PluginMethodHandle;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.util.ArrayList;
@@ -94,6 +97,40 @@ public class WebViewBridgeIsolationInstrumentedTest {
                     true,
                     true
                 );
+            }
+        }
+    }
+
+    @Test
+    public void unusedCorePluginsAreAbsentFromTheNativeRegistry() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                assertNull(activity.getBridge().getPlugin("CapacitorCookies"));
+                assertNull(activity.getBridge().getPlugin("CapacitorHttp"));
+                assertNull(activity.getBridge().getPlugin("WebView"));
+                assertNotNull(activity.getBridge().getPlugin("SecPalNativeAuth"));
+                assertNotNull(activity.getBridge().getPlugin("SecPalEnterprise"));
+
+                PluginHandle systemBars = activity.getBridge().getPlugin("SystemBars");
+                assertNotNull(systemBars);
+                List<String> methodNames = new ArrayList<>();
+                for (PluginMethodHandle method : systemBars.getMethods()) {
+                    methodNames.add(method.getName());
+                }
+                assertFalse(methodNames.contains("setStyle"));
+                assertFalse(methodNames.contains("show"));
+                assertFalse(methodNames.contains("hide"));
+                assertFalse(methodNames.contains("setAnimation"));
+            });
+        }
+    }
+
+    @Test
+    public void packagedWebViewCannotInvokeForbiddenCorePlugins() throws Exception {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            try (ResultCollector results = loadControlledPage(scenario, "core")) {
+                assertResult(results.await(), "core-surface:true,true,true,true", true, true);
+                assertResult(results.await(), "core-raw-missing:true,true,true,true,true,true", true, true);
             }
         }
     }

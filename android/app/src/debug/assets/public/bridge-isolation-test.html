@@ -66,6 +66,61 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             typeof window.androidBridge.postMessageLegacy,
           ].join(",")}`
         );
+      } else if (mode === "core") {
+        const forbiddenPluginIds = [
+          "CapacitorCookies",
+          "CapacitorHttp",
+          "WebView",
+        ];
+        const forbiddenHeadersAbsent = forbiddenPluginIds.every(
+          (pluginId) =>
+            !window.Capacitor.PluginHeaders.some(
+              (header) => header.name === pluginId
+            )
+        );
+        const forbiddenProxiesAbsent = forbiddenPluginIds.every(
+          (pluginId) => !(pluginId in window.Capacitor.Plugins)
+        );
+        const systemBarsHeader = window.Capacitor.PluginHeaders.find(
+          (header) => header.name === "SystemBars"
+        );
+        const systemBarsHeaderAbsent = systemBarsHeader === undefined;
+        const systemBarsProxyAbsent = !(
+          "SystemBars" in window.Capacitor.Plugins
+        );
+
+        secpalTestResult.postMessage(
+          `core-surface:${[
+            forbiddenHeadersAbsent,
+            forbiddenProxiesAbsent,
+            systemBarsHeaderAbsent,
+            systemBarsProxyAbsent,
+          ].join(",")}`
+        );
+
+        const rawCalls = [
+          [
+            "CapacitorCookies",
+            "setCookie",
+            { key: "blocked", value: "blocked" },
+          ],
+          ["CapacitorHttp", "request", { url: "https://forbidden.invalid/" }],
+          ["WebView", "setServerBasePath", { path: "/blocked" }],
+          ["SystemBars", "setStyle", { style: "DARK" }],
+          ["SystemBars", "addListener", { eventName: "blocked" }],
+          ["SystemBars", "requestPermissions", {}],
+        ];
+        Promise.all(
+          rawCalls.map(([pluginId, methodName, options]) =>
+            window.Capacitor.nativePromise(pluginId, methodName, options).then(
+              () => false,
+              (error) =>
+                error?.message === `unable to find plugin : ${pluginId}`
+            )
+          )
+        ).then((missing) =>
+          secpalTestResult.postMessage(`core-raw-missing:${missing.join(",")}`)
+        );
       }
     </script>
   </body>

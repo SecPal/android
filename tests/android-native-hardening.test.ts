@@ -56,6 +56,171 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("keeps unused Capacitor core plugins outside the WebView bridge", () => {
+    const bridge = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "Bridge.java"
+    );
+    const systemBars = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "plugin",
+      "SystemBars.java"
+    );
+    const jsExport = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "JSExport.java"
+    );
+    const bridgeIsolationTest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "androidTest",
+      "java",
+      "app",
+      "secpal",
+      "WebViewBridgeIsolationInstrumentedTest.java"
+    );
+
+    expect(bridge).not.toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);"
+    );
+    expect(bridge).not.toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);"
+    );
+    expect(bridge).not.toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.WebView.class);"
+    );
+    expect(bridge).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(systemBars).not.toContain("@PluginMethod");
+    expect(bridge).toContain('if ("SystemBars".equals(pluginId))');
+    expect(jsExport).toContain('if (plugin.getId().equals("SystemBars"))');
+    expect(systemBars).toContain("public void setStyle(final PluginCall call)");
+    expect(systemBars).toContain("public void show(final PluginCall call)");
+    expect(systemBars).toContain("public void hide(final PluginCall call)");
+    expect(bridgeIsolationTest).toContain(
+      "unusedCorePluginsAreAbsentFromTheNativeRegistry"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "packagedWebViewCannotInvokeForbiddenCorePlugins"
+    );
+  });
+
+  it("proves the upstream registrations expose direct JavaScript dispatch", () => {
+    const bridge = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "Bridge.java"
+    );
+    const jsExport = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "JSExport.java"
+    );
+    const pluginHandle = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "PluginHandle.java"
+    );
+    const patchScript = readRepoFile(
+      "scripts",
+      "patch-capacitor-android-unchecked.mjs"
+    );
+    const corePluginSources = [
+      ["CapacitorCookies.java", "setCookie"],
+      ["CapacitorHttp.java", "request"],
+      ["WebView.java", "setServerBasePath"],
+    ] as const;
+
+    expect(jsExport).toContain(
+      "Collection<PluginMethodHandle> methods = plugin.getMethods()"
+    );
+    expect(jsExport).toContain("w.Capacitor.nativePromise('");
+    expect(pluginHandle).toContain(
+      "methodReflect.getAnnotation(PluginMethod.class)"
+    );
+    expect(bridge).toContain("plugin.invoke(methodName, call)");
+
+    for (const [fileName, methodName] of corePluginSources) {
+      const className = fileName.replace(".java", "");
+      const source = readRepoFile(
+        "node_modules",
+        "@capacitor",
+        "android",
+        "capacitor",
+        "src",
+        "main",
+        "java",
+        "com",
+        "getcapacitor",
+        "plugin",
+        fileName
+      );
+
+      expect(patchScript).toContain(
+        `this.registerPlugin(com.getcapacitor.plugin.${className}.class);`
+      );
+      expect(source).toMatch(
+        new RegExp(
+          `@PluginMethod(?:\\([^)]*\\))?\\s+public void ${methodName}\\(`
+        )
+      );
+    }
+
+    expect(patchScript).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(patchScript).toContain(
+      'const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"]'
+    );
+  });
+
   it("fails closed to a packaged local screen when the origin-aware bridge is unavailable", () => {
     const mainActivity = readRepoFile(
       "android",
