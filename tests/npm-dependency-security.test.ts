@@ -35,7 +35,7 @@ const compareVersions = (left: Version, right: Version) => {
 describe("npm dependency security", () => {
   it.each([
     ["brace-expansion", "^5.0.7", [5, 0, 7]],
-    ["tar", "^7.5.18", [7, 5, 18]],
+    ["tar", "^7.5.19", [7, 5, 19]],
   ] as const)(
     "keeps every resolved %s instance on its supported security line",
     (dependency, overrideRange, minimumVersion) => {

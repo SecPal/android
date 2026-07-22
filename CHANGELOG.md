@@ -40,8 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Constrained transitive `brace-expansion` and `tar` dependencies to compatible
-  release lines starting at their patched versions, currently resolving to
-  `brace-expansion@5.0.7` and `tar@7.5.21`,
+  release lines starting at their patched versions, including the
+  `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving
+  to `brace-expansion@5.0.7` and `tar@7.5.21`,
   which resolve their published denial-of-service vulnerabilities,
   superseding the earlier `brace-expansion@5.0.6` lockfile remediation tracked
   in issue `#258`.
