@@ -35,25 +35,6 @@ public class KeystoreTokenStorageTest {
     }
 
     @Test
-    public void differentPrefixesKeepTokensIsolatedAndDefaultPrefixIsBackwardCompatible() throws Exception {
-        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
-        KeystoreTokenStorage defaultStorage = new KeystoreTokenStorage(preferences, new FakeTokenCipher());
-        KeystoreTokenStorage scopedStorage = new KeystoreTokenStorage(preferences, new FakeTokenCipher(), "scoped_token");
-
-        defaultStorage.saveToken("auth-token");
-        scopedStorage.saveToken("scoped-token");
-
-        assertEquals("auth-token", defaultStorage.getToken());
-        assertEquals("scoped-token", scopedStorage.getToken());
-        assertEquals("auth-token-cipher", preferences.getString("token_ciphertext", null));
-
-        scopedStorage.clearToken();
-
-        assertNull(scopedStorage.getToken());
-        assertEquals("auth-token", defaultStorage.getToken());
-    }
-
-    @Test
     public void failedDecryptClearsPersistedValues() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         KeystoreTokenStorage storage = new KeystoreTokenStorage(preferences, new FakeTokenCipher());

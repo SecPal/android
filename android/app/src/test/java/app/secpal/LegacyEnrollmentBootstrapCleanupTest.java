@@ -46,6 +46,11 @@ public class LegacyEnrollmentBootstrapCleanupTest {
             .putString("bootstrap_status", "pending")
             .putString("bootstrap_enrollment_session_id", "session-123")
             .putString("bootstrap_update_channel", "beta")
+            .putString("bootstrap_release_metadata_url", "https://apk.secpal.app/android/latest.json")
+            .putString("bootstrap_api_base_url", "https://api.secpal.dev")
+            .putInt("bootstrap_tenant_id", 7)
+            .putString("bootstrap_tenant_name", "Tenant 7")
+            .putString("bootstrap_last_error_code", "HTTP_409")
             .putBoolean("kiosk_mode_enabled", true)
             .commit();
 
@@ -57,6 +62,11 @@ public class LegacyEnrollmentBootstrapCleanupTest {
         assertFalse(enterprisePreferences.contains("bootstrap_status"));
         assertFalse(enterprisePreferences.contains("bootstrap_enrollment_session_id"));
         assertFalse(enterprisePreferences.contains("bootstrap_update_channel"));
+        assertFalse(enterprisePreferences.contains("bootstrap_release_metadata_url"));
+        assertFalse(enterprisePreferences.contains("bootstrap_api_base_url"));
+        assertFalse(enterprisePreferences.contains("bootstrap_tenant_id"));
+        assertFalse(enterprisePreferences.contains("bootstrap_tenant_name"));
+        assertFalse(enterprisePreferences.contains("bootstrap_last_error_code"));
         assertTrue(enterprisePreferences.getBoolean("kiosk_mode_enabled", false));
 
         authPreferences.edit().clear().commit();
@@ -77,6 +87,14 @@ public class LegacyEnrollmentBootstrapCleanupTest {
 
         assertFalse(LegacyEnrollmentBootstrapCleanup.clear(store));
         assertEquals(List.of("authentication"), store.operations);
+    }
+
+    @Test
+    public void reportsEnterpriseCleanupFailureAfterSensitiveTokenCleanupSucceeds() {
+        RecordingStore store = new RecordingStore(true, false);
+
+        assertFalse(LegacyEnrollmentBootstrapCleanup.clear(store));
+        assertEquals(List.of("authentication", "enterprise"), store.operations);
     }
 
     private static final class RecordingStore implements LegacyEnrollmentBootstrapCleanup.Store {

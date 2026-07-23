@@ -439,6 +439,16 @@ describe("Android native hardening", () => {
       "secpal",
       "NativeAuthHttpClient.java"
     );
+    const tokenStorage = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "KeystoreTokenStorage.java"
+    );
     const enterprisePlugin = readRepoFile(
       "android",
       "app",
@@ -461,8 +471,21 @@ describe("Android native hardening", () => {
     );
 
     expect(nativeAuthClient).not.toContain("/v1/android/bootstrap/exchange");
+    expect(nativeAuthClient).not.toContain("toJavaMap");
+    expect(nativeAuthClient).not.toContain("toJavaValue");
+    expect(nativeAuthClient).not.toContain("mapValue");
+    expect(tokenStorage).not.toContain("keyPrefix");
     expect(enterprisePlugin).not.toContain("distributionState");
     expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
+  });
+
+  it("uses the current bootstrap schema for Android push registration", () => {
+    const bridgeScript = readRepoFile(
+      "scripts",
+      "inject-native-auth-bridge.mjs"
+    );
+
+    expect(bridgeScript).toContain("const currentBootstrapSchemaVersion = 4;");
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {

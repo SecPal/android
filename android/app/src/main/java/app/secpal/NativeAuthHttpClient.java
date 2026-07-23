@@ -10,7 +10,6 @@ import android.util.Base64;
 
 import com.getcapacitor.JSObject;
 
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -22,10 +21,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -414,77 +410,12 @@ class NativeAuthHttpClient {
         );
     }
 
-    private static Map<String, Object> toJavaMap(JSONObject object) throws JSONException {
-        LinkedHashMap<String, Object> values = new LinkedHashMap<>();
-        Iterator<String> keys = object.keys();
-
-        while (keys.hasNext()) {
-            String key = keys.next();
-
-            values.put(key, toJavaValue(object.get(key)));
-        }
-
-        return values;
-    }
-
-    private static Object toJavaValue(Object value) throws JSONException {
-        if (value == JSONObject.NULL) {
-            return null;
-        }
-
-        if (value instanceof JSONObject) {
-            return toJavaMap((JSONObject) value);
-        }
-
-        if (value instanceof JSONArray) {
-            JSONArray array = (JSONArray) value;
-            Object[] values = new Object[array.length()];
-
-            for (int index = 0; index < array.length(); index++) {
-                values[index] = toJavaValue(array.get(index));
-            }
-
-            return values;
-        }
-
-        return value;
-    }
-
-    private static String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private static int intValue(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-
-        if (value == null) {
-            return 0;
-        }
-
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
-    }
-
     private static String normalizeChallengeId(String challengeId) throws NativeAuthHttpException {
         if (challengeId == null || challengeId.trim().isEmpty()) {
             throw new NativeAuthHttpException("Android auth bridge requires a passkey challenge id", 0);
         }
 
         return challengeId.trim();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> mapValue(Object value) {
-        if (value instanceof Map) {
-            return (Map<String, Object>) value;
-        }
-
-        return new LinkedHashMap<>();
     }
 
     private byte[] readResponseBodyBytes(InputStream inputStream) throws IOException {

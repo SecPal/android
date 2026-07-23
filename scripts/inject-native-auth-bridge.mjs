@@ -39,7 +39,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const authVaultStateStorageKey = "auth_vault_state";
   const incompatibleVaultWrapperKind = "native-device-bound";
   const currentBootstrapVersion = "v1";
-  const currentBootstrapSchemaVersion = 3;
+  const currentBootstrapSchemaVersion = 4;
   const maxAndroidPushMetadataRevision = 2147483647;
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";

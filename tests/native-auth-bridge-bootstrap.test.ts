@@ -1328,7 +1328,7 @@ describe("native auth bridge bootstrap injection", () => {
       lifecycle_event: "registered",
       runtime: {
         bootstrap_version: "v1",
-        schema_version: 3,
+        schema_version: 4,
         metadata_revision: 3,
       },
     });
@@ -2440,7 +2440,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_RUNTIME_STATE_INVALID",
             details: {
               bootstrap_version: "v1",
-              schema_version: 3,
+              schema_version: 4,
               channel: "android_fcm",
               provided_metadata_revision: 3,
               expected_metadata_revision: 4,
@@ -2543,7 +2543,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
             details: {
               bootstrap_version: "v1",
-              schema_version: 3,
+              schema_version: 4,
               channel: "android_fcm",
             },
           })
