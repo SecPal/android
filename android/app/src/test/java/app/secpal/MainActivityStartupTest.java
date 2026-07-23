@@ -13,6 +13,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.view.ViewParent;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
@@ -27,6 +28,31 @@ import org.robolectric.shadows.ShadowActivity;
 
 @RunWith(RobolectricTestRunner.class)
 public final class MainActivityStartupTest {
+    @Test
+    public void startupClearsRetiredEnrollmentBootstrapState() {
+        Context context = RuntimeEnvironment.getApplication();
+        SharedPreferences authPreferences = context.getSharedPreferences(
+            SecPalNativeAuthPlugin.NATIVE_AUTH_PREFERENCES_NAME,
+            Context.MODE_PRIVATE
+        );
+        SharedPreferences enterprisePreferences = context.getSharedPreferences(
+            EnterprisePolicyController.ENTERPRISE_PREFS,
+            Context.MODE_PRIVATE
+        );
+
+        authPreferences.edit().putString("bootstrap_token_ciphertext", "encrypted-token").commit();
+        enterprisePreferences.edit().putString("bootstrap_status", "pending").commit();
+
+        try (ActivityController<MissingBridgeLoadMainActivity> ignored =
+            Robolectric.buildActivity(MissingBridgeLoadMainActivity.class).setup()) {
+            assertFalse(authPreferences.contains("bootstrap_token_ciphertext"));
+            assertFalse(enterprisePreferences.contains("bootstrap_status"));
+        } finally {
+            authPreferences.edit().clear().commit();
+            enterprisePreferences.edit().clear().commit();
+        }
+    }
+
     @Test
     public void missingBridgeLoadRoutesToNativeCompatibilityActivity() {
         try (ActivityController<MissingBridgeLoadMainActivity> controller =

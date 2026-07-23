@@ -136,9 +136,7 @@ describe("Android native hardening", () => {
     expect(mainActivity).toMatch(
       /super\.onCreate\(savedInstanceState\);\s+if \(!secureBridgeStarted\) \{[\s\S]*?openWebViewCompatibilityScreen\(\);[\s\S]*?return;/
     );
-    expect(mainActivity).toMatch(
-      /private void scheduleProvisioningBootstrapSync\(\) \{\s+if \(!secureBridgeStarted\) \{\s+return;/
-    );
+    expect(mainActivity).not.toContain("scheduleProvisioningBootstrapSync");
     expect(
       mainActivity.indexOf("SecureWebViewBridgeSupport.isAvailable")
     ).toBeLessThan(
@@ -416,7 +414,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("keeps provisioning bootstrap on the canonical API origin", () => {
+  it("removes retired enrollment bootstrap state without changing runtime bootstrap", () => {
     const stringsXml = readRepoFile(
       "android",
       "app",
@@ -426,7 +424,12 @@ describe("Android native hardening", () => {
       "values",
       "strings.xml"
     );
-    const coordinator = readRepoFile(
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(stringsXml).not.toContain("provisioning_bootstrap_api_base_url");
+
+    const nativeAuthClient = readRepoFile(
       "android",
       "app",
       "src",
@@ -434,19 +437,32 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "ProvisioningBootstrapCoordinator.java"
+      "NativeAuthHttpClient.java"
+    );
+    const enterprisePlugin = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalEnterprisePlugin.java"
+    );
+    const deviceAdminReceiver = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalDeviceAdminReceiver.java"
     );
 
-    expect(stringsXml).toContain(
-      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
-    );
-    expect(stringsXml).toContain(
-      '<string name="provisioning_bootstrap_api_base_url">https://api.secpal.dev</string>'
-    );
-    expect(coordinator).toContain(
-      "R.string.provisioning_bootstrap_api_base_url"
-    );
-    expect(coordinator).not.toContain("R.string.api_base_url");
+    expect(nativeAuthClient).not.toContain("/v1/android/bootstrap/exchange");
+    expect(enterprisePlugin).not.toContain("distributionState");
+    expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {

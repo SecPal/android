@@ -91,58 +91,6 @@ class NativeAuthHttpClient {
         return parseLoginResponse(response);
     }
 
-    ProvisioningBootstrapExchangeResult exchangeBootstrapToken(
-        String baseUrl,
-        String bootstrapToken,
-        ProvisioningBootstrapRuntimeInfo runtimeInfo
-    ) throws IOException, JSONException, NativeAuthHttpException {
-        JSONObject requestBody = buildBootstrapExchangeRequestBody(bootstrapToken, runtimeInfo);
-        JSONObject response = sendJsonRequest(baseUrl, "/v1/android/bootstrap/exchange", "POST", requestBody, null);
-
-        return parseBootstrapExchangeResponse(response);
-    }
-
-    static JSONObject buildBootstrapExchangeRequestBody(
-        String bootstrapToken,
-        ProvisioningBootstrapRuntimeInfo runtimeInfo
-    ) throws JSONException {
-        JSONObject requestBody = new JSONObject()
-            .put("bootstrap_token", bootstrapToken)
-            .put("package_name", runtimeInfo.getPackageName());
-
-        if (runtimeInfo.getPackageVersionName() != null) {
-            requestBody.put("package_version_name", runtimeInfo.getPackageVersionName());
-        }
-
-        if (runtimeInfo.getPackageVersionCode() > 0) {
-            requestBody.put("package_version_code", runtimeInfo.getPackageVersionCode());
-        }
-
-        if (runtimeInfo.getDeviceName() != null) {
-            requestBody.put("device_name", runtimeInfo.getDeviceName());
-        }
-
-        JSONObject device = new JSONObject();
-
-        if (runtimeInfo.getDeviceManufacturer() != null) {
-            device.put("manufacturer", runtimeInfo.getDeviceManufacturer());
-        }
-
-        if (runtimeInfo.getDeviceModel() != null) {
-            device.put("model", runtimeInfo.getDeviceModel());
-        }
-
-        if (runtimeInfo.getAndroidVersion() != null) {
-            device.put("android_version", runtimeInfo.getAndroidVersion());
-        }
-
-        if (device.length() > 0) {
-            requestBody.put("device", device);
-        }
-
-        return requestBody;
-    }
-
     JSObject getCurrentUser(String baseUrl, String token) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject response = sendJsonRequest(baseUrl, "/v1/me", "GET", null, token);
 
@@ -452,11 +400,6 @@ class NativeAuthHttpClient {
         return normalizedPath;
     }
 
-    static ProvisioningBootstrapExchangeResult parseBootstrapExchangeResponse(JSONObject response)
-        throws JSONException {
-        return parseBootstrapExchangePayload(toJavaMap(response.getJSONObject("data")));
-    }
-
     static LoginResponse parseLoginResponse(JSONObject response) throws JSONException {
         return new LoginResponse(response.getString("token"), JSObject.fromJSONObject(response.getJSONObject("user")));
     }
@@ -468,18 +411,6 @@ class NativeAuthHttpClient {
         return new PasskeyChallenge(
             data.getString("challenge_id"),
             data.getJSONObject("public_key")
-        );
-    }
-
-    static ProvisioningBootstrapExchangeResult parseBootstrapExchangePayload(Map<String, Object> data) {
-        return new ProvisioningBootstrapExchangeResult(
-            stringValue(data.get("enrollment_session_id")),
-            intValue(data.get("tenant_id")),
-            stringValue(data.get("tenant_name")),
-            stringValue(data.get("api_base_url")),
-            stringValue(data.get("update_channel")),
-            stringValue(data.get("release_metadata_url")),
-            mapValue(data.get("provisioning_profile"))
         );
     }
 

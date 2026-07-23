@@ -26,10 +26,6 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import java.io.File;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 
@@ -47,8 +43,6 @@ public class MainActivity extends BridgeActivity {
     private boolean secureBridgeLoadAttempted;
     private boolean secureBridgeStarted;
     private boolean compatibilityScreenOpened;
-    private final ExecutorService provisioningBootstrapExecutor = Executors.newSingleThreadExecutor();
-    private final AtomicBoolean provisioningBootstrapSyncInFlight = new AtomicBoolean(false);
     private final OnBackPressedCallback webViewBackPressedCallback = new OnBackPressedCallback(true) {
         @Override
         public void handleOnBackPressed() {
@@ -68,6 +62,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        if (!LegacyEnrollmentBootstrapCleanup.clear(this)) {
+            Log.w(LOG_TAG, "Failed to clear retired enrollment bootstrap state; cleanup will retry");
+        }
         purgeLegacyPwaStateIfAppUpdated();
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
@@ -88,7 +85,6 @@ public class MainActivity extends BridgeActivity {
         enableWebViewPasskeySupport();
         getOnBackPressedDispatcher().addCallback(this, webViewBackPressedCallback);
         handleSamsungHardwareButtonLaunch(getIntent());
-        scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
     }
 
@@ -137,7 +133,6 @@ public class MainActivity extends BridgeActivity {
         }
         setIntent(intent);
         handleSamsungHardwareButtonLaunch(intent);
-        scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
     }
 
@@ -147,7 +142,6 @@ public class MainActivity extends BridgeActivity {
         if (!secureBridgeStarted) {
             return;
         }
-        scheduleProvisioningBootstrapSync();
         refreshManagedPolicyState();
     }
 
@@ -165,12 +159,6 @@ public class MainActivity extends BridgeActivity {
         maybeOpenHardwareButtonRoute(EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(event));
         SecPalEnterprisePlugin.emitHardwareButtonEvent(event);
         return super.dispatchKeyEvent(event);
-    }
-
-    @Override
-    public void onDestroy() {
-        provisioningBootstrapExecutor.shutdownNow();
-        super.onDestroy();
     }
 
     private void purgeLegacyPwaStateIfAppUpdated() {
@@ -370,30 +358,6 @@ public class MainActivity extends BridgeActivity {
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         );
-    }
-
-    private void scheduleProvisioningBootstrapSync() {
-        if (!secureBridgeStarted) {
-            return;
-        }
-        if (!provisioningBootstrapSyncInFlight.compareAndSet(false, true)) {
-            return;
-        }
-
-        provisioningBootstrapExecutor.execute(() -> {
-            try {
-                ProvisioningBootstrapCoordinator.SyncOutcome outcome =
-                    ProvisioningBootstrapCoordinator.fromContext(getApplicationContext()).syncPendingBootstrap();
-
-                if (outcome == ProvisioningBootstrapCoordinator.SyncOutcome.COMPLETED) {
-                    runOnUiThread(this::refreshManagedPolicyState);
-                }
-            } catch (RuntimeException exception) {
-                Log.e(LOG_TAG, "Unexpected error during provisioning bootstrap sync", exception);
-            } finally {
-                provisioningBootstrapSyncInFlight.set(false);
-            }
-        });
     }
 
     private void enableWebViewPasskeySupport() {

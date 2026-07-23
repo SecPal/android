@@ -23,7 +23,7 @@ describe("native enterprise bridge", () => {
     vi.clearAllMocks();
   });
 
-  it("installs a typed enterprise bridge with managed distribution metadata", async () => {
+  it("installs a typed enterprise bridge with managed-state metadata", async () => {
     pluginMocks.getManagedState.mockResolvedValue({
       managed: true,
       mode: "device_owner",
@@ -33,12 +33,6 @@ describe("native enterprise bridge", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: true,
       allowSms: false,
-      distributionState: {
-        bootstrapStatus: "completed",
-        updateChannel: null,
-        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
-        bootstrapLastErrorCode: null,
-      },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],
     });
     pluginMocks.launchPhone.mockResolvedValue(undefined);
@@ -61,12 +55,6 @@ describe("native enterprise bridge", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: true,
       allowSms: false,
-      distributionState: {
-        bootstrapStatus: "completed",
-        updateChannel: null,
-        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
-        bootstrapLastErrorCode: null,
-      },
       allowedApps: [{ packageName: "com.android.settings", label: "Settings" }],
     });
     await expect(bridge.launchPhone()).resolves.toBeUndefined();
@@ -204,12 +192,6 @@ describe("native enterprise bridge", () => {
       gestureNavigationSettingsAvailable: false,
       allowPhone: false,
       allowSms: true,
-      distributionState: {
-        bootstrapStatus: "idle",
-        updateChannel: null,
-        releaseMetadataUrl: null,
-        bootstrapLastErrorCode: "NETWORK_ERROR",
-      },
       allowedApps: [],
     });
 
@@ -226,12 +208,6 @@ describe("native enterprise bridge", () => {
       gestureNavigationSettingsAvailable: false,
       allowPhone: false,
       allowSms: true,
-      distributionState: {
-        bootstrapStatus: "idle",
-        updateChannel: null,
-        releaseMetadataUrl: null,
-        bootstrapLastErrorCode: "NETWORK_ERROR",
-      },
       allowedApps: [],
     });
   });

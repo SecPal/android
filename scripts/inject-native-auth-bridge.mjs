@@ -608,10 +608,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
           parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
             ? parsed.features.passkeyLoginEnabled === true
             : false,
-        managedAndroidEnrollment:
-          parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
-            ? parsed.features.managedAndroidEnrollment === true
-            : false,
       },
       ...(androidPush ? { androidPush } : {}),
     };
