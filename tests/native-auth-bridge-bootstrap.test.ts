@@ -287,7 +287,6 @@ function buildRuntimeBootstrapValue(
     features: {
       passwordLoginEnabled: boolean;
       passkeyLoginEnabled: boolean;
-      managedAndroidEnrollment: boolean;
     };
   }> = {}
 ) {
@@ -301,7 +300,6 @@ function buildRuntimeBootstrapValue(
     features: {
       passwordLoginEnabled: true,
       passkeyLoginEnabled: true,
-      managedAndroidEnrollment: false,
     },
     ...overrides,
   };
@@ -757,12 +755,6 @@ describe("native auth bridge bootstrap injection", () => {
         gestureNavigationSettingsAvailable: true,
         allowPhone: true,
         allowSms: true,
-        distributionState: {
-          bootstrapStatus: "completed",
-          updateChannel: null,
-          releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
-          bootstrapLastErrorCode: null,
-        },
         allowedApps: [],
       }),
       launchPhone: vi.fn().mockResolvedValue(undefined),
@@ -822,12 +814,6 @@ describe("native auth bridge bootstrap injection", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: true,
       allowSms: true,
-      distributionState: {
-        bootstrapStatus: "completed",
-        updateChannel: null,
-        releaseMetadataUrl: "https://apk.secpal.app/android/latest.json",
-        bootstrapLastErrorCode: null,
-      },
       allowedApps: [],
     });
     expect(enterprisePlugin.getManagedState).toHaveBeenCalledOnce();
@@ -1342,7 +1328,7 @@ describe("native auth bridge bootstrap injection", () => {
       lifecycle_event: "registered",
       runtime: {
         bootstrap_version: "v1",
-        schema_version: 3,
+        schema_version: 4,
         metadata_revision: 3,
       },
     });
@@ -2454,7 +2440,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_RUNTIME_STATE_INVALID",
             details: {
               bootstrap_version: "v1",
-              schema_version: 3,
+              schema_version: 4,
               channel: "android_fcm",
               provided_metadata_revision: 3,
               expected_metadata_revision: 4,
@@ -2557,7 +2543,7 @@ describe("native auth bridge bootstrap injection", () => {
             code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
             details: {
               bootstrap_version: "v1",
-              schema_version: 3,
+              schema_version: 4,
               channel: "android_fcm",
             },
           })
@@ -3234,12 +3220,6 @@ describe("native auth bridge bootstrap injection", () => {
         gestureNavigationSettingsAvailable: true,
         allowPhone: false,
         allowSms: false,
-        distributionState: {
-          bootstrapStatus: "pending",
-          updateChannel: null,
-          releaseMetadataUrl: null,
-          bootstrapLastErrorCode: null,
-        },
         allowedApps: [],
       }),
       launchPhone: vi.fn().mockResolvedValue(undefined),
@@ -3293,12 +3273,6 @@ describe("native auth bridge bootstrap injection", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: false,
       allowSms: false,
-      distributionState: {
-        bootstrapStatus: "pending",
-        updateChannel: null,
-        releaseMetadataUrl: null,
-        bootstrapLastErrorCode: null,
-      },
       allowedApps: [],
     });
   });
@@ -3315,12 +3289,6 @@ describe("native auth bridge bootstrap injection", () => {
         gestureNavigationSettingsAvailable: true,
         allowPhone: false,
         allowSms: false,
-        distributionState: {
-          bootstrapStatus: "failed",
-          updateChannel: null,
-          releaseMetadataUrl: null,
-          bootstrapLastErrorCode: "TOKEN_STORAGE_UNAVAILABLE",
-        },
         allowedApps: [],
       }),
       launchPhone: vi.fn().mockResolvedValue(undefined),
@@ -3374,12 +3342,6 @@ describe("native auth bridge bootstrap injection", () => {
       gestureNavigationSettingsAvailable: true,
       allowPhone: false,
       allowSms: false,
-      distributionState: {
-        bootstrapStatus: "failed",
-        updateChannel: null,
-        releaseMetadataUrl: null,
-        bootstrapLastErrorCode: "TOKEN_STORAGE_UNAVAILABLE",
-      },
       allowedApps: [],
     });
   });

@@ -64,7 +64,7 @@ smallest relevant validation set for the touched Android runtime surfaces:
 - `npm run test:run -- tests/native-auth-bridge-bootstrap.test.ts`
 - `npm run typecheck`
 - `npm run lint`
-- `bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:testDebugUnitTest --tests app.secpal.ProvisioningBootstrapStoreTest --tests app.secpal.ProvisioningBootstrapCoordinatorTest --tests app.secpal.AndroidPushRuntimeManagerTest --tests app.secpal.SecPalNativeAuthPluginTest'`
+- `bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:testDebugUnitTest --tests app.secpal.AndroidPushRuntimeManagerTest --tests app.secpal.SecPalNativeAuthPluginTest'`
 
 No additional Android runtime fixes were required by these checks.
 

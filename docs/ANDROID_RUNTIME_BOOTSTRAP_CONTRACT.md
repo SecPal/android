@@ -20,7 +20,8 @@ frontend behavior and must be kept while the shared flow depends on it.
 - Frontend discovery:
   [`discoverAndroidRuntimeBootstrap`](https://github.com/SecPal/frontend/blob/main/src/services/runtimeDiscovery.ts)
   calls `GET /v1/bootstrap` with Android runtime metadata and validates
-  bootstrap version `v1` plus schema version `3`.
+  bootstrap version `v1`, prefers schema version `4`, and accepts schema version
+  `3` during the coordinated rollout window.
 - Android injected bridge:
   [`scripts/inject-native-auth-bridge.mjs`](https://github.com/SecPal/android/blob/main/scripts/inject-native-auth-bridge.mjs)
   installs `globalThis.SecPalNativeAuthBridge` before the shared frontend
@@ -28,6 +29,19 @@ frontend behavior and must be kept while the shared flow depends on it.
 - Android native plugin: `SecPalNativeAuthPlugin` exposes the Capacitor
   `SecPalNativeAuth` methods and persists the normalized bootstrap payload in
   `secpal_native_auth/runtime_bootstrap`.
+
+## Schema 4 Rollout
+
+1. Deploy the API revision that emits bootstrap schema `4`, accepts notification
+   registrations from schemas `3` and `4`, and sets
+   `minimum_supported_app_build` to the first compatible Android release.
+2. Release the Android app with the shared frontend that accepts schemas `3`
+   and `4`; its injected bridge submits schema `4` for notification
+   registrations.
+3. Existing configured clients may continue restoring their persisted runtime
+   and registering with schema `3`. Older unconfigured builds receive the
+   existing update-required response before parsing the removed bootstrap
+   fields.
 
 ## Native Methods To Keep
 
@@ -72,12 +86,11 @@ confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
 | `api_base_url`                                                             | `rawApiBaseUrl`; `apiOrigin` is derived from its origin. | Native normalizes to a bare HTTPS origin, accepts either the origin or `/v1`, and rejects userinfo, query, fragment, or other paths. |
 | `instance.display_name`                                                    | `instanceDisplayName`                                    | Persisted and returned to the bridge so runtime reset UI and restored state can show the configured instance.                        |
 | `compatibility.bootstrap_version`                                          | Validation-only                                          | Frontend discovery requires `v1`; Android receives the already-applied payload and does not persist this field separately.           |
-| `compatibility.schema_version`                                             | Validation-only                                          | Frontend discovery requires schema version `3`; injected discovery also validates schema `3` before applying runtime state.          |
+| `compatibility.schema_version`                                             | Validation-only                                          | Frontend discovery accepts schema versions `3` and `4` during the rollout window; Android push registration emits schema `4`.        |
 | `compatibility.minimum_supported_app_version`                              | `minimumSupportedAppVersion`                             | Native requires and persists this string in the bootstrap payload.                                                                   |
 | `compatibility.minimum_supported_app_build`                                | `minimumSupportedAppBuild`                               | Native requires a positive integer before persisting the bootstrap payload.                                                          |
 | `features.password_login`                                                  | `features.passwordLoginEnabled`                          | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.passkey_login`                                                   | `features.passkeyLoginEnabled`                           | Native normalizes and persists this flag for restored bridge state.                                                                  |
-| `features.managed_android_enrollment`                                      | `features.managedAndroidEnrollment`                      | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.notification_channels.android_fcm`                               | Controls whether `androidPush` is present.               | If Android FCM is disabled, native persists no Android push runtime metadata and clears the runtime Firebase app.                    |
 | `notification_channels.android_fcm.channel`                                | `androidPush.provider`                                   | Frontend maps `android_fcm` to native provider `fcm`; native rejects any other provider.                                             |
 | `notification_channels.android_fcm.metadata_revision`                      | `androidPush.metadataRevision`                           | Native requires a positive integer within Android `int` range and uses it for runtime push metadata revision.                        |

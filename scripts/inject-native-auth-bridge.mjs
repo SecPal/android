@@ -39,7 +39,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const authVaultStateStorageKey = "auth_vault_state";
   const incompatibleVaultWrapperKind = "native-device-bound";
   const currentBootstrapVersion = "v1";
-  const currentBootstrapSchemaVersion = 3;
+  const currentBootstrapSchemaVersion = 4;
   const maxAndroidPushMetadataRevision = 2147483647;
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
@@ -607,10 +607,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         passkeyLoginEnabled:
           parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
             ? parsed.features.passkeyLoginEnabled === true
-            : false,
-        managedAndroidEnrollment:
-          parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
-            ? parsed.features.managedAndroidEnrollment === true
             : false,
       },
       ...(androidPush ? { androidPush } : {}),

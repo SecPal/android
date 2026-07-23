@@ -25,7 +25,7 @@ import java.net.URL;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
-    private static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
+    static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
     private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
@@ -245,8 +245,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getRuntimeInfo(PluginCall call) {
-        ProvisioningBootstrapRuntimeInfo runtimeInfo =
-            ProvisioningBootstrapRuntimeInfo.fromContext(getContext());
+        AndroidRuntimeInfo runtimeInfo = AndroidRuntimeInfo.fromContext(getContext());
         String appVersion = runtimeInfo.getPackageVersionName();
         long appBuild = runtimeInfo.getPackageVersionCode();
 
@@ -416,8 +415,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         runAsync(call, () -> {
             boolean persisted = clearRuntimeBootstrapState(
                 getNativeAuthPreferences(),
-                tokenStorage,
-                () -> ProvisioningBootstrapStore.fromContext(getContext()).clear()
+                tokenStorage
             );
 
             if (!persisted) {
@@ -822,8 +820,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean clearRuntimeBootstrapState(
         SharedPreferences preferences,
-        TokenStorage tokenStorage,
-        Runnable provisioningStateClearer
+        TokenStorage tokenStorage
     ) {
         boolean persisted = preferences.edit()
             .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
@@ -835,10 +832,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         tokenStorage.clearToken();
-
-        if (provisioningStateClearer != null) {
-            provisioningStateClearer.run();
-        }
 
         return true;
     }
@@ -983,10 +976,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         normalizedFeatures.put(
             "passkeyLoginEnabled",
             features != null && features.optBoolean("passkeyLoginEnabled", false)
-        );
-        normalizedFeatures.put(
-            "managedAndroidEnrollment",
-            features != null && features.optBoolean("managedAndroidEnrollment", false)
         );
         normalized.put("features", normalizedFeatures);
 
