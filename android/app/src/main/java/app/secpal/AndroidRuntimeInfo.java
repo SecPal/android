@@ -45,7 +45,7 @@ final class AndroidRuntimeInfo {
             versionName = packageInfo.versionName;
             versionCode = PackageInfoCompat.getLongVersionCode(packageInfo);
         } catch (PackageManager.NameNotFoundException ignored) {
-            // Fall back to package name only when package metadata is unavailable.
+            // Keep empty version metadata when package metadata is unavailable.
         }
 
         return new AndroidRuntimeInfo(
