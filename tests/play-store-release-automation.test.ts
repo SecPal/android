@@ -449,6 +449,32 @@ describe("Play Store release automation", () => {
     }
   });
 
+  it("reports missing and corrupt artifacts as inspection failures", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const missingArtifactPath = join(tempRoot, "missing.apk");
+    const corruptArtifactPath = join(tempRoot, "corrupt.aab");
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        '<resources><string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string></resources>'
+      );
+      writeFile(corruptArtifactPath, "not a zip archive");
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(missingArtifactPath, stringsXmlPath)
+      ).toThrow(/Unable to inspect .*missing\.apk/i);
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(corruptArtifactPath, stringsXmlPath)
+      ).toThrow(/Unable to inspect .*corrupt\.aab/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps latest artifact swaps rollback-safe when remote renames fail", () => {
     const fastfile = readFileSync(
       resolve(repoRoot, "fastlane", "Fastfile"),

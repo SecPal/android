@@ -20,6 +20,30 @@ const runtimeIndexEntries = [
   "base/assets/public/index.html",
 ];
 
+function readUnzipOutput(artifactPath, argumentsList) {
+  const result = spawnSync("unzip", argumentsList, {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  });
+
+  if (result.error) {
+    throw new Error(
+      `Unable to inspect ${artifactPath}: ${result.error.message}`
+    );
+  }
+
+  if (result.status !== 0) {
+    const details = result.stderr.trim();
+    throw new Error(
+      `Unable to inspect ${artifactPath}: ${
+        details || `unzip exited with status ${result.status ?? "unknown"}`
+      }`
+    );
+  }
+
+  return result.stdout;
+}
+
 function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
   const startIndex = indexHtml.indexOf(runtimeScriptStart);
   const runtimeScriptTags = indexHtml.match(runtimeScriptTagPattern) ?? [];
@@ -48,41 +72,32 @@ export function verifyAndroidRuntimeSchemaArtifact(
   const expectedBridge = buildNativeAuthBridgeBootstrapScript(
     readApiBaseUrlFromStringsXml(stringsXml)
   );
+  const archiveEntries = new Set(
+    readUnzipOutput(artifactPath, ["-Z1", artifactPath])
+      .split(/\r?\n/)
+      .filter(Boolean)
+  );
+  const runtimeIndexEntry = runtimeIndexEntries.find((entry) =>
+    archiveEntries.has(entry)
+  );
 
-  for (const entry of runtimeIndexEntries) {
-    const result = spawnSync("unzip", ["-p", artifactPath, entry], {
-      encoding: "utf8",
-      maxBuffer: 8 * 1024 * 1024,
-    });
-
-    if (result.error) {
-      throw new Error(
-        `Unable to inspect ${artifactPath}: ${result.error.message}`
-      );
-    }
-
-    if (result.status !== 0) {
-      continue;
-    }
-
-    const sourceLabel = `${artifactPath}:${entry}`;
-    const actualBridge = extractAndroidRuntimeBridge(
-      result.stdout,
-      sourceLabel
+  if (!runtimeIndexEntry) {
+    throw new Error(
+      `${artifactPath} does not contain the Android runtime index in an APK or AAB location.`
     );
-
-    if (actualBridge !== expectedBridge) {
-      throw new Error(
-        `${sourceLabel} does not contain the canonical schema 4 runtime bridge.`
-      );
-    }
-
-    return;
   }
 
-  throw new Error(
-    `${artifactPath} does not contain the Android runtime index in an APK or AAB location.`
+  const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
+  const actualBridge = extractAndroidRuntimeBridge(
+    readUnzipOutput(artifactPath, ["-p", artifactPath, runtimeIndexEntry]),
+    sourceLabel
   );
+
+  if (actualBridge !== expectedBridge) {
+    throw new Error(
+      `${sourceLabel} does not contain the canonical schema 4 runtime bridge.`
+    );
+  }
 }
 
 const invokedPath = process.argv[1];
