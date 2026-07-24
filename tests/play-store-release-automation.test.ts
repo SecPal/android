@@ -449,7 +449,9 @@ next_direct_deploy_version_code
     const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-lock-"));
     const publicRoot = join(tempRoot, "public");
     const lockRoot = `${publicRoot}.release.lock`;
+    const isolatedFastfilePath = join(tempRoot, "Fastfile");
     const rubyAdapter = `
+require "open3"
 def default_platform(*) = nil
 def platform(*) = nil
 def desc(*) = nil
@@ -486,13 +488,20 @@ raise "failed release body retained the lock" if Dir.exist?(ENV.fetch("SECPAL_TE
 `;
 
     try {
+      writeFile(
+        isolatedFastfilePath,
+        readFileSync(resolve(repoRoot, "fastlane", "Fastfile"), "utf8").replace(
+          'require "open3"\n',
+          ""
+        )
+      );
       const result = spawnSync("ruby", ["-e", rubyAdapter], {
         cwd: repoRoot,
         encoding: "utf8",
         env: {
           ...process.env,
           SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
-          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+          SECPAL_TEST_FASTFILE: isolatedFastfilePath,
           SECPAL_TEST_LOCK_ROOT: lockRoot,
         },
       });
