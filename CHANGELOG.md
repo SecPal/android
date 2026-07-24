@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Updated the Vite/Vitest `postcss` override to the compatible patched
+  `^8.5.15` release line, resolving the source-map disclosure advisories
+  `GHSA-6g55-p6wh-862q` and `GHSA-r28c-9q8g-f849` (issue #439).
 - SecPal now requires Android System WebView or Chrome 83 or later with the
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a

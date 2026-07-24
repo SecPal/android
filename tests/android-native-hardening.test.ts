@@ -203,7 +203,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("pins a patched postcss version for the Vite toolchain", () => {
+  it("requires a patched postcss release line for the Vite toolchain", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       overrides?: Record<string, unknown>;
     };
@@ -211,9 +211,9 @@ describe("Android native hardening", () => {
       packages?: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.overrides?.postcss).toBe("8.5.10");
+    expect(packageJson.overrides?.postcss).toBe("^8.5.15");
     expect(packageLock.packages?.["node_modules/postcss"]?.version).toBe(
-      "8.5.10"
+      "8.5.23"
     );
   });
 
