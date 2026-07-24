@@ -53,6 +53,8 @@ return HTTP `404`. After those public results and the unavailable channel
 documents were verified, the non-public quarantine transaction and every APK,
 checksum, and versioned metadata copy in it were permanently deleted at
 `2026-07-24T21:32:28Z`. No recoverable schema-3 artifact remains on the server.
+Fastlane retains `261932119` as the tracked retired Android version-code floor,
+so a clean release host cannot reuse either withdrawn package identity.
 
 Contract `main` constrains the relevant schemas to `const: 4`; the API requires
 strict integer schema 4; the frontend has no schema-3 compatibility path; and

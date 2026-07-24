@@ -24,6 +24,7 @@ APK_LANDING_URL = "https://secpal.app/android/"
 APK_UPDATE_CHANNEL = "stable"
 APK_DIRECT_CHANNELS = %w[stable beta].freeze
 APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY = true
+RETIRED_ANDROID_VERSION_CODE_FLOOR = 261_932_119
 APK_DIRECT_SSH_HOST = ENV.fetch("SECPAL_ANDROID_DIRECT_SSH_HOST", "secpal")
 APK_DIRECT_ROOT = ENV.fetch(
   "SECPAL_ANDROID_DIRECT_ROOT",
@@ -196,6 +197,7 @@ end
 
 def highest_known_android_version_code(json_key_path: nil)
   [
+    RETIRED_ANDROID_VERSION_CODE_FLOOR,
     configured_release_version_code_value,
     highest_known_direct_version_code,
     json_key_path.to_s.empty? ? 0 : highest_known_play_version_code(json_key_path)
@@ -371,6 +373,18 @@ def remote_latest_files_replacement_script(
     checksum_path=#{Shellwords.escape(checksum_path)}
     next_checksum_path=#{Shellwords.escape(next_checksum_path)}
     previous_checksum_path=#{Shellwords.escape(previous_checksum_path)}
+    latest_apk_existed=0
+    checksum_existed=0
+
+    rm -f "$next_apk_path" "$next_checksum_path" \
+      "$previous_apk_path" "$previous_checksum_path"
+
+    if [ -f "$latest_apk_path" ]; then
+      latest_apk_existed=1
+    fi
+    if [ -f "$checksum_path" ]; then
+      checksum_existed=1
+    fi
 
     cleanup() {
       rm -f "$next_apk_path" "$next_checksum_path"
@@ -378,11 +392,19 @@ def remote_latest_files_replacement_script(
 
     rollback() {
       trap - EXIT HUP INT TERM
-      if [ -f "$previous_apk_path" ]; then
-        mv "$previous_apk_path" "$latest_apk_path"
+      if [ "$latest_apk_existed" -eq 1 ]; then
+        if [ -f "$previous_apk_path" ]; then
+          mv "$previous_apk_path" "$latest_apk_path"
+        fi
+      else
+        rm -f "$latest_apk_path"
       fi
-      if [ -f "$previous_checksum_path" ]; then
-        mv "$previous_checksum_path" "$checksum_path"
+      if [ "$checksum_existed" -eq 1 ]; then
+        if [ -f "$previous_checksum_path" ]; then
+          mv "$previous_checksum_path" "$checksum_path"
+        fi
+      else
+        rm -f "$checksum_path"
       fi
       cleanup
     }
@@ -397,19 +419,23 @@ def remote_latest_files_replacement_script(
     cp #{Shellwords.escape(source_apk_path)} "$next_apk_path"
     cp #{Shellwords.escape(source_checksum_path)} "$next_checksum_path"
 
-    if [ -f "$latest_apk_path" ]; then
+    if [ "$latest_apk_existed" -eq 1 ]; then
       mv "$latest_apk_path" "$previous_apk_path"
     fi
-    if [ -f "$checksum_path" ]; then
+    if [ "$checksum_existed" -eq 1 ]; then
       mv "$checksum_path" "$previous_checksum_path"
     fi
 
     mv "$next_checksum_path" "$checksum_path"
     mv "$next_apk_path" "$latest_apk_path"
 
-    rm -f "$previous_apk_path" "$previous_checksum_path"
     trap - EXIT HUP INT TERM
-    cleanup
+    if ! rm -f "$previous_apk_path" "$previous_checksum_path"; then
+      echo "Latest artifact backup cleanup failed after commit." >&2
+    fi
+    if ! cleanup; then
+      echo "Latest artifact staging cleanup failed after commit." >&2
+    fi
   SH
 end
 

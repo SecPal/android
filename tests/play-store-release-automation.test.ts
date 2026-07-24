@@ -342,6 +342,45 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("persist_configured_release_version_code!");
   });
 
+  it("rejects reuse of withdrawn direct APK version codes without external release state", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-version-floor-"));
+    const rubyAdapter = `
+module UI
+  def self.user_error!(message) = raise(message)
+  def self.message(*) = nil
+end
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def configured_release_version_code_value = 0
+def highest_known_direct_version_code = 0
+def optional_play_json_key_path = nil
+ENV["SECPAL_ANDROID_DEPLOY_VERSION_CODE"] = "261932119"
+next_direct_deploy_version_code
+`;
+
+    try {
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_RELEASE_ENV_FILE: join(tempRoot, "missing.env"),
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "local release baseline already uses 261932119"
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("parses shell-compatible release env assignments before using the configured version baseline", () => {
     const fastfile = readFileSync(
       resolve(repoRoot, "fastlane", "Fastfile"),
@@ -424,8 +463,26 @@ def sh(*arguments)
 end
 with_direct_release_lock do
   raise "direct release lock was not held" unless Dir.exist?(ENV.fetch("SECPAL_TEST_LOCK_ROOT"))
+  competing_error = begin
+    with_direct_release_lock do
+      raise "competing direct release unexpectedly acquired the lock"
+    end
+  rescue StandardError => error
+    error
+  end
+  unless competing_error.message.include?("Another direct APK release mutation is already running.")
+    raise competing_error
+  end
 end
 raise "direct release lock was not released" if Dir.exist?(ENV.fetch("SECPAL_TEST_LOCK_ROOT"))
+begin
+  with_direct_release_lock do
+    raise "release body failed"
+  end
+rescue StandardError => error
+  raise error unless error.message == "release body failed"
+end
+raise "failed release body retained the lock" if Dir.exist?(ENV.fetch("SECPAL_TEST_LOCK_ROOT"))
 `;
 
     try {
@@ -498,8 +555,171 @@ safely_replace_remote_latest_files!(
     }
   });
 
-  it("terminates after rolling back a signalled latest-artifact replacement", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-latest-signal-"));
+  it("does not restore stale backups when replacement fails before mutation", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-stale-backup-"));
+    const remoteRoot = join(tempRoot, "stable");
+    const sourceApkPath = join(tempRoot, "source.apk");
+    const sourceChecksumPath = join(tempRoot, "source-checksum.txt");
+    const latestApkPath = join(remoteRoot, "app.secpal-latest.apk");
+    const latestChecksumPath = join(remoteRoot, "SHA256SUMS.txt");
+    const rubyAdapter = `
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+script = remote_latest_files_replacement_script(
+  remote_root: ENV.fetch("SECPAL_TEST_REMOTE_ROOT"),
+  source_apk_path: ENV.fetch("SECPAL_TEST_SOURCE_APK"),
+  source_checksum_path: ENV.fetch("SECPAL_TEST_SOURCE_CHECKSUM")
+)
+script = script.sub("\\ncp ", "\\nfalse\\ncp ")
+system("sh", "-eu", "-c", script, exception: true)
+`;
+
+    try {
+      writeFile(sourceApkPath, "future-apk");
+      writeFile(sourceChecksumPath, "future-checksum");
+      writeFile(latestApkPath, "current-apk");
+      writeFile(latestChecksumPath, "current-checksum");
+      writeFile(
+        join(remoteRoot, "app.secpal-latest.previous.apk"),
+        "stale-apk"
+      );
+      writeFile(join(remoteRoot, "SHA256SUMS.previous.txt"), "stale-checksum");
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+          SECPAL_TEST_REMOTE_ROOT: remoteRoot,
+          SECPAL_TEST_SOURCE_APK: sourceApkPath,
+          SECPAL_TEST_SOURCE_CHECKSUM: sourceChecksumPath,
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(readFileSync(latestApkPath, "utf8")).toBe("current-apk");
+      expect(readFileSync(latestChecksumPath, "utf8")).toBe("current-checksum");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each(
+    [
+      {
+        existingApk: "schema-3-apk",
+        existingChecksum: "schema-3-checksum",
+        initialState: "an existing APK and checksum",
+      },
+      {
+        existingApk: "schema-3-apk",
+        existingChecksum: undefined,
+        initialState: "only an existing APK",
+      },
+      {
+        existingApk: undefined,
+        existingChecksum: "schema-3-checksum",
+        initialState: "only an existing checksum",
+      },
+      {
+        existingApk: undefined,
+        existingChecksum: undefined,
+        initialState: "an empty channel",
+      },
+    ].flatMap((initialState) => [
+      {
+        ...initialState,
+        interruption: "kill -TERM $$",
+        interruptionKind: "a signal",
+      },
+      {
+        ...initialState,
+        interruption: "false",
+        interruptionKind: "a command failure",
+      },
+    ])
+  )(
+    "restores $initialState after $interruptionKind interrupts latest-artifact replacement",
+    ({ existingApk, existingChecksum, interruption }) => {
+      const tempRoot = mkdtempSync(
+        join(tmpdir(), "direct-apk-latest-rollback-")
+      );
+      const remoteRoot = join(tempRoot, "stable");
+      const sourceApkPath = join(tempRoot, "source.apk");
+      const sourceChecksumPath = join(tempRoot, "source-checksum.txt");
+      const latestApkPath = join(remoteRoot, "app.secpal-latest.apk");
+      const latestChecksumPath = join(remoteRoot, "SHA256SUMS.txt");
+      const rubyAdapter = `
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+script = remote_latest_files_replacement_script(
+  remote_root: ENV.fetch("SECPAL_TEST_REMOTE_ROOT"),
+  source_apk_path: ENV.fetch("SECPAL_TEST_SOURCE_APK"),
+  source_checksum_path: ENV.fetch("SECPAL_TEST_SOURCE_CHECKSUM")
+)
+script = script.sub(
+  "\\nmv \\"$next_checksum_path\\" \\"$checksum_path\\"",
+  "\\nmv \\"$next_checksum_path\\" \\"$checksum_path\\"\\n#{ENV.fetch("SECPAL_TEST_INTERRUPTION")}"
+)
+system("sh", "-eu", "-c", script, exception: true)
+`;
+
+      try {
+        writeFile(sourceApkPath, "schema-4-apk");
+        writeFile(sourceChecksumPath, "schema-4-checksum");
+        if (existingApk !== undefined) {
+          writeFile(latestApkPath, existingApk);
+        }
+        if (existingChecksum !== undefined) {
+          writeFile(latestChecksumPath, existingChecksum);
+        }
+
+        const result = spawnSync("ruby", ["-e", rubyAdapter], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+            SECPAL_TEST_INTERRUPTION: interruption,
+            SECPAL_TEST_REMOTE_ROOT: remoteRoot,
+            SECPAL_TEST_SOURCE_APK: sourceApkPath,
+            SECPAL_TEST_SOURCE_CHECKSUM: sourceChecksumPath,
+          },
+        });
+
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).not.toContain("undefined method");
+        if (existingApk === undefined) {
+          expect(existsSync(latestApkPath)).toBe(false);
+        } else {
+          expect(readFileSync(latestApkPath, "utf8")).toBe(existingApk);
+        }
+        if (existingChecksum === undefined) {
+          expect(existsSync(latestChecksumPath)).toBe(false);
+        } else {
+          expect(readFileSync(latestChecksumPath, "utf8")).toBe(
+            existingChecksum
+          );
+        }
+        expect(existsSync(join(remoteRoot, "app.secpal-latest.next.apk"))).toBe(
+          false
+        );
+        expect(existsSync(join(remoteRoot, "SHA256SUMS.next.txt"))).toBe(false);
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it("keeps the committed latest artifacts when backup cleanup fails", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-latest-commit-"));
     const remoteRoot = join(tempRoot, "stable");
     const sourceApkPath = join(tempRoot, "source.apk");
     const sourceChecksumPath = join(tempRoot, "source-checksum.txt");
@@ -517,8 +737,8 @@ script = remote_latest_files_replacement_script(
   source_checksum_path: ENV.fetch("SECPAL_TEST_SOURCE_CHECKSUM")
 )
 script = script.sub(
-  "\\nmv \\"$next_checksum_path\\"",
-  "\\nkill -TERM $$\\nmv \\"$next_checksum_path\\""
+  "rm -f \\"$previous_apk_path\\" \\"$previous_checksum_path\\"",
+  "false"
 )
 system("sh", "-eu", "-c", script, exception: true)
 `;
@@ -541,16 +761,14 @@ system("sh", "-eu", "-c", script, exception: true)
         },
       });
 
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).not.toContain("undefined method");
-      expect(readFileSync(latestApkPath, "utf8")).toBe("schema-3-apk");
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(result.stderr).toContain(
+        "Latest artifact backup cleanup failed after commit."
+      );
+      expect(readFileSync(latestApkPath, "utf8")).toBe("schema-4-apk");
       expect(readFileSync(latestChecksumPath, "utf8")).toBe(
-        "schema-3-checksum"
+        "schema-4-checksum"
       );
-      expect(existsSync(join(remoteRoot, "app.secpal-latest.next.apk"))).toBe(
-        false
-      );
-      expect(existsSync(join(remoteRoot, "SHA256SUMS.next.txt"))).toBe(false);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
