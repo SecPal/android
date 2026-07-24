@@ -48,6 +48,23 @@ jobs:
       node-version: "22"
       build-command: "npm run typecheck"
 
+  npm-audit:
+    name: npm Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
   vitest:
     name: Vitest Tests
     runs-on: ubuntu-latest
