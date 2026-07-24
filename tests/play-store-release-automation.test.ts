@@ -414,6 +414,62 @@ describe("Play Store release automation", () => {
         verifyAndroidRuntimeSchemaArtifact(aabPath, stringsXmlPath)
       ).not.toThrow();
 
+      const ambiguousAabRoot = join(tempRoot, "ambiguous-aab");
+      const ambiguousAabPath = createZipFixture(
+        ambiguousAabRoot,
+        "ambiguous.aab",
+        "base",
+        ["base", "assets", "public"],
+        canonicalIndexHtml.replace(
+          "currentBootstrapSchemaVersion = 4",
+          "currentBootstrapSchemaVersion = 3"
+        )
+      );
+      writeFile(
+        join(ambiguousAabRoot, "assets", "public", "index.html"),
+        canonicalIndexHtml
+      );
+      const appendResult = spawnSync(
+        "zip",
+        ["-q", "-r", ambiguousAabPath, "assets"],
+        { cwd: ambiguousAabRoot, encoding: "utf8" }
+      );
+      expect(
+        appendResult.status,
+        appendResult.error?.message || appendResult.stderr
+      ).toBe(0);
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(ambiguousAabPath, stringsXmlPath)
+      ).toThrow(/exactly one .* runtime index/i);
+
+      for (const [name, extension, entryRoot, indexSegments, expectedPath] of [
+        [
+          "apk-with-aab-path",
+          "apk",
+          "base",
+          ["base", "assets", "public"],
+          "assets/public",
+        ],
+        [
+          "aab-with-apk-path",
+          "aab",
+          "assets",
+          ["assets", "public"],
+          "base/assets/public",
+        ],
+      ] as const) {
+        const misplacedArtifact = createZipFixture(
+          join(tempRoot, name),
+          `${name}.${extension}`,
+          entryRoot,
+          indexSegments,
+          canonicalIndexHtml
+        );
+        expect(() =>
+          verifyAndroidRuntimeSchemaArtifact(misplacedArtifact, stringsXmlPath)
+        ).toThrow(new RegExp(expectedPath));
+      }
+
       const expectInvalidArtifact = (
         name: string,
         indexHtml: string,
@@ -436,7 +492,23 @@ describe("Play Store release automation", () => {
           "currentBootstrapSchemaVersion = 4",
           "currentBootstrapSchemaVersion = 3"
         ),
-        /canonical schema 4 runtime bridge/i
+        /must declare schema 4 independently/i
+      );
+      expectInvalidArtifact(
+        "hardcoded-schema",
+        canonicalIndexHtml.replace(
+          "schema_version: currentBootstrapSchemaVersion",
+          "schema_version: 4"
+        ),
+        /must declare schema 4 independently/i
+      );
+      expectInvalidArtifact(
+        "mutated-bridge",
+        canonicalIndexHtml.replace(
+          apiBaseUrl,
+          "https://unexpected-runtime.secpal.dev"
+        ),
+        /does not contain the canonical schema 4 runtime bridge/i
       );
       expectInvalidArtifact(
         "duplicate",

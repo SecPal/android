@@ -223,7 +223,7 @@ For direct APK publication on `apk.secpal.app`, the repository now treats the ca
 
 The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to the SecPal VPS, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
 The `fastlane android deploy_direct_apk_beta` lane publishes the same signed release APK under `/android/beta/` without replacing the stable aliases.
-All repository-provided signed build lanes and npm commands first verify that the signed APK and AAB embed the canonical schema-4 Android bridge. Publication fails before any upload when the packaged WebView runtime has a missing, non-canonical, or independently overridden notification-registration schema.
+All repository-provided signed build lanes and npm commands first verify that the signed APK and AAB embed the canonical schema-4 Android bridge at exactly the artifact-type-specific WebView index path. Publication fails before any upload when index locations are missing, duplicated, or conflicting, or when the packaged bridge has a non-canonical or independently overridden notification-registration schema.
 
 The resulting latest-channel endpoints are:
 

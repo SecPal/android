@@ -46,9 +46,12 @@ applying the native runtime payload.
 
 Stable and Beta artifacts must embed the canonical schema-4 bridge before their
 metadata advertises `release_available: true`. The signed APK and AAB build
-lanes inspect the packaged WebView runtime and fail closed unless it contains
-exactly one integer schema-4 constant and one notification-registration
-assignment sourced from that constant.
+lanes inspect only the artifact-type-specific packaged WebView runtime, reject
+missing, duplicate, or conflicting APK/AAB index locations, and fail closed
+unless the executable bridge contains exactly one integer schema-4 constant
+and one notification-registration assignment sourced from that constant. This
+schema assertion is independent of the injector source used for the final
+canonical byte comparison.
 
 An artifact that emits any other runtime schema is unsupported and must not
 remain available as an Android release. It must be replaced or withdrawn rather
