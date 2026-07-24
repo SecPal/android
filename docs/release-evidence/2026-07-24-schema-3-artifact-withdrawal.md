@@ -49,9 +49,10 @@ unavailable metadata.
 
 The Stable, Stable-alias, Beta, and two versioned schema-3 APK paths return
 HTTP `404`. The associated public checksum and versioned metadata paths also
-return HTTP `404`. Their APKs, checksums, and versioned metadata were moved
-rather than deleted and remain recoverable under the non-public quarantine
-transaction `android-artifacts-withdrawn/2026-07-24T18-41-56Z`.
+return HTTP `404`. After those public results and the unavailable channel
+documents were verified, the non-public quarantine transaction and every APK,
+checksum, and versioned metadata copy in it were permanently deleted at
+`2026-07-24T21:32:28Z`. No recoverable schema-3 artifact remains on the server.
 
 Contract `main` constrains the relevant schemas to `const: 4`; the API requires
 strict integer schema 4; the frontend has no schema-3 compatibility path; and
