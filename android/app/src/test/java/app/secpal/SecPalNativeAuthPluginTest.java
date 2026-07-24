@@ -334,6 +334,29 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void loadPersistedRuntimeBootstrapDiscardsObsoleteSchemaMarkers() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        JSONObject stored = new JSONObject()
+            .put("instanceDisplayName", "Tenant A")
+            .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+            .put("minimumSupportedAppVersion", "0.0.1")
+            .put("minimumSupportedAppBuild", 1)
+            .put("schemaVersion", 3)
+            .put("schema_version", 3);
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNotNull(result);
+        assertEquals("https://tenant-a.example", result.getString("apiOrigin"));
+        assertEquals("Tenant A", result.getString("instanceDisplayName"));
+        assertFalse(result.has("schemaVersion"));
+        assertFalse(result.has("schema_version"));
+    }
+
+    @Test
     public void loadPersistedRuntimeBootstrapSelfHealsCorruptBootstrapJson() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         preferences.edit()

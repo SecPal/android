@@ -479,13 +479,31 @@ describe("Android native hardening", () => {
     expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
   });
 
-  it("uses the current bootstrap schema for Android push registration", () => {
+  it("uses only the canonical bootstrap schema for Android push registration", () => {
     const bridgeScript = readRepoFile(
       "scripts",
       "inject-native-auth-bridge.mjs"
     );
 
     expect(bridgeScript).toContain("const currentBootstrapSchemaVersion = 4;");
+    expect(
+      bridgeScript.match(/const currentBootstrapSchemaVersion = 4;/g)
+    ).toHaveLength(1);
+    expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
+  });
+
+  it("documents the schema-4-only runtime contract without rollout gates", () => {
+    const runtimeContract = readRepoFile(
+      "docs",
+      "ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md"
+    );
+
+    expect(runtimeContract).toContain("requires strict integer schema `4`");
+    expect(runtimeContract).not.toMatch(/schemas?(?: versions?)? `3`/i);
+    expect(runtimeContract).not.toMatch(
+      /Schema 4 Rollout|rollout window|support floor|first compatible Android release/i
+    );
+    expect(runtimeContract).not.toMatch(/\bfallback\b/i);
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {
