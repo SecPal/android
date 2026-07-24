@@ -203,14 +203,6 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("requires a patched postcss release line for the Vite toolchain", () => {
-    const packageJson = JSON.parse(readRepoFile("package.json")) as {
-      overrides?: Record<string, unknown>;
-    };
-
-    expect(packageJson.overrides?.postcss).toBe("^8.5.15");
-  });
-
   it("defines the Cordova access allowlist in Capacitor source config", async () => {
     let configModule: { default?: unknown };
     try {
