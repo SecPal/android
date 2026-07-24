@@ -290,6 +290,21 @@ def signed_apk_path
   )
 end
 
+def verify_android_runtime_schema_artifact!(artifact_path)
+  sh(
+    "node",
+    File.expand_path(
+      "scripts/verify-android-runtime-schema.mjs",
+      REPO_ROOT
+    ),
+    artifact_path,
+    File.expand_path(
+      "android/app/src/main/res/values/strings.xml",
+      REPO_ROOT
+    )
+  )
+end
+
 def ensure_play_metadata!
   UI.user_error!(
     "Missing Fastlane Play metadata root: #{PLAY_METADATA_ROOT}"
@@ -626,11 +641,13 @@ platform :android do
   desc "Build the signed SecPal release APK with the local upload key"
   lane :build_signed_apk do
     run_signed_gradle("assembleRelease")
+    verify_android_runtime_schema_artifact!(signed_apk_path)
   end
 
   desc "Build the signed SecPal release AAB with the local upload key"
   lane :build_signed_aab do
     run_signed_gradle("bundleRelease")
+    verify_android_runtime_schema_artifact!(signed_aab_path)
   end
 
   desc "Upload the signed SecPal release AAB to the Google Play internal track"

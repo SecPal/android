@@ -39,6 +39,18 @@ Native bootstrap persistence does not store a schema field, and restoration
 normalizes persisted state to the fields listed below. Persisted or restored
 runtime data therefore cannot select or override the registration schema.
 
+## Distribution Integrity
+
+Stable and Beta artifacts must embed the canonical schema-4 bridge before their
+metadata advertises `release_available: true`. The signed APK and AAB build
+lanes inspect the packaged WebView runtime and fail closed unless it contains
+exactly one integer schema-4 constant and one notification-registration
+assignment sourced from that constant.
+
+An artifact that emits any other runtime schema is unsupported and must not
+remain available as an Android release. It must be replaced or withdrawn rather
+than accepted by frontend discovery or API notification registration.
+
 ## Required Native Methods
 
 | Frontend-required method                                          | Android implementation                                                                                                                                                                                          | Keep rationale                                                                                                                           |

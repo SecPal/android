@@ -497,13 +497,24 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md"
     );
+    const changelog = readRepoFile("CHANGELOG.md");
 
     expect(runtimeContract).toContain("requires strict integer schema `4`");
+    expect(runtimeContract).toContain(
+      "Stable and Beta artifacts must embed the canonical schema-4 bridge"
+    );
+    expect(runtimeContract).toMatch(
+      /must not\s+remain available as an Android release/
+    );
     expect(runtimeContract).not.toMatch(/schemas?(?: versions?)? `3`/i);
     expect(runtimeContract).not.toMatch(
       /Schema 4 Rollout|rollout window|support floor|first compatible Android release/i
     );
     expect(runtimeContract).not.toMatch(/\bfallback\b/i);
+    expect(changelog).toContain(
+      "initializes and clears a deployment-scoped native Firebase runtime"
+    );
+    expect(changelog).toContain("instead of relying on `google-services.json`");
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {
@@ -724,6 +735,12 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
       "./gradlew assembleStoreListing"
     );
+    expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
+    );
+    expect(packageJson.scripts["native:bundle:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
+    );
     expect(packageJson.scripts["fastlane:android:build:signed-aab"]).toContain(
       "bundle exec fastlane android build_signed_aab"
     );
@@ -754,6 +771,9 @@ describe("Android native hardening", () => {
       "https://apk.secpal.app/android/stable/latest.json"
     );
     expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
+    expect(readme).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
+    );
     expect(distributionDoc).toContain("Fastlane");
     expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("internal testing track");
@@ -762,6 +782,9 @@ describe("Android native hardening", () => {
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
     expect(distributionDoc).toContain(
       "https://apk.secpal.app/android/beta/latest.json"
+    );
+    expect(distributionDoc).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
     );
     expect(fastfile).toContain('File.expand_path("..", __dir__)');
     expect(fastfile).toContain("deploy_direct_apk");
@@ -780,6 +803,13 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("signing_key_shared_with_google_play");
     expect(fastfile).toContain("versioned_checksum_url");
     expect(fastfile).toContain("release_available: false");
+    expect(fastfile).toContain("def verify_android_runtime_schema_artifact!");
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_apk_path)"
+    );
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_aab_path)"
+    );
     expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
     expect(fastfile).toContain("next_deploy_version_code");
     expect(fastfile).toContain("configured_release_version_code");

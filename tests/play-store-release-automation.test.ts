@@ -31,9 +31,43 @@ async function loadPlayStoreSyncModule(): Promise<{
   return import("../scripts/sync-play-store-assets.mjs");
 }
 
+async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
+  verifyAndroidRuntimeSchemaArtifact: (
+    artifactPath: string,
+    stringsXmlPath: string
+  ) => void;
+}> {
+  // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
+  return import("../scripts/verify-android-runtime-schema.mjs");
+}
+
+async function loadNativeAuthBridgeInjectorModule(): Promise<{
+  buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
+}> {
+  // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
+  return import("../scripts/inject-native-auth-bridge.mjs");
+}
+
 function writeFile(path: string, content: string) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+function createZipFixture(
+  root: string,
+  archiveName: string,
+  entryRoot: string,
+  indexSegments: readonly string[],
+  indexHtml: string
+) {
+  const artifactPath = join(root, archiveName);
+  writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
+  expect(
+    spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
+      cwd: root,
+    }).status
+  ).toBe(0);
+  return artifactPath;
 }
 
 function writePngHeader(
@@ -335,6 +369,84 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("SHA256SUMS.next.txt");
     expect(fastfile).toContain("app.secpal-latest.next.apk");
     expect(fastfile).toContain("safely_replace_remote_latest_files!(");
+  });
+
+  it("reads canonical runtime bridges from packaged APK and AAB locations", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+    const canonicalIndexHtml = `<!doctype html>
+      <html>
+        <head>
+          <script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>
+          <script type="module" src="/assets/index.js"></script>
+        </head>
+      </html>
+    `;
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      const apkPath = createZipFixture(
+        tempRoot,
+        "canonical.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml
+      );
+      const aabPath = createZipFixture(
+        tempRoot,
+        "canonical.aab",
+        "base",
+        ["base", "assets", "public"],
+        canonicalIndexHtml
+      );
+      const obsoleteRoot = join(tempRoot, "obsolete");
+      const obsoleteApkPath = createZipFixture(
+        obsoleteRoot,
+        "obsolete.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml.replace(
+          "currentBootstrapSchemaVersion = 4",
+          "currentBootstrapSchemaVersion = 3"
+        )
+      );
+      const duplicateRoot = join(tempRoot, "duplicate");
+      const duplicateApkPath = createZipFixture(
+        duplicateRoot,
+        "duplicate.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml.replace(
+          "</head>",
+          '<script data-copy id="secpal-native-auth-bridge-bootstrap"></script></head>'
+        )
+      );
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(apkPath, stringsXmlPath)
+      ).not.toThrow();
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(aabPath, stringsXmlPath)
+      ).not.toThrow();
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(obsoleteApkPath, stringsXmlPath)
+      ).toThrow(/canonical schema 4 runtime bridge/i);
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(duplicateApkPath, stringsXmlPath)
+      ).toThrow(/exactly one injected Android runtime bridge/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps latest artifact swaps rollback-safe when remote renames fail", () => {
