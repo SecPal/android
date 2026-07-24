@@ -363,8 +363,8 @@ describe("Play Store release automation", () => {
 
     expect(fastfile).toContain("def direct_signing_certificate_sha256");
     expect(fastfile).toContain('"apksigner"');
-    expect(fastfile).toContain(
-      "app_signing_certificate_sha256: direct_signing_certificate_sha256"
+    expect(fastfile).toMatch(
+      /app_signing_certificate_sha256:\s+release_available\s+\?\s+direct_signing_certificate_sha256\s+:\s+nil/
     );
     expect(fastfile).not.toContain('"keytool"');
     expect(fastfile).not.toContain('"SECPAL_ANDROID_KEYSTORE_PASSWORD"');
@@ -373,6 +373,253 @@ describe("Play Store release automation", () => {
     expect(fastfile).toContain("SHA256SUMS.next.txt");
     expect(fastfile).toContain("app.secpal-latest.next.apk");
     expect(fastfile).toContain("safely_replace_remote_latest_files!(");
+  });
+
+  it("can withdraw every unsupported direct APK channel without signing credentials", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    );
+
+    expect(packageJson.scripts["fastlane:android:withdraw:direct-apks"]).toBe(
+      "bundle exec fastlane android withdraw_direct_apks"
+    );
+    expect(fastfile).toContain("def withdraw_direct_apk_channels!");
+    expect(fastfile).toContain("APK_DIRECT_CHANNELS.flat_map");
+    expect(fastfile).toContain(
+      "def direct_unavailable_latest_metadata_document("
+    );
+    expect(fastfile).toContain("safely_replace_remote_metadata!");
+    expect(fastfile).toContain("rescue StandardError => upload_error");
+    expect(fastfile).toContain("Failed to clean staged withdrawal metadata");
+    expect(fastfile).toContain("recover_interrupted_remote_metadata!");
+    expect(fastfile).toContain("quarantine_direct_apk_artifacts!");
+    expect(fastfile).toContain("ensure_non_public_withdrawal_root!");
+    expect(fastfile).toContain("alias_path: true");
+    expect(fastfile).toContain("lane :withdraw_direct_apks do");
+    expect(fastfile).toMatch(
+      /latest_apk_url:\s+release_available\s+\?\s+urls\.fetch\(:latest_apk_url\)\s+:\s+nil/
+    );
+    expect(fastfile).toMatch(
+      /checksum_url:\s+release_available\s+\?\s+urls\.fetch\(:checksum_url\)\s+:\s+nil/
+    );
+    expect(fastfile).toMatch(
+      /app_signing_certificate_sha256:\s+release_available\s+\?\s+direct_signing_certificate_sha256\s+:\s+nil/
+    );
+    expect(fastfile).toMatch(
+      /signing_key_shared_with_google_play:\s+release_available\s+\?\s+APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY\s+:\s+nil/
+    );
+  });
+
+  it("withdraws direct APK files into quarantine and publishes non-downloadable metadata", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-withdrawal-"));
+    const publicRoot = join(tempRoot, "public");
+    const quarantineRoot = join(tempRoot, "quarantine");
+    const androidRoot = join(publicRoot, "android");
+    const versions = ["0.0.1-261932118", "0.0.1-261932119"] as const;
+    const latestRoots = [
+      join(androidRoot, "stable"),
+      androidRoot,
+      join(androidRoot, "beta"),
+    ] as const;
+    const rubyAdapter = `
+require "fileutils"
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    system(arguments.drop(2).join(" "), exception: true)
+  else
+    raise "Unsupported command: #{arguments.inspect}"
+  end
+end
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      for (const root of latestRoots) {
+        writeFile(join(root, "app.secpal-latest.apk"), "schema-3-apk");
+        writeFile(join(root, "SHA256SUMS.txt"), "schema-3-checksum");
+        writeFile(join(root, "latest.json"), '{"release_available":true}');
+      }
+      writeFile(
+        join(androidRoot, "SHA256SUMS.versioned.txt"),
+        "schema-3-checksum"
+      );
+      for (const version of versions) {
+        writeFile(
+          join(androidRoot, "releases", version, `app.secpal-${version}.apk`),
+          "schema-3-apk"
+        );
+        writeFile(
+          join(androidRoot, "releases", version, "metadata.json"),
+          '{"release_available":true}'
+        );
+      }
+
+      // Simulate an interrupted earlier metadata transaction. A new run must
+      // recover it before staging the next transaction.
+      writeFile(
+        join(androidRoot, "stable", "latest.json.previous"),
+        '{"release_available":true,"recovered":true}'
+      );
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: quarantineRoot,
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: versions.join(","),
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+
+      for (const [index, root] of latestRoots.entries()) {
+        const metadata = JSON.parse(
+          readFileSync(join(root, "latest.json"), "utf8")
+        );
+        expect(metadata).toMatchObject({
+          package_name: "app.secpal",
+          update_channel: index === 2 ? "beta" : "stable",
+          release_available: false,
+          version: null,
+          latest_apk_url: null,
+          checksum_url: null,
+        });
+        expect(existsSync(join(root, "app.secpal-latest.apk"))).toBe(false);
+        expect(existsSync(join(root, "SHA256SUMS.txt"))).toBe(false);
+        expect(existsSync(`${join(root, "latest.json")}.previous`)).toBe(false);
+        expect(existsSync(`${join(root, "latest.json")}.next`)).toBe(false);
+      }
+      expect(existsSync(join(androidRoot, "SHA256SUMS.versioned.txt"))).toBe(
+        false
+      );
+      for (const version of versions) {
+        expect(existsSync(join(androidRoot, "releases", version))).toBe(false);
+      }
+
+      const quarantinedFiles = spawnSync(
+        "find",
+        [quarantineRoot, "-type", "f"],
+        { encoding: "utf8" }
+      ).stdout;
+      expect(quarantinedFiles).toContain("app.secpal-latest.apk");
+      expect(quarantinedFiles).toContain("app.secpal-0.0.1-261932118.apk");
+      expect(quarantinedFiles).toContain("app.secpal-0.0.1-261932119.apk");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an interrupted metadata transaction before a failed new upload", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-recovery-"));
+    const publicRoot = join(tempRoot, "public");
+    const androidRoot = join(publicRoot, "android");
+    const stableMetadataPath = join(androidRoot, "stable", "latest.json");
+    const recoveredMetadata = '{"release_available":true,"recovered":true}';
+    const rubyAdapter = `
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    raise "injected upload failure"
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    system(arguments.drop(2).join(" "), exception: true)
+  else
+    raise "Unsupported command"
+  end
+end
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      writeFile(stableMetadataPath, '{"release_available":false}');
+      writeFile(`${stableMetadataPath}.previous`, recoveredMetadata);
+      writeFile(join(androidRoot, "latest.json"), '{"release_available":true}');
+      writeFile(
+        join(androidRoot, "beta", "latest.json"),
+        '{"release_available":true}'
+      );
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("injected upload failure");
+      expect(readFileSync(stableMetadataPath, "utf8")).toBe(recoveredMetadata);
+      expect(existsSync(`${stableMetadataPath}.previous`)).toBe(false);
+      expect(existsSync(`${stableMetadataPath}.next`)).toBe(false);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a withdrawal quarantine inside the public artifact root", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-quarantine-"));
+    const publicRoot = join(tempRoot, "public");
+    const stableMetadataPath = join(
+      publicRoot,
+      "android",
+      "stable",
+      "latest.json"
+    );
+    const originalMetadata = '{"release_available":true}';
+    const rubyAdapter = `
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      writeFile(stableMetadataPath, originalMetadata);
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(publicRoot, "withdrawn"),
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "must be outside the public artifact root"
+      );
+      expect(readFileSync(stableMetadataPath, "utf8")).toBe(originalMetadata);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("reads canonical runtime bridges from packaged APK and AAB locations", async () => {

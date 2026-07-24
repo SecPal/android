@@ -160,6 +160,9 @@ SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk
 SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk:beta
+SECPAL_ANDROID_WITHDRAW_VERSIONS=0.0.1-261932118,0.0.1-261932119 \
+  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
+  npm run fastlane:android:withdraw:direct-apks
 ```
 
 `deploy_internal` automatically generates a fresh Play-safe `SECPAL_ANDROID_VERSION_CODE` when you do not pass one explicitly. If you need to force a one-off deploy value, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...` on the command line. A directly exported `SECPAL_ANDROID_VERSION_CODE=...` also wins when it differs from the baseline value stored in `~/.config/secpal/android-release.env`.
@@ -169,6 +172,7 @@ Every repository-provided signed release build command verifies that the signed 
 `deploy_internal_with_metadata` uploads the signed AAB together with the local `fastlane/metadata/android` store-listing payload and auto-materializes localized versioned Play changelogs from `fastlane/metadata/android/*/changelogs/default.txt` when the exact `versionCode` file is still missing.
 `deploy_direct_apk` publishes the stable signed APK to `https://apk.secpal.app/android/stable/latest.json`, `https://apk.secpal.app/android/stable/app.secpal-latest.apk`, and `https://apk.secpal.app/android/stable/SHA256SUMS.txt`, refreshes the stable aliases at `https://apk.secpal.app/android/latest.json`, `https://apk.secpal.app/android/app.secpal-latest.apk`, and `https://apk.secpal.app/android/SHA256SUMS.txt`, and keeps versioned copies under `https://apk.secpal.app/android/releases/{version}/...`.
 `deploy_direct_apk_beta` and `npm run fastlane:android:deploy:direct-apk:beta` publish the same signed APK to the beta channel under `https://apk.secpal.app/android/beta/...` without touching the stable aliases.
+`withdraw_direct_apks` first recovers an interrupted metadata transaction, publishes non-downloadable unavailable metadata for Stable, the Stable aliases, and Beta, and then moves the public Latest APK/checksum files plus the comma-separated `SECPAL_ANDROID_WITHDRAW_VERSIONS` release directories outside the public artifact root. The recoverable quarantine defaults to the sibling `android-artifacts-withdrawn` directory and can be overridden with `SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT`. The withdrawal lane needs SSH access but deliberately does not load signing credentials or inspect an APK.
 Direct channel endpoints are therefore:
 
 - `https://apk.secpal.app/android/stable/latest.json`
@@ -199,6 +203,8 @@ Direct APK upload to the SecPal VPS expects:
 - `SECPAL_ANDROID_DIRECT_SSH_HOST`
 - `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
 - `SECPAL_ANDROID_DIRECT_CHANNEL` when you want to publish to `beta` instead of the default `stable`
+- `SECPAL_ANDROID_WITHDRAW_VERSIONS` when withdrawing one or more versioned releases
+- `SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT` when the recoverable quarantine must use a non-default path outside the public artifact root
 
 Samsung managed-device hard-key partner metadata can also be injected through environment variables when your Knox distribution path provides those values:
 
