@@ -272,8 +272,6 @@ function buildRuntimeBootstrapValue(
     instanceDisplayName: string;
     apiOrigin: string;
     rawApiBaseUrl: string;
-    minimumSupportedAppVersion: string;
-    minimumSupportedAppBuild: number;
     androidPush: {
       provider: string;
       metadataRevision: number;
@@ -294,8 +292,6 @@ function buildRuntimeBootstrapValue(
     instanceDisplayName: "Configured Example",
     apiOrigin: "https://api.secpal.dev",
     rawApiBaseUrl: "https://api.secpal.dev/v1",
-    minimumSupportedAppVersion: "0.0.1",
-    minimumSupportedAppBuild: 1,
     androidPush: null,
     features: {
       passwordLoginEnabled: true,
@@ -3423,10 +3419,14 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("exposes runtime bootstrap methods on the injected bridge for the shared frontend facade", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
-    const runtimeBootstrap = buildRuntimeBootstrapValue({
-      apiOrigin: "https://customer-api.example",
-      instanceDisplayName: "Customer Example",
-    });
+    const runtimeBootstrap = {
+      ...buildRuntimeBootstrapValue({
+        apiOrigin: "https://customer-api.example",
+        instanceDisplayName: "Customer Example",
+      }),
+      minimumSupportedAppVersion: "0.0.1",
+      minimumSupportedAppBuild: 1,
+    };
     const plugin = {
       login: vi.fn(),
       logout: vi.fn(),
@@ -3507,8 +3507,6 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(
       bridge.setRuntimeBootstrap({
         apiOrigin: "https://customer-api.example",
-        minimumSupportedAppVersion: "0.0.1",
-        minimumSupportedAppBuild: 1,
       })
     ).rejects.toThrow("Android runtime bootstrap is incompatible.");
     expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
@@ -3517,6 +3515,14 @@ describe("native auth bridge bootstrap injection", () => {
     );
     const normalizedRuntimeBootstrap = { ...runtimeBootstrap };
     Reflect.deleteProperty(normalizedRuntimeBootstrap, "androidPush");
+    Reflect.deleteProperty(
+      normalizedRuntimeBootstrap,
+      "minimumSupportedAppVersion"
+    );
+    Reflect.deleteProperty(
+      normalizedRuntimeBootstrap,
+      "minimumSupportedAppBuild"
+    );
     expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(
       normalizedRuntimeBootstrap
     );

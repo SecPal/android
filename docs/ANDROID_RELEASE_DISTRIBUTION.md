@@ -94,7 +94,7 @@ The bootstrap response is the binding contract for Android login and must provid
 
 - the canonical `api_base_url` for runtime API calls, as a bare HTTPS origin or its `/v1` endpoint
 - `instance.display_name` so the user can confirm the correct deployment before login
-- compatibility metadata such as `bootstrap_version`, `schema_version`, `minimum_supported_app_version`, and `minimum_supported_app_build`
+- compatibility metadata `bootstrap_version: v1` and integer `schema_version: 4`
 - the feature flags required by the login shell
 - when `features.notification_channels.android_fcm` is enabled, the canonical `notification_channels.android_fcm` runtime metadata required to initialize the customer-owned native runtime (`channel`, `metadata_revision`, and `public_runtime_metadata.{api_key,project_id,application_id,sender_id}`)
 

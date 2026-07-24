@@ -497,8 +497,6 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md"
     );
-    const changelog = readRepoFile("CHANGELOG.md");
-
     expect(runtimeContract).toContain("requires strict integer schema `4`");
     expect(runtimeContract).toContain(
       "Stable and Beta artifacts must embed the canonical schema-4 bridge"
@@ -511,10 +509,18 @@ describe("Android native hardening", () => {
       /Schema 4 Rollout|rollout window|support floor|first compatible Android release/i
     );
     expect(runtimeContract).not.toMatch(/\bfallback\b/i);
-    expect(changelog).toContain(
-      "initializes and clears a deployment-scoped native Firebase runtime"
+    expect(
+      [
+        runtimeContract,
+        readRepoFile("docs/ANDROID_RELEASE_DISTRIBUTION.md"),
+        readRepoFile("scripts/inject-native-auth-bridge.mjs"),
+        readRepoFile(
+          "android/app/src/main/java/app/secpal/SecPalNativeAuthPlugin.java"
+        ),
+      ].join("\n")
+    ).not.toMatch(
+      /minimumSupportedAppVersion|minimumSupportedAppBuild|minimum_supported_app_version|minimum_supported_app_build/
     );
-    expect(changelog).toContain("instead of relying on `google-services.json`");
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {

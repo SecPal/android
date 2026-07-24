@@ -38,6 +38,9 @@ The injected bridge constructs every Android notification-registration
 Native bootstrap persistence does not store a schema field, and restoration
 normalizes persisted state to the fields listed below. Persisted or restored
 runtime data therefore cannot select or override the registration schema.
+Android also requires or persists no minimum app-version or app-build field;
+frontend discovery has already accepted the only supported schema before
+applying the native runtime payload.
 
 ## Distribution Integrity
 
@@ -87,8 +90,6 @@ than accepted by frontend discovery or API notification registration.
 | `instance.display_name`                                                    | `instanceDisplayName`                                    | Persisted and returned to the bridge so runtime reset UI and restored state can show the configured instance.                        |
 | `compatibility.bootstrap_version`                                          | Validation-only                                          | Frontend discovery requires `v1`; Android receives the already-applied payload and does not persist this field separately.           |
 | `compatibility.schema_version`                                             | Validation-only                                          | Frontend discovery requires strict integer schema `4`; Android notification registration always emits integer schema `4`.            |
-| `compatibility.minimum_supported_app_version`                              | `minimumSupportedAppVersion`                             | Native requires and persists this string in the bootstrap payload.                                                                   |
-| `compatibility.minimum_supported_app_build`                                | `minimumSupportedAppBuild`                               | Native requires a positive integer before persisting the bootstrap payload.                                                          |
 | `features.password_login`                                                  | `features.passwordLoginEnabled`                          | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.passkey_login`                                                   | `features.passkeyLoginEnabled`                           | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.notification_channels.android_fcm`                               | Controls whether `androidPush` is present.               | If Android FCM is disabled, native persists no Android push runtime metadata and clears the runtime Firebase app.                    |

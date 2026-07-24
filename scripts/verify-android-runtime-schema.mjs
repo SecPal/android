@@ -6,15 +6,14 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parse } from "parse5";
 import {
   buildNativeAuthBridgeBootstrapScript,
   readApiBaseUrlFromStringsXml,
 } from "./inject-native-auth-bridge.mjs";
 
+const runtimeScriptId = "secpal-native-auth-bridge-bootstrap";
 const runtimeScriptStart = '<script id="secpal-native-auth-bridge-bootstrap">';
-const runtimeScriptEnd = "</script>";
-const runtimeScriptTagPattern =
-  /<script\b[^>]*\bid\s*=\s*["']secpal-native-auth-bridge-bootstrap["'][^>]*>/gi;
 const runtimeIndexEntries = [
   "assets/public/index.html",
   "base/assets/public/index.html",
@@ -26,14 +25,8 @@ function readUnzipOutput(artifactPath, argumentsList) {
     maxBuffer: 8 * 1024 * 1024,
   });
 
-  if (result.error) {
-    throw new Error(
-      `Unable to inspect ${artifactPath}: ${result.error.message}`
-    );
-  }
-
-  if (result.status !== 0) {
-    const details = result.stderr.trim();
+  if (result.error || result.status !== 0) {
+    const details = result.error?.message || result.stderr.trim();
     throw new Error(
       `Unable to inspect ${artifactPath}: ${
         details || `unzip exited with status ${result.status ?? "unknown"}`
@@ -45,32 +38,53 @@ function readUnzipOutput(artifactPath, argumentsList) {
 }
 
 function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
-  const startIndex = indexHtml.indexOf(runtimeScriptStart);
-  const runtimeScriptTags = indexHtml.match(runtimeScriptTagPattern) ?? [];
+  const runtimeScripts = [];
+  const pending = [parse(indexHtml, { sourceCodeLocationInfo: true })];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (
+      node.tagName === "script" &&
+      node.attrs?.some(
+        ({ name, value }) => name === "id" && value === runtimeScriptId
+      )
+    ) {
+      runtimeScripts.push(node);
+    }
+    pending.push(...(node.childNodes ?? []));
+  }
 
-  if (startIndex < 0 || runtimeScriptTags.length !== 1) {
+  if (runtimeScripts.length !== 1) {
     throw new Error(
       `${sourceLabel} must contain exactly one injected Android runtime bridge.`
     );
   }
 
-  const scriptContentStart = startIndex + runtimeScriptStart.length;
-  const endIndex = indexHtml.indexOf(runtimeScriptEnd, scriptContentStart);
+  const [runtimeScript] = runtimeScripts;
+  const location = runtimeScript.sourceCodeLocation;
+  const startTag = location?.startTag;
+  if (
+    !startTag ||
+    indexHtml.slice(startTag.startOffset, startTag.endOffset) !==
+      runtimeScriptStart
+  ) {
+    throw new Error(
+      `${sourceLabel} contains a non-canonical Android runtime bridge tag.`
+    );
+  }
 
-  if (endIndex < 0) {
+  if (!location.endTag) {
     throw new Error(`${sourceLabel} contains an unterminated runtime bridge.`);
   }
 
-  return indexHtml.slice(scriptContentStart, endIndex);
+  return indexHtml.slice(startTag.endOffset, location.endTag.startOffset);
 }
 
 export function verifyAndroidRuntimeSchemaArtifact(
   artifactPath,
   stringsXmlPath
 ) {
-  const stringsXml = readFileSync(stringsXmlPath, "utf8");
   const expectedBridge = buildNativeAuthBridgeBootstrapScript(
-    readApiBaseUrlFromStringsXml(stringsXml)
+    readApiBaseUrlFromStringsXml(readFileSync(stringsXmlPath, "utf8"))
   );
   const archiveEntries = new Set(
     readUnzipOutput(artifactPath, ["-Z1", artifactPath])
@@ -100,30 +114,21 @@ export function verifyAndroidRuntimeSchemaArtifact(
   }
 }
 
-const invokedPath = process.argv[1];
-
-if (
-  invokedPath &&
-  import.meta.url === pathToFileURL(resolve(invokedPath)).href
-) {
-  const artifactPath = process.argv[2];
-  const stringsXmlPath = process.argv[3];
-
-  if (!artifactPath || !stringsXmlPath) {
-    console.error(
-      "Usage: node scripts/verify-android-runtime-schema.mjs <apk-or-aab> <strings-xml>"
-    );
-    process.exitCode = 1;
-  } else {
-    try {
-      verifyAndroidRuntimeSchemaArtifact(
-        resolve(artifactPath),
-        resolve(stringsXmlPath)
+if (import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    const [, , artifactPath, stringsXmlPath] = process.argv;
+    if (!artifactPath || !stringsXmlPath) {
+      throw new Error(
+        "Usage: node scripts/verify-android-runtime-schema.mjs <apk-or-aab> <strings-xml>"
       );
-      console.log("ANDROID_RUNTIME_SCHEMA_ARTIFACT_OK");
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
     }
+    verifyAndroidRuntimeSchemaArtifact(
+      resolve(artifactPath),
+      resolve(stringsXmlPath)
+    );
+    console.log("ANDROID_RUNTIME_SCHEMA_ARTIFACT_OK");
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
   }
 }

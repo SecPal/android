@@ -62,11 +62,15 @@ function createZipFixture(
 ) {
   const artifactPath = join(root, archiveName);
   writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
-  expect(
-    spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
-      cwd: root,
-    }).status
-  ).toBe(0);
+  const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const failureDetails =
+    zipResult.error?.message ||
+    zipResult.stderr.trim() ||
+    `zip exited with status ${zipResult.status ?? "unknown"}`;
+  expect(zipResult.status, failureDetails).toBe(0);
   return artifactPath;
 }
 
@@ -381,14 +385,7 @@ describe("Play Store release automation", () => {
     const stringsXmlPath = join(tempRoot, "strings.xml");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-    const canonicalIndexHtml = `<!doctype html>
-      <html>
-        <head>
-          <script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>
-          <script type="module" src="/assets/index.js"></script>
-        </head>
-      </html>
-    `;
+    const canonicalIndexHtml = `<!doctype html><html><head><script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script><script type="module" src="/assets/index.js"></script></head></html>`;
 
     try {
       writeFile(
@@ -409,28 +406,6 @@ describe("Play Store release automation", () => {
         ["base", "assets", "public"],
         canonicalIndexHtml
       );
-      const obsoleteRoot = join(tempRoot, "obsolete");
-      const obsoleteApkPath = createZipFixture(
-        obsoleteRoot,
-        "obsolete.apk",
-        "assets",
-        ["assets", "public"],
-        canonicalIndexHtml.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
-        )
-      );
-      const duplicateRoot = join(tempRoot, "duplicate");
-      const duplicateApkPath = createZipFixture(
-        duplicateRoot,
-        "duplicate.apk",
-        "assets",
-        ["assets", "public"],
-        canonicalIndexHtml.replace(
-          "</head>",
-          '<script data-copy id="secpal-native-auth-bridge-bootstrap"></script></head>'
-        )
-      );
 
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(apkPath, stringsXmlPath)
@@ -438,12 +413,55 @@ describe("Play Store release automation", () => {
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(aabPath, stringsXmlPath)
       ).not.toThrow();
-      expect(() =>
-        verifyAndroidRuntimeSchemaArtifact(obsoleteApkPath, stringsXmlPath)
-      ).toThrow(/canonical schema 4 runtime bridge/i);
-      expect(() =>
-        verifyAndroidRuntimeSchemaArtifact(duplicateApkPath, stringsXmlPath)
-      ).toThrow(/exactly one injected Android runtime bridge/i);
+
+      const expectInvalidArtifact = (
+        name: string,
+        indexHtml: string,
+        expectedError: RegExp
+      ) => {
+        const artifactPath = createZipFixture(
+          join(tempRoot, name),
+          `${name}.apk`,
+          "assets",
+          ["assets", "public"],
+          indexHtml
+        );
+        expect(() =>
+          verifyAndroidRuntimeSchemaArtifact(artifactPath, stringsXmlPath)
+        ).toThrow(expectedError);
+      };
+      expectInvalidArtifact(
+        "obsolete",
+        canonicalIndexHtml.replace(
+          "currentBootstrapSchemaVersion = 4",
+          "currentBootstrapSchemaVersion = 3"
+        ),
+        /canonical schema 4 runtime bridge/i
+      );
+      expectInvalidArtifact(
+        "duplicate",
+        canonicalIndexHtml.replace(
+          "</head>",
+          '<script data-copy id="secpal-native-auth-bridge-bootstrap"></script></head>'
+        ),
+        /exactly one injected Android runtime bridge/i
+      );
+      expectInvalidArtifact(
+        "non-canonical-tag",
+        canonicalIndexHtml.replace(
+          '<script id="secpal-native-auth-bridge-bootstrap">',
+          '<script data-runtime id="secpal-native-auth-bridge-bootstrap">'
+        ),
+        /non-canonical Android runtime bridge tag/i
+      );
+      expectInvalidArtifact(
+        "commented-bridge",
+        canonicalIndexHtml.replace(
+          `<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>`,
+          `<!--<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>-->`
+        ),
+        /exactly one injected Android runtime bridge/i
+      );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

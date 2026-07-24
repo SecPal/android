@@ -573,14 +573,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       parsed && typeof parsed === "object" && typeof parsed.instanceDisplayName === "string"
         ? parsed.instanceDisplayName.trim()
         : "";
-    const minimumSupportedAppVersion =
-      parsed && typeof parsed === "object" && typeof parsed.minimumSupportedAppVersion === "string"
-        ? parsed.minimumSupportedAppVersion.trim()
-        : "";
-    const minimumSupportedAppBuild =
-      parsed && typeof parsed === "object"
-        ? Number(parsed.minimumSupportedAppBuild)
-        : Number.NaN;
     const androidPush = normalizeBootstrapAndroidPush(
       parsed && typeof parsed === "object" ? parsed.androidPush ?? null : null,
       parsed && typeof parsed === "object" ? parsed.androidPush != null : false
@@ -597,8 +589,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         parsed && typeof parsed === "object" && typeof parsed.rawApiBaseUrl === "string"
           ? parsed.rawApiBaseUrl
           : String(parsed.apiOrigin ?? ""),
-      minimumSupportedAppVersion,
-      minimumSupportedAppBuild,
       features: {
         passwordLoginEnabled:
           parsed && typeof parsed === "object" && parsed.features && typeof parsed.features === "object"
@@ -612,14 +602,6 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       ...(androidPush ? { androidPush } : {}),
     };
 
-    if (
-      !restored.minimumSupportedAppVersion ||
-      !Number.isInteger(restored.minimumSupportedAppBuild) ||
-      restored.minimumSupportedAppBuild <= 0
-    ) {
-      throw createIncompatibleBootstrapError();
-    }
-
     return restored;
   };
 
@@ -628,11 +610,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return null;
     }
 
-    if (
-      typeof value.instanceDisplayName === "string" ||
-      typeof value.minimumSupportedAppVersion === "string" ||
-      "minimumSupportedAppBuild" in value
-    ) {
+    if (typeof value.instanceDisplayName === "string") {
       const bootstrap = normalizeStoredBootstrap(value);
       return {
         apiOrigin: bootstrap.apiOrigin,

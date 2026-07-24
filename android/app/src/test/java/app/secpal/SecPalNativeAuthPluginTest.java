@@ -150,13 +150,13 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put("features", new JSONObject().put("passwordLoginEnabled", true))
         );
 
         assertEquals("https://tenant-a.example", normalized.getString("apiOrigin"));
         assertEquals("https://tenant-a.example/v1", normalized.getString("rawApiBaseUrl"));
+        assertFalse(normalized.has("minimumSupportedAppVersion"));
+        assertFalse(normalized.has("minimumSupportedAppBuild"));
         assertTrue(normalized.getJSONObject("features").getBoolean("passwordLoginEnabled"));
         assertFalse(normalized.getJSONObject("features").getBoolean("passkeyLoginEnabled"));
         assertFalse(normalized.getJSONObject("features").has("managedAndroidEnrollment"));
@@ -168,8 +168,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put(
                     "androidPush",
                     new JSONObject()
@@ -208,8 +206,6 @@ public class SecPalNativeAuthPluginTest {
                 new JSONObject()
                     .put("instanceDisplayName", "Tenant A")
                     .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                    .put("minimumSupportedAppVersion", "0.0.1")
-                    .put("minimumSupportedAppBuild", 1)
                     .put(
                         "androidPush",
                         new JSONObject()
@@ -242,8 +238,6 @@ public class SecPalNativeAuthPluginTest {
                 new JSONObject()
                     .put("instanceDisplayName", "Tenant A")
                     .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                    .put("minimumSupportedAppVersion", "0.0.1")
-                    .put("minimumSupportedAppBuild", 1)
                     .put(
                         "androidPush",
                         new JSONObject()
@@ -275,8 +269,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
         );
 
         JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(bootstrap);
@@ -319,8 +311,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
         );
         preferences.edit()
             .putString("runtime_bootstrap", stored.toString())
@@ -354,6 +344,8 @@ public class SecPalNativeAuthPluginTest {
         assertEquals("Tenant A", result.getString("instanceDisplayName"));
         assertFalse(result.has("schemaVersion"));
         assertFalse(result.has("schema_version"));
+        assertFalse(result.has("minimumSupportedAppVersion"));
+        assertFalse(result.has("minimumSupportedAppBuild"));
     }
 
     @Test
@@ -406,8 +398,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put(
                     "androidPush",
                     new JSONObject()
