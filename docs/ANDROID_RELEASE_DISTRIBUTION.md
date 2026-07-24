@@ -94,7 +94,7 @@ The bootstrap response is the binding contract for Android login and must provid
 
 - the canonical `api_base_url` for runtime API calls, as a bare HTTPS origin or its `/v1` endpoint
 - `instance.display_name` so the user can confirm the correct deployment before login
-- compatibility metadata such as `bootstrap_version`, `schema_version`, `minimum_supported_app_version`, and `minimum_supported_app_build`
+- compatibility metadata `bootstrap_version: v1` and integer `schema_version: 4`
 - the feature flags required by the login shell
 - when `features.notification_channels.android_fcm` is enabled, the canonical `notification_channels.android_fcm` runtime metadata required to initialize the customer-owned native runtime (`channel`, `metadata_revision`, and `public_runtime_metadata.{api_key,project_id,application_id,sender_id}`)
 
@@ -223,6 +223,7 @@ For direct APK publication on `apk.secpal.app`, the repository now treats the ca
 
 The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to the SecPal VPS, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
 The `fastlane android deploy_direct_apk_beta` lane publishes the same signed release APK under `/android/beta/` without replacing the stable aliases.
+All repository-provided signed build lanes and npm commands first verify that the signed APK and AAB embed the canonical schema-4 Android bridge at exactly the artifact-type-specific WebView index path. Publication fails before any upload when index locations are missing, duplicated, or conflicting, or when the packaged bridge has a non-canonical or independently overridden notification-registration schema.
 
 The resulting latest-channel endpoints are:
 

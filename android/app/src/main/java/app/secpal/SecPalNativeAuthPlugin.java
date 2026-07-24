@@ -312,23 +312,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String instanceDisplayName = requireValue(call, "instanceDisplayName");
         String apiOrigin = requireValue(call, "apiOrigin");
         String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
-        String minimumSupportedAppVersion = requireValue(call, "minimumSupportedAppVersion");
-        Integer minimumSupportedAppBuild = call.getInt("minimumSupportedAppBuild");
         JSObject androidPush = call.getObject("androidPush");
         JSObject features = call.getObject("features");
 
         if (instanceDisplayName == null
             || apiOrigin == null
-            || rawApiBaseUrl == null
-            || minimumSupportedAppVersion == null) {
-            return;
-        }
-
-        if (minimumSupportedAppBuild == null || minimumSupportedAppBuild <= 0) {
-            call.reject(
-                "Missing required value: minimumSupportedAppBuild",
-                "INVALID_INPUT"
-            );
+            || rawApiBaseUrl == null) {
             return;
         }
 
@@ -338,8 +327,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     instanceDisplayName,
                     apiOrigin,
                     rawApiBaseUrl,
-                    minimumSupportedAppVersion,
-                    minimumSupportedAppBuild,
                     androidPush,
                     features
                 );
@@ -903,8 +890,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String instanceDisplayName,
         String apiOrigin,
         String rawApiBaseUrl,
-        String minimumSupportedAppVersion,
-        int minimumSupportedAppBuild,
         JSONObject androidPush,
         JSONObject features
     ) throws JSONException {
@@ -912,8 +897,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         bootstrap.put("instanceDisplayName", instanceDisplayName);
         bootstrap.put("apiOrigin", apiOrigin);
         bootstrap.put("rawApiBaseUrl", rawApiBaseUrl);
-        bootstrap.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
-        bootstrap.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
 
         if (androidPush != null) {
             bootstrap.put("androidPush", androidPush);
@@ -943,19 +926,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
             firstNonBlank(bootstrap.optString("rawApiBaseUrl", null), bootstrap.optString("apiOrigin", null)),
             "Android runtime bootstrap requires a raw API base URL"
         );
-        String minimumSupportedAppVersion = normalizeRequiredString(
-            bootstrap.optString("minimumSupportedAppVersion", null),
-            "Android runtime bootstrap requires a minimum supported app version"
-        );
-        int minimumSupportedAppBuild = bootstrap.optInt("minimumSupportedAppBuild", 0);
-
-        if (minimumSupportedAppBuild <= 0) {
-            throw new InvalidRuntimeBootstrapException(
-                "Android runtime bootstrap requires a minimum supported app build",
-                "RUNTIME_BOOTSTRAP_INVALID"
-            );
-        }
-
         String canonicalApiOrigin = resolveCanonicalBootstrapApiOrigin(
             firstNonBlank(bootstrap.optString("apiOrigin", null), rawApiBaseUrl)
         );
@@ -965,8 +935,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         normalized.put("instanceDisplayName", instanceDisplayName);
         normalized.put("apiOrigin", canonicalApiOrigin);
         normalized.put("rawApiBaseUrl", rawApiBaseUrl.trim());
-        normalized.put("minimumSupportedAppVersion", minimumSupportedAppVersion);
-        normalized.put("minimumSupportedAppBuild", minimumSupportedAppBuild);
 
         JSObject normalizedFeatures = new JSObject();
         normalizedFeatures.put(

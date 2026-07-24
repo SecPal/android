@@ -272,8 +272,6 @@ function buildRuntimeBootstrapValue(
     instanceDisplayName: string;
     apiOrigin: string;
     rawApiBaseUrl: string;
-    minimumSupportedAppVersion: string;
-    minimumSupportedAppBuild: number;
     androidPush: {
       provider: string;
       metadataRevision: number;
@@ -294,8 +292,6 @@ function buildRuntimeBootstrapValue(
     instanceDisplayName: "Configured Example",
     apiOrigin: "https://api.secpal.dev",
     rawApiBaseUrl: "https://api.secpal.dev/v1",
-    minimumSupportedAppVersion: "0.0.1",
-    minimumSupportedAppBuild: 1,
     androidPush: null,
     features: {
       passwordLoginEnabled: true,
@@ -1353,11 +1349,15 @@ describe("native auth bridge bootstrap injection", () => {
     }
   });
 
-  it("registers a retained Android push token after a reload and login", async () => {
+  it("emits strict schema 4 after restoring runtime state with obsolete schema markers", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const firstInstallationId = "11111111-1111-4111-8111-111111111111";
     const secondInstallationId = "22222222-2222-4222-8222-222222222222";
-    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const runtimeBootstrap = {
+      ...createCustomerAndroidPushBootstrap(),
+      schemaVersion: 3,
+      schema_version: 3,
+    };
     const installationStorageKey =
       "secpal-android-push-installation:" +
       encodeURIComponent(runtimeBootstrap.apiOrigin);
@@ -1423,6 +1423,11 @@ describe("native auth bridge bootstrap injection", () => {
       pushToken
     );
     expect(registrationPayload.lifecycle_event).toBe("registered");
+    const registrationRuntime = registrationPayload.runtime as {
+      schema_version?: unknown;
+    };
+    expect(registrationRuntime.schema_version).toBe(4);
+    expect(Number.isInteger(registrationRuntime.schema_version)).toBe(true);
   });
 
   it("rehydrates a retained Android push token after logout clears session storage and the login route reloads", async () => {
@@ -3414,10 +3419,14 @@ describe("native auth bridge bootstrap injection", () => {
 
   it("exposes runtime bootstrap methods on the injected bridge for the shared frontend facade", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
-    const runtimeBootstrap = buildRuntimeBootstrapValue({
-      apiOrigin: "https://customer-api.example",
-      instanceDisplayName: "Customer Example",
-    });
+    const runtimeBootstrap = {
+      ...buildRuntimeBootstrapValue({
+        apiOrigin: "https://customer-api.example",
+        instanceDisplayName: "Customer Example",
+      }),
+      minimumSupportedAppVersion: "0.0.1",
+      minimumSupportedAppBuild: 1,
+    };
     const plugin = {
       login: vi.fn(),
       logout: vi.fn(),
@@ -3498,8 +3507,6 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(
       bridge.setRuntimeBootstrap({
         apiOrigin: "https://customer-api.example",
-        minimumSupportedAppVersion: "0.0.1",
-        minimumSupportedAppBuild: 1,
       })
     ).rejects.toThrow("Android runtime bootstrap is incompatible.");
     expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
@@ -3508,6 +3515,14 @@ describe("native auth bridge bootstrap injection", () => {
     );
     const normalizedRuntimeBootstrap = { ...runtimeBootstrap };
     Reflect.deleteProperty(normalizedRuntimeBootstrap, "androidPush");
+    Reflect.deleteProperty(
+      normalizedRuntimeBootstrap,
+      "minimumSupportedAppVersion"
+    );
+    Reflect.deleteProperty(
+      normalizedRuntimeBootstrap,
+      "minimumSupportedAppBuild"
+    );
     expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(
       normalizedRuntimeBootstrap
     );

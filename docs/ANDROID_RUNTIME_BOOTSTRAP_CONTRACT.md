@@ -5,12 +5,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
 # Android Runtime Bootstrap Contract
 
-Audit date: 2026-07-09.
+Audit date: 2026-07-24.
 
-This contract compares the merged shared frontend runtime-discovery flow with
-the Android native auth plugin, injected WebView bridge, and persisted bootstrap
-payloads. The Android code listed below is still required by the merged
-frontend behavior and must be kept while the shared flow depends on it.
+This contract defines the merged shared frontend runtime-discovery flow, the
+Android native auth plugin, the injected WebView bridge, and persisted bootstrap
+payloads. Schema `4` is the only supported Android runtime schema.
 
 ## Source Surfaces
 
@@ -20,8 +19,7 @@ frontend behavior and must be kept while the shared flow depends on it.
 - Frontend discovery:
   [`discoverAndroidRuntimeBootstrap`](https://github.com/SecPal/frontend/blob/main/src/services/runtimeDiscovery.ts)
   calls `GET /v1/bootstrap` with Android runtime metadata and validates
-  bootstrap version `v1`, prefers schema version `4`, and accepts schema version
-  `3` during the coordinated rollout window.
+  bootstrap version `v1` and requires strict integer schema `4`.
 - Android injected bridge:
   [`scripts/inject-native-auth-bridge.mjs`](https://github.com/SecPal/android/blob/main/scripts/inject-native-auth-bridge.mjs)
   installs `globalThis.SecPalNativeAuthBridge` before the shared frontend
@@ -30,20 +28,36 @@ frontend behavior and must be kept while the shared flow depends on it.
   `SecPalNativeAuth` methods and persists the normalized bootstrap payload in
   `secpal_native_auth/runtime_bootstrap`.
 
-## Schema 4 Rollout
+## Canonical Schema
 
-1. Deploy the API revision that emits bootstrap schema `4`, accepts notification
-   registrations from schemas `3` and `4`, and sets
-   `minimum_supported_app_build` to the first compatible Android release.
-2. Release the Android app with the shared frontend that accepts schemas `3`
-   and `4`; its injected bridge submits schema `4` for notification
-   registrations.
-3. Existing configured clients may continue restoring their persisted runtime
-   and registering with schema `3`. Older unconfigured builds receive the
-   existing update-required response before parsing the removed bootstrap
-   fields.
+Frontend discovery accepts only bootstrap version `v1` with schema version `4`
+encoded as a JSON integer. Every other schema value fails closed.
 
-## Native Methods To Keep
+The injected bridge constructs every Android notification-registration
+`runtime` object from its own `currentBootstrapSchemaVersion = 4` constant.
+Native bootstrap persistence does not store a schema field, and restoration
+normalizes persisted state to the fields listed below. Persisted or restored
+runtime data therefore cannot select or override the registration schema.
+Android also requires or persists no minimum app-version or app-build field;
+frontend discovery has already accepted the only supported schema before
+applying the native runtime payload.
+
+## Distribution Integrity
+
+Stable and Beta artifacts must embed the canonical schema-4 bridge before their
+metadata advertises `release_available: true`. The signed APK and AAB build
+lanes inspect only the artifact-type-specific packaged WebView runtime, reject
+missing, duplicate, or conflicting APK/AAB index locations, and fail closed
+unless the executable bridge contains exactly one integer schema-4 constant
+and one notification-registration assignment sourced from that constant. This
+schema assertion is independent of the injector source used for the final
+canonical byte comparison.
+
+An artifact that emits any other runtime schema is unsupported and must not
+remain available as an Android release. It must be replaced or withdrawn rather
+than accepted by frontend discovery or API notification registration.
+
+## Required Native Methods
 
 | Frontend-required method                                          | Android implementation                                                                                                                                                                                          | Keep rationale                                                                                                                           |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,29 +69,21 @@ frontend behavior and must be kept while the shared flow depends on it.
 | `SecPalNativeAuthBridge.request(...)`                             | Injected bridge routes authenticated `/v1/...` requests to `SecPalNativeAuth.request(...)`.                                                                                                                     | Required by Android push registration and revocation flows that must not expose bearer tokens to JavaScript.                             |
 | `SecPalNativeAuthBridge.getAndroidPushRegistrationState()`        | Injected bridge returns the Android push registration disablement state.                                                                                                                                        | Required so frontend-visible Android push state remains recoverable when secure UUID generation is unavailable.                          |
 
-The legacy direct injected fallback to `SecPalNativeAuth.setApiBaseUrl(...)`
-and session-storage bootstrap persistence is not part of the merged frontend
-facade contract and has been removed from the injected bridge. Runtime
-confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
-
-## Final Runtime Behavior
+## Runtime Behavior
 
 - Startup restore reads only the structured native runtime-bootstrap payload
-  through `SecPalNativeAuthBridge.getRuntimeBootstrap()`. Legacy
-  `apiOrigin`-only state and JavaScript session-storage bootstrap state do not
-  restore a configured runtime.
+  through `SecPalNativeAuthBridge.getRuntimeBootstrap()` and normalizes it
+  without a schema field.
 - Discovery confirmation applies only through
-  `SecPalNativeAuthBridge.setRuntimeBootstrap(...)`. The injected bridge no
-  longer confirms deployments by calling `SecPalNativeAuth.setApiBaseUrl(...)`
-  or by writing a browser-owned bootstrap fallback.
+  `SecPalNativeAuthBridge.setRuntimeBootstrap(...)`.
 - Runtime clearing through the public bridge method and the in-page reset flow
   both clear native bootstrap persistence, tenant-scoped browser storage,
   injected runtime state, and retained Android push state before discovery
   resumes.
 - The baked-in Android resource value is a placeholder guardrail for native
-  code paths that run before runtime binding. It is not a deployable fallback
-  origin for login, authenticated requests, bootstrap restore, or push
-  registration.
+  code paths that run before runtime binding. Login, authenticated requests,
+  bootstrap restoration, and push registration use the selected canonical API
+  origin.
 
 ## Bootstrap Payload Mapping
 
@@ -86,9 +92,7 @@ confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
 | `api_base_url`                                                             | `rawApiBaseUrl`; `apiOrigin` is derived from its origin. | Native normalizes to a bare HTTPS origin, accepts either the origin or `/v1`, and rejects userinfo, query, fragment, or other paths. |
 | `instance.display_name`                                                    | `instanceDisplayName`                                    | Persisted and returned to the bridge so runtime reset UI and restored state can show the configured instance.                        |
 | `compatibility.bootstrap_version`                                          | Validation-only                                          | Frontend discovery requires `v1`; Android receives the already-applied payload and does not persist this field separately.           |
-| `compatibility.schema_version`                                             | Validation-only                                          | Frontend discovery accepts schema versions `3` and `4` during the rollout window; Android push registration emits schema `4`.        |
-| `compatibility.minimum_supported_app_version`                              | `minimumSupportedAppVersion`                             | Native requires and persists this string in the bootstrap payload.                                                                   |
-| `compatibility.minimum_supported_app_build`                                | `minimumSupportedAppBuild`                               | Native requires a positive integer before persisting the bootstrap payload.                                                          |
+| `compatibility.schema_version`                                             | Validation-only                                          | Frontend discovery requires strict integer schema `4`; Android notification registration always emits integer schema `4`.            |
 | `features.password_login`                                                  | `features.passwordLoginEnabled`                          | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.passkey_login`                                                   | `features.passkeyLoginEnabled`                           | Native normalizes and persists this flag for restored bridge state.                                                                  |
 | `features.notification_channels.android_fcm`                               | Controls whether `androidPush` is present.               | If Android FCM is disabled, native persists no Android push runtime metadata and clears the runtime Firebase app.                    |
@@ -99,9 +103,9 @@ confirmation now fails closed when `setRuntimeBootstrap(...)` is unavailable.
 | `notification_channels.android_fcm.public_runtime_metadata.application_id` | `androidPush.publicClientMetadata.applicationId`         | Used to initialize the deployment-scoped Firebase runtime.                                                                           |
 | `notification_channels.android_fcm.public_runtime_metadata.sender_id`      | `androidPush.publicClientMetadata.senderId`              | Used to initialize the deployment-scoped Firebase runtime.                                                                           |
 
-## Keep Markers
+## Focused Contract Coverage
 
-The following Android bridge/runtime code is explicitly in scope to keep:
+The schema contract is enforced by these Android bridge/runtime surfaces:
 
 - `scripts/inject-native-auth-bridge.mjs`: runtime discovery validation,
   native persisted-bootstrap restore, `applyRuntimeBootstrap`, runtime reset,
@@ -118,8 +122,6 @@ The following Android bridge/runtime code is explicitly in scope to keep:
   callbacks.
 - `tests/native-auth-bridge-bootstrap.test.ts` and
   `android/app/src/test/java/app/secpal/SecPalNativeAuthPluginTest.java`:
-  focused regression coverage for the bridge contract and native payload
+  focused regression coverage proving canonical schema-4 registration after
+  fresh setup and native restoration, plus schema-neutral persisted payload
   normalization.
-
-Code outside this keep list should not be retained solely for runtime
-bootstrap compatibility unless a live caller is proven.
