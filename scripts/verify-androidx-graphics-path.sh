@@ -8,7 +8,12 @@ artifact_path="${1:?artifact path is required}"
 artifact_name="${2:?artifact name is required}"
 max_bytes=40000
 
-native_library_bytes="$(unzip -l "${artifact_path}" | awk '
+if ! archive_listing="$(unzip -l "${artifact_path}")"; then
+    echo "Failed to inspect ${artifact_name} archive at ${artifact_path}" >&2
+    exit 1
+fi
+
+native_library_bytes="$(awk '
     /libandroidx\.graphics\.path\.so$/ {
         path_parts = split($4, path, "/")
         abi = path[path_parts - 1]
@@ -26,7 +31,7 @@ native_library_bytes="$(unzip -l "${artifact_path}" | awk '
         }
         print total
     }
-')" || {
+' <<<"${archive_listing}")" || {
     echo "Expected one AndroidX graphics-path library for each supported ABI in ${artifact_name}" >&2
     exit 1
 }
