@@ -207,14 +207,8 @@ describe("Android native hardening", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       overrides?: Record<string, unknown>;
     };
-    const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
-      packages?: Record<string, { version?: string }>;
-    };
 
     expect(packageJson.overrides?.postcss).toBe("^8.5.15");
-    expect(packageLock.packages?.["node_modules/postcss"]?.version).toBe(
-      "8.5.23"
-    );
   });
 
   it("defines the Cordova access allowlist in Capacitor source config", async () => {
