@@ -38,6 +38,7 @@
     "format": "prettier --write --cache '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",
+    "native:verify:schema4-release": "node ./scripts/verify-schema4-release-artifact.mjs",
     "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",
     "cap:copy": "npm run frontend:build && npx cap copy android",
     "cap:add:android": "npx cap add android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle && npm run native:verify",

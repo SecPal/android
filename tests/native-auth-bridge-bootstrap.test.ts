@@ -1353,11 +1353,15 @@ describe("native auth bridge bootstrap injection", () => {
     }
   });
 
-  it("registers a retained Android push token after a reload and login", async () => {
+  it("emits strict schema 4 after native restoration of schema-3-marked runtime state", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const firstInstallationId = "11111111-1111-4111-8111-111111111111";
     const secondInstallationId = "22222222-2222-4222-8222-222222222222";
-    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const runtimeBootstrap = {
+      ...createCustomerAndroidPushBootstrap(),
+      schemaVersion: 3,
+      schema_version: 3,
+    };
     const installationStorageKey =
       "secpal-android-push-installation:" +
       encodeURIComponent(runtimeBootstrap.apiOrigin);
@@ -1423,6 +1427,12 @@ describe("native auth bridge bootstrap injection", () => {
       pushToken
     );
     expect(registrationPayload.lifecycle_event).toBe("registered");
+    const registrationRuntime = registrationPayload.runtime as {
+      schema_version?: unknown;
+    };
+    expect(registrationRuntime.schema_version).toBe(4);
+    expect(Number.isInteger(registrationRuntime.schema_version)).toBe(true);
+    expect(registrationRuntime.schema_version).not.toBe(3);
   });
 
   it("rehydrates a retained Android push token after logout clears session storage and the login route reloads", async () => {

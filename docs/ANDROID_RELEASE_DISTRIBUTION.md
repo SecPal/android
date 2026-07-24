@@ -110,18 +110,18 @@ When a validated bootstrap enables Android push, the generic Android app uses th
 
 - The app initializes the named native Firebase runtime `secpal-runtime-push` from the customer-owned metadata and does not rely on a bundled `google-services.json` file or a SecPal-owned default sender.
 - Native FCM token retrieval happens on-device, but the authenticated backend binding is created only after native login succeeds against the selected customer API origin.
-- The login flow registers `PUT /v1/me/push-devices/{installationId}` on the canonical API origin returned by bootstrap.
+- The login flow registers `PUT /v1/me/notification-installations/{installationId}` on the canonical API origin returned by bootstrap.
 - Later token refreshes update that same installation binding with `lifecycle_event=token_rotated` instead of creating a second device registration.
-- Logout and destructive instance reset revoke `DELETE /v1/me/push-devices/{installationId}` before the app clears local runtime state.
+- Logout and destructive instance reset revoke `DELETE /v1/me/notification-installations/{installationId}` before the app clears local runtime state.
 - If authenticated registration returns `409 NOTIFICATION_RUNTIME_STATE_INVALID` or `409 NOTIFICATION_CHANNEL_UNSUPPORTED`, the app clears the selected runtime, logout state, and tenant-scoped browser storage before discovery resumes so stale notification metadata cannot leak across deployment switches.
 - Token or error events from any Firebase app instance other than `secpal-runtime-push` are ignored so a customer-owned runtime cannot silently fall back to a stale or foreign push configuration.
 
 For operator rollout validation on a real Android device, verify at least:
 
 - the bootstrap payload includes the expected `features.notification_channels.android_fcm` flag and canonical `notification_channels.android_fcm` metadata for the customer deployment
-- login triggers `PUT /v1/me/push-devices/{installationId}` on the customer API host
+- login triggers `PUT /v1/me/notification-installations/{installationId}` on the customer API host
 - a token refresh updates the same installation binding instead of creating a second registration
-- logout or `Log out and switch instance` triggers `DELETE /v1/me/push-devices/{installationId}` before local cleanup finishes
+- logout or `Log out and switch instance` triggers `DELETE /v1/me/notification-installations/{installationId}` before local cleanup finishes
 - a stale or disabled Android notification channel causes the app to clear the selected runtime and require bootstrap confirmation again before another login attempt
 - no registration, rotation, or revocation request goes to a SecPal-owned API host or any other legacy push fallback path
 
