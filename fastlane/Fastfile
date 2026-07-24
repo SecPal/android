@@ -1052,11 +1052,11 @@ def withdraw_direct_apk_channels_locked!
     recover_interrupted_remote_metadata!(targets)
     ensure_withdraw_versions_cover_advertised!(versions, targets)
     prepare_direct_apk_quarantine!(published_at: published_at)
-    safely_replace_remote_metadata!(targets, recover: false)
     quarantine_direct_apk_artifacts!(
       published_at: published_at,
       versions: versions
     )
+    safely_replace_remote_metadata!(targets, recover: false)
   end
 end
 

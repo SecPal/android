@@ -597,6 +597,72 @@ withdraw_direct_apk_channels!
     }
   });
 
+  it("keeps advertised metadata unchanged when artifact quarantine fails", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-move-failure-"));
+    const publicRoot = join(tempRoot, "public");
+    const androidRoot = join(publicRoot, "android");
+    const metadataEntries = [
+      [join(androidRoot, "stable", "latest.json"), "0.0.1-261932118"],
+      [join(androidRoot, "latest.json"), "0.0.1-261932118"],
+      [join(androidRoot, "beta", "latest.json"), "0.0.1-261932119"],
+    ] as const;
+    const rubyAdapter = `
+require "fileutils"
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
+  else
+    raise "Unsupported command"
+  end
+end
+def quarantine_direct_apk_artifacts!(**) = raise("injected quarantine failure")
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      for (const [metadataPath, version] of metadataEntries) {
+        writeFile(
+          metadataPath,
+          JSON.stringify({ release_available: true, version })
+        );
+      }
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "0.0.1-261932118,0.0.1-261932119",
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("injected quarantine failure");
+      for (const [metadataPath, version] of metadataEntries) {
+        expect(JSON.parse(readFileSync(metadataPath, "utf8"))).toEqual({
+          release_available: true,
+          version,
+        });
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("recovers an interrupted metadata transaction before a failed new upload", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-recovery-"));
     const publicRoot = join(tempRoot, "public");
