@@ -703,8 +703,8 @@ def direct_metadata_transaction_commit_path
   "#{APK_DIRECT_ROOT}.withdrawal-metadata-transaction.committed"
 end
 
-def safely_replace_remote_metadata!(targets)
-  recover_interrupted_remote_metadata!(targets)
+def safely_replace_remote_metadata!(targets, recover: true)
+  recover_interrupted_remote_metadata!(targets) if recover
 
   staged_remote_paths = []
   begin
@@ -833,6 +833,12 @@ def direct_withdraw_versions
     .reject(&:empty?)
     .uniq
 
+  if versions.empty?
+    raise(
+      "SECPAL_ANDROID_WITHDRAW_VERSIONS must name at least one release."
+    )
+  end
+
   versions.each do |version|
     unless version.match?(/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/)
       UI.user_error!(
@@ -842,6 +848,41 @@ def direct_withdraw_versions
   end
 
   versions
+end
+
+def ensure_withdraw_versions_cover_advertised!(versions, targets)
+  advertised_versions = targets.filter_map do |target|
+    remote_path = target.fetch(:remote)
+    raw_metadata = run_direct_remote_shell!(
+      "cat -- #{Shellwords.escape(remote_path)}"
+    )
+    metadata = JSON.parse(raw_metadata)
+    next unless metadata.fetch("release_available")
+
+    version = metadata["version"]
+    unless version.is_a?(String) &&
+        version.match?(/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/)
+      raise(
+        "Advertised direct APK metadata has no valid release version: " \
+          "#{remote_path}"
+      )
+    end
+
+    version
+  rescue JSON::ParserError, KeyError => error
+    raise(
+      "Failed to inspect advertised direct APK metadata #{remote_path}: " \
+        "#{error.message}"
+    )
+  end.uniq
+
+  missing_versions = advertised_versions - versions
+  return if missing_versions.empty?
+
+  raise(
+    "SECPAL_ANDROID_WITHDRAW_VERSIONS must include every currently " \
+      "advertised release; missing: #{missing_versions.join(', ')}"
+  )
 end
 
 def validate_direct_withdrawal_paths_locally!
@@ -890,7 +931,24 @@ def ensure_non_public_withdrawal_root!
   run_direct_remote_shell!(remote_withdrawal_root_validation_script)
 end
 
-def quarantine_direct_apk_artifacts!(published_at:)
+def prepare_direct_apk_quarantine!(published_at:)
+  withdrawal_id = published_at.gsub(/[^A-Za-z0-9._-]+/, "-")
+  prepare_script = <<~SH
+    #{remote_withdrawal_root_validation_script}
+    quarantine_root="${withdrawal_root}/#{withdrawal_id}"
+    if [ -e "$quarantine_root" ] || [ -L "$quarantine_root" ]; then
+      echo "Android withdrawal quarantine transaction already exists: $quarantine_root" >&2
+      exit 1
+    fi
+    mkdir -p "$withdrawal_root"
+    mkdir "$quarantine_root"
+    : > "$quarantine_root/.secpal-withdrawal-prepared"
+  SH
+
+  run_direct_remote_shell!("set -eu\n#{prepare_script}")
+end
+
+def quarantine_direct_apk_artifacts!(published_at:, versions:)
   remote_android_root = "#{APK_DIRECT_ROOT}/android"
   withdrawal_id = published_at.gsub(/[^A-Za-z0-9._-]+/, "-")
   public_paths = [
@@ -916,18 +974,18 @@ def quarantine_direct_apk_artifacts!(published_at:)
       ]
     )
   end
-  direct_withdraw_versions.each do |version|
+  versions.each do |version|
     public_paths << "#{remote_android_root}/releases/#{version}"
   end
 
-  prepare_quarantine_script = <<~SH
+  require_prepared_quarantine_script = <<~SH
     #{remote_withdrawal_root_validation_script}
     quarantine_root="${withdrawal_root}/#{withdrawal_id}"
-    if [ -e "$quarantine_root" ] || [ -L "$quarantine_root" ]; then
+    prepared_marker="$quarantine_root/.secpal-withdrawal-prepared"
+    if [ -L "$quarantine_root" ] || [ ! -f "$prepared_marker" ]; then
       echo "Android withdrawal quarantine transaction already exists: $quarantine_root" >&2
       exit 1
     fi
-    mkdir -p "$quarantine_root"
   SH
   quarantine_script = public_paths.map do |public_path|
     relative_path = public_path.delete_prefix("#{APK_DIRECT_ROOT}/")
@@ -941,7 +999,8 @@ def quarantine_direct_apk_artifacts!(published_at:)
   end.join
 
   run_direct_remote_shell!(
-    "set -eu\n#{prepare_quarantine_script}#{quarantine_script}"
+    "set -eu\n#{require_prepared_quarantine_script}#{quarantine_script}" \
+      'rm -f "$prepared_marker"'
   )
 end
 
@@ -954,6 +1013,7 @@ end
 
 def withdraw_direct_apk_channels_locked!
   ensure_non_public_withdrawal_root!
+  versions = direct_withdraw_versions
   published_at = Time.now.utc.iso8601
   remote_android_root = "#{APK_DIRECT_ROOT}/android"
 
@@ -989,8 +1049,14 @@ def withdraw_direct_apk_channels_locked!
       channel_targets
     end
 
-    safely_replace_remote_metadata!(targets)
-    quarantine_direct_apk_artifacts!(published_at: published_at)
+    recover_interrupted_remote_metadata!(targets)
+    ensure_withdraw_versions_cover_advertised!(versions, targets)
+    prepare_direct_apk_quarantine!(published_at: published_at)
+    safely_replace_remote_metadata!(targets, recover: false)
+    quarantine_direct_apk_artifacts!(
+      published_at: published_at,
+      versions: versions
+    )
   end
 end
 

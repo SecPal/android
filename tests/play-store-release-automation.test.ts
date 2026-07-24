@@ -503,7 +503,9 @@ def sh(*arguments)
     FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
   when "ssh"
     raise "remote command must be a single SSH argument" unless arguments.length == 3
-    system(arguments.drop(2).join(" "), exception: true)
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
   else
     raise "Unsupported command: #{arguments.inspect}"
   end
@@ -512,10 +514,16 @@ withdraw_direct_apk_channels!
 `;
 
     try {
-      for (const root of latestRoots) {
+      for (const [index, root] of latestRoots.entries()) {
         writeFile(join(root, "app.secpal-latest.apk"), "schema-3-apk");
         writeFile(join(root, "SHA256SUMS.txt"), "schema-3-checksum");
-        writeFile(join(root, "latest.json"), '{"release_available":true}');
+        writeFile(
+          join(root, "latest.json"),
+          JSON.stringify({
+            release_available: true,
+            version: index === 2 ? "0.0.1-261932119" : "0.0.1-261932118",
+          })
+        );
       }
       writeFile(
         join(androidRoot, "SHA256SUMS.versioned.txt"),
@@ -536,7 +544,7 @@ withdraw_direct_apk_channels!
       // recover it before staging the next transaction.
       writeFile(
         join(androidRoot, "stable", "latest.json.previous"),
-        '{"release_available":true,"recovered":true}'
+        '{"release_available":true,"recovered":true,"version":"0.0.1-261932118"}'
       );
 
       const result = spawnSync("ruby", ["-e", rubyAdapter], {
@@ -594,7 +602,8 @@ withdraw_direct_apk_channels!
     const publicRoot = join(tempRoot, "public");
     const androidRoot = join(publicRoot, "android");
     const stableMetadataPath = join(androidRoot, "stable", "latest.json");
-    const recoveredMetadata = '{"release_available":true,"recovered":true}';
+    const recoveredMetadata =
+      '{"release_available":true,"recovered":true,"version":"0.0.1-261932118"}';
     const rubyAdapter = `
 def default_platform(*) = nil
 def platform(*) = nil
@@ -607,7 +616,9 @@ def sh(*arguments)
     raise "injected upload failure"
   when "ssh"
     raise "remote command must be a single SSH argument" unless arguments.length == 3
-    system(arguments.drop(2).join(" "), exception: true)
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
   else
     raise "Unsupported command"
   end
@@ -618,10 +629,13 @@ withdraw_direct_apk_channels!
     try {
       writeFile(stableMetadataPath, '{"release_available":false}');
       writeFile(`${stableMetadataPath}.previous`, recoveredMetadata);
-      writeFile(join(androidRoot, "latest.json"), '{"release_available":true}');
+      writeFile(
+        join(androidRoot, "latest.json"),
+        '{"release_available":true,"version":"0.0.1-261932118"}'
+      );
       writeFile(
         join(androidRoot, "beta", "latest.json"),
-        '{"release_available":true}'
+        '{"release_available":true,"version":"0.0.1-261932119"}'
       );
 
       const result = spawnSync("ruby", ["-e", rubyAdapter], {
@@ -631,6 +645,7 @@ withdraw_direct_apk_channels!
           ...process.env,
           SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
           SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "0.0.1-261932118,0.0.1-261932119",
           SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
         },
       });
@@ -667,7 +682,9 @@ def sh(*arguments)
     raise "injected upload failure"
   when "ssh"
     raise "remote command must be a single SSH argument" unless arguments.length == 3
-    system(arguments.drop(2).join(" "), exception: true)
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
   else
     raise "Unsupported command"
   end
@@ -690,6 +707,7 @@ withdraw_direct_apk_channels!
           ...process.env,
           SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
           SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "0.0.1-261932118",
           SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
         },
       });
@@ -703,6 +721,141 @@ withdraw_direct_apk_channels!
       expect(
         existsSync(`${publicRoot}.withdrawal-metadata-transaction.committed`)
       ).toBe(false);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an empty withdrawal version list before changing metadata", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-versions-"));
+    const publicRoot = join(tempRoot, "public");
+    const androidRoot = join(publicRoot, "android");
+    const metadataPaths = [
+      join(androidRoot, "stable", "latest.json"),
+      join(androidRoot, "latest.json"),
+      join(androidRoot, "beta", "latest.json"),
+    ] as const;
+    const rubyAdapter = `
+require "fileutils"
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    system(arguments.fetch(2), exception: true)
+  else
+    raise "Unsupported command"
+  end
+end
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      for (const [index, metadataPath] of metadataPaths.entries()) {
+        writeFile(
+          metadataPath,
+          JSON.stringify({
+            release_available: true,
+            version: index === 2 ? "0.0.1-261932119" : "0.0.1-261932118",
+          })
+        );
+      }
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "",
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "SECPAL_ANDROID_WITHDRAW_VERSIONS must name at least one release"
+      );
+      for (const [index, metadataPath] of metadataPaths.entries()) {
+        expect(JSON.parse(readFileSync(metadataPath, "utf8"))).toEqual({
+          release_available: true,
+          version: index === 2 ? "0.0.1-261932119" : "0.0.1-261932118",
+        });
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a withdrawal list that omits an advertised version", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-version-cover-"));
+    const publicRoot = join(tempRoot, "public");
+    const androidRoot = join(publicRoot, "android");
+    const metadataEntries = [
+      [join(androidRoot, "stable", "latest.json"), "0.0.1-261932118"],
+      [join(androidRoot, "latest.json"), "0.0.1-261932118"],
+      [join(androidRoot, "beta", "latest.json"), "0.0.1-261932119"],
+    ] as const;
+    const rubyAdapter = `
+require "fileutils"
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
+  else
+    raise "Unsupported command"
+  end
+end
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      for (const [metadataPath, version] of metadataEntries) {
+        writeFile(
+          metadataPath,
+          JSON.stringify({ release_available: true, version })
+        );
+      }
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: join(tempRoot, "quarantine"),
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "0.0.1-261932118",
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "must include every currently advertised release"
+      );
+      for (const [metadataPath, version] of metadataEntries) {
+        expect(JSON.parse(readFileSync(metadataPath, "utf8"))).toEqual({
+          release_available: true,
+          version,
+        });
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -777,7 +930,9 @@ def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
 def sh(*arguments)
   raise "remote command must be a single SSH argument" unless arguments.length == 3
-  system(arguments.drop(2).join(" "), exception: true)
+  output, status = Open3.capture2e(arguments.fetch(2))
+  raise output unless status.success?
+  output
 end
 withdraw_direct_apk_channels!
 `;
@@ -827,7 +982,9 @@ def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
 def sh(*arguments)
   raise "remote command must be a single SSH argument" unless arguments.length == 3
-  system(arguments.drop(2).join(" "), exception: true)
+  output, status = Open3.capture2e(arguments.fetch(2))
+  raise output unless status.success?
+  output
 end
 withdraw_direct_apk_channels!
 `;
@@ -986,9 +1143,14 @@ def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
 def sh(*arguments)
   raise "remote command must be a single SSH argument" unless arguments.length == 3
-  system(arguments.drop(2).join(" "), exception: true)
+  output, status = Open3.capture2e(arguments.fetch(2))
+  raise output unless status.success?
+  output
 end
-quarantine_direct_apk_artifacts!(published_at: ENV.fetch("SECPAL_TEST_PUBLISHED_AT"))
+quarantine_direct_apk_artifacts!(
+  published_at: ENV.fetch("SECPAL_TEST_PUBLISHED_AT"),
+  versions: [ENV.fetch("SECPAL_TEST_VERSION")]
+)
 `;
 
     try {
@@ -1004,6 +1166,7 @@ quarantine_direct_apk_artifacts!(published_at: ENV.fetch("SECPAL_TEST_PUBLISHED_
           SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: withdrawalRoot,
           SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
           SECPAL_TEST_PUBLISHED_AT: publishedAt,
+          SECPAL_TEST_VERSION: "0.0.1-261932118",
         },
       });
 
@@ -1017,6 +1180,86 @@ quarantine_direct_apk_artifacts!(published_at: ENV.fetch("SECPAL_TEST_PUBLISHED_
       expect(readFileSync(quarantinedApkPath, "utf8")).toBe(
         "existing-quarantine"
       );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a quarantine collision before changing channel metadata", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-collision-order-"));
+    const publicRoot = join(tempRoot, "public");
+    const withdrawalRoot = join(tempRoot, "quarantine");
+    const androidRoot = join(publicRoot, "android");
+    const publishedAt = "2026-07-24T18:41:56Z";
+    const withdrawalId = "2026-07-24T18-41-56Z";
+    const metadataPaths = [
+      join(androidRoot, "stable", "latest.json"),
+      join(androidRoot, "latest.json"),
+      join(androidRoot, "beta", "latest.json"),
+    ] as const;
+    const rubyAdapter = `
+require "fileutils"
+def default_platform(*) = nil
+def platform(*) = nil
+def desc(*) = nil
+def lane(*) = nil
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+fixed_now = Time.iso8601(ENV.fetch("SECPAL_TEST_PUBLISHED_AT"))
+Time.define_singleton_method(:now) { fixed_now }
+def sh(*arguments)
+  case arguments.first
+  when "scp"
+    FileUtils.cp(arguments.fetch(1), arguments.fetch(2).split(":", 2).fetch(1))
+  when "ssh"
+    raise "remote command must be a single SSH argument" unless arguments.length == 3
+    output, status = Open3.capture2e(arguments.fetch(2))
+    raise output unless status.success?
+    output
+  else
+    raise "Unsupported command"
+  end
+end
+withdraw_direct_apk_channels!
+`;
+
+    try {
+      for (const [index, metadataPath] of metadataPaths.entries()) {
+        writeFile(
+          metadataPath,
+          JSON.stringify({
+            release_available: true,
+            version: index === 2 ? "0.0.1-261932119" : "0.0.1-261932118",
+          })
+        );
+      }
+      writeFile(
+        join(withdrawalRoot, withdrawalId, "existing-artifact"),
+        "existing-quarantine"
+      );
+
+      const result = spawnSync("ruby", ["-e", rubyAdapter], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
+          SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT: withdrawalRoot,
+          SECPAL_ANDROID_WITHDRAW_VERSIONS: "0.0.1-261932118,0.0.1-261932119",
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+          SECPAL_TEST_PUBLISHED_AT: publishedAt,
+        },
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Android withdrawal quarantine transaction already exists"
+      );
+      for (const [index, metadataPath] of metadataPaths.entries()) {
+        expect(JSON.parse(readFileSync(metadataPath, "utf8"))).toEqual({
+          release_available: true,
+          version: index === 2 ? "0.0.1-261932119" : "0.0.1-261932118",
+        });
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
