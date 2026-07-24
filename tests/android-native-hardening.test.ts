@@ -725,6 +725,11 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RELEASE_DISTRIBUTION.md"
     );
+    const schema3WithdrawalEvidence = readRepoFile(
+      "docs",
+      "release-evidence",
+      "2026-07-24-schema-3-artifact-withdrawal.md"
+    );
     const fastfile = readRepoFile("fastlane", "Fastfile");
     const releaseEnvLoader = readRepoFile(
       "scripts",
@@ -765,6 +770,9 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["fastlane:android:deploy:beta-apk"]).toContain(
       "bundle exec fastlane android deploy_direct_apk_beta"
     );
+    expect(
+      packageJson.scripts["fastlane:android:withdraw:direct-apks"]
+    ).toBeUndefined();
     expect(readme).toContain("Fastlane");
     expect(readme).toContain("npm run fastlane:android:build:signed-aab");
     expect(readme).toContain("npm run fastlane:android:deploy:internal");
@@ -772,6 +780,11 @@ describe("Android native hardening", () => {
     expect(readme).toContain("apk.secpal.app");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(readme).not.toContain(
+      "npm run fastlane:android:withdraw:direct-apks"
+    );
+    expect(readme).not.toContain("SECPAL_ANDROID_WITHDRAW_VERSIONS");
+    expect(readme).not.toContain("atomically marks Stable");
     expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
     expect(readme).toContain(
       "https://apk.secpal.app/android/stable/latest.json"
@@ -786,6 +799,19 @@ describe("Android native hardening", () => {
     expect(distributionDoc).toContain("apk.secpal.app");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(distributionDoc).not.toContain(
+      "fastlane android withdraw_direct_apks"
+    );
+    expect(distributionDoc).not.toContain(
+      "SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT"
+    );
+    expect(distributionDoc).not.toContain("atomically changes the Stable");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932118");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932119");
+    expect(schema3WithdrawalEvidence).toContain("HTTP `404`");
+    expect(schema3WithdrawalEvidence).toContain(
+      "No recoverable schema-3 artifact remains on the server"
+    );
     expect(distributionDoc).toContain(
       "https://apk.secpal.app/android/beta/latest.json"
     );
@@ -808,7 +834,7 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("app_signing_certificate_sha256");
     expect(fastfile).toContain("signing_key_shared_with_google_play");
     expect(fastfile).toContain("versioned_checksum_url");
-    expect(fastfile).toContain("release_available: false");
+    expect(fastfile).not.toContain("release_available: false");
     expect(fastfile).toContain("def verify_android_runtime_schema_artifact!");
     expect(fastfile).toContain(
       "verify_android_runtime_schema_artifact!(signed_apk_path)"
