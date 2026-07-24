@@ -345,6 +345,20 @@ def write_file(path, content)
 end
 
 def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_checksum_path:)
+  remote_script = remote_latest_files_replacement_script(
+    remote_root: remote_root,
+    source_apk_path: source_apk_path,
+    source_checksum_path: source_checksum_path
+  )
+
+  run_direct_remote_shell!(remote_script)
+end
+
+def remote_latest_files_replacement_script(
+  remote_root:,
+  source_apk_path:,
+  source_checksum_path:
+)
   latest_apk_path = "#{remote_root}/app.secpal-latest.apk"
   next_apk_path = "#{remote_root}/app.secpal-latest.next.apk"
   previous_apk_path = "#{remote_root}/app.secpal-latest.previous.apk"
@@ -352,7 +366,7 @@ def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_c
   next_checksum_path = "#{remote_root}/SHA256SUMS.next.txt"
   previous_checksum_path = "#{remote_root}/SHA256SUMS.previous.txt"
 
-  remote_script = <<~SH
+  <<~SH
     set -eu
 
     latest_apk_path=#{Shellwords.escape(latest_apk_path)}
@@ -367,6 +381,7 @@ def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_c
     }
 
     rollback() {
+      trap - EXIT HUP INT TERM
       if [ -f "$previous_apk_path" ]; then
         mv "$previous_apk_path" "$latest_apk_path"
       fi
@@ -375,8 +390,13 @@ def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_c
       fi
       cleanup
     }
+    abort_after_signal() {
+      rollback
+      exit 1
+    }
 
-    trap 'rollback' EXIT HUP INT TERM
+    trap 'rollback' EXIT
+    trap 'abort_after_signal' HUP INT TERM
 
     cp #{Shellwords.escape(source_apk_path)} "$next_apk_path"
     cp #{Shellwords.escape(source_checksum_path)} "$next_checksum_path"
@@ -395,15 +415,6 @@ def safely_replace_remote_latest_files!(remote_root:, source_apk_path:, source_c
     trap - EXIT HUP INT TERM
     cleanup
   SH
-
-  sh(
-    "ssh",
-    APK_DIRECT_SSH_HOST,
-    "sh",
-    "-eu",
-    "-c",
-    remote_script
-  )
 end
 
 def direct_deploy_channel
@@ -553,7 +564,47 @@ def direct_versioned_metadata_document(channel:, published_at:)
   )
 end
 
+def with_direct_release_lock
+  artifact_root = Shellwords.escape(APK_DIRECT_ROOT)
+  acquired = false
+
+  run_direct_remote_shell!(<<~SH)
+    set -eu
+    artifact_root=$(realpath -m -- #{artifact_root})
+    lock_path="${artifact_root}.release.lock"
+    if ! mkdir -- "$lock_path" 2>/dev/null; then
+      echo "Another direct APK release mutation is already running." >&2
+      exit 75
+    fi
+  SH
+  acquired = true
+  yield
+ensure
+  if acquired
+    active_error = $!
+    begin
+      run_direct_remote_shell!(<<~SH)
+        set -eu
+        artifact_root=$(realpath -m -- #{artifact_root})
+        rmdir -- "${artifact_root}.release.lock"
+      SH
+    rescue StandardError => release_error
+      raise release_error if active_error.nil?
+
+      UI.important(
+        "Failed to release the direct APK mutation lock: #{release_error.message}"
+      )
+    end
+  end
+end
+
 def upload_direct_apk_artifacts(apk_path)
+  with_direct_release_lock do
+    upload_direct_apk_artifacts_locked(apk_path)
+  end
+end
+
+def upload_direct_apk_artifacts_locked(apk_path)
   sha256_hex = Digest::SHA256.file(apk_path).hexdigest
   channel = direct_deploy_channel
   version = release_path_version
@@ -628,24 +679,28 @@ def upload_direct_apk_artifacts(apk_path)
       "#{APK_DIRECT_SSH_HOST}:#{remote_channel_root}/latest.json"
     )
 
-    return unless stable_direct_channel?(channel)
-
-    safely_replace_remote_latest_files!(
-      remote_root: remote_android_root,
-      source_apk_path: "#{remote_channel_root}/app.secpal-latest.apk",
-      source_checksum_path: "#{remote_channel_root}/SHA256SUMS.txt"
-    )
-    sh(
-      "ssh",
-      APK_DIRECT_SSH_HOST,
-      "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
-    )
-    sh(
-      "scp",
-      stable_alias_metadata_path,
-      "#{APK_DIRECT_SSH_HOST}:#{remote_android_root}/latest.json"
-    )
+    if stable_direct_channel?(channel)
+      safely_replace_remote_latest_files!(
+        remote_root: remote_android_root,
+        source_apk_path: "#{remote_channel_root}/app.secpal-latest.apk",
+        source_checksum_path: "#{remote_channel_root}/SHA256SUMS.txt"
+      )
+      sh(
+        "ssh",
+        APK_DIRECT_SSH_HOST,
+        "cp #{Shellwords.escape(remote_release_root)}/SHA256SUMS.txt #{Shellwords.escape(remote_android_root)}/SHA256SUMS.versioned.txt"
+      )
+      sh(
+        "scp",
+        stable_alias_metadata_path,
+        "#{APK_DIRECT_SSH_HOST}:#{remote_android_root}/latest.json"
+      )
+    end
   end
+end
+
+def direct_metadata_transaction_commit_path
+  "#{APK_DIRECT_ROOT}.withdrawal-metadata-transaction.committed"
 end
 
 def safely_replace_remote_metadata!(targets)
@@ -677,6 +732,10 @@ def safely_replace_remote_metadata!(targets)
     raise upload_error
   end
 
+  run_direct_remote_shell!(remote_metadata_replacement_script(targets))
+end
+
+def remote_metadata_replacement_script(targets)
   prepare_script = targets.map do |target|
     remote_path = Shellwords.escape(target.fetch(:remote))
     <<~SH
@@ -705,26 +764,34 @@ def safely_replace_remote_metadata!(targets)
     remote_path = target.fetch(:remote)
     ["#{remote_path}.next", "#{remote_path}.previous", "#{remote_path}.missing"]
   end.map { |path| Shellwords.escape(path) }.join(" ")
+  commit_path = Shellwords.escape(direct_metadata_transaction_commit_path)
 
-  remote_script = <<~SH
+  <<~SH
     set -eu
     rollback() {
       trap - EXIT HUP INT TERM
-      #{rollback_script}
-      rm -f #{cleanup_paths}
+      if [ ! -f #{commit_path} ]; then
+        #{rollback_script}
+      fi
+      rm -f #{cleanup_paths} #{commit_path}
     }
-    trap 'rollback' EXIT HUP INT TERM
+    abort_after_signal() {
+      rollback
+      exit 1
+    }
+    trap 'rollback' EXIT
+    trap 'abort_after_signal' HUP INT TERM
     #{prepare_script}
     #{replace_script}
-    trap - EXIT HUP INT TERM
+    : > #{commit_path}
     rm -f #{cleanup_paths}
+    rm -f #{commit_path}
+    trap - EXIT HUP INT TERM
   SH
-
-  run_direct_remote_shell!(remote_script)
 end
 
 def recover_interrupted_remote_metadata!(targets)
-  recovery_script = targets.map do |target|
+  rollback_script = targets.map do |target|
     remote_path = Shellwords.escape(target.fetch(:remote))
     <<~SH
       if [ -f #{remote_path}.missing ]; then
@@ -732,11 +799,23 @@ def recover_interrupted_remote_metadata!(targets)
       elif [ -f #{remote_path}.previous ]; then
         mv #{remote_path}.previous #{remote_path}
       fi
-      rm -f #{remote_path}.next #{remote_path}.previous #{remote_path}.missing
     SH
   end.join
+  cleanup_paths = targets.flat_map do |target|
+    remote_path = target.fetch(:remote)
+    ["#{remote_path}.next", "#{remote_path}.previous", "#{remote_path}.missing"]
+  end.map { |path| Shellwords.escape(path) }.join(" ")
+  commit_path = Shellwords.escape(direct_metadata_transaction_commit_path)
 
-  run_direct_remote_shell!("set -eu\n#{recovery_script}")
+  recovery_script = <<~SH
+    set -eu
+    if [ ! -f #{commit_path} ]; then
+      #{rollback_script}
+    fi
+    rm -f #{cleanup_paths} #{commit_path}
+  SH
+
+  run_direct_remote_shell!(recovery_script)
 end
 
 def run_direct_remote_shell!(script)
@@ -765,21 +844,55 @@ def direct_withdraw_versions
   versions
 end
 
-def ensure_non_public_withdrawal_root!
+def validate_direct_withdrawal_paths_locally!
+  unless APK_DIRECT_ROOT.start_with?("/") &&
+      APK_DIRECT_WITHDRAWAL_ROOT.start_with?("/")
+    raise(
+      "Android direct artifact and withdrawal roots must be absolute remote paths."
+    )
+  end
+
   public_root = File.expand_path(APK_DIRECT_ROOT)
   withdrawal_root = File.expand_path(APK_DIRECT_WITHDRAWAL_ROOT)
   if withdrawal_root == public_root ||
-      withdrawal_root.start_with?("#{public_root}/")
+      withdrawal_root.start_with?("#{public_root}/") ||
+      public_root.start_with?("#{withdrawal_root}/")
     raise(
       "Android withdrawal quarantine must be outside the public artifact root."
     )
   end
 end
 
+def remote_withdrawal_root_validation_script
+  public_root = Shellwords.escape(APK_DIRECT_ROOT)
+  withdrawal_root = Shellwords.escape(APK_DIRECT_WITHDRAWAL_ROOT)
+  <<~SH
+    set -eu
+    public_root=$(realpath -m -- #{public_root})
+    withdrawal_root=$(realpath -m -- #{withdrawal_root})
+    case "$withdrawal_root/" in
+      "$public_root/"*)
+        echo "Android withdrawal quarantine must resolve outside the public artifact root." >&2
+        exit 1
+        ;;
+    esac
+    case "$public_root/" in
+      "$withdrawal_root/"*)
+        echo "Android withdrawal quarantine must not contain the public artifact root." >&2
+        exit 1
+        ;;
+    esac
+  SH
+end
+
+def ensure_non_public_withdrawal_root!
+  validate_direct_withdrawal_paths_locally!
+  run_direct_remote_shell!(remote_withdrawal_root_validation_script)
+end
+
 def quarantine_direct_apk_artifacts!(published_at:)
   remote_android_root = "#{APK_DIRECT_ROOT}/android"
   withdrawal_id = published_at.gsub(/[^A-Za-z0-9._-]+/, "-")
-  quarantine_root = "#{APK_DIRECT_WITHDRAWAL_ROOT}/#{withdrawal_id}"
   public_paths = [
     "#{remote_android_root}/stable/app.secpal-latest.apk",
     "#{remote_android_root}/stable/SHA256SUMS.txt",
@@ -789,27 +902,58 @@ def quarantine_direct_apk_artifacts!(published_at:)
     "#{remote_android_root}/beta/app.secpal-latest.apk",
     "#{remote_android_root}/beta/SHA256SUMS.txt"
   ]
+  [
+    "#{remote_android_root}/stable",
+    remote_android_root,
+    "#{remote_android_root}/beta"
+  ].each do |latest_root|
+    public_paths.concat(
+      [
+        "#{latest_root}/app.secpal-latest.next.apk",
+        "#{latest_root}/app.secpal-latest.previous.apk",
+        "#{latest_root}/SHA256SUMS.next.txt",
+        "#{latest_root}/SHA256SUMS.previous.txt"
+      ]
+    )
+  end
   direct_withdraw_versions.each do |version|
     public_paths << "#{remote_android_root}/releases/#{version}"
   end
 
+  prepare_quarantine_script = <<~SH
+    #{remote_withdrawal_root_validation_script}
+    quarantine_root="${withdrawal_root}/#{withdrawal_id}"
+    if [ -e "$quarantine_root" ] || [ -L "$quarantine_root" ]; then
+      echo "Android withdrawal quarantine transaction already exists: $quarantine_root" >&2
+      exit 1
+    fi
+    mkdir -p "$quarantine_root"
+  SH
   quarantine_script = public_paths.map do |public_path|
     relative_path = public_path.delete_prefix("#{APK_DIRECT_ROOT}/")
-    quarantine_path = "#{quarantine_root}/#{relative_path}"
+    relative_parent = File.dirname(relative_path)
     <<~SH
       if [ -e #{Shellwords.escape(public_path)} ]; then
-        mkdir -p #{Shellwords.escape(File.dirname(quarantine_path))}
-        mv #{Shellwords.escape(public_path)} #{Shellwords.escape(quarantine_path)}
+        mkdir -p "$quarantine_root/"#{Shellwords.escape(relative_parent)}
+        mv #{Shellwords.escape(public_path)} "$quarantine_root/"#{Shellwords.escape(relative_path)}
       fi
     SH
   end.join
 
-  run_direct_remote_shell!("set -eu\n#{quarantine_script}")
+  run_direct_remote_shell!(
+    "set -eu\n#{prepare_quarantine_script}#{quarantine_script}"
+  )
 end
 
 def withdraw_direct_apk_channels!
-  ensure_non_public_withdrawal_root!
+  validate_direct_withdrawal_paths_locally!
+  with_direct_release_lock do
+    withdraw_direct_apk_channels_locked!
+  end
+end
 
+def withdraw_direct_apk_channels_locked!
+  ensure_non_public_withdrawal_root!
   published_at = Time.now.utc.iso8601
   remote_android_root = "#{APK_DIRECT_ROOT}/android"
 
@@ -909,19 +1053,23 @@ platform :android do
 
   desc "Build the signed SecPal release APK and publish it to apk.secpal.app"
   lane :deploy_direct_apk do
-    version_code = next_direct_deploy_version_code
-    build_signed_apk
-    upload_direct_apk_artifacts(signed_apk_path)
-    persist_configured_release_version_code!(version_code)
+    with_direct_release_lock do
+      version_code = next_direct_deploy_version_code
+      build_signed_apk
+      upload_direct_apk_artifacts_locked(signed_apk_path)
+      persist_configured_release_version_code!(version_code)
+    end
   end
 
   desc "Build the signed SecPal release APK and publish it to the beta direct-download channel on apk.secpal.app"
   lane :deploy_direct_apk_beta do
-    ENV["SECPAL_ANDROID_DIRECT_CHANNEL"] = "beta"
-    version_code = next_direct_deploy_version_code
-    build_signed_apk
-    upload_direct_apk_artifacts(signed_apk_path)
-    persist_configured_release_version_code!(version_code)
+    with_direct_release_lock do
+      ENV["SECPAL_ANDROID_DIRECT_CHANNEL"] = "beta"
+      version_code = next_direct_deploy_version_code
+      build_signed_apk
+      upload_direct_apk_artifacts_locked(signed_apk_path)
+      persist_configured_release_version_code!(version_code)
+    end
   end
 
   desc "Mark Stable, its aliases, and Beta direct APK releases unavailable"
