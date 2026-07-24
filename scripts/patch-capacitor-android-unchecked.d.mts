@@ -9,8 +9,14 @@ export function patchCapacitorAndroidSource(
 ): string;
 export function patchCapacitorMessageHandlerSource(source: string): string;
 export function patchCapacitorBridgeCleanupSource(source: string): string;
+export function patchCapacitorCorePluginRegistrationSource(
+  source: string
+): string;
+export function patchCapacitorPluginExportSource(source: string): string;
+export function patchCapacitorSystemBarsDispatchSource(source: string): string;
 export function patchCapacitorLegacyInterfaceSource(
   source: string,
   interfaceName: string
 ): string;
+export function patchSystemBarsCallableSurfaceSource(source: string): string;
 export function patchCapacitorAndroidSources(repoRoot: string): void;

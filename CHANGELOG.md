@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed the unused Capacitor HTTP, cookie, and WebView path-management core
+  plugins from Android's native registration boundary, retained only native
+  SystemBars lifecycle/inset behavior while hiding it from plugin exports and
+  rejecting all direct JavaScript dispatch to it,
+  and added fail-closed install/sync plus packaged-WebView regressions so
+  Capacitor upgrades cannot silently restore the capabilities (issue #409,
+  part of #402).
 - SecPal now requires Android System WebView or Chrome 83 or later with the
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a
@@ -67,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made the Capacitor core-plugin exclusion guard reject reformatted forbidden
+  class registrations, initialized each WebMessage reply proxy before dispatch
+  can synchronously reject a call, waited for destroyed WebViews to leave the
+  UI queue between instrumentation cases, and aligned packaged-frontend bridge
+  tests with Capacitor's harmless web-only JavaScript proxies.
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
 - Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.
 - Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset

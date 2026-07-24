@@ -45,6 +45,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
         const frame = document.createElement("iframe");
         frame.srcdoc = `<script>
           secpalTestResult.postMessage('child-type:' + typeof window.androidBridge);
+          window.androidBridge.onmessage = (reply) => {
+            const result = JSON.parse(reply.data);
+            if (result.callbackId === 'child') {
+              secpalTestResult.postMessage('child-reply');
+            }
+          };
           window.androidBridge.postMessage(JSON.stringify({callbackId:'child',pluginId:'SecPalEnterprise',methodName:'getManagedState',options:{}}));
           parent.postMessage('child-dispatched', '*');
         <\/script>`;
@@ -65,6 +71,58 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             typeof window.CapacitorSystemBarsAndroidInterface,
             typeof window.androidBridge.postMessageLegacy,
           ].join(",")}`
+        );
+      } else if (mode === "core") {
+        const forbiddenPluginIds = [
+          "CapacitorCookies",
+          "CapacitorHttp",
+          "WebView",
+        ];
+        const forbiddenHeadersAbsent = forbiddenPluginIds.every(
+          (pluginId) =>
+            !window.Capacitor.PluginHeaders.some(
+              (header) => header.name === pluginId
+            )
+        );
+        const systemBarsHeader = window.Capacitor.PluginHeaders.find(
+          (header) => header.name === "SystemBars"
+        );
+        const systemBarsHeaderAbsent = systemBarsHeader === undefined;
+        const forbiddenNativePluginsUnavailable = [
+          ...forbiddenPluginIds,
+          "SystemBars",
+        ].every((pluginId) => !window.Capacitor.isPluginAvailable(pluginId));
+
+        secpalTestResult.postMessage(
+          `core-surface:${[
+            forbiddenHeadersAbsent,
+            systemBarsHeaderAbsent,
+            forbiddenNativePluginsUnavailable,
+          ].join(",")}`
+        );
+
+        const rawCalls = [
+          [
+            "CapacitorCookies",
+            "setCookie",
+            { key: "blocked", value: "blocked" },
+          ],
+          ["CapacitorHttp", "request", { url: "https://forbidden.invalid/" }],
+          ["WebView", "setServerBasePath", { path: "/blocked" }],
+          ["SystemBars", "setStyle", { style: "DARK" }],
+          ["SystemBars", "addListener", { eventName: "blocked" }],
+          ["SystemBars", "requestPermissions", {}],
+        ];
+        Promise.all(
+          rawCalls.map(([pluginId, methodName, options]) =>
+            window.Capacitor.nativePromise(pluginId, methodName, options).then(
+              () => false,
+              (error) =>
+                error?.message === `unable to find plugin : ${pluginId}`
+            )
+          )
+        ).then((missing) =>
+          secpalTestResult.postMessage(`core-raw-missing:${missing.join(",")}`)
         );
       }
     </script>

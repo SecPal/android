@@ -115,6 +115,38 @@ Required security properties:
 - no silent fallback from native bearer auth to browser session auth
 - no auth shortcuts that rely on WebView cookies
 
+### Capacitor Core Plugin Boundary
+
+The packaged Android bridge does not register Capacitor's `CapacitorHttp`,
+`CapacitorCookies`, or `WebView` core plugins. Neither the Android wrapper nor
+the shared frontend has a live caller for arbitrary native HTTP, WebView cookie
+mutation, or runtime server-base-path mutation. Android authenticated requests
+remain confined to the SecPal native auth plugin and its allowlisted API
+contract.
+
+SystemBars remains registered internally only for its native lifecycle
+initialization, safe-area CSS, and inset handling. It is omitted from generated
+native plugin headers, `Capacitor.isPluginAvailable("SystemBars")` returns
+`false`, and the native dispatcher rejects raw SystemBars calls before resolving
+the plugin handle. The shared frontend bundle can still contain Capacitor's
+web-only JavaScript proxies for core plugins; those proxies are not evidence of
+native availability. Its own
+`setStyle`, `show`, `hide`, and `setAnimation` annotations are also removed as
+defense in depth.
+
+Capacitor does not currently provide a supported host configuration for
+excluding individual Android core plugins. The repository therefore applies an
+exact, fail-closed source transformation through
+`scripts/patch-capacitor-android-unchecked.mjs` during `postinstall`,
+`cap:sync`, and `cap:add:android`. A Capacitor upgrade must preserve or
+deliberately update that transformation, run the focused patch/static tests,
+assemble the debug app, and inspect the packaged WebView regression test. If
+the upstream registration or SystemBars method shape changes, install or sync
+must fail instead of accepting the new bridge surface.
+
+SecPal/android issue #422 tracks a supported upstream exclusion mechanism and
+the eventual removal of these source transformations.
+
 Recommended hardening:
 
 - biometric or device-credential gate before revealing highly sensitive data
