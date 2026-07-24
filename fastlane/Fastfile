@@ -29,6 +29,10 @@ APK_DIRECT_ROOT = ENV.fetch(
   "SECPAL_ANDROID_DIRECT_ROOT",
   "/home/secpal/www/apk.secpal.app"
 )
+APK_DIRECT_WITHDRAWAL_ROOT = ENV.fetch(
+  "SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT",
+  "#{File.dirname(APK_DIRECT_ROOT)}/android-artifacts-withdrawn"
+)
 DEFAULT_RELEASE_ENV_FILE = File.expand_path(
   ENV.fetch(
     "SECPAL_ANDROID_RELEASE_ENV_FILE",
@@ -472,13 +476,15 @@ def direct_release_metadata_payload(
     artifact_host: urls.fetch(:artifact_host),
     human_landing_url: urls.fetch(:human_landing_url),
     metadata_url: metadata_url || urls.fetch(:metadata_url),
-    latest_apk_url: urls.fetch(:latest_apk_url),
-    checksum_url: urls.fetch(:checksum_url),
+    latest_apk_url: release_available ? urls.fetch(:latest_apk_url) : nil,
+    checksum_url: release_available ? urls.fetch(:checksum_url) : nil,
     versioned_metadata_url: urls.fetch(:versioned_metadata_url),
     versioned_apk_url: urls.fetch(:versioned_apk_url),
     versioned_checksum_url: urls.fetch(:versioned_checksum_url),
-    app_signing_certificate_sha256: direct_signing_certificate_sha256,
-    signing_key_shared_with_google_play: APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY
+    app_signing_certificate_sha256:
+      release_available ? direct_signing_certificate_sha256 : nil,
+    signing_key_shared_with_google_play:
+      release_available ? APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY : nil
   }
 end
 
@@ -519,11 +525,16 @@ def direct_latest_metadata_document(published_at: Time.now.utc.iso8601)
   )
 end
 
-def direct_unavailable_latest_metadata_document(published_at: Time.now.utc.iso8601)
+def direct_unavailable_latest_metadata_document(
+  channel:,
+  alias_path: false,
+  published_at: Time.now.utc.iso8601
+)
   JSON.pretty_generate(
     direct_release_metadata_payload(
       release_available: false,
-      channel: direct_deploy_channel,
+      channel: channel,
+      alias_path: alias_path,
       published_at: published_at
     )
   )
@@ -637,6 +648,208 @@ def upload_direct_apk_artifacts(apk_path)
   end
 end
 
+def safely_replace_remote_metadata!(targets)
+  recover_interrupted_remote_metadata!(targets)
+
+  staged_remote_paths = []
+  begin
+    targets.each do |target|
+      staged_remote_path = "#{target.fetch(:remote)}.next"
+      staged_remote_paths << staged_remote_path
+      sh(
+        "scp",
+        target.fetch(:source),
+        "#{APK_DIRECT_SSH_HOST}:#{staged_remote_path}"
+      )
+    end
+  rescue StandardError => upload_error
+    begin
+      sh(
+        "ssh",
+        APK_DIRECT_SSH_HOST,
+        "rm -f #{staged_remote_paths.map { |path| Shellwords.escape(path) }.join(' ')}"
+      )
+    rescue StandardError => cleanup_error
+      UI.important(
+        "Failed to clean staged withdrawal metadata: #{cleanup_error.message}"
+      )
+    end
+    raise upload_error
+  end
+
+  prepare_script = targets.map do |target|
+    remote_path = Shellwords.escape(target.fetch(:remote))
+    <<~SH
+      if [ -f #{remote_path} ]; then
+        cp #{remote_path} #{remote_path}.previous
+      else
+        : > #{remote_path}.missing
+      fi
+    SH
+  end.join
+  replace_script = targets.map do |target|
+    remote_path = Shellwords.escape(target.fetch(:remote))
+    "mv #{remote_path}.next #{remote_path}\n"
+  end.join
+  rollback_script = targets.map do |target|
+    remote_path = Shellwords.escape(target.fetch(:remote))
+    <<~SH
+      if [ -f #{remote_path}.missing ]; then
+        rm -f #{remote_path}
+      elif [ -f #{remote_path}.previous ]; then
+        mv #{remote_path}.previous #{remote_path}
+      fi
+    SH
+  end.join
+  cleanup_paths = targets.flat_map do |target|
+    remote_path = target.fetch(:remote)
+    ["#{remote_path}.next", "#{remote_path}.previous", "#{remote_path}.missing"]
+  end.map { |path| Shellwords.escape(path) }.join(" ")
+
+  remote_script = <<~SH
+    set -eu
+    rollback() {
+      trap - EXIT HUP INT TERM
+      #{rollback_script}
+      rm -f #{cleanup_paths}
+    }
+    trap 'rollback' EXIT HUP INT TERM
+    #{prepare_script}
+    #{replace_script}
+    trap - EXIT HUP INT TERM
+    rm -f #{cleanup_paths}
+  SH
+
+  run_direct_remote_shell!(remote_script)
+end
+
+def recover_interrupted_remote_metadata!(targets)
+  recovery_script = targets.map do |target|
+    remote_path = Shellwords.escape(target.fetch(:remote))
+    <<~SH
+      if [ -f #{remote_path}.missing ]; then
+        rm -f #{remote_path}
+      elif [ -f #{remote_path}.previous ]; then
+        mv #{remote_path}.previous #{remote_path}
+      fi
+      rm -f #{remote_path}.next #{remote_path}.previous #{remote_path}.missing
+    SH
+  end.join
+
+  run_direct_remote_shell!("set -eu\n#{recovery_script}")
+end
+
+def run_direct_remote_shell!(script)
+  sh(
+    "ssh",
+    APK_DIRECT_SSH_HOST,
+    Shellwords.join(["sh", "-eu", "-c", script])
+  )
+end
+
+def direct_withdraw_versions
+  versions = ENV.fetch("SECPAL_ANDROID_WITHDRAW_VERSIONS", "")
+    .split(",")
+    .map(&:strip)
+    .reject(&:empty?)
+    .uniq
+
+  versions.each do |version|
+    unless version.match?(/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/)
+      UI.user_error!(
+        "Invalid direct APK withdrawal version '#{version}'."
+      )
+    end
+  end
+
+  versions
+end
+
+def ensure_non_public_withdrawal_root!
+  public_root = File.expand_path(APK_DIRECT_ROOT)
+  withdrawal_root = File.expand_path(APK_DIRECT_WITHDRAWAL_ROOT)
+  if withdrawal_root == public_root ||
+      withdrawal_root.start_with?("#{public_root}/")
+    raise(
+      "Android withdrawal quarantine must be outside the public artifact root."
+    )
+  end
+end
+
+def quarantine_direct_apk_artifacts!(published_at:)
+  remote_android_root = "#{APK_DIRECT_ROOT}/android"
+  withdrawal_id = published_at.gsub(/[^A-Za-z0-9._-]+/, "-")
+  quarantine_root = "#{APK_DIRECT_WITHDRAWAL_ROOT}/#{withdrawal_id}"
+  public_paths = [
+    "#{remote_android_root}/stable/app.secpal-latest.apk",
+    "#{remote_android_root}/stable/SHA256SUMS.txt",
+    "#{remote_android_root}/app.secpal-latest.apk",
+    "#{remote_android_root}/SHA256SUMS.txt",
+    "#{remote_android_root}/SHA256SUMS.versioned.txt",
+    "#{remote_android_root}/beta/app.secpal-latest.apk",
+    "#{remote_android_root}/beta/SHA256SUMS.txt"
+  ]
+  direct_withdraw_versions.each do |version|
+    public_paths << "#{remote_android_root}/releases/#{version}"
+  end
+
+  quarantine_script = public_paths.map do |public_path|
+    relative_path = public_path.delete_prefix("#{APK_DIRECT_ROOT}/")
+    quarantine_path = "#{quarantine_root}/#{relative_path}"
+    <<~SH
+      if [ -e #{Shellwords.escape(public_path)} ]; then
+        mkdir -p #{Shellwords.escape(File.dirname(quarantine_path))}
+        mv #{Shellwords.escape(public_path)} #{Shellwords.escape(quarantine_path)}
+      fi
+    SH
+  end.join
+
+  run_direct_remote_shell!("set -eu\n#{quarantine_script}")
+end
+
+def withdraw_direct_apk_channels!
+  ensure_non_public_withdrawal_root!
+
+  published_at = Time.now.utc.iso8601
+  remote_android_root = "#{APK_DIRECT_ROOT}/android"
+
+  Dir.mktmpdir("secpal-direct-apk-withdrawal") do |tmpdir|
+    targets = APK_DIRECT_CHANNELS.flat_map do |channel|
+      channel_targets = [
+        {
+          source: write_file(
+            File.join(tmpdir, "#{channel}-latest.json"),
+            direct_unavailable_latest_metadata_document(
+              channel: channel,
+              published_at: published_at
+            )
+          ),
+          remote: "#{remote_android_root}/#{channel}/latest.json"
+        }
+      ]
+
+      if stable_direct_channel?(channel)
+        channel_targets << {
+          source: write_file(
+            File.join(tmpdir, "stable-alias-latest.json"),
+            direct_unavailable_latest_metadata_document(
+              channel: channel,
+              alias_path: true,
+              published_at: published_at
+            )
+          ),
+          remote: "#{remote_android_root}/latest.json"
+        }
+      end
+
+      channel_targets
+    end
+
+    safely_replace_remote_metadata!(targets)
+    quarantine_direct_apk_artifacts!(published_at: published_at)
+  end
+end
+
 platform :android do
   desc "Build the signed SecPal release APK with the local upload key"
   lane :build_signed_apk do
@@ -709,5 +922,10 @@ platform :android do
     build_signed_apk
     upload_direct_apk_artifacts(signed_apk_path)
     persist_configured_release_version_code!(version_code)
+  end
+
+  desc "Mark Stable, its aliases, and Beta direct APK releases unavailable"
+  lane :withdraw_direct_apks do
+    withdraw_direct_apk_channels!
   end
 end

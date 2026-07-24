@@ -68,6 +68,7 @@
     "fastlane:android:deploy:direct-apk": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk",
     "fastlane:android:deploy:direct-apk:beta": "SECPAL_ANDROID_DIRECT_CHANNEL=beta bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk",
     "fastlane:android:deploy:beta-apk": "bash ./scripts/load-android-release-env.sh bundle exec fastlane android deploy_direct_apk_beta",
+    "fastlane:android:withdraw:direct-apks": "bundle exec fastlane android withdraw_direct_apks",
     "postinstall": "npm run native:patch:capacitor-android"
   },
   "dependencies": {
