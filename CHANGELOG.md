@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Updated the transitive `brace-expansion` and `js-yaml` overrides to the
+  compatible patched `^5.0.8` and `^5.2.2` release lines, resolving
+  `GHSA-mh99-v99m-4gvg` and `GHSA-pm4m-ph32-ghv5`, and added a CI audit that
+  blocks future high-severity npm advisories (issue #441).
 - Updated the Vite/Vitest `postcss` override to the compatible patched
   `^8.5.15` release line, resolving the source-map disclosure advisories
   `GHSA-6g55-p6wh-862q` and `GHSA-r28c-9q8g-f849` (issue #439).
@@ -51,13 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native update screen without a WebView or network capability instead (issue
   #407). That compatibility screen now reapplies managed-device lock-task
   policy and preserves screenshot protection.
-- Constrained transitive `brace-expansion` and `tar` dependencies to compatible
-  release lines starting at their patched versions, including the
-  `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving
-  to `brace-expansion@5.0.7` and `tar@7.5.21`,
-  which resolve their published denial-of-service vulnerabilities,
-  superseding the earlier `brace-expansion@5.0.6` lockfile remediation tracked
-  in issue `#258`.
+- Constrained transitive `tar` dependencies to a compatible release line
+  starting at the `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw` and
+  currently resolving to `tar@7.5.21`. The earlier
+  `brace-expansion@5.0.6`/`5.0.7` remediations tracked in issue `#258` are
+  superseded by the issue `#441` remediation above.
 - Removed Capacitor's `addJavascriptInterface()` fallback for unavailable or failed origin-aware bridge listeners, removed retained direct legacy plugin interfaces, preserved SystemBars initialization through the native page lifecycle, and added source-drift tests that fail if an upgrade restores the insecure bridge path (issue #414, part of #407).
 - Added regression coverage that keeps domain-policy storage-key exemptions
   fail-closed when browser-global aliases, storage constructors or prototypes,
