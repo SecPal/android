@@ -6,10 +6,13 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.view.View;
 import android.widget.GridLayout;
 import android.widget.TextView;
@@ -21,6 +24,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.shadows.ShadowActivity;
 
@@ -32,6 +36,37 @@ public final class DedicatedDeviceHomeActivityTest {
     @After
     public void tearDown() {
         DedicatedDeviceHomeActivity.resetDependencies();
+    }
+
+    @Test
+    public void onCreate_clearsRetiredEnrollmentStateForDedicatedHomeLaunch() {
+        Context context = RuntimeEnvironment.getApplication();
+        SharedPreferences authPreferences = context.getSharedPreferences(
+            SecPalNativeAuthPlugin.NATIVE_AUTH_PREFERENCES_NAME,
+            Context.MODE_PRIVATE
+        );
+        SharedPreferences enterprisePreferences = context.getSharedPreferences(
+            EnterprisePolicyController.ENTERPRISE_PREFS,
+            Context.MODE_PRIVATE
+        );
+
+        authPreferences.edit()
+            .putString("bootstrap_token_ciphertext", "encrypted-token")
+            .putString("bootstrap_token_iv", "initialization-vector")
+            .commit();
+        enterprisePreferences.edit()
+            .putString("bootstrap_status", "pending")
+            .commit();
+
+        try (ActivityController<DedicatedDeviceHomeActivity> controller =
+            Robolectric.buildActivity(DedicatedDeviceHomeActivity.class).create()) {
+            assertFalse(authPreferences.contains("bootstrap_token_ciphertext"));
+            assertFalse(authPreferences.contains("bootstrap_token_iv"));
+            assertFalse(enterprisePreferences.contains("bootstrap_status"));
+        } finally {
+            authPreferences.edit().clear().commit();
+            enterprisePreferences.edit().clear().commit();
+        }
     }
 
     @Test

@@ -45,12 +45,35 @@ vi.mock("@capacitor/core", () => ({
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
 describe("capacitor Android wrapper configuration", () => {
-  it("reuses the sibling frontend build as the only web source", () => {
-    const webDir = config.webDir;
+  it("reuses the sibling frontend build as the only web source", async () => {
+    vi.stubEnv("SECPAL_ANDROID_FRONTEND_DIR", "");
+    vi.resetModules();
 
-    expect(webDir).toBe("../frontend/dist");
-    expect(webDir).toBeDefined();
-    expect(webDir?.startsWith("../frontend/")).toBe(true);
+    try {
+      const { default: defaultConfig } = await import("../capacitor.config");
+      const webDir = defaultConfig.webDir;
+
+      expect(webDir).toBe("../frontend/dist");
+      expect(webDir).toBeDefined();
+      expect(webDir?.startsWith("../frontend/")).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("uses the linked frontend build as the web source when overridden", async () => {
+    vi.stubEnv("SECPAL_ANDROID_FRONTEND_DIR", "/linked-workspaces/frontend");
+    vi.resetModules();
+
+    try {
+      const { default: overriddenConfig } = await import("../capacitor.config");
+
+      expect(overriddenConfig.webDir).toBe("/linked-workspaces/frontend/dist");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it("keeps a committed native Android project alongside the wrapper", () => {

@@ -12,34 +12,19 @@ import android.os.Build;
 
 import androidx.core.content.pm.PackageInfoCompat;
 
-final class ProvisioningBootstrapRuntimeInfo {
-    private final String packageName;
+final class AndroidRuntimeInfo {
     private final String packageVersionName;
     private final long packageVersionCode;
-    private final String deviceName;
-    private final String deviceManufacturer;
-    private final String deviceModel;
-    private final String androidVersion;
 
-    ProvisioningBootstrapRuntimeInfo(
-        String packageName,
+    AndroidRuntimeInfo(
         String packageVersionName,
-        long packageVersionCode,
-        String deviceName,
-        String deviceManufacturer,
-        String deviceModel,
-        String androidVersion
+        long packageVersionCode
     ) {
-        this.packageName = normalize(packageName);
         this.packageVersionName = normalize(packageVersionName);
         this.packageVersionCode = packageVersionCode;
-        this.deviceName = normalize(deviceName);
-        this.deviceManufacturer = normalize(deviceManufacturer);
-        this.deviceModel = normalize(deviceModel);
-        this.androidVersion = normalize(androidVersion);
     }
 
-    static ProvisioningBootstrapRuntimeInfo fromContext(Context context) {
+    static AndroidRuntimeInfo fromContext(Context context) {
         String packageName = context.getPackageName();
         String versionName = null;
         long versionCode = 0;
@@ -60,22 +45,13 @@ final class ProvisioningBootstrapRuntimeInfo {
             versionName = packageInfo.versionName;
             versionCode = PackageInfoCompat.getLongVersionCode(packageInfo);
         } catch (PackageManager.NameNotFoundException ignored) {
-            // Fall back to package name only when package metadata is unavailable.
+            // Keep empty version metadata when package metadata is unavailable.
         }
 
-        return new ProvisioningBootstrapRuntimeInfo(
-            packageName,
+        return new AndroidRuntimeInfo(
             versionName,
-            versionCode,
-            NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL),
-            Build.MANUFACTURER,
-            Build.MODEL,
-            Build.VERSION.RELEASE
+            versionCode
         );
-    }
-
-    String getPackageName() {
-        return packageName;
     }
 
     String getPackageVersionName() {
@@ -84,22 +60,6 @@ final class ProvisioningBootstrapRuntimeInfo {
 
     long getPackageVersionCode() {
         return packageVersionCode;
-    }
-
-    String getDeviceName() {
-        return deviceName;
-    }
-
-    String getDeviceManufacturer() {
-        return deviceManufacturer;
-    }
-
-    String getDeviceModel() {
-        return deviceModel;
-    }
-
-    String getAndroidVersion() {
-        return androidVersion;
     }
 
     private static String normalize(String value) {

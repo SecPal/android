@@ -11,16 +11,12 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.PersistableBundle;
-import android.util.Log;
 
 public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
-    private static final String LOG_TAG = "SecPalDeviceAdmin";
-
     @Override
     public void onEnabled(Context context, Intent intent) {
         PersistableBundle adminExtras = EnterprisePolicyController.extractProvisioningAdminExtras(intent);
 
-        persistBootstrapExtras(context, adminExtras);
         EnterprisePolicyController.persistProvisioningConfig(context, adminExtras);
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(context);
 
@@ -51,7 +47,6 @@ public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
     public void onProfileProvisioningComplete(Context context, Intent intent) {
         PersistableBundle adminExtras = EnterprisePolicyController.extractProvisioningAdminExtras(intent);
 
-        persistBootstrapExtras(context, adminExtras);
         EnterprisePolicyController.persistProvisioningConfig(context, adminExtras);
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(context);
 
@@ -75,17 +70,4 @@ public class SecPalDeviceAdminReceiver extends DeviceAdminReceiver {
         context.startActivity(launchIntent);
     }
 
-    private void persistBootstrapExtras(Context context, PersistableBundle adminExtras) {
-        ProvisioningBootstrapStore bootstrapStore = ProvisioningBootstrapStore.fromContext(context);
-
-        try {
-            bootstrapStore.persistProvisioningExtras(adminExtras);
-        } catch (TokenStorageException | RuntimeException exception) {
-            Log.w(LOG_TAG, "Failed to persist bootstrap provisioning extras", exception);
-            bootstrapStore.markExchangeFailure(
-                ProvisioningBootstrapCoordinator.TOKEN_STORAGE_ERROR_CODE,
-                true
-            );
-        }
-    }
 }

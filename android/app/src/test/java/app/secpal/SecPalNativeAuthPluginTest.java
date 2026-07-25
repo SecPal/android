@@ -150,18 +150,16 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put("features", new JSONObject().put("passwordLoginEnabled", true))
         );
 
         assertEquals("https://tenant-a.example", normalized.getString("apiOrigin"));
         assertEquals("https://tenant-a.example/v1", normalized.getString("rawApiBaseUrl"));
+        assertFalse(normalized.has("minimumSupportedAppVersion"));
+        assertFalse(normalized.has("minimumSupportedAppBuild"));
         assertTrue(normalized.getJSONObject("features").getBoolean("passwordLoginEnabled"));
         assertFalse(normalized.getJSONObject("features").getBoolean("passkeyLoginEnabled"));
-        assertFalse(
-            normalized.getJSONObject("features").getBoolean("managedAndroidEnrollment")
-        );
+        assertFalse(normalized.getJSONObject("features").has("managedAndroidEnrollment"));
     }
 
     @Test
@@ -170,8 +168,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put(
                     "androidPush",
                     new JSONObject()
@@ -210,8 +206,6 @@ public class SecPalNativeAuthPluginTest {
                 new JSONObject()
                     .put("instanceDisplayName", "Tenant A")
                     .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                    .put("minimumSupportedAppVersion", "0.0.1")
-                    .put("minimumSupportedAppBuild", 1)
                     .put(
                         "androidPush",
                         new JSONObject()
@@ -244,8 +238,6 @@ public class SecPalNativeAuthPluginTest {
                 new JSONObject()
                     .put("instanceDisplayName", "Tenant A")
                     .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                    .put("minimumSupportedAppVersion", "0.0.1")
-                    .put("minimumSupportedAppBuild", 1)
                     .put(
                         "androidPush",
                         new JSONObject()
@@ -277,8 +269,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
         );
 
         JSObject payload = SecPalNativeAuthPlugin.buildRuntimeBootstrapPayload(bootstrap);
@@ -321,8 +311,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
         );
         preferences.edit()
             .putString("runtime_bootstrap", stored.toString())
@@ -333,6 +321,31 @@ public class SecPalNativeAuthPluginTest {
         assertNotNull(result);
         assertEquals("https://tenant-a.example", result.getString("apiOrigin"));
         assertEquals("Tenant A", result.getString("instanceDisplayName"));
+    }
+
+    @Test
+    public void loadPersistedRuntimeBootstrapDiscardsObsoleteSchemaMarkers() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        JSONObject stored = new JSONObject()
+            .put("instanceDisplayName", "Tenant A")
+            .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+            .put("minimumSupportedAppVersion", "0.0.1")
+            .put("minimumSupportedAppBuild", 1)
+            .put("schemaVersion", 3)
+            .put("schema_version", 3);
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .commit();
+
+        JSObject result = SecPalNativeAuthPlugin.loadPersistedRuntimeBootstrap(preferences);
+
+        assertNotNull(result);
+        assertEquals("https://tenant-a.example", result.getString("apiOrigin"));
+        assertEquals("Tenant A", result.getString("instanceDisplayName"));
+        assertFalse(result.has("schemaVersion"));
+        assertFalse(result.has("schema_version"));
+        assertFalse(result.has("minimumSupportedAppVersion"));
+        assertFalse(result.has("minimumSupportedAppBuild"));
     }
 
     @Test
@@ -385,8 +398,6 @@ public class SecPalNativeAuthPluginTest {
             new JSONObject()
                 .put("instanceDisplayName", "Tenant A")
                 .put("rawApiBaseUrl", "https://tenant-a.example/v1")
-                .put("minimumSupportedAppVersion", "0.0.1")
-                .put("minimumSupportedAppBuild", 1)
                 .put(
                     "androidPush",
                     new JSONObject()
@@ -538,7 +549,6 @@ public class SecPalNativeAuthPluginTest {
     public void clearRuntimeBootstrapStateRemovesTenantScopedRuntimeData() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
-        final boolean[] provisioningStateCleared = { false };
 
         preferences.edit()
             .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
@@ -550,8 +560,7 @@ public class SecPalNativeAuthPluginTest {
         assertTrue(
             SecPalNativeAuthPlugin.clearRuntimeBootstrapState(
                 preferences,
-                tokenStorage,
-                () -> provisioningStateCleared[0] = true
+                tokenStorage
             )
         );
 
@@ -559,14 +568,12 @@ public class SecPalNativeAuthPluginTest {
         assertNull(preferences.getString("api_base_url", null));
         assertEquals("value", preferences.getString("keep_me", null));
         assertNull(tokenStorage.token);
-        assertTrue(provisioningStateCleared[0]);
     }
 
     @Test
     public void clearRuntimeBootstrapStatePreservesRuntimeDataWhenCommitFails() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
-        final boolean[] provisioningStateCleared = { false };
 
         preferences.edit()
             .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
@@ -578,8 +585,7 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(
             SecPalNativeAuthPlugin.clearRuntimeBootstrapState(
                 preferences,
-                tokenStorage,
-                () -> provisioningStateCleared[0] = true
+                tokenStorage
             )
         );
 
@@ -592,10 +598,6 @@ public class SecPalNativeAuthPluginTest {
             "Token must be preserved when preferences commit() fails so native state stays consistent.",
             "tenant-a-token",
             tokenStorage.token
-        );
-        assertFalse(
-            "Provisioning state must not be cleared when preferences commit() fails.",
-            provisioningStateCleared[0]
         );
         assertEquals(
             "Async apply() must not silently retry after a failed commit() that already rejected the caller.",

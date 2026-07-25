@@ -9,9 +9,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import org.json.JSONObject;
 import org.junit.Test;
 
@@ -150,78 +147,6 @@ public class NativeAuthHttpClientTest {
             "Public passkey challenges must remain discoverable-only without an email field",
             body.has("email")
         );
-    }
-
-    @Test
-    public void buildBootstrapExchangeRequestBodyPreservesLongPackageVersionCode() throws Exception {
-        JSONObject body = NativeAuthHttpClient.buildBootstrapExchangeRequestBody(
-            "bootstrap-token-123",
-            new ProvisioningBootstrapRuntimeInfo(
-                "app.secpal",
-                "2147483648.0",
-                2147483648L,
-                "SM-G556B reception tablet",
-                "samsung",
-                "SM-G556B",
-                "16"
-            )
-        );
-
-        assertEquals(2147483648L, body.getLong("package_version_code"));
-    }
-
-    @Test
-    public void parseBootstrapExchangeResponseMapsMetadataAndProvisioningProfile() throws Exception {
-        Map<String, Object> provisioningProfile = new HashMap<>();
-
-        provisioningProfile.put("secpal_kiosk_mode_enabled", true);
-        provisioningProfile.put("secpal_lock_task_enabled", true);
-        provisioningProfile.put("secpal_allowed_packages", new Object[] { "app.secpal", "com.android.chrome" });
-
-        Map<String, Object> response = new HashMap<>();
-
-        response.put("enrollment_session_id", "session-123");
-        response.put("tenant_id", 7);
-        response.put("tenant_name", "Tenant 7");
-        response.put("api_base_url", "https://api.secpal.dev/v1");
-        response.put(
-            "release_metadata_url",
-            "https://apk.secpal.app/android/latest.json"
-        );
-        response.put("provisioning_profile", provisioningProfile);
-
-        ProvisioningBootstrapExchangeResult result =
-            NativeAuthHttpClient.parseBootstrapExchangePayload(response);
-
-        assertEquals("session-123", result.getEnrollmentSessionId());
-        assertEquals(7, result.getTenantId());
-        assertEquals("Tenant 7", result.getTenantName());
-        assertEquals("https://api.secpal.dev/v1", result.getApiBaseUrl());
-        assertEquals(null, result.getUpdateChannel());
-        assertEquals(
-            "https://apk.secpal.app/android/latest.json",
-            result.getReleaseMetadataUrl()
-        );
-        assertTrue((Boolean) result.getProvisioningProfile().get("secpal_kiosk_mode_enabled"));
-        assertEquals(
-            "com.android.chrome",
-            ((Object[]) result.getProvisioningProfile().get("secpal_allowed_packages"))[1]
-        );
-    }
-
-    @Test
-    public void parseBootstrapExchangeResponseDefaultsTenantIdToZeroWhenAbsent() {
-        Map<String, Object> response = new HashMap<>();
-
-        response.put("enrollment_session_id", "session-456");
-        response.put("tenant_name", "Fallback Tenant");
-        response.put("api_base_url", "https://api.secpal.dev/v1");
-
-        ProvisioningBootstrapExchangeResult result =
-            NativeAuthHttpClient.parseBootstrapExchangePayload(response);
-
-        assertEquals(0, result.getTenantId());
-        assertEquals("session-456", result.getEnrollmentSessionId());
     }
 
     private void assertErrorMessage(String expected, String baseUrl) {

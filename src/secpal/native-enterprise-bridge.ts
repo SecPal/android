@@ -5,16 +5,6 @@
 
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
-export type EnterpriseBootstrapStatus =
-  "none" | "pending" | "completed" | "failed";
-
-export interface EnterpriseDistributionState {
-  bootstrapStatus: EnterpriseBootstrapStatus;
-  updateChannel: string | null;
-  releaseMetadataUrl: string | null;
-  bootstrapLastErrorCode: string | null;
-}
-
 export interface EnterpriseAllowedApp {
   packageName: string;
   label: string;
@@ -31,7 +21,6 @@ export interface EnterpriseManagedState {
   gestureNavigationSettingsAvailable: boolean;
   allowPhone: boolean;
   allowSms: boolean;
-  distributionState: EnterpriseDistributionState;
   allowedApps: EnterpriseAllowedApp[];
 }
 

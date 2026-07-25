@@ -339,9 +339,7 @@ describe("Android native hardening", () => {
     expect(mainActivity).toMatch(
       /super\.onCreate\(savedInstanceState\);\s+if \(!secureBridgeStarted\) \{[\s\S]*?openWebViewCompatibilityScreen\(\);[\s\S]*?return;/
     );
-    expect(mainActivity).toMatch(
-      /private void scheduleProvisioningBootstrapSync\(\) \{\s+if \(!secureBridgeStarted\) \{\s+return;/
-    );
+    expect(mainActivity).not.toContain("scheduleProvisioningBootstrapSync");
     expect(
       mainActivity.indexOf("SecureWebViewBridgeSupport.isAvailable")
     ).toBeLessThan(
@@ -405,20 +403,6 @@ describe("Android native hardening", () => {
     expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe("0.8.13");
     expect(packageLock.packages?.["node_modules/@xmldom/xmldom"]?.version).toBe(
       "0.8.13"
-    );
-  });
-
-  it("pins a patched postcss version for the Vite toolchain", () => {
-    const packageJson = JSON.parse(readRepoFile("package.json")) as {
-      overrides?: Record<string, unknown>;
-    };
-    const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
-      packages?: Record<string, { version?: string }>;
-    };
-
-    expect(packageJson.overrides?.postcss).toBe("8.5.10");
-    expect(packageLock.packages?.["node_modules/postcss"]?.version).toBe(
-      "8.5.10"
     );
   });
 
@@ -619,7 +603,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("keeps provisioning bootstrap on the canonical API origin", () => {
+  it("removes retired enrollment bootstrap state without changing runtime bootstrap", () => {
     const stringsXml = readRepoFile(
       "android",
       "app",
@@ -629,7 +613,12 @@ describe("Android native hardening", () => {
       "values",
       "strings.xml"
     );
-    const coordinator = readRepoFile(
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(stringsXml).not.toContain("provisioning_bootstrap_api_base_url");
+
+    const nativeAuthClient = readRepoFile(
       "android",
       "app",
       "src",
@@ -637,19 +626,90 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "ProvisioningBootstrapCoordinator.java"
+      "NativeAuthHttpClient.java"
+    );
+    const tokenStorage = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "KeystoreTokenStorage.java"
+    );
+    const enterprisePlugin = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalEnterprisePlugin.java"
+    );
+    const deviceAdminReceiver = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalDeviceAdminReceiver.java"
     );
 
-    expect(stringsXml).toContain(
-      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    expect(nativeAuthClient).not.toContain("/v1/android/bootstrap/exchange");
+    expect(nativeAuthClient).not.toContain("toJavaMap");
+    expect(nativeAuthClient).not.toContain("toJavaValue");
+    expect(nativeAuthClient).not.toContain("mapValue");
+    expect(tokenStorage).not.toContain("keyPrefix");
+    expect(enterprisePlugin).not.toContain("distributionState");
+    expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
+  });
+
+  it("uses only the canonical bootstrap schema for Android push registration", () => {
+    const bridgeScript = readRepoFile(
+      "scripts",
+      "inject-native-auth-bridge.mjs"
     );
-    expect(stringsXml).toContain(
-      '<string name="provisioning_bootstrap_api_base_url">https://api.secpal.dev</string>'
+
+    expect(bridgeScript).toContain("const currentBootstrapSchemaVersion = 4;");
+    expect(
+      bridgeScript.match(/const currentBootstrapSchemaVersion = 4;/g)
+    ).toHaveLength(1);
+    expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
+  });
+
+  it("documents the schema-4-only runtime contract without rollout gates", () => {
+    const runtimeContract = readRepoFile(
+      "docs",
+      "ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md"
     );
-    expect(coordinator).toContain(
-      "R.string.provisioning_bootstrap_api_base_url"
+    expect(runtimeContract).toContain("requires strict integer schema `4`");
+    expect(runtimeContract).toContain(
+      "Stable and Beta artifacts must embed the canonical schema-4 bridge"
     );
-    expect(coordinator).not.toContain("R.string.api_base_url");
+    expect(runtimeContract).toMatch(
+      /must not\s+remain available as an Android release/
+    );
+    expect(runtimeContract).not.toMatch(/schemas?(?: versions?)? `3`/i);
+    expect(runtimeContract).not.toMatch(
+      /Schema 4 Rollout|rollout window|support floor|first compatible Android release/i
+    );
+    expect(runtimeContract).not.toMatch(/\bfallback\b/i);
+    expect(
+      [
+        runtimeContract,
+        readRepoFile("docs/ANDROID_RELEASE_DISTRIBUTION.md"),
+        readRepoFile("scripts/inject-native-auth-bridge.mjs"),
+        readRepoFile(
+          "android/app/src/main/java/app/secpal/SecPalNativeAuthPlugin.java"
+        ),
+      ].join("\n")
+    ).not.toMatch(
+      /minimumSupportedAppVersion|minimumSupportedAppBuild|minimum_supported_app_version|minimum_supported_app_build/
+    );
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {
@@ -854,6 +914,11 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RELEASE_DISTRIBUTION.md"
     );
+    const schema3WithdrawalEvidence = readRepoFile(
+      "docs",
+      "release-evidence",
+      "2026-07-24-schema-3-artifact-withdrawal.md"
+    );
     const fastfile = readRepoFile("fastlane", "Fastfile");
     const releaseEnvLoader = readRepoFile(
       "scripts",
@@ -869,6 +934,12 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["fastlane:install"]).toContain("bundle install");
     expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
       "./gradlew assembleStoreListing"
+    );
+    expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
+    );
+    expect(packageJson.scripts["native:bundle:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
     );
     expect(packageJson.scripts["fastlane:android:build:signed-aab"]).toContain(
       "bundle exec fastlane android build_signed_aab"
@@ -888,6 +959,9 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["fastlane:android:deploy:beta-apk"]).toContain(
       "bundle exec fastlane android deploy_direct_apk_beta"
     );
+    expect(
+      packageJson.scripts["fastlane:android:withdraw:direct-apks"]
+    ).toBeUndefined();
     expect(readme).toContain("Fastlane");
     expect(readme).toContain("npm run fastlane:android:build:signed-aab");
     expect(readme).toContain("npm run fastlane:android:deploy:internal");
@@ -895,19 +969,43 @@ describe("Android native hardening", () => {
     expect(readme).toContain("apk.secpal.app");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(readme).not.toContain(
+      "npm run fastlane:android:withdraw:direct-apks"
+    );
+    expect(readme).not.toContain("SECPAL_ANDROID_WITHDRAW_VERSIONS");
+    expect(readme).not.toContain("atomically marks Stable");
     expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
     expect(readme).toContain(
       "https://apk.secpal.app/android/stable/latest.json"
     );
     expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
+    expect(readme).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
+    );
     expect(distributionDoc).toContain("Fastlane");
     expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("internal testing track");
     expect(distributionDoc).toContain("apk.secpal.app");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(distributionDoc).not.toContain(
+      "fastlane android withdraw_direct_apks"
+    );
+    expect(distributionDoc).not.toContain(
+      "SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT"
+    );
+    expect(distributionDoc).not.toContain("atomically changes the Stable");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932118");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932119");
+    expect(schema3WithdrawalEvidence).toContain("HTTP `404`");
+    expect(schema3WithdrawalEvidence).toContain(
+      "No recoverable schema-3 artifact remains on the server"
+    );
     expect(distributionDoc).toContain(
       "https://apk.secpal.app/android/beta/latest.json"
+    );
+    expect(distributionDoc).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
     );
     expect(fastfile).toContain('File.expand_path("..", __dir__)');
     expect(fastfile).toContain("deploy_direct_apk");
@@ -925,7 +1023,14 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("app_signing_certificate_sha256");
     expect(fastfile).toContain("signing_key_shared_with_google_play");
     expect(fastfile).toContain("versioned_checksum_url");
-    expect(fastfile).toContain("release_available: false");
+    expect(fastfile).not.toContain("release_available: false");
+    expect(fastfile).toContain("def verify_android_runtime_schema_artifact!");
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_apk_path)"
+    );
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_aab_path)"
+    );
     expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
     expect(fastfile).toContain("next_deploy_version_code");
     expect(fastfile).toContain("configured_release_version_code");

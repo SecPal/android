@@ -14,10 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the `SECPAL_ANDROID_FRONTEND_DIR` override for frontend builds so
+  linked workspaces can use a frontend checkout outside the conventional
+  `SecPal/{frontend,android}` layout (issue #445).
 - Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.
 
 ### Changed
 
+- Corrected the direct-download release state by publishing non-downloadable unavailable metadata for Stable, the Stable aliases, and Beta and permanently deleting the affected schema-3 Latest, checksum, and versioned-release files. The completed one-time withdrawal machinery is not retained; future Stable/Beta publications remain serialized by the shared remote lock, restore the exact prior APK/checksum presence after an interrupted replacement, reject reuse of the retired schema-3 version codes from a tracked floor, and must pass the signed schema-4 artifact guard (issue `#434`, part of `SecPal/.github#590`).
+- Enforced schema `4` as the only Android runtime-bootstrap contract: shared frontend discovery requires strict integer schema `4`, the injected bridge always emits integer schema `4` for notification registration after fresh setup or native restoration, persisted schema and minimum-version/build markers cannot override or gate that value, and signed APK/AAB builds fail before upload unless the artifact-type-specific WebView index contains exactly one canonical, executable schema-4 registration path; artifact inspection independently parses the bridge schema constant and registration assignment, rejects missing, duplicate, conflicting, commented, or non-canonical paths and tags, reports corrupt archives accurately, preserves archive-fixture process failures, and removes the superseded compatibility wording without changing authentication, push lifecycle, or Device Owner/profile-owner behavior (issue `#432`, part of `SecPal/.github#590`).
+- Removed the retired frontend-issued Android enrollment bootstrap exchange, its persisted state, enterprise bridge payload, token-prefix storage abstraction, parsing helpers, and obsolete `managedAndroidEnrollment` runtime-bootstrap compatibility flag; both regular and dedicated-home app startup now delete any encrypted token and derived enrollment state left by an older installation without reading it, Android push registration uses bootstrap schema `4`, and independent Device Owner/profile-owner policy and Stable/Beta distribution behavior remain unchanged.
 - Domain-policy storage-key exemptions now use fail-closed candidate and per-reference fixpoint proofs for initialized keys and reachable, zero-argument named helpers, dynamically count at most eight aggregate live helper execution paths through their target storage statements and prefixes, ignore erased type references and proven dormant declarations, closures, constructors, methods, accessors, or instance initializers without hiding live computed names or static initialization, and reject unproven prefixes, longer paths, exports, asynchronous or parameterized helpers, generators, decorators, optional calls, deferred calls, and escaped flows.
 - Replaced regex-only browser-storage key exemptions in domain-policy validation with a fail-closed TypeScript syntax-tree whitelist for straight-line top-level calls and single-variable declarations, including passive declarations, classes, and directives, matching TypeScript literal annotations, erased type-only imports and exports, module-hoisted runtime dependency checks, scoped setup hazards, unrelated and repeated direct storage calls, lexical context, scope, shadowing, exact call arity, complete literal initializers, TypeScript wrappers, template-use tracking, and rejection of aliases before use, runtime exports, indirect execution, concatenation, and dual use.
 - Upgraded the Android build toolchain to compile SDK 36 and Android Gradle Plugin 8.9.1, raised the minimum SDK to 24, and moved the native open-source notices UI to Google Play services OSS licenses 17.5.1 and its v2 activity.
@@ -46,19 +52,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and added fail-closed install/sync plus packaged-WebView regressions so
   Capacitor upgrades cannot silently restore the capabilities (issue #409,
   part of #402).
+- Updated the transitive `brace-expansion` and `js-yaml` overrides to the
+  compatible patched `^5.0.8` and `^5.2.2` release lines, resolving
+  `GHSA-mh99-v99m-4gvg` and `GHSA-pm4m-ph32-ghv5`, and added a CI audit that
+  blocks future high-severity npm advisories (issues #438, #441).
+- Updated the Vite/Vitest `postcss` override to the compatible patched
+  `^8.5.15` release line, resolving the source-map disclosure advisories
+  `GHSA-6g55-p6wh-862q` and `GHSA-r28c-9q8g-f849` (issue #439).
 - SecPal now requires Android System WebView or Chrome 83 or later with the
   AndroidX `WEB_MESSAGE_LISTENER` capability. If detection or secure listener
   installation fails, the Capacitor bridge is not created and the app shows a
   native update screen without a WebView or network capability instead (issue
   #407). That compatibility screen now reapplies managed-device lock-task
   policy and preserves screenshot protection.
-- Constrained transitive `brace-expansion` and `tar` dependencies to compatible
-  release lines starting at their patched versions, including the
-  `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving
-  to `brace-expansion@5.0.7` and `tar@7.5.21`,
-  which resolve their published denial-of-service vulnerabilities,
-  superseding the earlier `brace-expansion@5.0.6` lockfile remediation tracked
-  in issue `#258`.
+- Constrained transitive `tar` dependencies to a compatible release line
+  starting at the `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw` and
+  currently resolving to `tar@7.5.21`. The earlier
+  `brace-expansion@5.0.6`/`5.0.7` remediations tracked in issue `#258` are
+  superseded by the issue `#441` remediation above.
 - Removed Capacitor's `addJavascriptInterface()` fallback for unavailable or failed origin-aware bridge listeners, removed retained direct legacy plugin interfaces, preserved SystemBars initialization through the native page lifecycle, and added source-drift tests that fail if an upgrade restores the insecure bridge path (issue #414, part of #407).
 - Added regression coverage that keeps domain-policy storage-key exemptions
   fail-closed when browser-global aliases, storage constructors or prototypes,
@@ -77,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can synchronously reject a call, waited for destroyed WebViews to leave the
   UI queue between instrumentation cases, and aligned packaged-frontend bridge
   tests with Capacitor's harmless web-only JavaScript proxies.
+- Preserved the underlying process diagnostics when Android release archive fixtures cannot run `zip`, and distinguished `unzip` inspection failures from invalid AndroidX graphics-path library layouts (issue #435).
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
 - Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.
 - Domain-policy validation now accepts approved variable-backed browser-storage keys used inside error-handling `try` blocks, including the frontend asset
@@ -147,7 +159,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The destructive runtime-reset flow now still dispatches the browser `secpal:native-auth-logout` event when native logout succeeds but later reset teardown aborts, so the frontend can clear its own auth state even when persistence cleanup fails.
 - The injected Android native-auth bridge and the typed Capacitor bridge now dispatch a browser `secpal:native-auth-logout` event after successful native logout completion, allowing the frontend shell to clear persisted auth state and reroute protected WebView sessions back to `/login` immediately. The event is also dispatched from the destructive runtime reset path (`clearConfiguredRuntimeState`) so all logout code paths notify the frontend consistently.
 - Android push registration now uses the canonical authenticated `PUT`/`DELETE /v1/me/notification-installations/{installationId}` surface, sends the current channel-aware Android FCM payload shape (`channel`, `installation_name`, nested `registration`, and `runtime.metadata_revision`), rotates credentials with the canonical `credential_rotated` lifecycle event, and keeps the injected bridge regression suite aligned with the live SecPal contract from issue `#261`.
-- Android runtime bootstrap now accepts the current deployment `schema_version` 3 contract during instance discovery, keeps the injected bridge's confirmation flow aligned with the live `api.secpal.dev` bootstrap response, and sends the same schema version back on authenticated Android push-device registration payloads so the generic app no longer rejects the live SecPal instance as incompatible.
 - Android native auth bootstrap now normalizes retained push-token `savedAt` persistence to canonical whole-second UTC timestamps with a trailing `Z`, rewrites legacy numeric storage values during hydration, and adds focused Vitest coverage so Android-side timestamp serialization aligns with the canonical API timestamp policy for issue `#257`.
 - Android runtime bootstrap now consumes the canonical `features.notification_channels.android_fcm` and `notification_channels.android_fcm.public_runtime_metadata` contract, drops the injected bridge's last network fallback to legacy `android_push` bootstrap fields, clears the selected runtime plus tenant-scoped browser state when authenticated push registration reports `409 NOTIFICATION_RUNTIME_STATE_INVALID` or `409 NOTIFICATION_CHANNEL_UNSUPPORTED`, and adds focused Vitest coverage for issue `#252`.
 - Android push token retention now persists trusted runtime FCM tokens into logout-safe browser storage as soon as the canonical runtime origin is known, rehydrates `__SecPalAndroidPushSyncState.currentToken` after the `/` -> `/login` recovery reload, reconciles divergent trusted storage entries by the freshest persisted token, hardens the live WebView auth smoke to reject pre-existing auth or push-sync state that would mask the reroute path, and adds focused Vitest coverage for logout-cleared storage, early-token-before-bootstrap-restore timing, and storage divergence in issue `#248`.
@@ -155,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android runtime bootstrap now ignores Android push token and error events unless they originate from the named customer runtime Firebase app, removing the last hidden fallback from customer-owned push configuration back to stale or foreign app instances and adding focused Vitest coverage for issue `#239`.
 - Android runtime bootstrap now consumes retained native FCM token events in the injected auth bridge, registers and rotates the authenticated `/v1/me/push-devices/{installationId}` binding against the selected customer-hosted backend after login, revokes the device registration on logout and destructive instance reset, keeps the installation identifier deployment-scoped, and adds focused Vitest coverage for issue `#237`.
 - Android runtime bootstrap now requests an FCM registration token from the deployment-scoped native Firebase runtime, retains named-app token and error events on the native auth bridge for later device-registration handling, guards against stale callbacks after `apply(null)` via generation-based cancellation, prevents late token delivery after plugin teardown via a destroy flag, propagates synchronous token-request failures to callers for correct persistence rollback, and adds focused Java coverage for issue `#241`.
-- Android runtime bootstrap now accepts deployment `schema_version` 2 responses, carries validated `android_push` metadata into the native auth plugin, initializes or clears a deployment-scoped native Firebase runtime from that metadata at runtime instead of relying on `google-services.json`, and adds focused bridge plus Android unit coverage for issue `#238`.
+- Android runtime bootstrap passes validated customer Android FCM metadata into the native auth plugin, which initializes and clears a deployment-scoped native Firebase runtime instead of relying on `google-services.json`, with focused bridge and Android unit coverage for issue `#238`.
 - Android runtime bootstrap now rejects legacy `apiOrigin`-only restore state from the native plugin and requires structured persisted bootstrap metadata before rebinding after restart, closing the last hidden old-model restore path with focused Java and bridge regression coverage for issue `#232`.
 - Android login now renders a small clickable instance hint directly below the passkey sign-in button, asks for confirmation before clearing the configured instance plus tenant-local browser state, and keeps the injected footer wording aligned with the existing shared frontend footer text while preserving focused regression coverage for issue `#231`.
 - Android runtime bootstrap now persists the validated customer deployment in the native auth plugin, restores the selected canonical API binding on startup, and removes the hidden fallback back to the baked-in runtime API origin once a deployment was configured, with focused regression coverage for startup rebinding and fallback removal in issue `#230`.

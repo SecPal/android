@@ -7,11 +7,13 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.view.KeyEvent;
 
+import com.getcapacitor.JSObject;
+
+import java.util.List;
 import java.util.Map;
 
 import org.junit.Test;
@@ -19,69 +21,29 @@ import org.junit.Test;
 public class SecPalEnterprisePluginTest {
 
     @Test
-    public void buildDistributionStateMapIncludesChannelMetadataAfterSuccessfulBootstrap() {
-        ProvisioningBootstrapState state = new ProvisioningBootstrapState(
-            ProvisioningBootstrapState.STATUS_COMPLETED,
-            "session-123",
-            null,
-            "https://apk.secpal.app/android/latest.json",
-            "https://api.secpal.dev/v1",
-            "Tenant 7",
-            7,
-            null
+    public void managedStatePayloadContainsOnlyCurrentEnterpriseFields() throws Exception {
+        EnterpriseManagedState state = new EnterpriseManagedState(
+            EnterpriseManagedState.MODE_DEVICE_OWNER,
+            EnterprisePolicyConfig.disabled()
+        );
+        JSObject payload = SecPalEnterprisePlugin.buildManagedStatePayload(
+            state,
+            true,
+            false,
+            true,
+            true,
+            List.of(new EnterprisePolicyController.AllowedLaunchApp("com.example.camera", "Camera"))
         );
 
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildDistributionStateMap(state);
-
-        assertEquals("completed", payload.get("bootstrapStatus"));
-        assertNull(payload.get("updateChannel"));
-        assertEquals(
-            "https://apk.secpal.app/android/latest.json",
-            payload.get("releaseMetadataUrl")
-        );
-        assertNull(payload.get("bootstrapLastErrorCode"));
-    }
-
-    @Test
-    public void buildDistributionStateMapPreservesFailedErrorVisibilityWithoutTokenData() {
-        ProvisioningBootstrapState state = new ProvisioningBootstrapState(
-            ProvisioningBootstrapState.STATUS_FAILED,
-            "session-123",
-            null,
-            null,
-            null,
-            null,
-            0,
-            "HTTP_409"
-        );
-
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildDistributionStateMap(state);
-
-        assertEquals("failed", payload.get("bootstrapStatus"));
-        assertNull(payload.get("updateChannel"));
-        assertNull(payload.get("releaseMetadataUrl"));
-        assertEquals("HTTP_409", payload.get("bootstrapLastErrorCode"));
-    }
-
-    @Test
-    public void buildDistributionStateMapExposesPendingStatusWithoutTokenData() {
-        ProvisioningBootstrapState state = new ProvisioningBootstrapState(
-            ProvisioningBootstrapState.STATUS_PENDING,
-            null,
-            null,
-            null,
-            null,
-            null,
-            0,
-            null
-        );
-
-        Map<String, Object> payload = SecPalEnterprisePlugin.buildDistributionStateMap(state);
-
-        assertEquals("pending", payload.get("bootstrapStatus"));
-        assertNull(payload.get("updateChannel"));
-        assertNull(payload.get("releaseMetadataUrl"));
-        assertNull(payload.get("bootstrapLastErrorCode"));
+        assertEquals(9, payload.length());
+        assertTrue(payload.getBool("managed"));
+        assertEquals(EnterpriseManagedState.MODE_DEVICE_OWNER, payload.getString("mode"));
+        assertTrue(payload.getBool("allowPhone"));
+        assertFalse(payload.getBool("allowSms"));
+        assertEquals(1, payload.getJSONArray("allowedApps").length());
+        assertFalse(payload.has("distributionState"));
+        assertFalse(payload.has("updateChannel"));
+        assertFalse(payload.has("managedAndroidEnrollment"));
     }
 
     @Test
