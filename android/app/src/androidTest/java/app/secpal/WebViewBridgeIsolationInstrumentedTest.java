@@ -12,6 +12,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Intent;
+import android.net.Uri;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
 import androidx.test.core.app.ActivityScenario;
@@ -31,6 +34,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -59,6 +63,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(intent)) {
             assertPackagedFrontendCannotExposeForbiddenNativePlugins(scenario);
             assertUnusedCorePluginsAreAbsentFromTheNativeRegistry(scenario);
+            assertNativeHttpInterceptorIsBlocked(scenario);
             assertTrustedPackagedMainFrameCanInvokeRetainedNativePlugin(scenario);
             assertTrustedChildFrameCannotInvokeRetainedNativePlugin(scenario);
             assertForeignOriginDoesNotReceiveNativeBridge(scenario);
@@ -151,14 +156,65 @@ public class WebViewBridgeIsolationInstrumentedTest {
         }
     }
 
+    private static void assertNativeHttpInterceptorIsBlocked(
+        ActivityScenario<MainActivity> scenario
+    ) {
+        scenario.onActivity(activity -> {
+            WebResourceRequest request = new WebResourceRequest() {
+                @Override
+                public Uri getUrl() {
+                    return Uri.parse(
+                        CONTROLLED_ORIGIN +
+                        "/_capacitor_http_interceptor_?u=https%3A%2F%2Fforbidden.invalid%2F"
+                    );
+                }
+
+                @Override
+                public boolean isForMainFrame() {
+                    return false;
+                }
+
+                @Override
+                public boolean isRedirect() {
+                    return false;
+                }
+
+                @Override
+                public boolean hasGesture() {
+                    return false;
+                }
+
+                @Override
+                public String getMethod() {
+                    return "GET";
+                }
+
+                @Override
+                public Map<String, String> getRequestHeaders() {
+                    return Collections.emptyMap();
+                }
+            };
+
+            WebResourceResponse response = activity
+                .getBridge()
+                .getLocalServer()
+                .shouldInterceptRequest(request);
+            assertNotNull(response);
+            assertEquals(403, response.getStatusCode());
+            assertEquals("Forbidden", response.getReasonPhrase());
+        });
+    }
+
     private static void assertPackagedFrontendCannotExposeForbiddenNativePlugins(
         ActivityScenario<MainActivity> scenario
     ) throws Exception {
         String script =
             "(function () {" +
             "var capacitor = window.Capacitor;" +
+            "var root = document.getElementById('root');" +
             "if (!capacitor || !Array.isArray(capacitor.PluginHeaders) || " +
-            "typeof capacitor.isPluginAvailable !== 'function') { return null; }" +
+            "typeof capacitor.isPluginAvailable !== 'function' || " +
+            "!root || !root.hasChildNodes()) { return null; }" +
             "var pluginIds = ['CapacitorCookies', 'CapacitorHttp', 'WebView', 'SystemBars'];" +
             "var headersAbsent = pluginIds.every(function (pluginId) {" +
             "return !capacitor.PluginHeaders.some(function (header) { return header.name === pluginId; });" +

@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   patchCapacitorBridgeCleanupSource,
   patchCapacitorCorePluginRegistrationSource,
+  patchCapacitorHttpInterceptorSource,
   patchCapacitorPluginExportSource,
   patchCapacitorSystemBarsDispatchSource,
   patchCapacitorLegacyInterfaceSource,
@@ -35,6 +36,8 @@ const messageHandlerPath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/MessageHandler.java";
 const bridgePath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java";
+const webViewLocalServerPath =
+  "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/WebViewLocalServer.java";
 const failClosedMessageHandlerConstruction = `        try {
             this.msgHandler = new MessageHandler(this, webView, pluginManager);
         } catch (RuntimeException exception) {
@@ -241,6 +244,32 @@ ${upstreamCorePluginRegistration}
     }
   });
 
+  it("rejects forbidden core plugin instance registrations", () => {
+    const directInstanceSource = `
+    private void registerAllPlugins() {
+${upstreamCorePluginRegistration}
+        this.registerPluginInstance(new com.getcapacitor.plugin.CapacitorHttp());
+    }
+`;
+    const urlAndConstructorReferenceSource = `
+    private void registerAllPlugins() {
+${upstreamCorePluginRegistration}
+        String documentation = "https://capacitorjs.com/docs";
+        java.util.function.Supplier<Plugin> factory =
+            com.getcapacitor.plugin.CapacitorHttp::new;
+    }
+`;
+
+    for (const source of [
+      directInstanceSource,
+      urlAndConstructorReferenceSource,
+    ]) {
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Forbidden Capacitor core plugin registration remains"
+      );
+    }
+  });
+
   it("rejects an ambiguous markerless core registration state", () => {
     const source = `
     private void registerAllPlugins() {
@@ -349,6 +378,54 @@ ${hardenedSystemBarsDispatch}
         actualExportLoop
       )
     ).toBeGreaterThan(actualExportLoop);
+  });
+
+  it("fails closed when comments interrupt exact dispatch and export patterns", () => {
+    const dispatchSource = `
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+/* upstream comment */        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+    const exportSource = `
+        for (PluginHandle plugin : plugins) {
+/* upstream comment */            lines.add(
+`;
+
+    expect(() =>
+      patchCapacitorSystemBarsDispatchSource(dispatchSource)
+    ).toThrow(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+    expect(() => patchCapacitorPluginExportSource(exportSource)).toThrow(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  });
+
+  it("does not accept hardening patterns embedded in Java text blocks", () => {
+    const dispatchSource = `
+    String documentation = """
+${hardenedSystemBarsDispatch}
+    """;
+`;
+    const exportSource = `
+    String documentation = """
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+    """;
+`;
+
+    expect(() =>
+      patchCapacitorSystemBarsDispatchSource(dispatchSource)
+    ).toThrow(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+    expect(() => patchCapacitorPluginExportSource(exportSource)).toThrow(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
   });
 
   it("rejects incomplete or duplicated previous hardening markers", () => {
@@ -489,6 +566,53 @@ public void setAnimation(final PluginCall call) {}
     );
   });
 
+  it("blocks the direct Capacitor native HTTP interceptor", () => {
+    const source = `
+    public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
+        Uri loadingUrl = request.getUrl();
+
+        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
+            try {
+                return handleCapacitorHttpRequest(request);
+            } catch (Exception e) {
+                Logger.error(e.getLocalizedMessage());
+                return null;
+            }
+        }
+
+        PathHandler handler;
+    }
+`;
+
+    const patched = patchCapacitorHttpInterceptorSource(source);
+
+    expect(patched).not.toContain("handleCapacitorHttpRequest(request)");
+    expect(patched).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
+    );
+    expect(patched).toContain("403");
+    expect(patchCapacitorHttpInterceptorSource(patched)).toBe(patched);
+  });
+
+  it("fails closed when comments interrupt the native HTTP interceptor pattern", () => {
+    const source = `
+        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+/* upstream comment */            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
+            try {
+                return handleCapacitorHttpRequest(request);
+            } catch (Exception e) {
+                Logger.error(e.getLocalizedMessage());
+                return null;
+            }
+        }
+`;
+
+    expect(() => patchCapacitorHttpInterceptorSource(source)).toThrow(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
+  });
+
   it("rejects additional unguarded plugin dispatch entry points", () => {
     const additionalDeclarations = [
       "public static void callPluginMethod(String pluginId, final PluginCall call)",
@@ -555,6 +679,11 @@ public void setAnimation(final PluginCall call) {}
     ).toThrow(
       "Expected Capacitor SystemBars bridge dispatch pattern was not found"
     );
+    expect(() =>
+      patchCapacitorHttpInterceptorSource("unrecognized HTTP interceptor")
+    ).toThrow(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
   });
 
   it("stops Capacitor's plugin thread when secure listener construction aborts", () => {
@@ -572,6 +701,10 @@ public void setAnimation(final PluginCall call) {}
       "utf8"
     );
     const bridge = readFileSync(join(repoRoot, bridgePath), "utf8");
+    const webViewLocalServer = readFileSync(
+      join(repoRoot, webViewLocalServerPath),
+      "utf8"
+    );
 
     expect(messageHandler).toContain(
       "WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)"
@@ -593,6 +726,12 @@ public void setAnimation(final PluginCall call) {}
     );
     expect(bridge).toContain(
       "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(webViewLocalServer).not.toContain(
+      "handleCapacitorHttpRequest(request)"
+    );
+    expect(webViewLocalServer).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
     );
 
     for (const pluginPath of retainedPluginPaths) {

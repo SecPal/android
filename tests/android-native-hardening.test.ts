@@ -100,6 +100,18 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "JSExport.java"
     );
+    const webViewLocalServer = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "WebViewLocalServer.java"
+    );
     const bridgeIsolationTest = readRepoFile(
       "android",
       "app",
@@ -135,6 +147,12 @@ describe("Android native hardening", () => {
     expect(systemBars).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
     expect(bridge).toContain('if ("SystemBars".equals(pluginId))');
     expect(jsExport).toContain('if (plugin.getId().equals("SystemBars"))');
+    expect(webViewLocalServer).not.toContain(
+      "handleCapacitorHttpRequest(request)"
+    );
+    expect(webViewLocalServer).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
+    );
     expect(systemBars).toContain("public void setStyle(final PluginCall call)");
     expect(systemBars).toContain("public void show(final PluginCall call)");
     expect(systemBars).toContain("public void hide(final PluginCall call)");
@@ -151,6 +169,11 @@ describe("Android native hardening", () => {
     expect(bridgeIsolationTest).toContain(
       "assertPackagedFrontendCannotExposeForbiddenNativePlugins"
     );
+    expect(bridgeIsolationTest).toContain(
+      "assertNativeHttpInterceptorIsBlocked"
+    );
+    expect(bridgeIsolationTest).toContain("assertEquals(403");
+    expect(bridgeIsolationTest).toContain("root.hasChildNodes()");
     expect(bridgeIsolationTest).not.toContain("moveToState(");
     expect(bridgeIsolationTest).toContain(
       "CountingEnterprisePlugin.resetInvocations()"
@@ -175,6 +198,9 @@ describe("Android native hardening", () => {
       '`Capacitor.isPluginAvailable("SystemBars")` returns'
     );
     expect(architecture).toContain("web-only JavaScript proxies");
+    expect(architecture).toContain(
+      "`/_capacitor_http_interceptor_` route is also rejected"
+    );
     expect(architecture).not.toContain(
       "It is omitted from generated\nplugin headers and `Capacitor.Plugins`"
     );

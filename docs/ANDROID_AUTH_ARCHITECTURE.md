@@ -124,6 +124,11 @@ mutation, or runtime server-base-path mutation. Android authenticated requests
 remain confined to the SecPal native auth plugin and its allowlisted API
 contract.
 
+Capacitor's same-origin `/_capacitor_http_interceptor_` route is also rejected
+with a local `403 Forbidden` response before it can open the target URL. This
+closes the native `HttpURLConnection` path independently of plugin registration
+or the framework's automatic fetch-patching configuration.
+
 SystemBars remains registered internally only for its native lifecycle
 initialization, safe-area CSS, and inset handling. It is omitted from generated
 native plugin headers, `Capacitor.isPluginAvailable("SystemBars")` returns
@@ -141,8 +146,9 @@ exact, fail-closed source transformation through
 `cap:sync`, and `cap:add:android`. A Capacitor upgrade must preserve or
 deliberately update that transformation, run the focused patch/static tests,
 assemble the debug app, and inspect the packaged WebView regression test. If
-the upstream registration or SystemBars method shape changes, install or sync
-must fail instead of accepting the new bridge surface.
+the upstream registration, native HTTP interceptor, export, dispatch, or
+SystemBars method shape changes, install or sync must fail instead of accepting
+the new bridge surface.
 
 SecPal/android issue #422 tracks a supported upstream exclusion mechanism and
 the eventual removal of these source transformations.

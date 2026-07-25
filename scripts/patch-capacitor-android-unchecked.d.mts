@@ -12,6 +12,7 @@ export function patchCapacitorBridgeCleanupSource(source: string): string;
 export function patchCapacitorCorePluginRegistrationSource(
   source: string
 ): string;
+export function patchCapacitorHttpInterceptorSource(source: string): string;
 export function patchCapacitorPluginExportSource(source: string): string;
 export function patchCapacitorSystemBarsDispatchSource(source: string): string;
 export function patchCapacitorLegacyInterfaceSource(
