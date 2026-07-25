@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
-FRONTEND_DIR="${ROOT_DIR}/../frontend"
+FRONTEND_DIR="${SECPAL_ANDROID_FRONTEND_DIR:-${ROOT_DIR}/../frontend}"
 ANDROID_STRINGS_XML="${ROOT_DIR}/android/app/src/main/res/values/strings.xml"
 
 if [ ! -d "$FRONTEND_DIR" ]; then
