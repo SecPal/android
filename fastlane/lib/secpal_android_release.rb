@@ -24,17 +24,13 @@ module SecPalAndroidRelease
       "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"
     ].to_s.strip
     persisted = persisted_value.to_s.strip
-    configured_values = [environment_value, persisted].reject(&:empty?)
-    unless configured_values.empty?
-      return configured_values.map do |value|
-        SecPalAndroidVersioning.validate_known_version_code!(value)
-      end.max.to_s
-    end
-
     legacy = legacy_value.to_s.strip
-    return legacy if legacy.empty?
+    configured_values = [environment_value, persisted, legacy].reject(&:empty?)
+    return "" if configured_values.empty?
 
-    SecPalAndroidVersioning.validate_known_version_code!(legacy).to_s
+    configured_values.map do |value|
+      SecPalAndroidVersioning.validate_known_version_code!(value)
+    end.max.to_s
   end
 
   def required_signed_build_version_code!(lane:, environment:)
