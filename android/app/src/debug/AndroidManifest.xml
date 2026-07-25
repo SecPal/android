@@ -8,6 +8,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
     <application
         android:testOnly="true">
 
+        <activity
+            android:name=".BridgeIsolationTestActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBarLaunch" />
+
         <receiver
             android:name=".DebugEnterprisePolicyReceiver"
             android:exported="true">

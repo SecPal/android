@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed the unused Capacitor HTTP, cookie, and WebView path-management core
+  plugins from Android's native registration boundary, retained only native
+  SystemBars lifecycle/inset behavior while hiding it from plugin exports and
+  rejecting all direct JavaScript dispatch to it;
+  and added fail-closed install/sync plus packaged-WebView regressions so
+  Capacitor upgrades cannot silently restore the capabilities (issue #409,
+  part of #402).
 - Updated the transitive `brace-expansion` and `js-yaml` overrides to the
   compatible patched `^5.0.8` and `^5.2.2` release lines, resolving
   `GHSA-mh99-v99m-4gvg` and `GHSA-pm4m-ph32-ghv5`, and added a CI audit that
@@ -76,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made the Capacitor core-plugin exclusion guard reject reformatted forbidden
+  class and instance registrations while ignoring comment-only structural
+  examples, blocked the direct same-origin Capacitor native HTTP interceptor,
+  made comment-interrupted export and dispatch transformations fail closed,
+  initialized each WebMessage reply proxy before dispatch can synchronously
+  reject a call, made packaged-frontend assertions wait for React rendering,
+  made child-frame isolation tests reject every native reply shape and directly
+  prove child calls never execute, registered the invocation probe during bridge
+  construction before the Activity reaches `STARTED`, waited for destroyed
+  WebViews to leave the UI queue between instrumentation cases, and aligned
+  packaged-frontend bridge tests with Capacitor's harmless web-only JavaScript
+  proxies.
 - Preserved the underlying process diagnostics when Android release archive fixtures cannot run `zip`, and distinguished `unzip` inspection failures from invalid AndroidX graphics-path library layouts (issue #435).
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
 - Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.

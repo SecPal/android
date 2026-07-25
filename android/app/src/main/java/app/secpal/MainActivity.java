@@ -120,8 +120,14 @@ public class MainActivity extends BridgeActivity {
     }
 
     void createSecureBridge() {
+        createSecureBridge(SecPalEnterprisePlugin.class);
+    }
+
+    void createSecureBridge(
+        Class<? extends SecPalEnterprisePlugin> enterprisePluginClass
+    ) {
         registerPlugin(SecPalNativeAuthPlugin.class);
-        registerPlugin(SecPalEnterprisePlugin.class);
+        registerPlugin(enterprisePluginClass);
         super.load();
     }
 
