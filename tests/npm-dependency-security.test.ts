@@ -11,14 +11,17 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
 const readWorkflowJob = (workflow: string, jobName: string) => {
+  const normalizedWorkflow = workflow.replaceAll("\r\n", "\n");
   const jobHeader = `  ${jobName}:\n`;
-  const jobStart = workflow.indexOf(jobHeader);
+  const jobStart = normalizedWorkflow.indexOf(jobHeader);
   expect(jobStart, `Expected workflow job ${jobName}`).toBeGreaterThanOrEqual(
     0
   );
 
-  const followingJobs = workflow.slice(jobStart + jobHeader.length);
-  const nextJobOffset = followingJobs.search(/^ {2}[a-z0-9-]+:\n/m);
+  const followingJobs = normalizedWorkflow.slice(jobStart + jobHeader.length);
+  const nextJobOffset = followingJobs.search(
+    /^ {2}[A-Za-z_][A-Za-z0-9_-]*:\n/m
+  );
 
   return nextJobOffset === -1
     ? followingJobs
@@ -26,6 +29,29 @@ const readWorkflowJob = (workflow: string, jobName: string) => {
 };
 
 describe("npm dependency security", () => {
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])(
+    "isolates a workflow job with %s endings and valid neighboring job IDs",
+    (_lineEnding, lineEnding) => {
+      const workflow = [
+        "jobs:",
+        "  vitest:",
+        "    steps:",
+        "      - run: npm audit --audit-level=high",
+        "  _NextJob:",
+        "    steps:",
+        "      - run: exit 1",
+      ].join(lineEnding);
+
+      const vitestJob = readWorkflowJob(workflow, "vitest");
+
+      expect(vitestJob).toContain("run: npm audit --audit-level=high");
+      expect(vitestJob).not.toContain("run: exit 1");
+    }
+  );
+
   it("runs the high-severity audit inside the required Vitest job", () => {
     const qualityWorkflow = readFileSync(
       resolve(repoRoot, ".github/workflows/quality.yml"),
