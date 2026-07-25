@@ -122,6 +122,33 @@ describe("Android native hardening", () => {
       "secpal",
       "WebViewBridgeIsolationInstrumentedTest.java"
     );
+    const bridgeIsolationTestActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "java",
+      "app",
+      "secpal",
+      "BridgeIsolationTestActivity.java"
+    );
+    const debugManifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "AndroidManifest.xml"
+    );
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
     const bridgeIsolationPage = readRepoFile(
       "android",
       "app",
@@ -176,8 +203,9 @@ describe("Android native hardening", () => {
     expect(bridgeIsolationTest).toContain("root.hasChildNodes()");
     expect(bridgeIsolationTest).not.toContain("moveToState(");
     expect(bridgeIsolationTest).toContain(
-      "CountingEnterprisePlugin.resetInvocations()"
+      "BridgeIsolationTestActivity.resetInvocations()"
     );
+    expect(bridgeIsolationTest).not.toContain("registerPluginInstance(");
     expect(bridgeIsolationTest).toContain(
       'assertTrue(invocations.contains("barrier"))'
     );
@@ -188,6 +216,18 @@ describe("Android native hardening", () => {
       "Child frame unexpectedly received a native plugin reply"
     );
     expect(bridgeIsolationTest).toContain("waitForIdleSync()");
+    expect(bridgeIsolationTestActivity).toContain(
+      "createSecureBridge(CountingEnterprisePlugin.class)"
+    );
+    expect(bridgeIsolationTestActivity).toContain(
+      '@CapacitorPlugin(name = "SecPalEnterprise")'
+    );
+    expect(mainActivity).toContain(
+      "createSecureBridge(SecPalEnterprisePlugin.class)"
+    );
+    expect(debugManifest).toMatch(
+      /android:name="\.BridgeIsolationTestActivity"\s+android:exported="false"/
+    );
     expect(bridgeIsolationPage).toContain("isPluginAvailable");
     expect(bridgeIsolationPage).toContain("child-reply");
     expect(bridgeIsolationPage).toMatch(
