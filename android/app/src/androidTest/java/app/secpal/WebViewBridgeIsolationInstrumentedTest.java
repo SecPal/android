@@ -21,8 +21,12 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import com.getcapacitor.JSObject;
+import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginHandle;
+import com.getcapacitor.PluginMethod;
 import com.getcapacitor.PluginMethodHandle;
+import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,9 +80,16 @@ public class WebViewBridgeIsolationInstrumentedTest {
     private static void assertTrustedChildFrameCannotInvokeRetainedNativePlugin(
         ActivityScenario<MainActivity> scenario
     ) throws Exception {
+        CountingEnterprisePlugin.resetInvocations();
+        scenario.onActivity(activity ->
+            activity.getBridge().registerPluginInstance(new CountingEnterprisePlugin())
+        );
         try (ResultCollector results = loadControlledPage(scenario, "child")) {
             assertResult(results.await(), "child-type:object", false, true);
             assertResult(results.await(), "child-barrier", true, true);
+            List<String> invocations = CountingEnterprisePlugin.invocations();
+            assertTrue(invocations.contains("barrier"));
+            assertFalse(invocations.contains("child"));
             assertNull(
                 "Child frame unexpectedly received a native plugin reply",
                 results.poll(1L, TimeUnit.SECONDS)
@@ -222,6 +233,28 @@ public class WebViewBridgeIsolationInstrumentedTest {
         assertEquals(mainFrame, result.mainFrame);
         assertEquals(trustedOrigin, CONTROLLED_ORIGIN.equals(result.sourceOrigin));
         assertTrue(result.replyProxyAvailable);
+    }
+
+    @CapacitorPlugin(name = "SecPalEnterprise")
+    public static final class CountingEnterprisePlugin extends SecPalEnterprisePlugin {
+        private static final List<String> INVOCATIONS = Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        @PluginMethod
+        public void getManagedState(PluginCall call) {
+            INVOCATIONS.add(call.getCallbackId());
+            call.resolve(new JSObject());
+        }
+
+        static void resetInvocations() {
+            INVOCATIONS.clear();
+        }
+
+        static List<String> invocations() {
+            synchronized (INVOCATIONS) {
+                return new ArrayList<>(INVOCATIONS);
+            }
+        }
     }
 
     private static final class ResultCollector implements AutoCloseable {

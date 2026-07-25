@@ -152,13 +152,24 @@ describe("Android native hardening", () => {
       "assertPackagedFrontendCannotExposeForbiddenNativePlugins"
     );
     expect(bridgeIsolationTest).not.toContain("moveToState(");
-    expect(bridgeIsolationTest).not.toContain("registerPluginInstance(");
+    expect(bridgeIsolationTest).toContain(
+      "CountingEnterprisePlugin.resetInvocations()"
+    );
+    expect(bridgeIsolationTest).toContain(
+      'assertTrue(invocations.contains("barrier"))'
+    );
+    expect(bridgeIsolationTest).toContain(
+      'assertFalse(invocations.contains("child"))'
+    );
     expect(bridgeIsolationTest).toContain(
       "Child frame unexpectedly received a native plugin reply"
     );
     expect(bridgeIsolationTest).toContain("waitForIdleSync()");
     expect(bridgeIsolationPage).toContain("isPluginAvailable");
     expect(bridgeIsolationPage).toContain("child-reply");
+    expect(bridgeIsolationPage).toMatch(
+      /window\.androidBridge\.onmessage = \(\) => \{\s+secpalTestResult\.postMessage\('child-reply'\);\s+\};/
+    );
     expect(bridgeIsolationPage).not.toContain("forbiddenProxiesAbsent");
     expect(architecture).toContain(
       '`Capacitor.isPluginAvailable("SystemBars")` returns'

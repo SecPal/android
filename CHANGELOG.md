@@ -84,10 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Made the Capacitor core-plugin exclusion guard reject reformatted forbidden
-  class registrations, initialized each WebMessage reply proxy before dispatch
-  can synchronously reject a call, waited for destroyed WebViews to leave the
-  UI queue between instrumentation cases, and aligned packaged-frontend bridge
-  tests with Capacitor's harmless web-only JavaScript proxies.
+  class registrations while ignoring comment-only structural examples,
+  initialized each WebMessage reply proxy before dispatch can synchronously
+  reject a call, made child-frame isolation tests reject every native reply
+  shape and directly prove child calls never execute, waited for destroyed
+  WebViews to leave the UI queue between instrumentation cases, and aligned
+  packaged-frontend bridge tests with Capacitor's harmless web-only JavaScript
+  proxies.
 - Preserved the underlying process diagnostics when Android release archive fixtures cannot run `zip`, and distinguished `unzip` inspection failures from invalid AndroidX graphics-path library layouts (issue #435).
 - Restored clean, reproducible Capacitor Android syncs by normalizing every generated Cordova artifact, and corrected the origin-aware bridge isolation test so its same-origin child-frame expectations and retained-plugin invocation tracking match Android WebView behavior.
 - Stabilized the origin-aware Android WebView instrumentation tests by releasing callback-scoped native objects, unregistering their message listener, and waiting for a blank visual state before destroying each activity.

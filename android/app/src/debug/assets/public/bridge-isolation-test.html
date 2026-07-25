@@ -45,11 +45,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
         const frame = document.createElement("iframe");
         frame.srcdoc = `<script>
           secpalTestResult.postMessage('child-type:' + typeof window.androidBridge);
-          window.androidBridge.onmessage = (reply) => {
-            const result = JSON.parse(reply.data);
-            if (result.callbackId === 'child') {
-              secpalTestResult.postMessage('child-reply');
-            }
+          window.androidBridge.onmessage = () => {
+            secpalTestResult.postMessage('child-reply');
           };
           window.androidBridge.postMessage(JSON.stringify({callbackId:'child',pluginId:'SecPalEnterprise',methodName:'getManagedState',options:{}}));
           parent.postMessage('child-dispatched', '*');

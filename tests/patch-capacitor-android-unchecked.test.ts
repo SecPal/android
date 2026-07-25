@@ -272,6 +272,85 @@ ${hardenedSystemBarsDispatch}
     expect(patchCapacitorCorePluginRegistrationSource(patched)).toBe(patched);
   });
 
+  it("ignores Java comments when checking hardened bridge structure", () => {
+    const coreRegistrationSource = `
+${failClosedMessageHandlerConstruction}
+
+${hardenedSystemBarsDispatch}
+
+    /**
+     * Lifecycle registration remains: registerPlugin(SystemBars.class).
+     */
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+    const dispatchSource = `
+    // void callPluginMethod(String pluginId, PluginCall call) is the dispatch entry point.
+${hardenedSystemBarsDispatch}
+`;
+    const exportSource = `
+        // for (PluginHandle plugin : plugins) generates JavaScript proxies.
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+`;
+
+    expect(
+      patchCapacitorCorePluginRegistrationSource(coreRegistrationSource)
+    ).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorSystemBarsDispatchSource(dispatchSource)).toBe(
+      dispatchSource
+    );
+    expect(patchCapacitorPluginExportSource(exportSource)).toBe(exportSource);
+  });
+
+  it("does not accept comment-only bridge hardening markers", () => {
+    const dispatchSource = `
+    /*
+${hardenedSystemBarsDispatch}
+    */
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+    const exportSource = `
+        /*
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+        */
+        for (PluginHandle plugin : plugins) {
+            lines.add(
+`;
+
+    const patchedDispatch =
+      patchCapacitorSystemBarsDispatchSource(dispatchSource);
+    const patchedExport = patchCapacitorPluginExportSource(exportSource);
+    const commentEnd = dispatchSource.indexOf("*/");
+    const actualExportLoop = exportSource.lastIndexOf(
+      "for (PluginHandle plugin : plugins)"
+    );
+
+    expect(
+      patchedDispatch.lastIndexOf('if ("SystemBars".equals(pluginId))')
+    ).toBeGreaterThan(commentEnd);
+    expect(
+      patchedExport.indexOf(
+        'if (plugin.getId().equals("SystemBars"))',
+        actualExportLoop
+      )
+    ).toBeGreaterThan(actualExportLoop);
+  });
+
   it("rejects incomplete or duplicated previous hardening markers", () => {
     const retainedRegistration = `
     private void registerAllPlugins() {

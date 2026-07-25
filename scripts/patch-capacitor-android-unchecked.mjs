@@ -191,11 +191,13 @@ function containsForbiddenCorePluginClass(source) {
 }
 
 function hasPreviousHardenedCorePluginRegistration(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
   return (
-    source.includes(retainedSystemBarsRegistration) &&
-    countMatches(source, systemBarsRegistrationPattern) === 1 &&
-    source.includes(failClosedMessageHandlerConstruction) &&
-    source.includes(hardenedSystemBarsDispatch)
+    sourceWithoutComments.includes(retainedSystemBarsRegistration) &&
+    countMatches(sourceWithoutComments, systemBarsRegistrationPattern) === 1 &&
+    sourceWithoutComments.includes(failClosedMessageHandlerConstruction) &&
+    sourceWithoutComments.includes(hardenedSystemBarsDispatch)
   );
 }
 
@@ -245,16 +247,20 @@ export function patchCapacitorBridgeCleanupSource(source) {
 }
 
 export function patchCapacitorCorePluginRegistrationSource(source) {
+  const sourceWithoutComments = stripJavaComments(source);
   let patchedSource;
 
-  if (source.includes(upstreamCorePluginRegistration)) {
+  if (sourceWithoutComments.includes(upstreamCorePluginRegistration)) {
     patchedSource = source.replace(
       upstreamCorePluginRegistration,
       hardenedCorePluginRegistration
     );
   } else if (containsForbiddenCorePluginClass(source)) {
     throw new Error("Forbidden Capacitor core plugin registration remains");
-  } else if (source.includes(hardenedCorePluginRegistration)) {
+  } else if (
+    source.includes(hardenedCorePluginRegistration) &&
+    countMatches(sourceWithoutComments, systemBarsRegistrationPattern) === 1
+  ) {
     patchedSource = source;
   } else if (hasPreviousHardenedCorePluginRegistration(source)) {
     patchedSource = source.replace(
@@ -275,16 +281,20 @@ export function patchCapacitorCorePluginRegistrationSource(source) {
 }
 
 export function patchCapacitorSystemBarsDispatchSource(source) {
-  if (countMatches(source, pluginDispatchEntryPointPattern) > 1) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  if (
+    countMatches(sourceWithoutComments, pluginDispatchEntryPointPattern) > 1
+  ) {
     throw new Error(
       "Expected exactly one Capacitor plugin dispatch entry point"
     );
   }
 
-  if (source.includes(hardenedSystemBarsDispatch)) {
+  if (sourceWithoutComments.includes(hardenedSystemBarsDispatch)) {
     return source;
   }
-  if (!source.includes(upstreamSystemBarsDispatch)) {
+  if (!sourceWithoutComments.includes(upstreamSystemBarsDispatch)) {
     throw new Error(
       "Expected Capacitor SystemBars bridge dispatch pattern was not found"
     );
@@ -294,14 +304,16 @@ export function patchCapacitorSystemBarsDispatchSource(source) {
 }
 
 export function patchCapacitorPluginExportSource(source) {
-  if (countMatches(source, pluginExportLoopPattern) > 1) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  if (countMatches(sourceWithoutComments, pluginExportLoopPattern) > 1) {
     throw new Error("Expected exactly one Capacitor plugin export loop");
   }
 
-  if (source.includes(hardenedPluginExport)) {
+  if (sourceWithoutComments.includes(hardenedPluginExport)) {
     return source;
   }
-  if (!source.includes(upstreamPluginExport)) {
+  if (!sourceWithoutComments.includes(upstreamPluginExport)) {
     throw new Error(
       "Expected Capacitor SystemBars plugin export pattern was not found"
     );
