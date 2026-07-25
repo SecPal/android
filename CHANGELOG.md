@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated the transitive `brace-expansion` and `js-yaml` overrides to the
   compatible patched `^5.0.8` and `^5.2.2` release lines, resolving
   `GHSA-mh99-v99m-4gvg` and `GHSA-pm4m-ph32-ghv5`, and added a CI audit that
-  blocks future high-severity npm advisories (issue #441).
+  blocks future high-severity npm advisories (issues #438, #441).
 - Updated the Vite/Vitest `postcss` override to the compatible patched
   `^8.5.15` release line, resolving the source-map disclosure advisories
   `GHSA-6g55-p6wh-862q` and `GHSA-r28c-9q8g-f849` (issue #439).
