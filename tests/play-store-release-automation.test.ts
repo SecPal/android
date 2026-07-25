@@ -387,6 +387,10 @@ describe("Play Store release automation", () => {
       /lane :build_signed_aab[\s\S]*require_signed_build_version_code!\("build_signed_aab"\)/
     );
     expect(fastfile).toContain("SecPalAndroidPublishLock.with_lock");
+    expect(fastfile).toContain(
+      "SecPalAndroidPublishLock.release_paths(environment: ENV)"
+    );
+    expect(fastfile).not.toContain('"~/.config/secpal/android-publish.lock"');
     expect(
       fastfile.match(/^\s+with_selected_publish_version_code\(lane:/gm)
     ).toHaveLength(4);
@@ -447,7 +451,6 @@ describe("Play Store release automation", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-lock-"));
     const publicRoot = join(tempRoot, "public");
     const lockRoot = `${publicRoot}.release.lock`;
-    const isolatedFastfilePath = join(tempRoot, "Fastfile");
     const rubyAdapter = `
 require "open3"
 def default_platform(*) = nil
@@ -486,19 +489,13 @@ raise "failed release body retained the lock" if Dir.exist?(ENV.fetch("SECPAL_TE
 `;
 
     try {
-      writeFile(
-        isolatedFastfilePath,
-        readFileSync(resolve(repoRoot, "fastlane", "Fastfile"), "utf8")
-          .replace('require "open3"\n', "")
-          .replace(/^require_relative "lib\/secpal_android_[^"]+"\n/gm, "")
-      );
       const result = spawnSync("ruby", ["-e", rubyAdapter], {
         cwd: repoRoot,
         encoding: "utf8",
         env: {
           ...process.env,
           SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
-          SECPAL_TEST_FASTFILE: isolatedFastfilePath,
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
           SECPAL_TEST_LOCK_ROOT: lockRoot,
         },
       });

@@ -35,15 +35,9 @@ APK_DIRECT_ROOT = ENV.fetch(
   "SECPAL_ANDROID_DIRECT_ROOT",
   "/home/secpal/www/apk.secpal.app"
 )
-DEFAULT_RELEASE_ENV_FILE = File.expand_path(
-  ENV.fetch(
-    "SECPAL_ANDROID_RELEASE_ENV_FILE",
-    "~/.config/secpal/android-release.env"
-  )
-)
-PUBLISH_LOCK_FILE = File.expand_path(
-  "~/.config/secpal/android-publish.lock"
-)
+RELEASE_PATHS = SecPalAndroidPublishLock.release_paths(environment: ENV)
+DEFAULT_RELEASE_ENV_FILE = RELEASE_PATHS.fetch(:release_env_file)
+PUBLISH_LOCK_FILE = RELEASE_PATHS.fetch(:publish_lock_file)
 
 def ensure_local_file!(path, description)
   UI.user_error!("Missing #{description}.") if path.to_s.empty?
@@ -192,13 +186,8 @@ def release_version_name
 end
 
 def with_android_publish_lock
-  lock_directory = File.dirname(PUBLISH_LOCK_FILE)
-  unless Dir.exist?(lock_directory)
-    UI.user_error!("Missing Android publishing lock directory: #{lock_directory}")
-  end
-
   SecPalAndroidPublishLock.with_lock(PUBLISH_LOCK_FILE) { yield }
-rescue SecPalAndroidPublishLock::LockUnavailableError => e
+rescue SecPalAndroidPublishLock::LockError => e
   UI.user_error!(e.message)
 end
 

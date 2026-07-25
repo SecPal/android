@@ -143,4 +143,81 @@ describe("Android release env loader", () => {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("loads the default env file from the configured release directory", () => {
+    const tempRoot = mkdtempSync(
+      join(tmpdir(), "secpal-android-release-env-loader-")
+    );
+    const releaseEnvPath = join(tempRoot, "android-release.env");
+
+    try {
+      writeFileSync(
+        releaseEnvPath,
+        'SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE="2026072204"\n'
+      );
+      chmodSync(releaseEnvPath, 0o600);
+
+      const result = spawnSync(
+        "bash",
+        [
+          releaseEnvLoaderPath,
+          "bash",
+          "-lc",
+          'printf "%s" "$SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"',
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_CONFIG_DIR: tempRoot,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("2026072204");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a shell baseline ahead of a stale file without rewriting it", () => {
+    const tempRoot = mkdtempSync(
+      join(tmpdir(), "secpal-android-release-env-loader-")
+    );
+    const releaseEnvPath = join(tempRoot, "android-release.env");
+    const originalContent =
+      'SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE="2026072204"\n';
+
+    try {
+      writeFileSync(releaseEnvPath, originalContent);
+      chmodSync(releaseEnvPath, 0o600);
+
+      const result = spawnSync(
+        "bash",
+        [
+          releaseEnvLoaderPath,
+          "bash",
+          "-lc",
+          'printf "%s" "$SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"',
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_RELEASE_ENV_FILE: releaseEnvPath,
+            SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE: "2026072209",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("2026072209");
+      expect(readFileSync(releaseEnvPath, "utf8")).toBe(originalContent);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 });

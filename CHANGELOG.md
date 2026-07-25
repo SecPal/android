@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Derived the Android publishing lock from the effective release env/config directory and securely create missing private lock directories so custom release contexts do not depend on `~/.config/secpal`.
 - Required explicit shared-sequence codes for every signed build-only entry point, honored caller-provided publication baselines, and rejected SemVer-invalid numeric prerelease identifiers.
 - Pinned the third-party Ruby setup action used by Android release tests to an immutable reviewed commit.
 - Made Direct release metadata validation unambiguous and fail-closed, persisted the successful publication baseline atomically, and regression-tested publication failure cleanup.

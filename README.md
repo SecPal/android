@@ -190,6 +190,8 @@ Direct channel endpoints are therefore:
 
 Release signing and version-code state use these environment variables:
 
+- `SECPAL_ANDROID_CONFIG_DIR` to replace the default `~/.config/secpal` release context
+- `SECPAL_ANDROID_RELEASE_ENV_FILE` to select an explicit release env file
 - `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` for the local successfully published baseline
 - `SECPAL_ANDROID_DEPLOY_VERSION_CODE` for an optional publishing override
 - `SECPAL_ANDROID_VERSION_CODE` for one explicit build-only invocation or Fastlane's temporary Gradle value
@@ -215,7 +217,7 @@ Samsung managed-device hard-key partner metadata can also be injected through en
 
 If those variables are unset, SecPal keeps the manifest entries present with empty values so the Android wrapper stays buildable across non-Samsung and local development flows.
 
-The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts. The loader migrates an old `SECPAL_ANDROID_VERSION_CODE` baseline in memory, warns about and removes `SECPAL_ANDROID_VERSION_NAME` from the child environment, and never rewrites the file.
+The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts. `SECPAL_ANDROID_CONFIG_DIR` changes the default release directory, while an explicit `SECPAL_ANDROID_RELEASE_ENV_FILE` takes precedence. Fastlane places `android-publish.lock` beside the resulting env file and creates a missing lock directory with mode `700`. The loader migrates an old `SECPAL_ANDROID_VERSION_CODE` baseline in memory, warns about and removes `SECPAL_ANDROID_VERSION_NAME` from the child environment, and never rewrites the file.
 For Fastlane-based Play deployment, keep the Play service-account JSON outside the repository as well, for example at `~/.config/secpal/google-play-service-account.json`.
 
 See `docs/ANDROID_RELEASE_DISTRIBUTION.md` for the distribution split between direct APK delivery and Google Play.

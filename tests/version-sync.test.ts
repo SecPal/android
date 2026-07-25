@@ -5,6 +5,8 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -194,4 +196,39 @@ describe("canonical app version", () => {
     expect(valid.status).toBe(0);
     expect(valid.stdout).toBe("validated");
   });
+
+  it.each(["native:assemble:release:signed", "native:bundle:release:signed"])(
+    "stops %s before invoking the release build without a code",
+    (script) => {
+      const tempRoot = mkdtempSync(
+        join(tmpdir(), "secpal-native-signed-build-guard-")
+      );
+      tempRoots.push(tempRoot);
+      const fakeBin = join(tempRoot, "bin");
+      const buildMarker = join(tempRoot, "release-build-invoked");
+      mkdirSync(fakeBin);
+      writeFileSync(
+        join(fakeBin, "bash"),
+        '#!/bin/sh\nprintf "invoked" > "$SECPAL_TEST_BUILD_MARKER"\nexit 99\n'
+      );
+      chmodSync(join(fakeBin, "bash"), 0o700);
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        SECPAL_TEST_BUILD_MARKER: buildMarker,
+      };
+      delete environment.SECPAL_ANDROID_VERSION_CODE;
+
+      const result = spawnSync("npm", ["run", script], {
+        cwd: repoRoot,
+        env: environment,
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(script);
+      expect(result.stderr).toContain("SECPAL_ANDROID_VERSION_CODE");
+      expect(existsSync(buildMarker)).toBe(false);
+    }
+  );
 });

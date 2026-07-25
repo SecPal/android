@@ -203,6 +203,7 @@ Fastlane should reuse the existing local signing baseline instead of introducing
 Fastlane lanes in this repository call the existing signed Gradle build flow and expect these local prerequisites:
 
 - `bundle install`
+- `SECPAL_ANDROID_CONFIG_DIR` when the complete release context should live outside the default `~/.config/secpal`
 - `SECPAL_ANDROID_RELEASE_ENV_FILE` when you do not use the default `~/.config/secpal/android-release.env`
 - `SECPAL_ANDROID_PLAY_JSON_KEY_PATH` for every publication, including Direct Stable and Direct Beta
 - `SECPAL_ANDROID_DIRECT_SSH_HOST` when publishing the direct APK to a non-default SSH host
@@ -215,7 +216,7 @@ All publishing lanes share one allocator. It reads the local baseline, Direct St
 
 The allocator uses UTC ranges `YYYYMMDD01` through `YYYYMMDD99`. It selects `01` when today has no known code, otherwise increments today's highest known code. It aborts on `99`, on a known future code, or on invalid source data. A `SECPAL_ANDROID_DEPLOY_VERSION_CODE` override must use the same format, fall in today's UTC range, and exceed every known code. Historical nine-digit codes remain valid monotonic floors but are never generated. Google Play's `2,100,000,000` limit means this date scheme is valid through 2099 and intentionally fails for 2100 dates.
 
-The SecPal VPS is currently the only authorized release runner. Google Play, Direct Stable, and Direct Beta publishing all hold the same non-blocking local `flock`-backed `~/.config/secpal/android-publish.lock` for source collection, allocation, build, upload, and baseline persistence. A concurrent process aborts, and the lock is released on success, failure, or process termination. This runner-local lock is not a substitute for a future central release reservation service.
+The SecPal VPS is currently the only authorized release runner. Google Play, Direct Stable, and Direct Beta publishing all hold the same non-blocking local `flock`-backed `android-publish.lock` for source collection, allocation, build, upload, and baseline persistence. The lock lives beside the effective release env file: under `SECPAL_ANDROID_CONFIG_DIR` for the default file name, or beside an explicit `SECPAL_ANDROID_RELEASE_ENV_FILE`. A missing lock directory is created with mode `700`; symlinked, foreign-owned, or group/world-accessible lock directories are rejected. A concurrent process aborts, and the lock is released on success, failure, or process termination. This runner-local lock is not a substitute for a future central release reservation service.
 
 Fastlane writes `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` only after the upload has succeeded. During build and upload, the selected code exists only as `SECPAL_ANDROID_VERSION_CODE` and is removed afterwards.
 
