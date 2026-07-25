@@ -396,6 +396,138 @@ describe("Play Store release automation", () => {
     ).toHaveLength(4);
   });
 
+  it("keeps allocation, upload, persistence, and cleanup inside one publishing lock", () => {
+    const tempRoot = mkdtempSync(
+      join(tmpdir(), "secpal-fastlane-publish-flow-")
+    );
+    const releaseEnvPath = join(tempRoot, "android-release.env");
+    const playKeyPath = join(tempRoot, "google-play.json");
+    const eventsPath = join(tempRoot, "events.txt");
+    const rubyAdapter = `
+module UI
+  module_function
+
+  def user_error!(message)
+    raise message
+  end
+
+  def message(*) = nil
+  def important(*) = nil
+end
+
+$secpal_test_lanes = {}
+def default_platform(*) = nil
+def desc(*) = nil
+def platform(*)
+  yield
+end
+def lane(name, &block)
+  $secpal_test_lanes[name] = block
+end
+
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+class << Time
+  def now
+    Time.utc(2026, 7, 22, 12, 0, 0)
+  end
+end
+
+def google_play_track_version_codes(**)
+  [2_026_072_208]
+end
+
+def direct_channel_version_code(_channel)
+  2_026_072_207
+end
+
+alias secpal_test_persist_last_published_version_code! persist_last_published_version_code!
+
+def record_publish_stage(stage)
+  unless ENV["SECPAL_ANDROID_VERSION_CODE"] == "2026072210"
+    raise "#{stage} observed the wrong temporary build code"
+  end
+
+  begin
+    SecPalAndroidPublishLock.with_lock(PUBLISH_LOCK_FILE) {}
+  rescue SecPalAndroidPublishLock::LockUnavailableError
+    File.open(ENV.fetch("SECPAL_TEST_EVENTS"), "a") { |file| file.puts(stage) }
+    return
+  end
+
+  raise "#{stage} ran without the publishing lock"
+end
+
+def build_signed_aab
+  record_publish_stage("build")
+end
+
+def upload_to_play_store(**)
+  record_publish_stage("upload")
+end
+
+def persist_last_published_version_code!(version_code)
+  record_publish_stage("persist")
+  secpal_test_persist_last_published_version_code!(version_code)
+end
+
+$secpal_test_lanes.fetch(:deploy_internal).call
+raise "temporary build code leaked" if ENV.key?("SECPAL_ANDROID_VERSION_CODE")
+
+lock_reacquired = false
+SecPalAndroidPublishLock.with_lock(PUBLISH_LOCK_FILE) do
+  lock_reacquired = true
+end
+raise "publishing lock was not released" unless lock_reacquired
+
+puts File.read(ENV.fetch("SECPAL_ANDROID_RELEASE_ENV_FILE"))
+`;
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE: "2026072204",
+      SECPAL_ANDROID_PLAY_JSON_KEY_PATH: playKeyPath,
+      SECPAL_ANDROID_RELEASE_ENV_FILE: releaseEnvPath,
+      SECPAL_TEST_EVENTS: eventsPath,
+      SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+    };
+    delete environment.SECPAL_ANDROID_DEPLOY_VERSION_CODE;
+    delete environment.SECPAL_ANDROID_VERSION_CODE;
+    delete environment.SECPAL_ANDROID_VERSION_NAME;
+
+    try {
+      writeFileSync(
+        releaseEnvPath,
+        "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072209\n"
+      );
+      writeFileSync(playKeyPath, "{}\n");
+      chmodSync(releaseEnvPath, 0o600);
+      chmodSync(playKeyPath, 0o600);
+
+      const result = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "load-android-release-env.sh"),
+          "ruby",
+          "-e",
+          rubyAdapter,
+        ],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: environment,
+        }
+      );
+
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(readFileSync(eventsPath, "utf8")).toBe("build\nupload\npersist\n");
+      expect(result.stdout.trim()).toBe(
+        "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072210"
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps direct APK metadata aligned with the actual signing key and latest checksum name", () => {
     const fastfile = readFileSync(
       resolve(repoRoot, "fastlane", "Fastfile"),

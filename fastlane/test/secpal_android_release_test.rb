@@ -52,6 +52,30 @@ class SecPalAndroidReleaseTest < Minitest::Test
     assert_equal "2026072205", resolved
   end
 
+  def test_newer_persisted_baseline_wins_over_a_stale_environment_value
+    resolved = SecPalAndroidRelease.resolve_last_published_version_code(
+      environment: {
+        "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE" => "2026072204"
+      },
+      persisted_value: "2026072209",
+      legacy_value: nil
+    )
+
+    assert_equal "2026072209", resolved
+  end
+
+  def test_rejects_an_invalid_environment_baseline_even_when_the_file_is_valid
+    assert_raises(SecPalAndroidVersioning::InvalidVersionCodeError) do
+      SecPalAndroidRelease.resolve_last_published_version_code(
+        environment: {
+          "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE" => "not-a-version-code"
+        },
+        persisted_value: "2026072209",
+        legacy_value: nil
+      )
+    end
+  end
+
   def test_direct_stable_requires_google_play_credentials
     error = assert_raises(SecPalAndroidRelease::MissingPlayCredentialsError) do
       SecPalAndroidRelease.require_play_credentials!(
