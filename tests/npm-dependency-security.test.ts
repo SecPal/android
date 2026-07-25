@@ -28,6 +28,13 @@ const readWorkflowJob = (workflow: string, jobName: string) => {
     : followingJobs.slice(0, nextJobOffset);
 };
 
+const hasHighSeverityAuditStep = (workflowJob: string) =>
+  workflowJob
+    .split("\n")
+    .some((line) =>
+      /^\s+(?:-\s+)?run:\s*npm audit --audit-level=high\s*$/.test(line)
+    );
+
 describe("npm dependency security", () => {
   it.each([
     ["LF", "\n"],
@@ -58,8 +65,21 @@ describe("npm dependency security", () => {
       "utf8"
     );
 
-    expect(readWorkflowJob(qualityWorkflow, "vitest")).toContain(
-      "run: npm audit --audit-level=high"
+    expect(
+      hasHighSeverityAuditStep(readWorkflowJob(qualityWorkflow, "vitest"))
+    ).toBe(true);
+  });
+
+  it("rejects a commented-out audit command", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    steps:",
+      "      # run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasHighSeverityAuditStep(readWorkflowJob(workflow, "vitest"))).toBe(
+      false
     );
   });
 });
