@@ -17,25 +17,34 @@ type WorkflowStep = {
   run?: unknown;
 };
 
-type Workflow = {
-  jobs?: Record<string, { steps?: WorkflowStep[] }>;
+type WorkflowJob = {
+  "continue-on-error"?: unknown;
+  steps?: WorkflowStep[];
 };
+
+type Workflow = {
+  jobs?: Record<string, WorkflowJob>;
+};
+
+const blocksOnFailure = (value: unknown) =>
+  value === undefined || value === false;
 
 const hasBlockingHighSeverityAuditStep = (
   workflowSource: string,
   jobName: string
 ) => {
   const workflow = load(workflowSource) as Workflow;
-  const steps = workflow.jobs?.[jobName]?.steps;
+  const job = workflow.jobs?.[jobName];
+  const steps = job?.steps;
 
   return (
+    blocksOnFailure(job?.["continue-on-error"]) &&
     Array.isArray(steps) &&
     steps.some(
       (step) =>
         step.run === "npm audit --audit-level=high" &&
         step.if === undefined &&
-        (step["continue-on-error"] === undefined ||
-          step["continue-on-error"] === false)
+        blocksOnFailure(step["continue-on-error"])
     )
   );
 };
@@ -101,5 +110,17 @@ describe("npm dependency security", () => {
     ].join("\n");
 
     expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(true);
+  });
+
+  it("rejects an audit job that can fail without failing the workflow", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    continue-on-error: true",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
   });
 });
