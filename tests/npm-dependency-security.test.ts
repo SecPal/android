@@ -19,6 +19,8 @@ type WorkflowStep = {
 
 type WorkflowJob = {
   "continue-on-error"?: unknown;
+  if?: unknown;
+  needs?: unknown;
   steps?: WorkflowStep[];
 };
 
@@ -29,16 +31,20 @@ type Workflow = {
 const blocksOnFailure = (value: unknown) =>
   value === undefined || value === false;
 
+const readWorkflow = (workflowSource: string) =>
+  load(workflowSource) as Workflow;
+
 const hasBlockingHighSeverityAuditStep = (
   workflowSource: string,
   jobName: string
 ) => {
-  const workflow = load(workflowSource) as Workflow;
+  const workflow = readWorkflow(workflowSource);
   const job = workflow.jobs?.[jobName];
   const steps = job?.steps;
 
   return (
     blocksOnFailure(job?.["continue-on-error"]) &&
+    job?.if === undefined &&
     Array.isArray(steps) &&
     steps.some(
       (step) =>
@@ -49,16 +55,28 @@ const hasBlockingHighSeverityAuditStep = (
   );
 };
 
+const jobNeeds = (
+  workflowSource: string,
+  jobName: string,
+  dependency: string
+) => {
+  const needs = readWorkflow(workflowSource).jobs?.[jobName]?.needs;
+  return (
+    needs === dependency || (Array.isArray(needs) && needs.includes(dependency))
+  );
+};
+
 describe("npm dependency security", () => {
-  it("runs a blocking high-severity audit step in the required Vitest job", () => {
+  it("runs an unconditional audit before the required Vitest job", () => {
     const qualityWorkflow = readFileSync(
       resolve(repoRoot, ".github/workflows/quality.yml"),
       "utf8"
     );
 
-    expect(hasBlockingHighSeverityAuditStep(qualityWorkflow, "vitest")).toBe(
-      true
-    );
+    expect(
+      hasBlockingHighSeverityAuditStep(qualityWorkflow, "dependency-audit")
+    ).toBe(true);
+    expect(jobNeeds(qualityWorkflow, "vitest", "dependency-audit")).toBe(true);
   });
 
   it("rejects a commented-out audit command", () => {
@@ -117,6 +135,18 @@ describe("npm dependency security", () => {
       "jobs:",
       "  vitest:",
       "    continue-on-error: true",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
+
+  it("rejects a conditionally skipped audit job", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    if: ${{ false }}",
       "    steps:",
       "      - run: npm audit --audit-level=high",
     ].join("\n");

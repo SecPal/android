@@ -55,13 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native update screen without a WebView or network capability instead (issue
   #407). That compatibility screen now reapplies managed-device lock-task
   policy and preserves screenshot protection.
-- Constrained transitive `brace-expansion` and `tar` dependencies to compatible
-  release lines starting at their patched versions, including the
-  `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw`, and currently resolving
-  to `brace-expansion@5.0.7` and `tar@7.5.21`,
-  which resolve their published denial-of-service vulnerabilities,
-  superseding the earlier `brace-expansion@5.0.6` lockfile remediation tracked
-  in issue `#258`.
+- Constrained transitive `tar` dependencies to a compatible release line
+  starting at the `tar@7.5.19` floor required by `GHSA-23hp-3jrh-7fpw` and
+  currently resolving to `tar@7.5.21`. The earlier
+  `brace-expansion@5.0.6`/`5.0.7` remediations tracked in issue `#258` are
+  superseded by the issue `#441` remediation above.
 - Removed Capacitor's `addJavascriptInterface()` fallback for unavailable or failed origin-aware bridge listeners, removed retained direct legacy plugin interfaces, preserved SystemBars initialization through the native page lifecycle, and added source-drift tests that fail if an upgrade restores the insecure bridge path (issue #414, part of #407).
 - Added regression coverage that keeps domain-policy storage-key exemptions
   fail-closed when browser-global aliases, storage constructors or prototypes,
