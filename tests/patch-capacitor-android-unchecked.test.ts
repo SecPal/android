@@ -17,10 +17,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   patchCapacitorBridgeCleanupSource,
+  patchCapacitorCorePluginRegistrationSource,
+  patchCapacitorHttpInterceptorSource,
+  patchCapacitorPluginExportSource,
+  patchCapacitorSystemBarsDispatchSource,
   patchCapacitorLegacyInterfaceSource,
   patchCapacitorMessageHandlerSource,
   patchCapacitorAndroidSource,
   patchCapacitorAndroidSources,
+  patchSystemBarsCallableSurfaceSource,
 } from "../scripts/patch-capacitor-android-unchecked.mjs";
 
 const pluginPath =
@@ -31,18 +36,40 @@ const messageHandlerPath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/MessageHandler.java";
 const bridgePath =
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java";
+const webViewLocalServerPath =
+  "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/WebViewLocalServer.java";
 const failClosedMessageHandlerConstruction = `        try {
             this.msgHandler = new MessageHandler(this, webView, pluginManager);
         } catch (RuntimeException exception) {
             handlerThread.quitSafely();
             throw exception;
         }`;
+const hardenedSystemBarsDispatch = `    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        if ("SystemBars".equals(pluginId)) {
+            Logger.error("unable to find plugin : " + pluginId);
+            call.errorCallback("unable to find plugin : " + pluginId);
+            return;
+        }
+
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);`;
 const retainedPluginPaths = [
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorCookies.java",
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorHttp.java",
   "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/SystemBars.java",
 ];
 const systemBarsPath = retainedPluginPaths[2];
+const upstreamCorePluginRegistration = `        this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);
+        this.registerPlugin(com.getcapacitor.plugin.WebView.class);
+        this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);`;
+
+const corePluginRegistrationPattern = (pluginId: string) =>
+  new RegExp(
+    `\\bregisterPlugin\\s*\\(\\s*(?:com\\.getcapacitor\\.plugin\\.)?${pluginId}\\s*\\.\\s*class\\b`
+  );
+const PLUGIN_METHOD_ANNOTATION_PATTERN =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
 
 function writeFixture(repoRoot: string, path: string, source: string) {
   const absolutePath = join(repoRoot, path);
@@ -101,6 +128,9 @@ public void postMessage(String jsonStr) {}
     expect(patched).toContain("catch (RuntimeException exception)");
     expect(patched).toContain(
       'throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception)'
+    );
+    expect(patched.indexOf("javaScriptReplyProxy = replyProxy;")).toBeLessThan(
+      patched.indexOf("postMessage(message.getData());")
     );
   });
 
@@ -164,6 +194,455 @@ public void onDOMReady() {}
     expect(patched).toContain("onDOMReady();");
   });
 
+  it("removes unused core plugins at Capacitor's native registration boundary", () => {
+    const source = `
+    private void registerAllPlugins() {
+${upstreamCorePluginRegistration}
+
+        for (Class<? extends Plugin> pluginClass : this.initialPlugins) {
+            this.registerPlugin(pluginClass);
+        }
+    }
+`;
+
+    expect(source).toContain("CapacitorCookies.class");
+    expect(source).toContain("WebView.class");
+    expect(source).toContain("CapacitorHttp.class");
+
+    const patched = patchCapacitorCorePluginRegistrationSource(source);
+
+    expect(patched).not.toContain("CapacitorCookies.class");
+    expect(patched).not.toContain("WebView.class");
+    expect(patched).not.toContain("CapacitorHttp.class");
+    expect(patched).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(patched).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorCorePluginRegistrationSource(patched)).toBe(patched);
+  });
+
+  it("rejects formatting drift that leaves forbidden core plugins registered", () => {
+    const driftedRegistrations = [
+      "this.registerPlugin( com.getcapacitor.plugin.CapacitorCookies.class);",
+      "registerPlugin(com.getcapacitor.plugin.WebView.class);",
+      "this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp . class);",
+    ];
+
+    for (const registration of driftedRegistrations) {
+      const source = `
+    private void registerAllPlugins() {
+        ${registration}
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Forbidden Capacitor core plugin registration remains"
+      );
+    }
+  });
+
+  it("rejects forbidden core plugin instance registrations", () => {
+    const directInstanceSource = `
+    private void registerAllPlugins() {
+${upstreamCorePluginRegistration}
+        this.registerPluginInstance(new com.getcapacitor.plugin.CapacitorHttp());
+    }
+`;
+    const urlAndConstructorReferenceSource = `
+    private void registerAllPlugins() {
+${upstreamCorePluginRegistration}
+        String documentation = "https://capacitorjs.com/docs";
+        java.util.function.Supplier<Plugin> factory =
+            com.getcapacitor.plugin.CapacitorHttp::new;
+    }
+`;
+
+    for (const source of [
+      directInstanceSource,
+      urlAndConstructorReferenceSource,
+    ]) {
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Forbidden Capacitor core plugin registration remains"
+      );
+    }
+  });
+
+  it("rejects an ambiguous markerless core registration state", () => {
+    const source = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+    expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+      "Expected Capacitor core plugin registration pattern was not found"
+    );
+  });
+
+  it("upgrades the exact previously hardened core registration state", () => {
+    const source = `
+${failClosedMessageHandlerConstruction}
+
+${hardenedSystemBarsDispatch}
+
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+
+    const patched = patchCapacitorCorePluginRegistrationSource(source);
+
+    expect(patched).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorCorePluginRegistrationSource(patched)).toBe(patched);
+  });
+
+  it("ignores Java comments when checking hardened bridge structure", () => {
+    const coreRegistrationSource = `
+${failClosedMessageHandlerConstruction}
+
+${hardenedSystemBarsDispatch}
+
+    /**
+     * Lifecycle registration remains: registerPlugin(SystemBars.class).
+     */
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+    const dispatchSource = `
+    // void callPluginMethod(String pluginId, PluginCall call) is the dispatch entry point.
+${hardenedSystemBarsDispatch}
+`;
+    const exportSource = `
+        // for (PluginHandle plugin : plugins) generates JavaScript proxies.
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+`;
+
+    expect(
+      patchCapacitorCorePluginRegistrationSource(coreRegistrationSource)
+    ).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(patchCapacitorSystemBarsDispatchSource(dispatchSource)).toBe(
+      dispatchSource
+    );
+    expect(patchCapacitorPluginExportSource(exportSource)).toBe(exportSource);
+  });
+
+  it("does not accept comment-only bridge hardening markers", () => {
+    const dispatchSource = `
+    /*
+${hardenedSystemBarsDispatch}
+    */
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+    const exportSource = `
+        /*
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+        */
+        for (PluginHandle plugin : plugins) {
+            lines.add(
+`;
+
+    const patchedDispatch =
+      patchCapacitorSystemBarsDispatchSource(dispatchSource);
+    const patchedExport = patchCapacitorPluginExportSource(exportSource);
+    const commentEnd = dispatchSource.indexOf("*/");
+    const actualExportLoop = exportSource.lastIndexOf(
+      "for (PluginHandle plugin : plugins)"
+    );
+
+    expect(
+      patchedDispatch.lastIndexOf('if ("SystemBars".equals(pluginId))')
+    ).toBeGreaterThan(commentEnd);
+    expect(
+      patchedExport.indexOf(
+        'if (plugin.getId().equals("SystemBars"))',
+        actualExportLoop
+      )
+    ).toBeGreaterThan(actualExportLoop);
+  });
+
+  it("fails closed when comments interrupt exact dispatch and export patterns", () => {
+    const dispatchSource = `
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+/* upstream comment */        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+    const exportSource = `
+        for (PluginHandle plugin : plugins) {
+/* upstream comment */            lines.add(
+`;
+
+    expect(() =>
+      patchCapacitorSystemBarsDispatchSource(dispatchSource)
+    ).toThrow(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+    expect(() => patchCapacitorPluginExportSource(exportSource)).toThrow(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  });
+
+  it("does not accept hardening patterns embedded in Java text blocks", () => {
+    const dispatchSource = `
+    String documentation = """
+${hardenedSystemBarsDispatch}
+    """;
+`;
+    const exportSource = `
+    String documentation = """
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+    """;
+`;
+
+    expect(() =>
+      patchCapacitorSystemBarsDispatchSource(dispatchSource)
+    ).toThrow(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+    expect(() => patchCapacitorPluginExportSource(exportSource)).toThrow(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  });
+
+  it("rejects incomplete or duplicated previous hardening markers", () => {
+    const retainedRegistration = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+    }
+`;
+    const ambiguousSources = [
+      `${failClosedMessageHandlerConstruction}\n${retainedRegistration}`,
+      `${hardenedSystemBarsDispatch}\n${retainedRegistration}`,
+      `${failClosedMessageHandlerConstruction}\n${hardenedSystemBarsDispatch}\n${retainedRegistration}\nthis.registerPlugin(SystemBars.class);`,
+    ];
+
+    for (const source of ambiguousSources) {
+      expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+        "Expected Capacitor core plugin registration pattern was not found"
+      );
+    }
+  });
+
+  it("fails closed when a forbidden core registration is reformatted", () => {
+    const source = `
+    private void registerAllPlugins() {
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);
+        this.registerPlugin(
+            com.getcapacitor.plugin.CapacitorHttp.class
+        );
+    }
+`;
+
+    expect(() => patchCapacitorCorePluginRegistrationSource(source)).toThrow(
+      "Forbidden Capacitor core plugin registration remains"
+    );
+  });
+
+  it("retains SystemBars lifecycle behavior without exporting plugin methods", () => {
+    const source = `
+import com.getcapacitor.PluginMethod;
+
+@PluginMethod
+public void setStyle(final PluginCall call) {}
+
+@PluginMethod
+public void show(final PluginCall call) {}
+
+@PluginMethod
+public void hide(final PluginCall call) {}
+
+@PluginMethod
+public void setAnimation(final PluginCall call) {}
+`;
+
+    const patched = patchSystemBarsCallableSurfaceSource(source);
+
+    expect(patched).not.toContain("import com.getcapacitor.PluginMethod;");
+    expect(patched).not.toContain("@PluginMethod");
+    expect(patched).toContain("public void setStyle(final PluginCall call)");
+    expect(patched).toContain("public void show(final PluginCall call)");
+    expect(patched).toContain("public void hide(final PluginCall call)");
+    expect(patched).toContain(
+      "public void setAnimation(final PluginCall call)"
+    );
+  });
+
+  it("rejects fully qualified SystemBars plugin method annotations", () => {
+    const source = `
+@com.getcapacitor.PluginMethod
+public void setStyle(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void show(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void hide(final PluginCall call) {}
+
+@com.getcapacitor.PluginMethod
+public void setAnimation(final PluginCall call) {}
+`;
+
+    expect(() => patchSystemBarsCallableSurfaceSource(source)).toThrow(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  });
+
+  it("keeps SystemBars out of generated plugin headers and proxies", () => {
+    const source = `
+        for (PluginHandle plugin : plugins) {
+            lines.add(
+`;
+
+    const patched = patchCapacitorPluginExportSource(source);
+
+    expect(patched).toContain('if (plugin.getId().equals("SystemBars"))');
+    expect(patched).toContain("continue;");
+  });
+
+  it("rejects additional unfiltered plugin export loops", () => {
+    const additionalLoops = [
+      "for (PluginHandle plugin : additionalPlugins)",
+      "for (final PluginHandle plugin : additionalPlugins)",
+      "for (@NonNull final com.getcapacitor.PluginHandle plugin : additionalPlugins)",
+    ];
+
+    for (const additionalLoop of additionalLoops) {
+      const source = `
+        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(
+
+        ${additionalLoop} {
+            lines.add(
+`;
+
+      expect(() => patchCapacitorPluginExportSource(source)).toThrow(
+        "Expected exactly one Capacitor plugin export loop"
+      );
+    }
+  });
+
+  it("rejects raw SystemBars dispatch before resolving its plugin handle", () => {
+    const source = `
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+
+    const patched = patchCapacitorSystemBarsDispatchSource(source);
+
+    expect(patched.indexOf('if ("SystemBars".equals(pluginId))')).toBeLessThan(
+      patched.indexOf("this.getPlugin(pluginId)")
+    );
+    expect(patched).toContain(
+      'call.errorCallback("unable to find plugin : " + pluginId);'
+    );
+  });
+
+  it("blocks the direct Capacitor native HTTP interceptor", () => {
+    const source = `
+    public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
+        Uri loadingUrl = request.getUrl();
+
+        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
+            try {
+                return handleCapacitorHttpRequest(request);
+            } catch (Exception e) {
+                Logger.error(e.getLocalizedMessage());
+                return null;
+            }
+        }
+
+        PathHandler handler;
+    }
+`;
+
+    const patched = patchCapacitorHttpInterceptorSource(source);
+
+    expect(patched).not.toContain("handleCapacitorHttpRequest(request)");
+    expect(patched).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
+    );
+    expect(patched).toContain("403");
+    expect(patchCapacitorHttpInterceptorSource(patched)).toBe(patched);
+  });
+
+  it("fails closed when comments interrupt the native HTTP interceptor pattern", () => {
+    const source = `
+        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+/* upstream comment */            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
+            try {
+                return handleCapacitorHttpRequest(request);
+            } catch (Exception e) {
+                Logger.error(e.getLocalizedMessage());
+                return null;
+            }
+        }
+`;
+
+    expect(() => patchCapacitorHttpInterceptorSource(source)).toThrow(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
+  });
+
+  it("rejects additional unguarded plugin dispatch entry points", () => {
+    const additionalDeclarations = [
+      "public static void callPluginMethod(String pluginId, final PluginCall call)",
+      "public final void callPluginMethod(String pluginId, final PluginCall call)",
+      "protected synchronized final void callPluginMethod(String pluginId, final PluginCall call)",
+      "void callPluginMethod(String pluginId, final PluginCall call)",
+    ];
+
+    for (const additionalDeclaration of additionalDeclarations) {
+      const source = `
+    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        if ("SystemBars".equals(pluginId)) {
+            Logger.error("unable to find plugin : " + pluginId);
+            call.errorCallback("unable to find plugin : " + pluginId);
+            return;
+        }
+
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);
+
+    ${additionalDeclaration} {
+        final PluginHandle plugin = this.getPlugin(pluginId);
+`;
+
+      expect(() => patchCapacitorSystemBarsDispatchSource(source)).toThrow(
+        "Expected exactly one Capacitor plugin dispatch entry point"
+      );
+    }
+  });
+
   it("fails closed when Capacitor's security-sensitive sources drift", () => {
     expect(() =>
       patchCapacitorMessageHandlerSource("unrecognized message handler")
@@ -177,6 +656,33 @@ public void onDOMReady() {}
       )
     ).toThrow(
       "Expected Capacitor legacy interface source pattern was not found for CapacitorHttpAndroidInterface"
+    );
+    expect(() =>
+      patchCapacitorCorePluginRegistrationSource(
+        "unrecognized core plugin registration"
+      )
+    ).toThrow(
+      "Expected Capacitor core plugin registration pattern was not found"
+    );
+    expect(() =>
+      patchSystemBarsCallableSurfaceSource(
+        "unrecognized SystemBars callable surface"
+      )
+    ).toThrow("Expected Capacitor SystemBars plugin methods were not found");
+    expect(() =>
+      patchCapacitorPluginExportSource("unrecognized plugin export")
+    ).toThrow(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+    expect(() =>
+      patchCapacitorSystemBarsDispatchSource("unrecognized bridge dispatch")
+    ).toThrow(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+    expect(() =>
+      patchCapacitorHttpInterceptorSource("unrecognized HTTP interceptor")
+    ).toThrow(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
     );
   });
 
@@ -195,6 +701,10 @@ public void onDOMReady() {}
       "utf8"
     );
     const bridge = readFileSync(join(repoRoot, bridgePath), "utf8");
+    const webViewLocalServer = readFileSync(
+      join(repoRoot, webViewLocalServerPath),
+      "utf8"
+    );
 
     expect(messageHandler).toContain(
       "WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)"
@@ -206,6 +716,23 @@ public void onDOMReady() {}
     );
     expect(messageHandler).not.toContain("addJavascriptInterface");
     expect(bridge).toContain(failClosedMessageHandlerConstruction);
+    expect(bridge).not.toMatch(
+      corePluginRegistrationPattern("CapacitorCookies")
+    );
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("WebView"));
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("CapacitorHttp"));
+    expect(bridge).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(bridge).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(webViewLocalServer).not.toContain(
+      "handleCapacitorHttpRequest(request)"
+    );
+    expect(webViewLocalServer).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
+    );
 
     for (const pluginPath of retainedPluginPaths) {
       const pluginSource = readFileSync(join(repoRoot, pluginPath), "utf8");
@@ -222,6 +749,10 @@ public void onDOMReady() {}
       "public void onPageLoaded(WebView webView)"
     );
     expect(systemBarsSource).toContain("onDOMReady();");
+    expect(systemBarsSource).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
+    expect(systemBarsSource).not.toContain(
+      "import com.getcapacitor.PluginMethod;"
+    );
   });
 
   it("parameterizes the raw Capacitor generics that emit unchecked warnings", () => {

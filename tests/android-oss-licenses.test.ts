@@ -35,7 +35,8 @@ const ossLicensesVerifier = resolve(
 
 const createNativeLibraryArchive = (
   root: string,
-  libraries: ReadonlyArray<readonly [abi: string, bytes: number]>
+  libraries: ReadonlyArray<readonly [abi: string, bytes: number]>,
+  zipCommand = "zip"
 ) => {
   const archiveRoot = join(root, "archive");
   for (const [abi, bytes] of libraries) {
@@ -47,11 +48,15 @@ const createNativeLibraryArchive = (
   }
 
   const archivePath = join(root, "release.zip");
-  const zipResult = spawnSync("zip", ["-q", "-r", archivePath, "."], {
+  const zipResult = spawnSync(zipCommand, ["-q", "-r", archivePath, "."], {
     cwd: archiveRoot,
     encoding: "utf8",
   });
-  expect(zipResult.status, zipResult.stderr).toBe(0);
+  const zipFailureDetails =
+    zipResult.error?.message ||
+    zipResult.stderr?.trim() ||
+    `zip exited with status ${zipResult.status ?? "unknown"}`;
+  expect(zipResult.status, zipFailureDetails).toBe(0);
   return archivePath;
 };
 
@@ -219,6 +224,63 @@ describe("Android OSS licenses", () => {
       expect(oversizedResult.status).not.toBe(0);
       expect(oversizedResult.stderr).toContain(
         "exceeds the 40000-byte release budget"
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves the zip spawn error from archive fixture setup", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "archive-zip-diagnostics-"));
+
+    try {
+      expect(() =>
+        createNativeLibraryArchive(
+          join(tempRoot, "missing-zip"),
+          expectedLibraries,
+          "missing-zip-command"
+        )
+      ).toThrow(/spawnSync missing-zip-command ENOENT/);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("distinguishes archive inspection errors from library layout errors", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "archive-unzip-diagnostics-"));
+
+    try {
+      const validArchive = createNativeLibraryArchive(
+        join(tempRoot, "unzip-failure"),
+        expectedLibraries
+      );
+      const binDirectory = join(tempRoot, "bin");
+      mkdirSync(binDirectory);
+      writeFileSync(
+        join(binDirectory, "unzip"),
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'controlled unzip failure' >&2\nexit 23\n"
+      );
+      chmodSync(join(binDirectory, "unzip"), 0o755);
+
+      const inspectionResult = spawnSync(
+        "bash",
+        [graphicsPathVerifier, validArchive, "test artifact"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+          },
+        }
+      );
+
+      expect(inspectionResult.status).not.toBe(0);
+      expect(inspectionResult.stderr).toContain("controlled unzip failure");
+      expect(inspectionResult.stderr).toContain(
+        "Failed to inspect test artifact archive"
+      );
+      expect(inspectionResult.stderr).not.toContain(
+        "Expected one AndroidX graphics-path library for each supported ABI"
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });

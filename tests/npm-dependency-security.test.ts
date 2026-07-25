@@ -6,69 +6,151 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-const readJson = <T>(file: string): T =>
-  JSON.parse(readFileSync(resolve(repoRoot, file), "utf8")) as T;
-
-type Version = readonly [number, number, number];
-
-const parseVersion = (version: string): Version => {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-  expect(
-    match,
-    `Expected a stable semantic version, received ${version}`
-  ).not.toBeNull();
-  return [Number(match?.[1]), Number(match?.[2]), Number(match?.[3])];
+type WorkflowStep = {
+  "continue-on-error"?: unknown;
+  if?: unknown;
+  run?: unknown;
 };
 
-const compareVersions = (left: Version, right: Version) => {
-  for (let index = 0; index < left.length; index += 1) {
-    const difference = left[index] - right[index];
-    if (difference !== 0) return difference;
-  }
-  return 0;
+type WorkflowJob = {
+  "continue-on-error"?: unknown;
+  if?: unknown;
+  needs?: unknown;
+  steps?: WorkflowStep[];
+};
+
+type Workflow = {
+  jobs?: Record<string, WorkflowJob>;
+};
+
+const blocksOnFailure = (value: unknown) =>
+  value === undefined || value === false;
+
+const readWorkflow = (workflowSource: string) =>
+  load(workflowSource) as Workflow;
+
+const hasBlockingHighSeverityAuditStep = (
+  workflowSource: string,
+  jobName: string
+) => {
+  const workflow = readWorkflow(workflowSource);
+  const job = workflow.jobs?.[jobName];
+  const steps = job?.steps;
+
+  return (
+    blocksOnFailure(job?.["continue-on-error"]) &&
+    job?.if === undefined &&
+    Array.isArray(steps) &&
+    steps.some(
+      (step) =>
+        step.run === "npm audit --audit-level=high" &&
+        step.if === undefined &&
+        blocksOnFailure(step["continue-on-error"])
+    )
+  );
+};
+
+const jobNeeds = (
+  workflowSource: string,
+  jobName: string,
+  dependency: string
+) => {
+  const needs = readWorkflow(workflowSource).jobs?.[jobName]?.needs;
+  return (
+    needs === dependency || (Array.isArray(needs) && needs.includes(dependency))
+  );
 };
 
 describe("npm dependency security", () => {
+  it("runs an unconditional audit before the required Vitest job", () => {
+    const qualityWorkflow = readFileSync(
+      resolve(repoRoot, ".github/workflows/quality.yml"),
+      "utf8"
+    );
+
+    expect(
+      hasBlockingHighSeverityAuditStep(qualityWorkflow, "dependency-audit")
+    ).toBe(true);
+    expect(jobNeeds(qualityWorkflow, "vitest", "dependency-audit")).toBe(true);
+  });
+
+  it("rejects a commented-out audit command", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    steps:",
+      "      # run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
+
+  it("rejects an audit command outside the workflow steps", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    env:",
+      "      run: npm audit --audit-level=high",
+      "    steps:",
+      "      - run: npm run test:coverage",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
+
   it.each([
-    ["brace-expansion", "^5.0.7", [5, 0, 7]],
-    ["tar", "^7.5.19", [7, 5, 19]],
-  ] as const)(
-    "keeps every resolved %s instance on its supported security line",
-    (dependency, overrideRange, minimumVersion) => {
-      const packageJson = readJson<{
-        overrides?: Record<string, unknown>;
-      }>("package.json");
-      const packageLock = readJson<{
-        packages?: Record<string, { version?: string }>;
-      }>("package-lock.json");
+    ["conditional", "        if: ${{ false }}"],
+    ["non-blocking", "        continue-on-error: true"],
+  ])("rejects a %s audit step", (_description, stepOption) => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+      stepOption,
+    ].join("\n");
 
-      expect(packageJson.overrides?.[dependency]).toBe(overrideRange);
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
 
-      const lockfileEntries = Object.entries(packageLock.packages ?? {}).filter(
-        ([path]) =>
-          path === `node_modules/${dependency}` ||
-          path.endsWith(`/node_modules/${dependency}`)
-      );
-      expect(lockfileEntries.length).toBeGreaterThan(0);
+  it("accepts an explicitly blocking audit step", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+      "        continue-on-error: false",
+    ].join("\n");
 
-      for (const [path, entry] of lockfileEntries) {
-        expect(entry.version, `${path} must declare a version`).toBeTypeOf(
-          "string"
-        );
-        const resolvedVersion = parseVersion(entry.version ?? "");
-        expect(
-          resolvedVersion[0],
-          `${path} must stay on the reviewed major`
-        ).toBe(minimumVersion[0]);
-        expect(
-          compareVersions(resolvedVersion, minimumVersion),
-          `${path} must resolve at or above ${minimumVersion.join(".")}`
-        ).toBeGreaterThanOrEqual(0);
-      }
-    }
-  );
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(true);
+  });
+
+  it("rejects an audit job that can fail without failing the workflow", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    continue-on-error: true",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
+
+  it("rejects a conditionally skipped audit job", () => {
+    const workflow = [
+      "jobs:",
+      "  vitest:",
+      "    if: ${{ false }}",
+      "    steps:",
+      "      - run: npm audit --audit-level=high",
+    ].join("\n");
+
+    expect(hasBlockingHighSeverityAuditStep(workflow, "vitest")).toBe(false);
+  });
 });

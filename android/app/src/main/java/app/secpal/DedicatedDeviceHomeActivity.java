@@ -10,6 +10,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.KeyEvent;
 import android.view.View;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
+    private static final String LOG_TAG = "SecPalDedicatedHome";
     private static volatile DedicatedDeviceHomeDependencies dependencies = new DedicatedDeviceHomeDependencies();
 
     private GridLayout appGrid;
@@ -32,6 +34,9 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if (!LegacyEnrollmentBootstrapCleanup.clear(this)) {
+            Log.w(LOG_TAG, "Failed to clear retired enrollment bootstrap state; cleanup will retry");
+        }
         super.onCreate(savedInstanceState);
         if (!BuildConfig.ALLOW_SCREENSHOTS) {
             getWindow().setFlags(

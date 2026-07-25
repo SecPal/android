@@ -19,6 +19,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -70,11 +71,32 @@ public class SecPalEnterprisePlugin extends Plugin {
     @PluginMethod
     public void getManagedState(PluginCall call) {
         EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(getContext());
-        JSObject payload = new JSObject();
         boolean phoneAvailable = managedState.isAllowPhone()
             && managedState.resolveDialerPackage(getContext()) != null;
         boolean smsAvailable = managedState.isAllowSms()
             && managedState.resolveSmsPackage(getContext()) != null;
+        JSObject payload = buildManagedStatePayload(
+            managedState,
+            phoneAvailable,
+            smsAvailable,
+            SystemNavigationController.isGestureNavigationEnabled(getContext()),
+            SystemNavigationController.canOpenGestureNavigationSettings(getContext()),
+            EnterprisePolicyController.resolveAllowedLaunchApps(getContext())
+        );
+
+        call.resolve(payload);
+    }
+
+    static JSObject buildManagedStatePayload(
+        EnterpriseManagedState managedState,
+        boolean phoneAvailable,
+        boolean smsAvailable,
+        boolean gestureNavigationEnabled,
+        boolean gestureNavigationSettingsAvailable,
+        List<EnterprisePolicyController.AllowedLaunchApp> allowedLaunchApps
+    ) {
+        JSObject payload = new JSObject();
+        JSArray allowedApps = new JSArray();
 
         payload.put("managed", managedState.isManaged());
         payload.put("mode", managedState.getMode());
@@ -82,23 +104,10 @@ public class SecPalEnterprisePlugin extends Plugin {
         payload.put("lockTaskEnabled", managedState.isLockTaskEnabled());
         payload.put("allowPhone", phoneAvailable);
         payload.put("allowSms", smsAvailable);
-        payload.put(
-            "gestureNavigationEnabled",
-            SystemNavigationController.isGestureNavigationEnabled(getContext())
-        );
-        payload.put(
-            "gestureNavigationSettingsAvailable",
-            SystemNavigationController.canOpenGestureNavigationSettings(getContext())
-        );
-        payload.put(
-            "distributionState",
-            toJsObject(buildDistributionStateMap(resolveProvisioningBootstrapState()))
-        );
+        payload.put("gestureNavigationEnabled", gestureNavigationEnabled);
+        payload.put("gestureNavigationSettingsAvailable", gestureNavigationSettingsAvailable);
 
-        JSArray allowedApps = new JSArray();
-
-        for (EnterprisePolicyController.AllowedLaunchApp allowedApp
-            : EnterprisePolicyController.resolveAllowedLaunchApps(getContext())) {
+        for (EnterprisePolicyController.AllowedLaunchApp allowedApp : allowedLaunchApps) {
             JSObject entry = new JSObject();
 
             entry.put("packageName", allowedApp.getPackageName());
@@ -107,8 +116,7 @@ public class SecPalEnterprisePlugin extends Plugin {
         }
 
         payload.put("allowedApps", allowedApps);
-
-        call.resolve(payload);
+        return payload;
     }
 
     static void emitHardwareButtonEvent(KeyEvent event) {
@@ -457,6 +465,16 @@ public class SecPalEnterprisePlugin extends Plugin {
         pendingHardwareEvents.add(new PendingHardwareEvent(eventName, payload));
     }
 
+    private static JSObject toJsObject(Map<String, Object> values) {
+        JSObject payload = new JSObject();
+
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            payload.put(entry.getKey(), entry.getValue());
+        }
+
+        return payload;
+    }
+
     private static String resolveKeyName(int keyCode) {
         try {
             return KeyEvent.keyCodeToString(keyCode);
@@ -500,44 +518,6 @@ public class SecPalEnterprisePlugin extends Plugin {
             default:
                 return false;
         }
-    }
-
-    static Map<String, Object> buildDistributionStateMap(ProvisioningBootstrapState state) {
-        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
-
-        payload.put("bootstrapStatus", state.getStatus());
-        payload.put("updateChannel", state.getUpdateChannel());
-        payload.put("releaseMetadataUrl", state.getReleaseMetadataUrl());
-        payload.put("bootstrapLastErrorCode", state.getLastErrorCode());
-
-        return payload;
-    }
-
-    private ProvisioningBootstrapState resolveProvisioningBootstrapState() {
-        try {
-            return ProvisioningBootstrapStore.fromContext(getContext()).getState();
-        } catch (TokenStorageException exception) {
-            return new ProvisioningBootstrapState(
-                ProvisioningBootstrapState.STATUS_FAILED,
-                null,
-                null,
-                null,
-                null,
-                null,
-                0,
-                ProvisioningBootstrapCoordinator.TOKEN_STORAGE_ERROR_CODE
-            );
-        }
-    }
-
-    private static JSObject toJsObject(Map<String, Object> values) {
-        JSObject payload = new JSObject();
-
-        for (Map.Entry<String, Object> entry : values.entrySet()) {
-            payload.put(entry.getKey(), entry.getValue());
-        }
-
-        return payload;
     }
 
     @PluginMethod

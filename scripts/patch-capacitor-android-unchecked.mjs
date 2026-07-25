@@ -60,7 +60,7 @@ const previousFailClosedMessageHandler = `        if (bridge.getConfig().isUsing
             throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
         }`;
 
-const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+const replyAfterDispatchFailClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
             throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
         }
         final boolean webMessageListenerSupported;
@@ -87,6 +87,33 @@ const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBr
             throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
         }`;
 
+const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBridge()) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+        final boolean webMessageListenerSupported;
+        try {
+            webMessageListenerSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable", exception);
+        }
+        if (!webMessageListenerSupported) {
+            throw new IllegalStateException("Origin-aware WebView bridge is unavailable");
+        }
+
+        WebViewCompat.WebMessageListener capListener = (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+            if (isMainFrame) {
+                javaScriptReplyProxy = replyProxy;
+                postMessage(message.getData());
+            } else {
+                Logger.warn("Plugin execution is allowed in Main Frame only");
+            }
+        };
+        try {
+            WebViewCompat.addWebMessageListener(webView, "androidBridge", bridge.getAllowedOriginRules(), capListener);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
+        }`;
+
 const messageHandlerConstruction =
   "        this.msgHandler = new MessageHandler(this, webView, pluginManager);";
 const failClosedMessageHandlerConstruction = `        try {
@@ -96,10 +123,179 @@ const failClosedMessageHandlerConstruction = `        try {
             throw exception;
         }`;
 
+const upstreamCorePluginRegistration = `        this.registerPlugin(com.getcapacitor.plugin.CapacitorCookies.class);
+        this.registerPlugin(com.getcapacitor.plugin.WebView.class);
+        this.registerPlugin(com.getcapacitor.plugin.CapacitorHttp.class);
+        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);`;
+const retainedSystemBarsRegistration =
+  "        this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);";
+const hardenedCorePluginRegistration = `        // SecPal: retain SystemBars for native lifecycle behavior only.
+${retainedSystemBarsRegistration}`;
+const forbiddenCorePluginClasses = [
+  "CapacitorCookies",
+  "WebView",
+  "CapacitorHttp",
+];
+const upstreamSystemBarsDispatch = `    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);`;
+const hardenedSystemBarsDispatch = `    public void callPluginMethod(String pluginId, final String methodName, final PluginCall call) {
+        if ("SystemBars".equals(pluginId)) {
+            Logger.error("unable to find plugin : " + pluginId);
+            call.errorCallback("unable to find plugin : " + pluginId);
+            return;
+        }
+
+        try {
+            final PluginHandle plugin = this.getPlugin(pluginId);`;
+const upstreamPluginExport = `        for (PluginHandle plugin : plugins) {
+            lines.add(`;
+const hardenedPluginExport = `        for (PluginHandle plugin : plugins) {
+            if (plugin.getId().equals("SystemBars")) {
+                continue;
+            }
+
+            lines.add(`;
+const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"];
+const upstreamCapacitorHttpInterceptor = `        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
+            try {
+                return handleCapacitorHttpRequest(request);
+            } catch (Exception e) {
+                Logger.error(e.getLocalizedMessage());
+                return null;
+            }
+        }`;
+const hardenedCapacitorHttpInterceptor = `        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            Logger.warn("Blocked direct Capacitor native HTTP interceptor request");
+            return new WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                403,
+                "Forbidden",
+                java.util.Collections.emptyMap(),
+                new java.io.ByteArrayInputStream(new byte[0])
+            );
+        }`;
+const pluginDispatchEntryPointPattern = /\bvoid\s+callPluginMethod\s*\(/g;
+const javaAnnotationPattern = String.raw`@[A-Za-z_$][A-Za-z0-9_$.]*(?:\s*\([^\r\n)]*\))?`;
+const pluginExportLoopPattern = new RegExp(
+  String.raw`\bfor\s*\(\s*(?:(?:${javaAnnotationPattern}|final)\s+)*(?:com\.getcapacitor\.)?PluginHandle\s+[A-Za-z_$][A-Za-z0-9_$]*\s*:`,
+  "g"
+);
+const systemBarsRegistrationPattern =
+  /\bregisterPlugin\s*\(\s*(?:com\.getcapacitor\.plugin\.)?SystemBars\s*\.\s*class\b/g;
+const anyPluginMethodAnnotationPattern =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
+
+function stripJavaComments(source) {
+  let result = "";
+  let state = "code";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+    const following = source[index + 2];
+
+    if (state === "line-comment") {
+      if (current === "\n" || current === "\r") {
+        result += current;
+        state = "code";
+      }
+      continue;
+    }
+
+    if (state === "block-comment") {
+      if (current === "*" && next === "/") {
+        index += 1;
+        state = "code";
+      } else if (current === "\n" || current === "\r") {
+        result += current;
+      }
+      continue;
+    }
+
+    if (state === "text-block") {
+      if (current === '"' && next === '"' && following === '"') {
+        index += 2;
+        state = "code";
+      } else if (current === "\n" || current === "\r") {
+        result += current;
+      }
+      continue;
+    }
+
+    if (state === "string" || state === "character") {
+      result += current;
+      if (current === "\\") {
+        if (next !== undefined) {
+          result += next;
+          index += 1;
+        }
+      } else if (
+        (state === "string" && current === '"') ||
+        (state === "character" && current === "'")
+      ) {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (current === "/" && next === "/") {
+      index += 1;
+      state = "line-comment";
+    } else if (current === "/" && next === "*") {
+      index += 1;
+      state = "block-comment";
+    } else if (current === '"' && next === '"' && following === '"') {
+      index += 2;
+      state = "text-block";
+    } else {
+      result += current;
+      if (current === '"') {
+        state = "string";
+      } else if (current === "'") {
+        state = "character";
+      }
+    }
+  }
+
+  return result;
+}
+
+function countMatches(source, pattern) {
+  return Array.from(source.matchAll(pattern)).length;
+}
+
 function removeJavascriptInterfaceAnnotations(source) {
   return source
     .replace("import android.webkit.JavascriptInterface;\n", "")
     .replace(/^[ \t]*@JavascriptInterface[ \t]*\r?\n/gm, "");
+}
+
+function containsForbiddenCorePluginRegistration(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  return forbiddenCorePluginClasses.some((className) => {
+    const qualifiedClassName = `(?:com\\s*\\.\\s*getcapacitor\\s*\\.\\s*plugin\\s*\\.\\s*)?${className}`;
+
+    return [
+      new RegExp(`\\b${qualifiedClassName}\\s*\\.\\s*class\\b`),
+      new RegExp(`\\bnew\\s+${qualifiedClassName}\\s*\\(`),
+      new RegExp(`\\b${qualifiedClassName}\\s*::\\s*new\\b`),
+    ].some((pattern) => pattern.test(sourceWithoutComments));
+  });
+}
+
+function hasPreviousHardenedCorePluginRegistration(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  return (
+    sourceWithoutComments.includes(retainedSystemBarsRegistration) &&
+    countMatches(sourceWithoutComments, systemBarsRegistrationPattern) === 1 &&
+    sourceWithoutComments.includes(failClosedMessageHandlerConstruction) &&
+    sourceWithoutComments.includes(hardenedSystemBarsDispatch)
+  );
 }
 
 export function patchCapacitorMessageHandlerSource(source) {
@@ -113,6 +309,11 @@ export function patchCapacitorMessageHandlerSource(source) {
   } else if (source.includes(previousFailClosedMessageHandler)) {
     patchedSource = source.replace(
       previousFailClosedMessageHandler,
+      failClosedMessageHandler
+    );
+  } else if (source.includes(replyAfterDispatchFailClosedMessageHandler)) {
+    patchedSource = source.replace(
+      replyAfterDispatchFailClosedMessageHandler,
       failClosedMessageHandler
     );
   } else if (source.includes(failClosedMessageHandler)) {
@@ -140,6 +341,155 @@ export function patchCapacitorBridgeCleanupSource(source) {
     messageHandlerConstruction,
     failClosedMessageHandlerConstruction
   );
+}
+
+export function patchCapacitorCorePluginRegistrationSource(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+  let patchedSource;
+
+  if (sourceWithoutComments.includes(upstreamCorePluginRegistration)) {
+    patchedSource = source.replace(
+      upstreamCorePluginRegistration,
+      hardenedCorePluginRegistration
+    );
+    if (patchedSource === source) {
+      throw new Error(
+        "Expected Capacitor core plugin registration pattern was not found"
+      );
+    }
+  } else if (containsForbiddenCorePluginRegistration(source)) {
+    throw new Error("Forbidden Capacitor core plugin registration remains");
+  } else if (
+    source.includes(hardenedCorePluginRegistration) &&
+    countMatches(sourceWithoutComments, systemBarsRegistrationPattern) === 1
+  ) {
+    patchedSource = source;
+  } else if (hasPreviousHardenedCorePluginRegistration(source)) {
+    patchedSource = source.replace(
+      retainedSystemBarsRegistration,
+      hardenedCorePluginRegistration
+    );
+  } else {
+    throw new Error(
+      "Expected Capacitor core plugin registration pattern was not found"
+    );
+  }
+
+  if (containsForbiddenCorePluginRegistration(patchedSource)) {
+    throw new Error("Forbidden Capacitor core plugin registration remains");
+  }
+
+  return patchedSource;
+}
+
+export function patchCapacitorSystemBarsDispatchSource(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  if (
+    countMatches(sourceWithoutComments, pluginDispatchEntryPointPattern) > 1
+  ) {
+    throw new Error(
+      "Expected exactly one Capacitor plugin dispatch entry point"
+    );
+  }
+
+  if (sourceWithoutComments.includes(hardenedSystemBarsDispatch)) {
+    if (source.includes(hardenedSystemBarsDispatch)) {
+      return source;
+    }
+    throw new Error(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+  }
+  if (!sourceWithoutComments.includes(upstreamSystemBarsDispatch)) {
+    throw new Error(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+  }
+
+  const patchedSource = source.replace(
+    upstreamSystemBarsDispatch,
+    hardenedSystemBarsDispatch
+  );
+  if (patchedSource === source) {
+    throw new Error(
+      "Expected Capacitor SystemBars bridge dispatch pattern was not found"
+    );
+  }
+
+  return patchedSource;
+}
+
+export function patchCapacitorPluginExportSource(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  if (countMatches(sourceWithoutComments, pluginExportLoopPattern) > 1) {
+    throw new Error("Expected exactly one Capacitor plugin export loop");
+  }
+
+  if (sourceWithoutComments.includes(hardenedPluginExport)) {
+    if (source.includes(hardenedPluginExport)) {
+      return source;
+    }
+    throw new Error(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  }
+  if (!sourceWithoutComments.includes(upstreamPluginExport)) {
+    throw new Error(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  }
+
+  const patchedSource = source.replace(
+    upstreamPluginExport,
+    hardenedPluginExport
+  );
+  if (patchedSource === source) {
+    throw new Error(
+      "Expected Capacitor SystemBars plugin export pattern was not found"
+    );
+  }
+
+  return patchedSource;
+}
+
+export function patchCapacitorHttpInterceptorSource(source) {
+  const sourceWithoutComments = stripJavaComments(source);
+
+  if (sourceWithoutComments.includes(hardenedCapacitorHttpInterceptor)) {
+    if (
+      source.includes(hardenedCapacitorHttpInterceptor) &&
+      !sourceWithoutComments.includes("handleCapacitorHttpRequest(request)")
+    ) {
+      return source;
+    }
+    throw new Error(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
+  }
+  if (!sourceWithoutComments.includes(upstreamCapacitorHttpInterceptor)) {
+    throw new Error(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
+  }
+
+  const patchedSource = source.replace(
+    upstreamCapacitorHttpInterceptor,
+    hardenedCapacitorHttpInterceptor
+  );
+  if (
+    patchedSource === source ||
+    stripJavaComments(patchedSource).includes(
+      "handleCapacitorHttpRequest(request)"
+    )
+  ) {
+    throw new Error(
+      "Expected Capacitor native HTTP interceptor pattern was not found"
+    );
+  }
+
+  return patchedSource;
 }
 
 export function patchCapacitorLegacyInterfaceSource(source, interfaceName) {
@@ -213,6 +563,57 @@ ${indent}}`;
   return source.replace(pageCommitCallback, nativeDomReadyCallback);
 }
 
+export function patchSystemBarsCallableSurfaceSource(source) {
+  const pluginMethodPattern =
+    /^[ \t]*@PluginMethod(?:\([^)]*\))?[ \t]*\r?\n[ \t]*public void ([A-Za-z0-9_]+)\(/gm;
+  const annotatedMethods = Array.from(
+    source.matchAll(pluginMethodPattern),
+    (match) => match[1]
+  ).sort();
+  const hasExpectedPublicMethods = systemBarsPluginMethods.every((method) =>
+    source.includes(`public void ${method}(`)
+  );
+
+  if (annotatedMethods.length === 0) {
+    if (
+      hasExpectedPublicMethods &&
+      !source.includes("import com.getcapacitor.PluginMethod;") &&
+      !anyPluginMethodAnnotationPattern.test(source)
+    ) {
+      return source;
+    }
+
+    throw new Error(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  }
+
+  if (
+    annotatedMethods.length !== systemBarsPluginMethods.length ||
+    annotatedMethods.some(
+      (method, index) => method !== systemBarsPluginMethods[index]
+    )
+  ) {
+    throw new Error(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  }
+
+  const patchedSource = source
+    .replace("import com.getcapacitor.PluginMethod;\n", "")
+    .replace(pluginMethodPattern, (match) =>
+      match.replace(/^[ \t]*@PluginMethod(?:\([^)]*\))?[ \t]*\r?\n/, "")
+    );
+
+  if (anyPluginMethodAnnotationPattern.test(patchedSource)) {
+    throw new Error(
+      "Expected Capacitor SystemBars plugin methods were not found"
+    );
+  }
+
+  return patchedSource;
+}
+
 export function patchCapacitorAndroidSource(
   source,
   expectedReplacements = replacements
@@ -251,7 +652,22 @@ export function patchCapacitorAndroidSources(repoRoot) {
     {
       sourcePath:
         "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java",
-      patch: patchCapacitorBridgeCleanupSource,
+      patch: (source) =>
+        patchCapacitorCorePluginRegistrationSource(
+          patchCapacitorSystemBarsDispatchSource(
+            patchCapacitorBridgeCleanupSource(source)
+          )
+        ),
+    },
+    {
+      sourcePath:
+        "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/JSExport.java",
+      patch: patchCapacitorPluginExportSource,
+    },
+    {
+      sourcePath:
+        "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/WebViewLocalServer.java",
+      patch: patchCapacitorHttpInterceptorSource,
     },
     {
       sourcePath:
@@ -264,8 +680,16 @@ export function patchCapacitorAndroidSources(repoRoot) {
       ["SystemBars.java", "CapacitorSystemBarsAndroidInterface"],
     ].map(([fileName, interfaceName]) => ({
       sourcePath: `node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/${fileName}`,
-      patch: (source) =>
-        patchCapacitorLegacyInterfaceSource(source, interfaceName),
+      patch: (source) => {
+        const patchedSource = patchCapacitorLegacyInterfaceSource(
+          source,
+          interfaceName
+        );
+
+        return interfaceName === "CapacitorSystemBarsAndroidInterface"
+          ? patchSystemBarsCallableSurfaceSource(patchedSource)
+          : patchedSource;
+      },
     })),
   ];
 

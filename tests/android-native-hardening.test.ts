@@ -19,6 +19,12 @@ const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
 const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
+const corePluginRegistrationPattern = (pluginId: string) =>
+  new RegExp(
+    `\\bregisterPlugin\\s*\\(\\s*(?:com\\.getcapacitor\\.plugin\\.)?${pluginId}\\s*\\.\\s*class\\b`
+  );
+const PLUGIN_METHOD_ANNOTATION_PATTERN =
+  /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
 
 describe("Android native hardening", () => {
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
@@ -53,6 +59,280 @@ describe("Android native hardening", () => {
     );
     expect(packageJson.scripts["cap:add:android"]).toContain(
       "native:patch:capacitor-android"
+    );
+  });
+
+  it("keeps unused Capacitor core plugins outside the WebView bridge", () => {
+    const bridge = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "Bridge.java"
+    );
+    const systemBars = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "plugin",
+      "SystemBars.java"
+    );
+    const jsExport = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "JSExport.java"
+    );
+    const webViewLocalServer = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "WebViewLocalServer.java"
+    );
+    const bridgeIsolationTest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "androidTest",
+      "java",
+      "app",
+      "secpal",
+      "WebViewBridgeIsolationInstrumentedTest.java"
+    );
+    const bridgeIsolationTestActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "java",
+      "app",
+      "secpal",
+      "BridgeIsolationTestActivity.java"
+    );
+    const debugManifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "AndroidManifest.xml"
+    );
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const bridgeIsolationPage = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "assets",
+      "public",
+      "bridge-isolation-test.html"
+    );
+    const architecture = readRepoFile("docs", "ANDROID_AUTH_ARCHITECTURE.md");
+
+    expect(bridge).not.toMatch(
+      corePluginRegistrationPattern("CapacitorCookies")
+    );
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("CapacitorHttp"));
+    expect(bridge).not.toMatch(corePluginRegistrationPattern("WebView"));
+    expect(bridge).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(bridge).toContain(
+      "SecPal: retain SystemBars for native lifecycle behavior only."
+    );
+    expect(systemBars).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
+    expect(bridge).toContain('if ("SystemBars".equals(pluginId))');
+    expect(jsExport).toContain('if (plugin.getId().equals("SystemBars"))');
+    expect(webViewLocalServer).not.toContain(
+      "handleCapacitorHttpRequest(request)"
+    );
+    expect(webViewLocalServer).toContain(
+      "Blocked direct Capacitor native HTTP interceptor request"
+    );
+    expect(systemBars).toContain("public void setStyle(final PluginCall call)");
+    expect(systemBars).toContain("public void show(final PluginCall call)");
+    expect(systemBars).toContain("public void hide(final PluginCall call)");
+    expect(bridgeIsolationTest).toContain(
+      "allBridgeIsolationGuaranteesHoldInSingleWebViewSession"
+    );
+    expect(bridgeIsolationTest.match(/@Test/g)).toHaveLength(1);
+    expect(bridgeIsolationTest).toContain(
+      "assertUnusedCorePluginsAreAbsentFromTheNativeRegistry"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "assertPackagedWebViewCannotInvokeForbiddenCorePlugins"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "assertPackagedFrontendCannotExposeForbiddenNativePlugins"
+    );
+    expect(bridgeIsolationTest).toContain(
+      "assertNativeHttpInterceptorIsBlocked"
+    );
+    expect(bridgeIsolationTest).toContain("assertEquals(403");
+    expect(bridgeIsolationTest).toContain("root.hasChildNodes()");
+    expect(bridgeIsolationTest).not.toContain("moveToState(");
+    expect(bridgeIsolationTest).toContain(
+      "BridgeIsolationTestActivity.resetInvocations()"
+    );
+    expect(bridgeIsolationTest).not.toContain("registerPluginInstance(");
+    expect(bridgeIsolationTest).toContain(
+      'assertTrue(invocations.contains("barrier"))'
+    );
+    expect(bridgeIsolationTest).toContain(
+      'assertFalse(invocations.contains("child"))'
+    );
+    expect(bridgeIsolationTest).toContain(
+      "Child frame unexpectedly received a native plugin reply"
+    );
+    expect(bridgeIsolationTest).toContain("waitForIdleSync()");
+    expect(bridgeIsolationTestActivity).toContain(
+      "createSecureBridge(CountingEnterprisePlugin.class)"
+    );
+    expect(bridgeIsolationTestActivity).toContain(
+      '@CapacitorPlugin(name = "SecPalEnterprise")'
+    );
+    expect(mainActivity).toContain(
+      "createSecureBridge(SecPalEnterprisePlugin.class)"
+    );
+    expect(debugManifest).toMatch(
+      /android:name="\.BridgeIsolationTestActivity"\s+android:exported="false"/
+    );
+    expect(bridgeIsolationPage).toContain("isPluginAvailable");
+    expect(bridgeIsolationPage).toContain("child-reply");
+    expect(bridgeIsolationPage).toMatch(
+      /window\.androidBridge\.onmessage = \(\) => \{\s+secpalTestResult\.postMessage\('child-reply'\);\s+\};/
+    );
+    expect(bridgeIsolationPage).not.toContain("forbiddenProxiesAbsent");
+    expect(architecture).toContain(
+      '`Capacitor.isPluginAvailable("SystemBars")` returns'
+    );
+    expect(architecture).toContain("web-only JavaScript proxies");
+    expect(architecture).toContain(
+      "`/_capacitor_http_interceptor_` route is also rejected"
+    );
+    expect(architecture).not.toContain(
+      "It is omitted from generated\nplugin headers and `Capacitor.Plugins`"
+    );
+  });
+
+  it("proves the upstream registrations expose direct JavaScript dispatch", () => {
+    const bridge = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "Bridge.java"
+    );
+    const jsExport = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "JSExport.java"
+    );
+    const pluginHandle = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "PluginHandle.java"
+    );
+    const patchScript = readRepoFile(
+      "scripts",
+      "patch-capacitor-android-unchecked.mjs"
+    );
+    const corePluginSources = [
+      ["CapacitorCookies.java", "setCookie"],
+      ["CapacitorHttp.java", "request"],
+      ["WebView.java", "setServerBasePath"],
+    ] as const;
+
+    expect(jsExport).toContain(
+      "Collection<PluginMethodHandle> methods = plugin.getMethods()"
+    );
+    expect(jsExport).toContain("w.Capacitor.nativePromise('");
+    expect(pluginHandle).toContain(
+      "methodReflect.getAnnotation(PluginMethod.class)"
+    );
+    expect(bridge).toContain("plugin.invoke(methodName, call)");
+
+    for (const [fileName, methodName] of corePluginSources) {
+      const className = fileName.replace(".java", "");
+      const source = readRepoFile(
+        "node_modules",
+        "@capacitor",
+        "android",
+        "capacitor",
+        "src",
+        "main",
+        "java",
+        "com",
+        "getcapacitor",
+        "plugin",
+        fileName
+      );
+
+      expect(patchScript).toContain(
+        `this.registerPlugin(com.getcapacitor.plugin.${className}.class);`
+      );
+      expect(source).toMatch(
+        new RegExp(
+          `@PluginMethod(?:\\([^)]*\\))?\\s+public void ${methodName}\\(`
+        )
+      );
+    }
+
+    expect(patchScript).toContain(
+      "this.registerPlugin(com.getcapacitor.plugin.SystemBars.class);"
+    );
+    expect(patchScript).toContain(
+      'const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"]'
     );
   });
 
@@ -136,9 +416,7 @@ describe("Android native hardening", () => {
     expect(mainActivity).toMatch(
       /super\.onCreate\(savedInstanceState\);\s+if \(!secureBridgeStarted\) \{[\s\S]*?openWebViewCompatibilityScreen\(\);[\s\S]*?return;/
     );
-    expect(mainActivity).toMatch(
-      /private void scheduleProvisioningBootstrapSync\(\) \{\s+if \(!secureBridgeStarted\) \{\s+return;/
-    );
+    expect(mainActivity).not.toContain("scheduleProvisioningBootstrapSync");
     expect(
       mainActivity.indexOf("SecureWebViewBridgeSupport.isAvailable")
     ).toBeLessThan(
@@ -202,20 +480,6 @@ describe("Android native hardening", () => {
     expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe("0.8.13");
     expect(packageLock.packages?.["node_modules/@xmldom/xmldom"]?.version).toBe(
       "0.8.13"
-    );
-  });
-
-  it("pins a patched postcss version for the Vite toolchain", () => {
-    const packageJson = JSON.parse(readRepoFile("package.json")) as {
-      overrides?: Record<string, unknown>;
-    };
-    const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
-      packages?: Record<string, { version?: string }>;
-    };
-
-    expect(packageJson.overrides?.postcss).toBe("8.5.10");
-    expect(packageLock.packages?.["node_modules/postcss"]?.version).toBe(
-      "8.5.10"
     );
   });
 
@@ -416,7 +680,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("keeps provisioning bootstrap on the canonical API origin", () => {
+  it("removes retired enrollment bootstrap state without changing runtime bootstrap", () => {
     const stringsXml = readRepoFile(
       "android",
       "app",
@@ -426,7 +690,12 @@ describe("Android native hardening", () => {
       "values",
       "strings.xml"
     );
-    const coordinator = readRepoFile(
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(stringsXml).not.toContain("provisioning_bootstrap_api_base_url");
+
+    const nativeAuthClient = readRepoFile(
       "android",
       "app",
       "src",
@@ -434,19 +703,90 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "ProvisioningBootstrapCoordinator.java"
+      "NativeAuthHttpClient.java"
+    );
+    const tokenStorage = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "KeystoreTokenStorage.java"
+    );
+    const enterprisePlugin = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalEnterprisePlugin.java"
+    );
+    const deviceAdminReceiver = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalDeviceAdminReceiver.java"
     );
 
-    expect(stringsXml).toContain(
-      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    expect(nativeAuthClient).not.toContain("/v1/android/bootstrap/exchange");
+    expect(nativeAuthClient).not.toContain("toJavaMap");
+    expect(nativeAuthClient).not.toContain("toJavaValue");
+    expect(nativeAuthClient).not.toContain("mapValue");
+    expect(tokenStorage).not.toContain("keyPrefix");
+    expect(enterprisePlugin).not.toContain("distributionState");
+    expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
+  });
+
+  it("uses only the canonical bootstrap schema for Android push registration", () => {
+    const bridgeScript = readRepoFile(
+      "scripts",
+      "inject-native-auth-bridge.mjs"
     );
-    expect(stringsXml).toContain(
-      '<string name="provisioning_bootstrap_api_base_url">https://api.secpal.dev</string>'
+
+    expect(bridgeScript).toContain("const currentBootstrapSchemaVersion = 4;");
+    expect(
+      bridgeScript.match(/const currentBootstrapSchemaVersion = 4;/g)
+    ).toHaveLength(1);
+    expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
+  });
+
+  it("documents the schema-4-only runtime contract without rollout gates", () => {
+    const runtimeContract = readRepoFile(
+      "docs",
+      "ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md"
     );
-    expect(coordinator).toContain(
-      "R.string.provisioning_bootstrap_api_base_url"
+    expect(runtimeContract).toContain("requires strict integer schema `4`");
+    expect(runtimeContract).toContain(
+      "Stable and Beta artifacts must embed the canonical schema-4 bridge"
     );
-    expect(coordinator).not.toContain("R.string.api_base_url");
+    expect(runtimeContract).toMatch(
+      /must not\s+remain available as an Android release/
+    );
+    expect(runtimeContract).not.toMatch(/schemas?(?: versions?)? `3`/i);
+    expect(runtimeContract).not.toMatch(
+      /Schema 4 Rollout|rollout window|support floor|first compatible Android release/i
+    );
+    expect(runtimeContract).not.toMatch(/\bfallback\b/i);
+    expect(
+      [
+        runtimeContract,
+        readRepoFile("docs/ANDROID_RELEASE_DISTRIBUTION.md"),
+        readRepoFile("scripts/inject-native-auth-bridge.mjs"),
+        readRepoFile(
+          "android/app/src/main/java/app/secpal/SecPalNativeAuthPlugin.java"
+        ),
+      ].join("\n")
+    ).not.toMatch(
+      /minimumSupportedAppVersion|minimumSupportedAppBuild|minimum_supported_app_version|minimum_supported_app_build/
+    );
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {
@@ -651,6 +991,11 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RELEASE_DISTRIBUTION.md"
     );
+    const schema3WithdrawalEvidence = readRepoFile(
+      "docs",
+      "release-evidence",
+      "2026-07-24-schema-3-artifact-withdrawal.md"
+    );
     const fastfile = readRepoFile("fastlane", "Fastfile");
     const releaseEnvLoader = readRepoFile(
       "scripts",
@@ -673,6 +1018,12 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
       "./gradlew assembleStoreListing"
     );
+    expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
+    );
+    expect(packageJson.scripts["native:bundle:release:signed"]).toContain(
+      "verify-android-runtime-schema.mjs"
+    );
     expect(packageJson.scripts["fastlane:android:build:signed-aab"]).toContain(
       "bundle exec fastlane android build_signed_aab"
     );
@@ -691,6 +1042,9 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["fastlane:android:deploy:beta-apk"]).toContain(
       "bundle exec fastlane android deploy_direct_apk_beta"
     );
+    expect(
+      packageJson.scripts["fastlane:android:withdraw:direct-apks"]
+    ).toBeUndefined();
     expect(readme).toContain("Fastlane");
     expect(readme).toContain("npm run fastlane:android:build:signed-aab");
     expect(readme).toContain("npm run fastlane:android:deploy:internal");
@@ -698,19 +1052,43 @@ describe("Android native hardening", () => {
     expect(readme).toContain("apk.secpal.app");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(readme).not.toContain(
+      "npm run fastlane:android:withdraw:direct-apks"
+    );
+    expect(readme).not.toContain("SECPAL_ANDROID_WITHDRAW_VERSIONS");
+    expect(readme).not.toContain("atomically marks Stable");
     expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
     expect(readme).toContain(
       "https://apk.secpal.app/android/stable/latest.json"
     );
     expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
+    expect(readme).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
+    );
     expect(distributionDoc).toContain("Fastlane");
     expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("internal testing track");
     expect(distributionDoc).toContain("apk.secpal.app");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
     expect(distributionDoc).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(distributionDoc).not.toContain(
+      "fastlane android withdraw_direct_apks"
+    );
+    expect(distributionDoc).not.toContain(
+      "SECPAL_ANDROID_DIRECT_WITHDRAWAL_ROOT"
+    );
+    expect(distributionDoc).not.toContain("atomically changes the Stable");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932118");
+    expect(schema3WithdrawalEvidence).toContain("0.0.1-261932119");
+    expect(schema3WithdrawalEvidence).toContain("HTTP `404`");
+    expect(schema3WithdrawalEvidence).toContain(
+      "No recoverable schema-3 artifact remains on the server"
+    );
     expect(distributionDoc).toContain(
       "https://apk.secpal.app/android/beta/latest.json"
+    );
+    expect(distributionDoc).toContain(
+      "signed APK and AAB embed the canonical schema-4 Android bridge"
     );
     expect(fastfile).toContain('File.expand_path("..", __dir__)');
     expect(fastfile).toContain("deploy_direct_apk");
@@ -728,7 +1106,14 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("app_signing_certificate_sha256");
     expect(fastfile).toContain("signing_key_shared_with_google_play");
     expect(fastfile).toContain("versioned_checksum_url");
-    expect(fastfile).toContain("release_available: false");
+    expect(fastfile).not.toContain("release_available: false");
+    expect(fastfile).toContain("def verify_android_runtime_schema_artifact!");
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_apk_path)"
+    );
+    expect(fastfile).toContain(
+      "verify_android_runtime_schema_artifact!(signed_aab_path)"
+    );
     expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
     expect(fastfile).toContain("select_publish_version_code!");
     expect(fastfile).toContain("configured_last_published_version_code");

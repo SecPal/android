@@ -48,8 +48,27 @@ jobs:
       node-version: "22"
       build-command: "npm run typecheck"
 
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
   vitest:
     name: Vitest Tests
+    needs: dependency-audit
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: ${{ !startsWith(github.head_ref, 'spike/') && !startsWith(github.ref, 'refs/heads/spike/') }}

@@ -10,7 +10,6 @@ import android.util.Base64;
 
 import com.getcapacitor.JSObject;
 
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -22,10 +21,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,58 +85,6 @@ class NativeAuthHttpClient {
         );
 
         return parseLoginResponse(response);
-    }
-
-    ProvisioningBootstrapExchangeResult exchangeBootstrapToken(
-        String baseUrl,
-        String bootstrapToken,
-        ProvisioningBootstrapRuntimeInfo runtimeInfo
-    ) throws IOException, JSONException, NativeAuthHttpException {
-        JSONObject requestBody = buildBootstrapExchangeRequestBody(bootstrapToken, runtimeInfo);
-        JSONObject response = sendJsonRequest(baseUrl, "/v1/android/bootstrap/exchange", "POST", requestBody, null);
-
-        return parseBootstrapExchangeResponse(response);
-    }
-
-    static JSONObject buildBootstrapExchangeRequestBody(
-        String bootstrapToken,
-        ProvisioningBootstrapRuntimeInfo runtimeInfo
-    ) throws JSONException {
-        JSONObject requestBody = new JSONObject()
-            .put("bootstrap_token", bootstrapToken)
-            .put("package_name", runtimeInfo.getPackageName());
-
-        if (runtimeInfo.getPackageVersionName() != null) {
-            requestBody.put("package_version_name", runtimeInfo.getPackageVersionName());
-        }
-
-        if (runtimeInfo.getPackageVersionCode() > 0) {
-            requestBody.put("package_version_code", runtimeInfo.getPackageVersionCode());
-        }
-
-        if (runtimeInfo.getDeviceName() != null) {
-            requestBody.put("device_name", runtimeInfo.getDeviceName());
-        }
-
-        JSONObject device = new JSONObject();
-
-        if (runtimeInfo.getDeviceManufacturer() != null) {
-            device.put("manufacturer", runtimeInfo.getDeviceManufacturer());
-        }
-
-        if (runtimeInfo.getDeviceModel() != null) {
-            device.put("model", runtimeInfo.getDeviceModel());
-        }
-
-        if (runtimeInfo.getAndroidVersion() != null) {
-            device.put("android_version", runtimeInfo.getAndroidVersion());
-        }
-
-        if (device.length() > 0) {
-            requestBody.put("device", device);
-        }
-
-        return requestBody;
     }
 
     JSObject getCurrentUser(String baseUrl, String token) throws IOException, JSONException, NativeAuthHttpException {
@@ -452,11 +396,6 @@ class NativeAuthHttpClient {
         return normalizedPath;
     }
 
-    static ProvisioningBootstrapExchangeResult parseBootstrapExchangeResponse(JSONObject response)
-        throws JSONException {
-        return parseBootstrapExchangePayload(toJavaMap(response.getJSONObject("data")));
-    }
-
     static LoginResponse parseLoginResponse(JSONObject response) throws JSONException {
         return new LoginResponse(response.getString("token"), JSObject.fromJSONObject(response.getJSONObject("user")));
     }
@@ -471,89 +410,12 @@ class NativeAuthHttpClient {
         );
     }
 
-    static ProvisioningBootstrapExchangeResult parseBootstrapExchangePayload(Map<String, Object> data) {
-        return new ProvisioningBootstrapExchangeResult(
-            stringValue(data.get("enrollment_session_id")),
-            intValue(data.get("tenant_id")),
-            stringValue(data.get("tenant_name")),
-            stringValue(data.get("api_base_url")),
-            stringValue(data.get("update_channel")),
-            stringValue(data.get("release_metadata_url")),
-            mapValue(data.get("provisioning_profile"))
-        );
-    }
-
-    private static Map<String, Object> toJavaMap(JSONObject object) throws JSONException {
-        LinkedHashMap<String, Object> values = new LinkedHashMap<>();
-        Iterator<String> keys = object.keys();
-
-        while (keys.hasNext()) {
-            String key = keys.next();
-
-            values.put(key, toJavaValue(object.get(key)));
-        }
-
-        return values;
-    }
-
-    private static Object toJavaValue(Object value) throws JSONException {
-        if (value == JSONObject.NULL) {
-            return null;
-        }
-
-        if (value instanceof JSONObject) {
-            return toJavaMap((JSONObject) value);
-        }
-
-        if (value instanceof JSONArray) {
-            JSONArray array = (JSONArray) value;
-            Object[] values = new Object[array.length()];
-
-            for (int index = 0; index < array.length(); index++) {
-                values[index] = toJavaValue(array.get(index));
-            }
-
-            return values;
-        }
-
-        return value;
-    }
-
-    private static String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private static int intValue(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-
-        if (value == null) {
-            return 0;
-        }
-
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
-    }
-
     private static String normalizeChallengeId(String challengeId) throws NativeAuthHttpException {
         if (challengeId == null || challengeId.trim().isEmpty()) {
             throw new NativeAuthHttpException("Android auth bridge requires a passkey challenge id", 0);
         }
 
         return challengeId.trim();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> mapValue(Object value) {
-        if (value instanceof Map) {
-            return (Map<String, Object>) value;
-        }
-
-        return new LinkedHashMap<>();
     }
 
     private byte[] readResponseBodyBytes(InputStream inputStream) throws IOException {
