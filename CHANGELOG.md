@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SecPal/{frontend,android}` layout (issue #445).
 - Added generated Google Play services/Firebase open-source notices to Android release artifacts and the native notices activity for a frontend-owned entry point.
 
+### Fixed
+
+- Guarded Android 28 lock-task features and date/time user restrictions so
+  supported Android 24–27 enterprise devices only receive policies available
+  on their API level (issue #454).
+
 ### Changed
 
 - Separated the persisted Android publication baseline, manual deploy override, and temporary Gradle build code; signed build-only lanes now require an explicit code and legacy version-name environment values are ignored.
