@@ -1001,6 +1001,12 @@ describe("Android native hardening", () => {
       "scripts",
       "load-android-release-env.sh"
     );
+    const gemfile = readRepoFile("Gemfile");
+    const releaseRubyTest = readRepoFile(
+      "fastlane",
+      "test",
+      "secpal_android_release_test.rb"
+    );
     const gemfilePath = resolve(repoRoot, "Gemfile");
     const appfilePath = resolve(repoRoot, "fastlane", "Appfile");
     const fastfilePath = resolve(repoRoot, "fastlane", "Fastfile");
@@ -1008,6 +1014,18 @@ describe("Android native hardening", () => {
     expect(existsSync(gemfilePath)).toBe(true);
     expect(existsSync(appfilePath)).toBe(true);
     expect(existsSync(fastfilePath)).toBe(true);
+    expect(gemfile.match(/^\s*gem "minitest", "~> 6\.0"\s*$/gm)).toHaveLength(
+      1
+    );
+    expect(
+      gemfile.match(/^\s*gem "minitest-mock", "~> 5\.27"\s*$/gm)
+    ).toHaveLength(1);
+    expect(releaseRubyTest).toContain('require "minitest/mock"');
+    expect(
+      packageJson.scripts["test:ruby"]
+        .split(" && ")
+        .every((command) => command.startsWith("bundle exec ruby "))
+    ).toBe(true);
     expect(packageJson.scripts["fastlane:install"]).toContain("bundle install");
     expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
       "require-android-build-version-code.rb"
