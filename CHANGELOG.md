@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Removed the unaudited static Android SPKI pins that locked signed clients out
+  after a legitimate certificate-chain rotation; global cleartext prohibition,
+  Android system trust, and standard TLS certificate and hostname validation
+  remain active (issue #449).
 - Removed the unused Capacitor HTTP, cookie, and WebView path-management core
   plugins from Android's native registration boundary, retained only native
   SystemBars lifecycle/inset behavior while hiding it from plugin exports and

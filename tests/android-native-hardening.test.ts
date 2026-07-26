@@ -10,11 +10,6 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-// SHA-256 base64-encoded SubjectPublicKeyInfo (SPKI) hashes used for
-// api.secpal.dev certificate pinning (primary and backup pins).
-const API_CERT_PRIMARY_PIN = "3BJmezOWc04OlOrJ501K2t07GXxrHS5qQC7T7OnnO7k=";
-const API_CERT_BACKUP_PIN = "iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU=";
-
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
@@ -597,7 +592,7 @@ describe("Android native hardening", () => {
     expect(networkState).not.toContain("getActiveNetworkInfo");
   });
 
-  it("locks file sharing to dedicated subdirectories and disables cleartext traffic", () => {
+  it("locks file sharing and enforces the release system-PKI transport policy", () => {
     const manifest = readRepoFile(
       "android",
       "app",
@@ -645,13 +640,28 @@ describe("Android native hardening", () => {
     );
 
     expect(networkSecurityConfig).toContain(
-      '<base-config cleartextTrafficPermitted="false" />'
+      '<base-config cleartextTrafficPermitted="false"'
     );
-    expect(networkSecurityConfig).toContain(
-      '<domain includeSubdomains="false">api.secpal.dev</domain>'
+    expect(networkSecurityConfig).not.toMatch(
+      /cleartextTrafficPermitted\s*=\s*["']true["']/
     );
-    expect(networkSecurityConfig).toContain(API_CERT_PRIMARY_PIN);
-    expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
+    expect(networkSecurityConfig).not.toMatch(/<pin-set\b/);
+    expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|>)/);
+    expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
+    expect(networkSecurityConfig).not.toMatch(
+      /<certificates\b[^>]*\bsrc\s*=\s*["']user["']/
+    );
+    expect(networkSecurityConfig).not.toMatch(
+      /overridePins\s*=\s*["']true["']/
+    );
+    expect(networkSecurityConfig).not.toContain("<debug-overrides");
+
+    const configuredCertificateSources =
+      networkSecurityConfig.match(/<certificates\b[^>]*\/>/g) ?? [];
+
+    for (const certificates of configuredCertificateSources) {
+      expect(certificates).toBe('<certificates src="system" />');
+    }
   });
 
   it("declares digital asset links in the app manifest for app.secpal.dev", () => {
