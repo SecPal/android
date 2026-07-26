@@ -10,7 +10,6 @@ RELEASE_ENV_FILE="${SECPAL_ANDROID_RELEASE_ENV_FILE:-$CONFIG_DIR/android-release
 if [[ "$RELEASE_ENV_FILE" != /* ]]; then
     RELEASE_ENV_FILE="$PWD/$RELEASE_ENV_FILE"
 fi
-readonly RESOLVED_RELEASE_ENV_FILE="$RELEASE_ENV_FILE"
 OVERRIDABLE_KEYS=(
     SECPAL_ANDROID_DIRECT_CHANNEL
     SECPAL_ANDROID_DEPLOY_VERSION_CODE
@@ -53,6 +52,9 @@ if (( file_mode_octal & 0177 )); then
     exit 1
 fi
 
+RESOLVED_RELEASE_ENV_FILE="$(realpath -- "$RELEASE_ENV_FILE")"
+readonly RESOLVED_RELEASE_ENV_FILE
+
 for key in "${OVERRIDABLE_KEYS[@]}"; do
     if [[ -v "$key" ]]; then
         overrides+=("$key=${!key}")
@@ -67,7 +69,7 @@ unset SECPAL_ANDROID_VERSION_NAME
 
 set -a
 # shellcheck source=/dev/null
-source "$RELEASE_ENV_FILE"
+source "$RESOLVED_RELEASE_ENV_FILE"
 set +a
 export SECPAL_ANDROID_RELEASE_ENV_FILE="$RESOLVED_RELEASE_ENV_FILE"
 

@@ -230,7 +230,7 @@ describe("Android release env loader", () => {
 
   it("exports a selected relative env file as an absolute path", () => {
     const tempRoot = mkdtempSync(
-      join(repoRoot, ".context", "android-release-env-relative-")
+      join(tmpdir(), "secpal-android-release-env-relative-")
     );
     const releaseEnvPath = join(tempRoot, "android-release.env");
     const relativeReleaseEnvPath = relative(repoRoot, releaseEnvPath);
