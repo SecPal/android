@@ -130,8 +130,11 @@ describe("Android Certificate Transparency regression contract", () => {
     );
     expect(workflow).not.toContain("experimental:");
     expect(workflow).not.toContain("continue-on-error:");
+    expect(workflow).toMatch(
+      /sdkmanager --channel="\$SDK_CHANNEL" \\\s+"platform-tools" "emulator" "\$image"/
+    );
     expect(workflow).toContain(
-      'sdkmanager --channel="$SDK_CHANNEL" "emulator" "$image"'
+      "bash ./scripts/with-android-env.sh adb version"
     );
     expect(workflow).toContain("matrix.api-level >= 36");
     expect(workflow).not.toContain("api37-stable-availability:");

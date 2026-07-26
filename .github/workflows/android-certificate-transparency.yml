@@ -108,7 +108,9 @@ jobs:
           sudo chmod 666 /dev/kvm
           mkdir -p "$ANDROID_AVD_HOME"
           image="system-images;android-${IMAGE_API_LEVEL};google_apis;x86_64"
-          bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" "emulator" "$image"
+          bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" \
+            "platform-tools" "emulator" "$image"
+          bash ./scripts/with-android-env.sh adb version
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
