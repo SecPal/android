@@ -89,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Upgraded AndroidX WebKit to 1.13.0 and placed Web Authentication setup inside
+  its positive runtime feature guard so Android lint validates both the feature
+  constant and the guarded API call without baselines or suppressions (issue
+  #453).
 - Declared Minitest as a locked Ruby test dependency and bound Fastlane tests
   to Bundler so fresh release machines no longer depend on system gems (issue
   #447).
