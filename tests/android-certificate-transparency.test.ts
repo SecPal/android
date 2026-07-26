@@ -151,6 +151,13 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(readRepoFile("scripts", "wait-for-android-device.sh")).toContain(
       "settings get global device_provisioned"
     );
+    expect(readRepoFile("scripts", "wait-for-android-device.sh")).toContain(
+      "cmd package path android"
+    );
+    expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
+    expect(
+      workflow.indexOf(":app:assembleCtRegressionAndroidTest")
+    ).toBeLessThan(workflow.indexOf("npm run android:emulator:start"));
     expect(workflow).toContain('cat "$emulator_log"');
     expect(workflow).toContain("connectedCtRegressionAndroidTest");
     expect(workflow).not.toContain("connectedDebugAndroidTest");

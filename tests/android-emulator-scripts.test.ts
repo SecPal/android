@@ -230,6 +230,13 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "setting
   [[ "\${SECPAL_TEST_SETTINGS_READY:-true}" == "true" ]]
   exit
 fi
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" && "$5" == "package" && "$6" == "path" && "$7" == "android" ]]; then
+  if [[ "\${SECPAL_TEST_PACKAGE_READY:-true}" == "true" ]]; then
+    printf 'package:/system/framework/framework-res.apk\r\n'
+    exit 0
+  fi
+  exit 1
+fi
 exit 1
 `
       );
@@ -263,6 +270,9 @@ exit 1
       expect(adbInvocations).toContain(
         `-s ${serial} shell settings get global device_provisioned`
       );
+      expect(adbInvocations).toContain(
+        `-s ${serial} shell cmd package path android`
+      );
 
       const systemProvidersUnavailableResult = spawnSync(
         "bash",
@@ -288,6 +298,32 @@ exit 1
       expect(systemProvidersUnavailableResult.status).toBe(1);
       expect(systemProvidersUnavailableResult.stderr).toContain(
         "settings=missing"
+      );
+
+      const packageManagerUnavailableResult = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          serial,
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+            SECPAL_TEST_PACKAGE_READY: "false",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(packageManagerUnavailableResult.status).toBe(1);
+      expect(packageManagerUnavailableResult.stderr).toContain(
+        "package=missing"
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });

@@ -119,6 +119,15 @@ jobs:
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image" \
             "${avd_device_args[@]}"
+          if (( API_LEVEL >= 37 )); then
+            (
+              cd android
+              ./gradlew --no-daemon \
+                -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+                :app:assembleCtRegression \
+                :app:assembleCtRegressionAndroidTest
+            )
+          fi
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
           if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"; then

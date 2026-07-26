@@ -48,15 +48,20 @@ while (( SECONDS < deadline )); do
     if run_adb -s "$serial" shell settings get global device_provisioned >/dev/null 2>&1; then
         settings_ready="ready"
     fi
+    package_path="$(run_adb -s "$serial" shell cmd package path android 2>/dev/null | tr -d '\r' || true)"
+    package_ready="missing"
+    if [[ "$package_path" == package:* ]]; then
+        package_ready="ready"
+    fi
 
-    if [[ -n "$wm_size" && -n "$wm_density" && "$boot_completed" == "1" && "$settings_ready" == "ready" ]]; then
+    if [[ -n "$wm_size" && -n "$wm_density" && "$boot_completed" == "1" && "$settings_ready" == "ready" && "$package_ready" == "ready" ]]; then
         echo "serial=${serial}"
         echo "$wm_size"
         echo "$wm_density"
         exit 0
     fi
 
-    echo "waiting serial=${serial} state=device boot=${boot_completed:-missing} bootanim=${boot_animation:-missing} home=${home_activity:-missing} settings=${settings_ready}" >&2
+    echo "waiting serial=${serial} state=device boot=${boot_completed:-missing} bootanim=${boot_animation:-missing} home=${home_activity:-missing} settings=${settings_ready} package=${package_ready}" >&2
     sleep 2
 done
 
