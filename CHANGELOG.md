@@ -104,9 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emulator image, selected a current Pixel phone profile, and allocated the
   4 GB of VM memory required by Android 17 (issue #450).
 - Built the Certificate Transparency regression APK before starting the API 37
-  emulator and waited for both the settings provider and package manager before
-  installation, avoiding attempts against a partially available framework
-  (issue #450).
+  emulator, provisioned an 8 GB data partition, and waited for both the settings
+  provider and package manager before installation, avoiding attempts against a
+  partially available framework or a full default data partition (issue #450).
 - Upgraded AndroidX WebKit to 1.13.0 and placed Web Authentication setup inside
   its positive runtime feature guard so Android lint validates both the feature
   constant and the guarded API call without baselines or suppressions (issue

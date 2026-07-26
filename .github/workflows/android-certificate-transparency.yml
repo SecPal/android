@@ -115,6 +115,7 @@ jobs:
           if (( API_LEVEL >= 37 )); then
             avd_device_args=(--device pixel_7_pro)
             export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096
+            export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192
           fi
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image" \

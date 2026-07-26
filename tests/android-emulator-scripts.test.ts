@@ -52,6 +52,7 @@ printf '%s\n' "$*" > "${emulatorLogPath}"
         HOME: tempRoot,
         PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
         SECPAL_ANDROID_EMULATOR_MEMORY_MB: "4096",
+        SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB: "8192",
       };
       delete env.ANDROID_AVD_HOME;
       delete env.ANDROID_EMULATOR_HOME;
@@ -86,6 +87,9 @@ printf '%s\n' "$*" > "${emulatorLogPath}"
       );
       expect(emulatorLogWait.status).toBe(0);
       expect(readFileSync(emulatorLogPath, "utf8")).toContain("-memory 4096");
+      expect(readFileSync(emulatorLogPath, "utf8")).toContain(
+        "-partition-size 8192"
+      );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -160,6 +164,30 @@ printf '%s\n' "$*" > "${emulatorLogPath}"
       expect(memoryResult.stderr).toContain("Unsupported emulator memory");
       expect(existsSync(injectionPath)).toBe(false);
 
+      const partitionSizeResult = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "start-android-emulator.sh"),
+          "TestAvd",
+          "5570",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...env,
+            SECPAL_ANDROID_EMULATOR_GPU_MODE: "host",
+            SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB: `8192; touch "${injectionPath}"`,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(partitionSizeResult.status).toBe(64);
+      expect(partitionSizeResult.stderr).toContain(
+        "Unsupported emulator partition size"
+      );
+      expect(existsSync(injectionPath)).toBe(false);
+
       const avdNameResult = spawnSync(
         "bash",
         [
@@ -230,7 +258,7 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "setting
   [[ "\${SECPAL_TEST_SETTINGS_READY:-true}" == "true" ]]
   exit
 fi
-if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" && "$5" == "package" && "$6" == "path" && "$7" == "android" ]]; then
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "pm" && "$5" == "path" && "$6" == "android" ]]; then
   if [[ "\${SECPAL_TEST_PACKAGE_READY:-true}" == "true" ]]; then
     printf 'package:/system/framework/framework-res.apk\r\n'
     exit 0
@@ -270,9 +298,7 @@ exit 1
       expect(adbInvocations).toContain(
         `-s ${serial} shell settings get global device_provisioned`
       );
-      expect(adbInvocations).toContain(
-        `-s ${serial} shell cmd package path android`
-      );
+      expect(adbInvocations).toContain(`-s ${serial} shell pm path android`);
 
       const systemProvidersUnavailableResult = spawnSync(
         "bash",

@@ -48,7 +48,7 @@ while (( SECONDS < deadline )); do
     if run_adb -s "$serial" shell settings get global device_provisioned >/dev/null 2>&1; then
         settings_ready="ready"
     fi
-    package_path="$(run_adb -s "$serial" shell cmd package path android 2>/dev/null | tr -d '\r' || true)"
+    package_path="$(run_adb -s "$serial" shell pm path android 2>/dev/null | tr -d '\r' || true)"
     package_ready="missing"
     if [[ "$package_path" == package:* ]]; then
         package_ready="ready"

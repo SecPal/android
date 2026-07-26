@@ -36,6 +36,7 @@ pid_path="${runtime_dir}/${avd_name}-${console_port}.pid"
 android_avd_home="${ANDROID_AVD_HOME:-}"
 gpu_mode="${SECPAL_ANDROID_EMULATOR_GPU_MODE:-host}"
 memory_mb="${SECPAL_ANDROID_EMULATOR_MEMORY_MB:-}"
+partition_size_mb="${SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB:-}"
 window_mode="${SECPAL_ANDROID_EMULATOR_WINDOW_MODE:-qt-hide-window}"
 
 if ! [[ "$gpu_mode" =~ $safe_input_pattern ]]; then
@@ -50,6 +51,15 @@ if [[ -n "$memory_mb" ]]; then
         exit 64
     fi
     memory_args=(-memory "$memory_mb")
+fi
+
+partition_args=()
+if [[ -n "$partition_size_mb" ]]; then
+    if ! [[ "$partition_size_mb" =~ ^[0-9]+$ ]] || (( partition_size_mb < 128 || partition_size_mb > 65536 )); then
+        echo "Unsupported emulator partition size: ${partition_size_mb}" >&2
+        exit 64
+    fi
+    partition_args=(-partition-size "$partition_size_mb")
 fi
 
 if [[ -z "$android_avd_home" ]]; then
@@ -92,6 +102,7 @@ bash ./scripts/with-android-env.sh env ANDROID_AVD_HOME="${android_avd_home}" \
     "${window_flag}" \
     -gpu "${gpu_mode}" \
     "${memory_args[@]}" \
+    "${partition_args[@]}" \
     -no-metrics \
     -ports "${console_port},${adb_port}" \
     > "${log_path}" 2>&1 < /dev/null &

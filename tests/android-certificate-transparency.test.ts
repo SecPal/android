@@ -144,6 +144,9 @@ describe("Android Certificate Transparency regression contract", () => {
     );
     expect(workflow).toContain("avd_device_args=(--device pixel_7_pro)");
     expect(workflow).toContain("export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096");
+    expect(workflow).toContain(
+      "export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192"
+    );
     expect(workflow).toContain("BOOT_TIMEOUT: ${{ matrix.boot-timeout }}");
     expect(workflow).toContain(
       'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
@@ -152,7 +155,7 @@ describe("Android Certificate Transparency regression contract", () => {
       "settings get global device_provisioned"
     );
     expect(readRepoFile("scripts", "wait-for-android-device.sh")).toContain(
-      "cmd package path android"
+      "pm path android"
     );
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
     expect(
