@@ -11,6 +11,7 @@ on:
       - ".github/workflows/android-certificate-transparency.yml"
       - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
       - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
       - "android/app/src/main/AndroidManifest.xml"
       - "android/app/src/main/res/xml*/network_security_config.xml"
       - "android/variables.gradle"
@@ -20,6 +21,7 @@ on:
       - ".github/workflows/android-certificate-transparency.yml"
       - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
       - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
       - "android/app/src/main/AndroidManifest.xml"
       - "android/app/src/main/res/xml*/network_security_config.xml"
       - "android/variables.gradle"
@@ -48,18 +50,23 @@ jobs:
           - api-level: 24
             image-api-level: "24"
             sdk-channel: 0
+            boot-timeout: 300
           - api-level: 29
             image-api-level: "29"
             sdk-channel: 0
+            boot-timeout: 300
           - api-level: 35
             image-api-level: "35"
             sdk-channel: 0
+            boot-timeout: 300
           - api-level: 36
             image-api-level: "36"
             sdk-channel: 0
+            boot-timeout: 300
           - api-level: 37
             image-api-level: "37.0"
             sdk-channel: 0
+            boot-timeout: 600
 
     steps:
       - name: Checkout repository
@@ -90,6 +97,7 @@ jobs:
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
+          BOOT_TIMEOUT: ${{ matrix.boot-timeout }}
           IMAGE_API_LEVEL: ${{ matrix.image-api-level }}
           LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
           SDK_CHANNEL: ${{ matrix.sdk-channel }}
@@ -105,7 +113,7 @@ jobs:
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
-          if ! npm run android:device:wait -- emulator-5570 300; then
+          if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"; then
             echo "Android emulator failed to become usable; emulator log follows:" >&2
             cat "$emulator_log" >&2 || true
             exit 1

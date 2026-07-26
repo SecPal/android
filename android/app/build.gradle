@@ -88,6 +88,8 @@ android {
             initWith release
             applicationIdSuffix ".ctregression"
             matchingFallbacks = ['release']
+            proguardFile 'ct-regression-proguard-rules.pro'
+            testProguardFile 'ct-regression-proguard-rules.pro'
             signingConfig signingConfigs.debug
         }
         storeListing {

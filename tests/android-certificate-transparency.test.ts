@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -57,6 +57,26 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(appBuildGradle).toMatch(/initWith\s+release/);
     expect(appBuildGradle).toMatch(/signingConfig\s+signingConfigs\.debug/);
     expect(appBuildGradle).toMatch(/testBuildType\s+["']ctRegression["']/);
+    expect(appBuildGradle).toContain(
+      "proguardFile 'ct-regression-proguard-rules.pro'"
+    );
+    expect(appBuildGradle).toContain(
+      "testProguardFile 'ct-regression-proguard-rules.pro'"
+    );
+    const ctRegressionProguardRulesPath = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "ct-regression-proguard-rules.pro"
+    );
+    expect(existsSync(ctRegressionProguardRulesPath)).toBe(true);
+    const ctRegressionProguardRules = readFileSync(
+      ctRegressionProguardRulesPath,
+      "utf8"
+    );
+    expect(ctRegressionProguardRules).toContain(
+      "-keep class kotlin.jvm.internal.Intrinsics { *; }"
+    );
     expect(appBuildGradle).toContain("verifyCtRegressionSecurityDependencies");
     expect(appBuildGradle).toContain("ctRegressionRuntimeClasspath");
     expect(architecture).toContain("compiling with SDK 36 or newer");
@@ -82,12 +102,12 @@ describe("Android Certificate Transparency regression contract", () => {
     for (const apiLevel of [24, 29, 35, 36]) {
       expect(workflow).toMatch(
         new RegExp(
-          `- api-level: ${apiLevel}\\s+image-api-level: "${apiLevel}"\\s+sdk-channel: 0`
+          `- api-level: ${apiLevel}\\s+image-api-level: "${apiLevel}"\\s+sdk-channel: 0\\s+boot-timeout: 300`
         )
       );
     }
     expect(workflow).toMatch(
-      /- api-level: 37\s+image-api-level: "37\.0"\s+sdk-channel: 0/
+      /- api-level: 37\s+image-api-level: "37\.0"\s+sdk-channel: 0\s+boot-timeout: 600/
     );
     expect(workflow).not.toContain("experimental:");
     expect(workflow).not.toContain("continue-on-error:");
@@ -99,6 +119,10 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain("SECPAL_ANDROID_EMULATOR_GPU_MODE: software");
     expect(workflow).toContain(
       "SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window"
+    );
+    expect(workflow).toContain("BOOT_TIMEOUT: ${{ matrix.boot-timeout }}");
+    expect(workflow).toContain(
+      'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
     );
     expect(workflow).toContain('cat "$emulator_log"');
     expect(workflow).toContain("connectedCtRegressionAndroidTest");
