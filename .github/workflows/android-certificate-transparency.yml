@@ -111,8 +111,14 @@ jobs:
           bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" \
             "platform-tools" "emulator" "$image"
           bash ./scripts/with-android-env.sh adb version
+          avd_device_args=()
+          if (( API_LEVEL >= 37 )); then
+            avd_device_args=(--device pixel_7_pro)
+            export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096
+          fi
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
-            --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
+            --force --name "secpal-ct-api${API_LEVEL}" --package "$image" \
+            "${avd_device_args[@]}"
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
           if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"; then

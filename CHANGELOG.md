@@ -101,8 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starts before the packaged policy tests on supported API levels (issue
   #450).
 - Installed the current Android SDK Platform Tools alongside the API 37
-  emulator image so its ADB transport is compatible with the Android 17
-  regression device (issue #450).
+  emulator image, selected a current Pixel phone profile, and allocated the
+  4 GB of VM memory required by Android 17 (issue #450).
 - Upgraded AndroidX WebKit to 1.13.0 and placed Web Authentication setup inside
   its positive runtime feature guard so Android lint validates both the feature
   constant and the guarded API call without baselines or suppressions (issue

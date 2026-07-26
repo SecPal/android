@@ -30,6 +30,7 @@ describe("Android emulator scripts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-emulator-script-"));
     const fakeBinRoot = join(tempRoot, "bin");
     const standardAvdRoot = join(tempRoot, ".android", "avd");
+    const emulatorLogPath = join(tempRoot, "emulator.log");
 
     try {
       mkdirSync(fakeBinRoot, { recursive: true });
@@ -41,13 +42,16 @@ describe("Android emulator scripts", () => {
       );
       writeExecutable(
         join(fakeBinRoot, "emulator"),
-        "#!/usr/bin/env bash\nsleep 1\n"
+        `#!/usr/bin/env bash
+printf '%s\n' "$*" > "${emulatorLogPath}"
+`
       );
 
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         HOME: tempRoot,
         PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+        SECPAL_ANDROID_EMULATOR_MEMORY_MB: "4096",
       };
       delete env.ANDROID_AVD_HOME;
       delete env.ANDROID_EMULATOR_HOME;
@@ -70,6 +74,18 @@ describe("Android emulator scripts", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("serial=emulator-5570");
+      const emulatorLogWait = spawnSync(
+        "bash",
+        [
+          "-c",
+          'for _ in {1..50}; do [[ -f "$1" ]] && exit 0; sleep 0.01; done; exit 1',
+          "wait-for-emulator-log",
+          emulatorLogPath,
+        ],
+        { encoding: "utf8" }
+      );
+      expect(emulatorLogWait.status).toBe(0);
+      expect(readFileSync(emulatorLogPath, "utf8")).toContain("-memory 4096");
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -120,6 +136,28 @@ describe("Android emulator scripts", () => {
 
       expect(gpuModeResult.status).toBe(64);
       expect(gpuModeResult.stderr).toContain("Unsupported GPU mode");
+      expect(existsSync(injectionPath)).toBe(false);
+
+      const memoryResult = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "start-android-emulator.sh"),
+          "TestAvd",
+          "5570",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...env,
+            SECPAL_ANDROID_EMULATOR_GPU_MODE: "host",
+            SECPAL_ANDROID_EMULATOR_MEMORY_MB: `4096; touch "${injectionPath}"`,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(memoryResult.status).toBe(64);
+      expect(memoryResult.stderr).toContain("Unsupported emulator memory");
       expect(existsSync(injectionPath)).toBe(false);
 
       const avdNameResult = spawnSync(

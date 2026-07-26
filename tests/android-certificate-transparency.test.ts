@@ -142,6 +142,8 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain(
       "SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window"
     );
+    expect(workflow).toContain("avd_device_args=(--device pixel_7_pro)");
+    expect(workflow).toContain("export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096");
     expect(workflow).toContain("BOOT_TIMEOUT: ${{ matrix.boot-timeout }}");
     expect(workflow).toContain(
       'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
