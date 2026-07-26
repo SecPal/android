@@ -7,12 +7,13 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -177,6 +178,87 @@ describe("Android release env loader", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toBe("2026072204");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("exports the exact env file selected before loaded values can change HOME", () => {
+    const processHome = mkdtempSync(
+      join(tmpdir(), "secpal-android-release-env-home-")
+    );
+    const loadedHome = mkdtempSync(
+      join(tmpdir(), "secpal-android-release-env-loaded-home-")
+    );
+    const releaseDirectory = join(processHome, ".config", "secpal");
+    const releaseEnvPath = join(releaseDirectory, "android-release.env");
+
+    try {
+      mkdirSync(releaseDirectory, { recursive: true });
+      writeFileSync(releaseEnvPath, `HOME="${loadedHome}"\n`);
+      chmodSync(releaseEnvPath, 0o600);
+
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: processHome,
+      };
+      delete environment.SECPAL_ANDROID_CONFIG_DIR;
+      delete environment.SECPAL_ANDROID_RELEASE_ENV_FILE;
+
+      const result = spawnSync(
+        "bash",
+        [
+          releaseEnvLoaderPath,
+          "bash",
+          "-lc",
+          'printf "%s|%s" "$SECPAL_ANDROID_RELEASE_ENV_FILE" "$HOME"',
+        ],
+        {
+          cwd: repoRoot,
+          env: environment,
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(`${releaseEnvPath}|${loadedHome}`);
+    } finally {
+      rmSync(processHome, { recursive: true, force: true });
+      rmSync(loadedHome, { recursive: true, force: true });
+    }
+  });
+
+  it("exports a selected relative env file as an absolute path", () => {
+    const tempRoot = mkdtempSync(
+      join(repoRoot, ".context", "android-release-env-relative-")
+    );
+    const releaseEnvPath = join(tempRoot, "android-release.env");
+    const relativeReleaseEnvPath = relative(repoRoot, releaseEnvPath);
+
+    try {
+      writeFileSync(releaseEnvPath, "\n");
+      chmodSync(releaseEnvPath, 0o600);
+
+      const result = spawnSync(
+        "bash",
+        [
+          releaseEnvLoaderPath,
+          "bash",
+          "-lc",
+          'cd / && printf "%s" "$SECPAL_ANDROID_RELEASE_ENV_FILE"',
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            SECPAL_ANDROID_RELEASE_ENV_FILE: relativeReleaseEnvPath,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(releaseEnvPath);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

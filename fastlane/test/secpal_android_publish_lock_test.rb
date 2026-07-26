@@ -10,7 +10,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
     Dir.mktmpdir do |home_directory|
       paths = SecPalAndroidPublishLock.release_paths(
         environment: {},
-        home_directory: home_directory
+        runner_home_directory: home_directory
       )
 
       expected_directory = File.join(home_directory, ".config", "secpal")
@@ -28,7 +28,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
         environment: {
           "SECPAL_ANDROID_CONFIG_DIR" => directory
         },
-        home_directory: home_directory
+        runner_home_directory: home_directory
       )
 
       assert_equal File.join(directory, "android-release.env"),
@@ -53,7 +53,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
           "SECPAL_ANDROID_CONFIG_DIR" => config_directory,
           "SECPAL_ANDROID_RELEASE_ENV_FILE" => release_env_file
         },
-        home_directory: home_directory
+        runner_home_directory: home_directory
       )
 
       assert_equal release_env_file, paths.fetch(:release_env_file)
@@ -71,7 +71,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
     Dir.mktmpdir do |home_directory|
       default_paths = SecPalAndroidPublishLock.release_paths(
         environment: {},
-        home_directory: home_directory
+        runner_home_directory: home_directory
       )
       custom_paths = SecPalAndroidPublishLock.release_paths(
         environment: {
@@ -82,7 +82,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
             "release.env"
           )
         },
-        home_directory: home_directory
+        runner_home_directory: home_directory
       )
 
       assert_equal default_paths.fetch(:publish_lock_file),
@@ -91,11 +91,10 @@ class SecPalAndroidPublishLockTest < Minitest::Test
   end
 
   def test_runner_lock_ignores_a_process_home_override
-    original_home = ENV["HOME"]
-    Dir.mktmpdir do |overridden_home|
-      ENV["HOME"] = overridden_home
-
-      paths = SecPalAndroidPublishLock.release_paths(environment: {})
+    Dir.mktmpdir do |process_home|
+      paths = SecPalAndroidPublishLock.release_paths(
+        environment: { "HOME" => process_home }
+      )
       expected_lock = File.join(
         Etc.getpwuid(Process.uid).dir,
         ".config",
@@ -105,8 +104,32 @@ class SecPalAndroidPublishLockTest < Minitest::Test
 
       assert_equal expected_lock, paths.fetch(:publish_lock_file)
     end
-  ensure
-    ENV["HOME"] = original_home
+  end
+
+  def test_default_release_env_uses_process_home_while_lock_uses_runner_home
+    Dir.mktmpdir do |process_home|
+      Dir.mktmpdir do |runner_home|
+        paths = SecPalAndroidPublishLock.release_paths(
+          environment: { "HOME" => process_home },
+          runner_home_directory: runner_home
+        )
+
+        assert_equal File.join(
+          process_home,
+          ".config",
+          "secpal",
+          "android-release.env"
+        ),
+                     paths.fetch(:release_env_file)
+        assert_equal File.join(
+          runner_home,
+          ".config",
+          "secpal",
+          "android-publish.lock"
+        ),
+                     paths.fetch(:publish_lock_file)
+      end
+    end
   end
 
   def test_creates_a_missing_private_lock_directory

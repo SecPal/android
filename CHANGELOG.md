@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Kept the highest valid Android publication baseline across shell, persisted, and legacy values, preventing stale configuration from reusing previously issued version codes.
-- Kept one runner-account-wide Android publishing lock across custom release contexts and process-level home overrides while securely creating its private directory.
+- Kept one runner-account-wide Android publishing lock across custom release contexts and process-level home overrides while securely creating its private directory, and kept Fastlane aligned with the exact release env file selected by the shell loader.
 - Required explicit shared-sequence codes for every signed build-only entry point, honored caller-provided publication baselines, and rejected SemVer-invalid numeric prerelease identifiers.
 - Pinned the third-party Ruby setup action used by Android release tests to an immutable reviewed commit.
 - Made Direct release metadata validation unambiguous and fail-closed, persisted the successful publication baseline atomically, and regression-tested publication failure cleanup.

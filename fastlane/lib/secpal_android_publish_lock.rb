@@ -14,12 +14,18 @@ module SecPalAndroidPublishLock
     Etc.getpwuid(Process.uid).dir
   end
 
-  def release_paths(environment: ENV, home_directory: runner_home_directory)
-    runner_lock_directory = File.join(home_directory, ".config", "secpal")
+  def release_paths(
+    environment: ENV,
+    runner_home_directory: SecPalAndroidPublishLock.runner_home_directory
+  )
+    runner_lock_directory =
+      File.join(runner_home_directory, ".config", "secpal")
+    process_home_directory = environment["HOME"].to_s
+    process_home_directory = runner_home_directory if process_home_directory.empty?
     configured_directory = environment["SECPAL_ANDROID_CONFIG_DIR"].to_s
     release_directory =
       if configured_directory.empty?
-        runner_lock_directory
+        File.join(process_home_directory, ".config", "secpal")
       else
         File.expand_path(configured_directory)
       end
