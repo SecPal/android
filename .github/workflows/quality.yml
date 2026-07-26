@@ -66,6 +66,34 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
+  android-network-security:
+    name: Android Release Network Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify effective Android release network policy
+        run: npm run native:verify:network-security
+
   vitest:
     name: Vitest Tests
     needs: dependency-audit

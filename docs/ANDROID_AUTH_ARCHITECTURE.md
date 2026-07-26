@@ -160,6 +160,40 @@ Recommended hardening:
 - central handling for `401` and revoked-device states
 - redaction of auth-sensitive values from crash and telemetry output
 
+### Transport Trust Policy
+
+Android release networking remains HTTPS-only. The application manifest and
+Network Security Configuration both prohibit cleartext traffic, while the
+Cordova access allowlist remains restricted to the first-party HTTPS API and
+frontend origins.
+
+TLS connections use only the Android system trust store. Android performs the
+normal X.509 certificate-chain and hostname validation; release builds do not
+add trust for user-installed CAs and have no debug trust override. This
+system-PKI policy trusts the public CAs accepted by the Android platform and
+therefore does not prevent every possible CA compromise or mis-issuance.
+
+SecPal removed app-level static SPKI pinning after a legitimate certificate
+change locked a signed client out of a correctly configured API. The previous
+pins had no documented provenance, separately controlled backup key,
+certificate-renewal integration, or auditable rotation and recovery process.
+A source test that preserves literal hashes cannot prove live connectivity
+across future certificate changes.
+
+Static pinning must not be reintroduced until an operational design provides
+all of the following:
+
+- documented pin provenance
+- a fully controlled backup key
+- certificate-renewal integration
+- a planned overlap period
+- live-chain monitoring
+- client compatibility testing before certificate changes
+- a recovery procedure for already published clients
+
+Android Certificate Transparency enforcement is a separate compatibility and
+operations decision tracked in issue #450.
+
 ## Prohibited Shortcuts
 
 The following approaches are explicitly out of scope and must not be introduced:

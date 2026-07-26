@@ -95,7 +95,6 @@ describe("Android OSS licenses", () => {
       "scripts",
       "verify-androidx-graphics-path.sh"
     );
-
     expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
     expect(cordovaPluginsBuildGradle).toContain(
       "com.android.tools.build:gradle:8.9.1"

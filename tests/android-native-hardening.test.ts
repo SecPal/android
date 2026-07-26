@@ -10,11 +10,6 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-// SHA-256 base64-encoded SubjectPublicKeyInfo (SPKI) hashes used for
-// api.secpal.dev certificate pinning (primary and backup pins).
-const API_CERT_PRIMARY_PIN = "3BJmezOWc04OlOrJ501K2t07GXxrHS5qQC7T7OnnO7k=";
-const API_CERT_BACKUP_PIN = "iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU=";
-
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
@@ -597,7 +592,7 @@ describe("Android native hardening", () => {
     expect(networkState).not.toContain("getActiveNetworkInfo");
   });
 
-  it("locks file sharing to dedicated subdirectories and disables cleartext traffic", () => {
+  it("locks file sharing and defines the canonical release transport policy", () => {
     const manifest = readRepoFile(
       "android",
       "app",
@@ -614,7 +609,7 @@ describe("Android native hardening", () => {
       "xml",
       "file_paths.xml"
     );
-    const networkSecurityConfigPath = resolve(
+    const mainNetworkSecurityConfigPath = resolve(
       repoRoot,
       "android",
       "app",
@@ -624,6 +619,14 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
+    const verificationWrapper = readRepoFile(
+      "scripts",
+      "verify-android-network-security.sh"
+    );
 
     expect(manifest).toContain('android:usesCleartextTraffic="false"');
     expect(manifest).toContain(
@@ -632,26 +635,47 @@ describe("Android native hardening", () => {
     expect(filePaths).not.toContain('path="."');
     expect(filePaths).toContain('name="shared_files" path="shared/"');
     expect(filePaths).toContain('name="shared_cache" path="shared/"');
-    expect(existsSync(networkSecurityConfigPath)).toBe(true);
+    expect(existsSync(mainNetworkSecurityConfigPath)).toBe(true);
 
-    const networkSecurityConfig = readRepoFile(
-      "android",
-      "app",
-      "src",
-      "main",
-      "res",
-      "xml",
-      "network_security_config.xml"
-    );
-
-    expect(networkSecurityConfig).toContain(
-      '<base-config cleartextTrafficPermitted="false" />'
+    const networkSecurityConfig = readFileSync(
+      mainNetworkSecurityConfigPath,
+      "utf8"
     );
     expect(networkSecurityConfig).toContain(
-      '<domain includeSubdomains="false">api.secpal.dev</domain>'
+      '<base-config cleartextTrafficPermitted="false"'
     );
-    expect(networkSecurityConfig).toContain(API_CERT_PRIMARY_PIN);
-    expect(networkSecurityConfig).toContain(API_CERT_BACKUP_PIN);
+    expect(networkSecurityConfig).not.toMatch(
+      /cleartextTrafficPermitted\s*=\s*["']true["']/
+    );
+    expect(networkSecurityConfig).not.toMatch(/<pin-set(?:\s|\/?>)/);
+    expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|\/?>)/);
+    expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
+    expect(networkSecurityConfig).not.toMatch(
+      /overridePins\s*=\s*["']true["']/
+    );
+    expect(networkSecurityConfig).not.toContain("<debug-overrides");
+
+    const certificateTags = networkSecurityConfig.matchAll(
+      /<certificates\b([^>]*)>/g
+    );
+    for (const [, attributes] of certificateTags) {
+      const certificateSources = Array.from(
+        attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
+        (match) => match[1]
+      );
+
+      expect(certificateSources).toEqual(["system"]);
+    }
+
+    expect(packageJson.scripts["native:verify:network-security"]).toContain(
+      "verify-android-network-security.sh"
+    );
+    expect(verificationWrapper).toContain(":app:processReleaseResources");
+    expect(verificationWrapper).toContain(
+      ":app:processReleaseManifestForPackage"
+    );
+    expect(verificationWrapper).toContain("--rerun-tasks");
+    expect(qualityWorkflow).toContain("npm run native:verify:network-security");
   });
 
   it("declares digital asset links in the app manifest for app.secpal.dev", () => {
