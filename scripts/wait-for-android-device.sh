@@ -44,17 +44,19 @@ while (( SECONDS < deadline )); do
     boot_completed="$(run_adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
     boot_animation="$(run_adb -s "$serial" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true)"
     home_activity="$(run_adb -s "$serial" shell cmd package resolve-activity --brief android.intent.action.MAIN android.intent.category.HOME 2>/dev/null | tr -d '\r' || true)"
-
-    if [[ -n "$wm_size" && -n "$wm_density" ]]; then
-        if [[ "$boot_completed" == "1" || "$boot_animation" == "stopped" || "$home_activity" == */* ]]; then
-            echo "serial=${serial}"
-            echo "$wm_size"
-            echo "$wm_density"
-            exit 0
-        fi
+    settings_ready="missing"
+    if run_adb -s "$serial" shell settings get global device_provisioned >/dev/null 2>&1; then
+        settings_ready="ready"
     fi
 
-    echo "waiting serial=${serial} state=device boot=${boot_completed:-missing} bootanim=${boot_animation:-missing}" >&2
+    if [[ -n "$wm_size" && -n "$wm_density" && "$boot_completed" == "1" && "$settings_ready" == "ready" ]]; then
+        echo "serial=${serial}"
+        echo "$wm_size"
+        echo "$wm_density"
+        exit 0
+    fi
+
+    echo "waiting serial=${serial} state=device boot=${boot_completed:-missing} bootanim=${boot_animation:-missing} home=${home_activity:-missing} settings=${settings_ready}" >&2
     sleep 2
 done
 

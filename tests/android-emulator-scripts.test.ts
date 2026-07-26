@@ -226,6 +226,10 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" &&
   printf 'app.secpal/.MainActivity\r\n'
   exit 0
 fi
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "settings" && "$5" == "get" && "$6" == "global" && "$7" == "device_provisioned" ]]; then
+  [[ "\${SECPAL_TEST_SETTINGS_READY:-true}" == "true" ]]
+  exit
+fi
 exit 1
 `
       );
@@ -256,6 +260,35 @@ exit 1
 
       const adbInvocations = readFileSync(adbLogPath, "utf8");
       expect(adbInvocations).toContain(`-s ${serial} get-state`);
+      expect(adbInvocations).toContain(
+        `-s ${serial} shell settings get global device_provisioned`
+      );
+
+      const systemProvidersUnavailableResult = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          serial,
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+            SECPAL_TEST_SETTINGS_READY: "false",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(systemProvidersUnavailableResult.status).toBe(1);
+      expect(systemProvidersUnavailableResult.stderr).toContain(
+        "settings=missing"
+      );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
