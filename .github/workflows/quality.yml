@@ -66,8 +66,8 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
-  android-oss-licenses:
-    name: Android OSS License Artifacts
+  android-network-security:
+    name: Android Release Network Security
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -91,8 +91,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify Android OSS license artifacts
-        run: npm run native:verify:oss-licenses
+      - name: Verify effective Android release network policy
+        run: npm run native:verify:network-security
 
   vitest:
     name: Vitest Tests

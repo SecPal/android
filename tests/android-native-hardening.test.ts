@@ -592,7 +592,7 @@ describe("Android native hardening", () => {
     expect(networkState).not.toContain("getActiveNetworkInfo");
   });
 
-  it("locks file sharing and enforces the release system-PKI transport policy", () => {
+  it("locks file sharing and defines the canonical release transport policy", () => {
     const manifest = readRepoFile(
       "android",
       "app",
@@ -619,20 +619,14 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
-    const releaseEffectiveNetworkSecurityConfigPaths = ["main", "release"]
-      .map((sourceSet) =>
-        resolve(
-          repoRoot,
-          "android",
-          "app",
-          "src",
-          sourceSet,
-          "res",
-          "xml",
-          "network_security_config.xml"
-        )
-      )
-      .filter(existsSync);
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
+    const verificationWrapper = readRepoFile(
+      "scripts",
+      "verify-android-network-security.sh"
+    );
 
     expect(manifest).toContain('android:usesCleartextTraffic="false"');
     expect(manifest).toContain(
@@ -643,39 +637,45 @@ describe("Android native hardening", () => {
     expect(filePaths).toContain('name="shared_cache" path="shared/"');
     expect(existsSync(mainNetworkSecurityConfigPath)).toBe(true);
 
-    for (const networkSecurityConfigPath of releaseEffectiveNetworkSecurityConfigPaths) {
-      const networkSecurityConfig = readFileSync(
-        networkSecurityConfigPath,
-        "utf8"
+    const networkSecurityConfig = readFileSync(
+      mainNetworkSecurityConfigPath,
+      "utf8"
+    );
+    expect(networkSecurityConfig).toContain(
+      '<base-config cleartextTrafficPermitted="false"'
+    );
+    expect(networkSecurityConfig).not.toMatch(
+      /cleartextTrafficPermitted\s*=\s*["']true["']/
+    );
+    expect(networkSecurityConfig).not.toMatch(/<pin-set(?:\s|\/?>)/);
+    expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|\/?>)/);
+    expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
+    expect(networkSecurityConfig).not.toMatch(
+      /overridePins\s*=\s*["']true["']/
+    );
+    expect(networkSecurityConfig).not.toContain("<debug-overrides");
+
+    const certificateTags = networkSecurityConfig.matchAll(
+      /<certificates\b([^>]*)>/g
+    );
+    for (const [, attributes] of certificateTags) {
+      const certificateSources = Array.from(
+        attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
+        (match) => match[1]
       );
 
-      expect(networkSecurityConfig).toContain(
-        '<base-config cleartextTrafficPermitted="false"'
-      );
-      expect(networkSecurityConfig).not.toMatch(
-        /cleartextTrafficPermitted\s*=\s*["']true["']/
-      );
-      expect(networkSecurityConfig).not.toMatch(/<pin-set(?:\s|\/?>)/);
-      expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|\/?>)/);
-      expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
-      expect(networkSecurityConfig).not.toMatch(
-        /overridePins\s*=\s*["']true["']/
-      );
-      expect(networkSecurityConfig).not.toContain("<debug-overrides");
-
-      const certificateTags = networkSecurityConfig.matchAll(
-        /<certificates\b([^>]*)>/g
-      );
-
-      for (const [, attributes] of certificateTags) {
-        const certificateSources = Array.from(
-          attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
-          (match) => match[1]
-        );
-
-        expect(certificateSources).toEqual(["system"]);
-      }
+      expect(certificateSources).toEqual(["system"]);
     }
+
+    expect(packageJson.scripts["native:verify:network-security"]).toContain(
+      "verify-android-network-security.sh"
+    );
+    expect(verificationWrapper).toContain(":app:processReleaseResources");
+    expect(verificationWrapper).toContain(
+      ":app:processReleaseManifestForPackage"
+    );
+    expect(verificationWrapper).toContain("--rerun-tasks");
+    expect(qualityWorkflow).toContain("npm run native:verify:network-security");
   });
 
   it("declares digital asset links in the app manifest for app.secpal.dev", () => {
