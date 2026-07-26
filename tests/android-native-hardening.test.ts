@@ -609,7 +609,7 @@ describe("Android native hardening", () => {
       "xml",
       "file_paths.xml"
     );
-    const networkSecurityConfigPath = resolve(
+    const mainNetworkSecurityConfigPath = resolve(
       repoRoot,
       "android",
       "app",
@@ -619,6 +619,20 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
+    const releaseEffectiveNetworkSecurityConfigPaths = ["main", "release"]
+      .map((sourceSet) =>
+        resolve(
+          repoRoot,
+          "android",
+          "app",
+          "src",
+          sourceSet,
+          "res",
+          "xml",
+          "network_security_config.xml"
+        )
+      )
+      .filter(existsSync);
 
     expect(manifest).toContain('android:usesCleartextTraffic="false"');
     expect(manifest).toContain(
@@ -627,40 +641,40 @@ describe("Android native hardening", () => {
     expect(filePaths).not.toContain('path="."');
     expect(filePaths).toContain('name="shared_files" path="shared/"');
     expect(filePaths).toContain('name="shared_cache" path="shared/"');
-    expect(existsSync(networkSecurityConfigPath)).toBe(true);
+    expect(existsSync(mainNetworkSecurityConfigPath)).toBe(true);
 
-    const networkSecurityConfig = readRepoFile(
-      "android",
-      "app",
-      "src",
-      "main",
-      "res",
-      "xml",
-      "network_security_config.xml"
-    );
+    for (const networkSecurityConfigPath of releaseEffectiveNetworkSecurityConfigPaths) {
+      const networkSecurityConfig = readFileSync(
+        networkSecurityConfigPath,
+        "utf8"
+      );
 
-    expect(networkSecurityConfig).toContain(
-      '<base-config cleartextTrafficPermitted="false"'
-    );
-    expect(networkSecurityConfig).not.toMatch(
-      /cleartextTrafficPermitted\s*=\s*["']true["']/
-    );
-    expect(networkSecurityConfig).not.toMatch(/<pin-set\b/);
-    expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|>)/);
-    expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
-    expect(networkSecurityConfig).not.toMatch(
-      /<certificates\b[^>]*\bsrc\s*=\s*["']user["']/
-    );
-    expect(networkSecurityConfig).not.toMatch(
-      /overridePins\s*=\s*["']true["']/
-    );
-    expect(networkSecurityConfig).not.toContain("<debug-overrides");
+      expect(networkSecurityConfig).toContain(
+        '<base-config cleartextTrafficPermitted="false"'
+      );
+      expect(networkSecurityConfig).not.toMatch(
+        /cleartextTrafficPermitted\s*=\s*["']true["']/
+      );
+      expect(networkSecurityConfig).not.toMatch(/<pin-set(?:\s|\/?>)/);
+      expect(networkSecurityConfig).not.toMatch(/<pin(?:\s|\/?>)/);
+      expect(networkSecurityConfig).not.toMatch(/[A-Za-z0-9+/]{43}=/);
+      expect(networkSecurityConfig).not.toMatch(
+        /overridePins\s*=\s*["']true["']/
+      );
+      expect(networkSecurityConfig).not.toContain("<debug-overrides");
 
-    const configuredCertificateSources =
-      networkSecurityConfig.match(/<certificates\b[^>]*\/>/g) ?? [];
+      const certificateTags = networkSecurityConfig.matchAll(
+        /<certificates\b([^>]*)>/g
+      );
 
-    for (const certificates of configuredCertificateSources) {
-      expect(certificates).toBe('<certificates src="system" />');
+      for (const [, attributes] of certificateTags) {
+        const certificateSources = Array.from(
+          attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
+          (match) => match[1]
+        );
+
+        expect(certificateSources).toEqual(["system"]);
+      }
     }
   });
 

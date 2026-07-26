@@ -95,6 +95,7 @@ describe("Android OSS licenses", () => {
       "scripts",
       "verify-androidx-graphics-path.sh"
     );
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
 
     expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
     expect(cordovaPluginsBuildGradle).toContain(
@@ -163,6 +164,7 @@ describe("Android OSS licenses", () => {
     expect(graphicsPathVerification).toContain("libandroidx.graphics.path.so");
     expect(verification).not.toContain("sort -V");
     expect(verification).not.toMatch(/\|\s*grep\s+-Fq/);
+    expect(qualityWorkflow).toContain("npm run native:verify:oss-licenses");
   });
 
   it("validates the AndroidX graphics-path ABI set and payload budget", () => {
