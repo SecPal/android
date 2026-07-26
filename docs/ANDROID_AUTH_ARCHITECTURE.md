@@ -227,18 +227,18 @@ the same policy API to prove the effective per-host setting:
 - [Android CT Network Security Configuration platform regression](https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/tests/NetworkSecurityConfigTest/src/android/security/net/config/XmlConfigTests.java)
 
 Device regressions install the `ctRegression` app variant on representative API
-24, 29, 35, and 36 emulators. That variant inherits release minification,
-shrinking, dependencies, manifest policy, and resources, remains non-debuggable,
-uses an isolated `.ctregression` application ID, and is signed with the debug key
-only so the test runner can install it. It is not a distributable release
-artifact. APIs below 36 must load the fallback policy and reject cleartext. API
-36 must report CT as required for both SecPal-operated hosts and an arbitrary
-customer API hostname. The release-resource verifier independently rejects a
-missing, disabled, or domain-scoped API 36 policy, any CT element selectable
-below API 36, a missing API 37 localhost hardening policy, user or inline CAs,
-debug trust overrides, cleartext, and certificate pins. The hosted workflow
-schedules only emulator images published on the stable SDK channel; the API 37
-policy remains covered by the static verifier.
+24, 29, 35, 36, and 37 stable emulators. That variant inherits release
+minification, shrinking, dependencies, manifest policy, and resources, remains
+non-debuggable, uses an isolated `.ctregression` application ID, and is signed
+with the debug key only so the test runner can install it. It is not a
+distributable release artifact. APIs below 36 must load the fallback policy and
+reject cleartext. API 36 must report CT as required for both SecPal-operated
+hosts and an arbitrary customer API hostname. API 37 must also prove that the
+platform's implicit localhost cleartext exception is suppressed. The
+release-resource verifier independently rejects a missing, disabled, or
+domain-scoped API 36 policy, any CT element selectable below API 36, a missing
+API 37 localhost hardening policy, user or inline CAs, debug trust overrides,
+cleartext, and certificate pins.
 
 #### Certificate Transparency operations
 

@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       probe_url:
-        description: HTTPS URL whose served certificate chain is checked on API 36
+        description: HTTPS URL checked on API 36 and API 37
         required: false
         default: "https://api.secpal.dev/"
         type: string
@@ -44,22 +44,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [24, 29, 35, 36]
+        include:
+          - api-level: 24
+            image-api-level: "24"
+            sdk-channel: 0
+          - api-level: 29
+            image-api-level: "29"
+            sdk-channel: 0
+          - api-level: 35
+            image-api-level: "35"
+            sdk-channel: 0
+          - api-level: 36
+            image-api-level: "36"
+            sdk-channel: 0
+          - api-level: 37
+            image-api-level: "37.0"
+            sdk-channel: 0
 
     steps:
       - name: Checkout repository
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level >= 36 }}
         uses: actions/checkout@v7
 
       - name: Setup Node.js
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level >= 36 }}
         uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Setup Java
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level >= 36 }}
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
@@ -67,23 +82,25 @@ jobs:
           cache: "gradle"
 
       - name: Install dependencies
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level >= 36 }}
         run: npm ci
 
       - name: Run packaged policy regression or production probe
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level >= 36 }}
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
+          IMAGE_API_LEVEL: ${{ matrix.image-api-level }}
           LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          SDK_CHANNEL: ${{ matrix.sdk-channel }}
           SECPAL_ANDROID_EMULATOR_GPU_MODE: software
           SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
           SECPAL_LIVE_CT_PROBE_URL: ${{ inputs.probe_url || 'https://api.secpal.dev/' }}
         run: |
           sudo chmod 666 /dev/kvm
           mkdir -p "$ANDROID_AVD_HOME"
-          image="system-images;android-${API_LEVEL};google_apis;x86_64"
-          bash ./scripts/with-android-env.sh sdkmanager "emulator" "$image"
+          image="system-images;android-${IMAGE_API_LEVEL};google_apis;x86_64"
+          bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" "emulator" "$image"
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"

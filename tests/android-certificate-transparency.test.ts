@@ -79,8 +79,23 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(api36Policy).not.toContain("<domain-config");
     expect(api37Policy).toContain('<certificateTransparency enabled="true"');
     expect(api37Policy).toContain(">localhost</domain>");
-    expect(workflow).toContain("api-level: [24, 29, 35, 36]");
-    expect(workflow).toContain('sdkmanager "emulator" "$image"');
+    for (const apiLevel of [24, 29, 35, 36]) {
+      expect(workflow).toMatch(
+        new RegExp(
+          `- api-level: ${apiLevel}\\s+image-api-level: "${apiLevel}"\\s+sdk-channel: 0`
+        )
+      );
+    }
+    expect(workflow).toMatch(
+      /- api-level: 37\s+image-api-level: "37\.0"\s+sdk-channel: 0/
+    );
+    expect(workflow).not.toContain("experimental:");
+    expect(workflow).not.toContain("continue-on-error:");
+    expect(workflow).toContain(
+      'sdkmanager --channel="$SDK_CHANNEL" "emulator" "$image"'
+    );
+    expect(workflow).toContain("matrix.api-level >= 36");
+    expect(workflow).not.toContain("api37-stable-availability:");
     expect(workflow).toContain("SECPAL_ANDROID_EMULATOR_GPU_MODE: software");
     expect(workflow).toContain(
       "SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window"
