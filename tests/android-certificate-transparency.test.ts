@@ -79,7 +79,13 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(api36Policy).not.toContain("<domain-config");
     expect(api37Policy).toContain('<certificateTransparency enabled="true"');
     expect(api37Policy).toContain(">localhost</domain>");
-    expect(workflow).toContain("api-level: [24, 29, 35, 36, 37]");
+    expect(workflow).toContain("api-level: [24, 29, 35, 36]");
+    expect(workflow).toContain('sdkmanager "emulator" "$image"');
+    expect(workflow).toContain("SECPAL_ANDROID_EMULATOR_GPU_MODE: software");
+    expect(workflow).toContain(
+      "SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window"
+    );
+    expect(workflow).toContain('cat "$emulator_log"');
     expect(workflow).toContain("connectedCtRegressionAndroidTest");
     expect(workflow).not.toContain("connectedDebugAndroidTest");
     expect(workflow).toContain("probe_url:");

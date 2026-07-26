@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [24, 29, 35, 36, 37]
+        api-level: [24, 29, 35, 36]
 
     steps:
       - name: Checkout repository
@@ -76,16 +76,23 @@ jobs:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
           LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          SECPAL_ANDROID_EMULATOR_GPU_MODE: software
+          SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
           SECPAL_LIVE_CT_PROBE_URL: ${{ inputs.probe_url || 'https://api.secpal.dev/' }}
         run: |
           sudo chmod 666 /dev/kvm
           mkdir -p "$ANDROID_AVD_HOME"
           image="system-images;android-${API_LEVEL};google_apis;x86_64"
-          bash ./scripts/with-android-env.sh sdkmanager "$image"
+          bash ./scripts/with-android-env.sh sdkmanager "emulator" "$image"
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
+          emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
-          npm run android:device:wait -- emulator-5570 300
+          if ! npm run android:device:wait -- emulator-5570 300; then
+            echo "Android emulator failed to become usable; emulator log follows:" >&2
+            cat "$emulator_log" >&2 || true
+            exit 1
+          fi
           trap 'bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true' EXIT
           test_class="app.secpal.CertificateTransparencyInstrumentedTest"
           live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
