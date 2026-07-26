@@ -96,6 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept the AndroidX tracing and Kotlin runtime boundaries in the separately
+  minified Certificate Transparency regression app so AndroidJUnitRunner
+  starts before the packaged policy tests on supported API levels (issue
+  #450).
 - Upgraded AndroidX WebKit to 1.13.0 and placed Web Authentication setup inside
   its positive runtime feature guard so Android lint validates both the feature
   constant and the guarded API call without baselines or suppressions (issue

@@ -74,8 +74,27 @@ describe("Android Certificate Transparency regression contract", () => {
       ctRegressionProguardRulesPath,
       "utf8"
     );
+    for (const sharedTestRuntimeClass of [
+      "kotlin.LazyKt**",
+      "kotlin.ResultKt",
+      "kotlin.collections.AbstractIterator",
+      "kotlin.coroutines.ContinuationKt",
+      "kotlin.coroutines.intrinsics.IntrinsicsKt**",
+      "kotlin.coroutines.jvm.internal.DebugProbesKt",
+      "kotlin.io.CloseableKt",
+      "kotlin.jvm.internal.Intrinsics",
+      "kotlin.jvm.internal.StringCompanionObject",
+      "kotlin.time.DurationKt",
+    ]) {
+      expect(ctRegressionProguardRules).toContain(
+        `-keep class ${sharedTestRuntimeClass} { *; }`
+      );
+    }
+    expect(ctRegressionProguardRules).not.toContain(
+      "-keep class kotlin.** { *; }"
+    );
     expect(ctRegressionProguardRules).toContain(
-      "-keep class kotlin.jvm.internal.Intrinsics { *; }"
+      "-keep class androidx.tracing.Trace { *; }"
     );
     expect(appBuildGradle).toContain("verifyCtRegressionSecurityDependencies");
     expect(appBuildGradle).toContain("ctRegressionRuntimeClasspath");
