@@ -619,10 +619,31 @@ describe("Android native hardening", () => {
       "xml",
       "network_security_config.xml"
     );
+    const api36NetworkSecurityConfigPath = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "xml-v36",
+      "network_security_config.xml"
+    );
+    const api37NetworkSecurityConfigPath = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "xml-v37",
+      "network_security_config.xml"
+    );
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       scripts: Record<string, string>;
     };
     const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
+    const appBuildGradle = readRepoFile("android", "app", "build.gradle");
     const verificationWrapper = readRepoFile(
       "scripts",
       "verify-android-network-security.sh"
@@ -636,9 +657,19 @@ describe("Android native hardening", () => {
     expect(filePaths).toContain('name="shared_files" path="shared/"');
     expect(filePaths).toContain('name="shared_cache" path="shared/"');
     expect(existsSync(mainNetworkSecurityConfigPath)).toBe(true);
+    expect(existsSync(api36NetworkSecurityConfigPath)).toBe(true);
+    expect(existsSync(api37NetworkSecurityConfigPath)).toBe(true);
 
     const networkSecurityConfig = readFileSync(
       mainNetworkSecurityConfigPath,
+      "utf8"
+    );
+    const api36NetworkSecurityConfig = readFileSync(
+      api36NetworkSecurityConfigPath,
+      "utf8"
+    );
+    const api37NetworkSecurityConfig = readFileSync(
+      api37NetworkSecurityConfigPath,
       "utf8"
     );
     expect(networkSecurityConfig).toContain(
@@ -654,17 +685,37 @@ describe("Android native hardening", () => {
       /overridePins\s*=\s*["']true["']/
     );
     expect(networkSecurityConfig).not.toContain("<debug-overrides");
-
-    const certificateTags = networkSecurityConfig.matchAll(
-      /<certificates\b([^>]*)>/g
+    expect(networkSecurityConfig).not.toContain("<certificateTransparency");
+    expect(api36NetworkSecurityConfig).toContain(
+      '<certificateTransparency enabled="true"'
     );
-    for (const [, attributes] of certificateTags) {
-      const certificateSources = Array.from(
-        attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
-        (match) => match[1]
-      );
+    expect(api36NetworkSecurityConfig).not.toContain("<domain-config");
+    expect(api37NetworkSecurityConfig).toContain(">localhost</domain>");
+    expect(api37NetworkSecurityConfig).not.toMatch(
+      /cleartextTrafficPermitted\s*=\s*["']true["']/
+    );
+    expect(
+      api36NetworkSecurityConfig.match(/<certificateTransparency/g)
+    ).toHaveLength(1);
 
-      expect(certificateSources).toEqual(["system"]);
+    for (const config of [
+      networkSecurityConfig,
+      api36NetworkSecurityConfig,
+      api37NetworkSecurityConfig,
+    ]) {
+      expect(config).not.toContain("<debug-overrides");
+      expect(config).not.toMatch(/<pin-set(?:\s|\/?>)/);
+      expect(config).not.toMatch(/<pin(?:\s|\/?>)/);
+
+      const certificateTags = config.matchAll(/<certificates\b([^>]*)>/g);
+      for (const [, attributes] of certificateTags) {
+        const certificateSources = Array.from(
+          attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
+          (match) => match[1]
+        );
+
+        expect(certificateSources).toEqual(["system"]);
+      }
     }
 
     expect(packageJson.scripts["native:verify:network-security"]).toContain(
@@ -676,6 +727,13 @@ describe("Android native hardening", () => {
     );
     expect(verificationWrapper).toContain("--rerun-tasks");
     expect(qualityWorkflow).toContain("npm run native:verify:network-security");
+    expect(appBuildGradle).toMatch(/ctRegression\s*\{/);
+    expect(appBuildGradle).toMatch(/initWith\s+release/);
+    expect(appBuildGradle).toMatch(/applicationIdSuffix\s+"\.ctregression"/);
+    expect(appBuildGradle).toMatch(/signingConfig\s+signingConfigs\.debug/);
+    expect(appBuildGradle).toMatch(/testBuildType\s+["']ctRegression["']/);
+    expect(appBuildGradle).toContain("verifyCtRegressionSecurityDependencies");
+    expect(appBuildGradle).toContain("ctRegressionRuntimeClasspath");
   });
 
   it("declares digital asset links in the app manifest for app.secpal.dev", () => {

@@ -126,10 +126,89 @@ const verifyCertificateSources = (xml, path) => {
   }
 };
 
-const verifyNetworkSecurityConfig = (path) => {
+const readResourceApiLevel = (resourcesRoot, path) => {
+  const directorySegments = relative(resourcesRoot, path)
+    .split(sep)
+    .slice(0, -1);
+  const xmlDirectory = directorySegments.find((segment) =>
+    /^xml(?:-.+)?$/.test(segment)
+  );
+  if (!xmlDirectory) {
+    fail(
+      `Network Security Configuration is outside an XML resource directory: ${path}`
+    );
+  }
+
+  const apiQualifiers = Array.from(
+    xmlDirectory.matchAll(/(?:^|-)v([0-9]+)(?=-|$)/g),
+    (match) => Number.parseInt(match[1], 10)
+  );
+  if (apiQualifiers.length > 1) {
+    fail(`Network Security Configuration has multiple API qualifiers: ${path}`);
+  }
+
+  return apiQualifiers[0] ?? null;
+};
+
+const verifyApi36CertificateTransparency = (xml, path, apiLevel) => {
+  const certificateTransparencyTags = Array.from(
+    xml.matchAll(/<certificateTransparency\b([^>]*)\/?>/g)
+  );
+
+  if (
+    certificateTransparencyTags.length > 0 &&
+    (apiLevel === null || apiLevel < 36)
+  ) {
+    fail(
+      `Network Security Configuration exposes certificateTransparency below API 36: ${path}`
+    );
+  }
+
+  if (apiLevel === null || apiLevel < 36) {
+    return;
+  }
+
+  const baseConfig =
+    xml.match(/<base-config\b[^>]*>([\s\S]*?)<\/base-config>/)?.[1] ?? "";
+  const readCtValues = (contents) =>
+    Array.from(
+      contents.matchAll(
+        /<certificateTransparency\b[^>]*\benabled\s*=\s*["']([^"']+)["'][^>]*\/?>/g
+      ),
+      (match) => match[1]
+    );
+
+  const hasGlobalCtPolicy =
+    certificateTransparencyTags.length === 1 &&
+    readCtValues(baseConfig).join(",") === "true";
+
+  if (!hasGlobalCtPolicy) {
+    fail(
+      `API 36 Network Security Configuration must enforce certificate transparency globally: ${path}`
+    );
+  }
+};
+
+const verifyApi37LocalhostHardening = (xml, path, apiLevel) => {
+  if (apiLevel !== 37) {
+    return;
+  }
+
+  const explicitlyConfiguredLocalhost = Array.from(
+    xml.matchAll(/<domain\b[^>]*>\s*localhost\s*<\/domain>/g)
+  );
+  if (explicitlyConfiguredLocalhost.length !== 1) {
+    fail(
+      `API 37 Network Security Configuration must explicitly configure localhost exactly once to disable Android's implicit cleartext exception: ${path}`
+    );
+  }
+};
+
+const verifyNetworkSecurityConfig = (resourcesRoot, path) => {
   const xml = stripXmlComments(
     readRequiredFile(path, "Merged Network Security Configuration")
   );
+  const apiLevel = readResourceApiLevel(resourcesRoot, path);
 
   if (/\bcleartextTrafficPermitted\s*=\s*["']true["']/.test(xml)) {
     fail(`Network Security Configuration permits cleartext traffic: ${path}`);
@@ -158,6 +237,8 @@ const verifyNetworkSecurityConfig = (path) => {
   }
 
   verifyCertificateSources(xml, path);
+  verifyApi36CertificateTransparency(xml, path, apiLevel);
+  verifyApi37LocalhostHardening(xml, path, apiLevel);
 };
 
 const isNetworkSecurityConfig = (root, path) => {
@@ -203,8 +284,26 @@ const verifyResources = (resourcesRoot) => {
     );
   }
 
+  const api36Configurations = configurations.filter(
+    (path) => readResourceApiLevel(resourcesRoot, path) === 36
+  );
+  if (api36Configurations.length !== 1) {
+    fail(
+      `Merged release resources must define an API 36 network security policy exactly once; found ${api36Configurations.length}`
+    );
+  }
+
+  const api37Configurations = configurations.filter(
+    (path) => readResourceApiLevel(resourcesRoot, path) === 37
+  );
+  if (api37Configurations.length !== 1) {
+    fail(
+      `Merged release resources must define an API 37 localhost hardening policy exactly once; found ${api37Configurations.length}`
+    );
+  }
+
   for (const configuration of configurations) {
-    verifyNetworkSecurityConfig(configuration);
+    verifyNetworkSecurityConfig(resourcesRoot, configuration);
   }
 };
 

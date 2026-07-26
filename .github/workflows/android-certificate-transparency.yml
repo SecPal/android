@@ -1,0 +1,137 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+name: Android Certificate Transparency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-certificate-transparency.yml"
+      - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
+      - "android/app/build.gradle"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/xml*/network_security_config.xml"
+      - "android/variables.gradle"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-certificate-transparency.yml"
+      - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
+      - "android/app/build.gradle"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/xml*/network_security_config.xml"
+      - "android/variables.gradle"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      probe_url:
+        description: HTTPS URL whose served certificate chain is checked on API 36
+        required: false
+        default: "https://api.secpal.dev/"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  platform-policy:
+    name: Platform policy (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [24, 29, 35, 36, 37]
+
+    steps:
+      - name: Checkout repository
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Install dependencies
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        run: npm ci
+
+      - name: Run packaged policy regression or production probe
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || matrix.api-level == 36 }}
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
+          API_LEVEL: ${{ matrix.api-level }}
+          LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          SECPAL_LIVE_CT_PROBE_URL: ${{ inputs.probe_url || 'https://api.secpal.dev/' }}
+        run: |
+          sudo chmod 666 /dev/kvm
+          mkdir -p "$ANDROID_AVD_HOME"
+          image="system-images;android-${API_LEVEL};google_apis;x86_64"
+          bash ./scripts/with-android-env.sh sdkmanager "$image"
+          echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
+            --force --name "secpal-ct-api${API_LEVEL}" --package "$image"
+          npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
+          npm run android:device:wait -- emulator-5570 300
+          trap 'bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true' EXIT
+          test_class="app.secpal.CertificateTransparencyInstrumentedTest"
+          live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
+          if [[ "$LIVE_PROBE" == "true" ]]; then
+            log_list_path="/data/misc/keychain/ct/v2/current/log_list.json"
+            log_list=""
+            for _ in {1..30}; do
+              if bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+                shell test -r "$log_list_path"; then
+                log_list="$(bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+                  shell cat "$log_list_path")"
+                break
+              fi
+              sleep 10
+            done
+            [[ -n "$log_list" ]]
+            now_timestamp_ms=$(( $(date +%s) * 1000 ))
+            minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
+            jq -e \
+              --argjson minimum "$minimum_timestamp_ms" \
+              --argjson maximum "$now_timestamp_ms" \
+              '(.version | type == "string") and
+              (.log_list_timestamp | type == "number") and
+              (.log_list_timestamp >= $minimum) and
+              (.log_list_timestamp <= $maximum) and
+              (.operators | type == "array" and length > 0) and
+              all(.operators[];
+                (.name | type == "string") and
+                (.logs | type == "array")) and
+              ([.operators[].logs[]] | length > 0)' \
+              <<<"$log_list" >/dev/null
+            (
+              cd android
+              ANDROID_SERIAL=emulator-5570 ./gradlew \
+                -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+                :app:connectedCtRegressionAndroidTest \
+                "-Pandroid.testInstrumentationRunnerArguments.class=${live_method}" \
+                -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
+                "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=${SECPAL_LIVE_CT_PROBE_URL}"
+            )
+          else
+            (
+              cd android
+              ANDROID_SERIAL=emulator-5570 ./gradlew \
+                -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+                :app:connectedCtRegressionAndroidTest \
+                "-Pandroid.testInstrumentationRunnerArguments.class=${test_class}"
+            )
+          fi

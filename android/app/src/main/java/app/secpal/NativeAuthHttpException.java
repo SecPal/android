@@ -12,3 +12,9 @@ class NativeAuthHttpException extends Exception {
 
     int getStatusCode() { return statusCode; }
 }
+
+final class InsecureApiBaseUrlException extends NativeAuthHttpException {
+    InsecureApiBaseUrlException() {
+        super("Android auth bridge requires an HTTPS API base URL", 0);
+    }
+}

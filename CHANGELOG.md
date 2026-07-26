@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Enabled Android platform Certificate Transparency enforcement for every
+  remote HTTPS destination on API 36 and later so runtime-selected customer
+  instances and canonical API origins receive the same policy, retained a
+  separately packaged API 24-through-35 system-PKI fallback, and added
+  Android 17 loopback hardening, release-equivalent emulator regressions, a
+  parameterized SecPal reference/customer-chain probe, and a customer-operator
+  recovery contract (issue #450).
 - Removed the unaudited static Android SPKI pins that locked signed clients out
   after a legitimate certificate-chain rotation; global cleartext prohibition,
   Android system trust, and standard TLS certificate and hostname validation

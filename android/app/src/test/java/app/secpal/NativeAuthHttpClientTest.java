@@ -30,6 +30,14 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void normalizeBaseUrlRejectsInsecureHttpOrigin() {
+        assertErrorMessage(
+            "Android auth bridge requires an HTTPS API base URL",
+            "http://customer.example"
+        );
+    }
+
+    @Test
     public void normalizeBaseUrlRejectsUserInfo() {
         assertErrorMessage(
             "Android auth bridge requires a bare API origin without userinfo, path, query, or fragment",

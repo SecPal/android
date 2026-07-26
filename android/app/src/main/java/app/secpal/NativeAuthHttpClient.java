@@ -240,6 +240,9 @@ class NativeAuthHttpClient {
         if (!"https".equals(parsedUrl.getProtocol()) && !"http".equals(parsedUrl.getProtocol())) {
             throw new NativeAuthHttpException("Android auth bridge requires an absolute API base URL", 0);
         }
+        if ("http".equals(parsedUrl.getProtocol())) {
+            throw new InsecureApiBaseUrlException();
+        }
 
         if (parsedUrl.getHost() == null || parsedUrl.getHost().trim().isEmpty()) {
             throw new NativeAuthHttpException("Android auth bridge requires an absolute API base URL", 0);

@@ -36,18 +36,55 @@ const validNetworkSecurityConfig = `<?xml version="1.0" encoding="utf-8"?>
 </network-security-config>
 `;
 
+const validApi36NetworkSecurityConfig = `<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <base-config cleartextTrafficPermitted="false">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+    <certificateTransparency enabled="true" />
+  </base-config>
+</network-security-config>
+`;
+
+const validApi37NetworkSecurityConfig = `<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <base-config cleartextTrafficPermitted="false">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+    <certificateTransparency enabled="true" />
+  </base-config>
+  <domain-config>
+    <domain includeSubdomains="false">localhost</domain>
+  </domain-config>
+</network-security-config>
+`;
+
 const createFixture = () => {
   const root = mkdtempSync(join(tmpdir(), "android-network-security-"));
   tempRoots.push(root);
   const manifestPath = join(root, "AndroidManifest.xml");
   const resourcesPath = join(root, "resources");
   const defaultConfigDirectory = join(resourcesPath, "xml");
+  const api36ConfigDirectory = join(resourcesPath, "xml-v36");
+  const api37ConfigDirectory = join(resourcesPath, "xml-v37");
 
   mkdirSync(defaultConfigDirectory, { recursive: true });
+  mkdirSync(api36ConfigDirectory);
+  mkdirSync(api37ConfigDirectory);
   writeFileSync(manifestPath, validManifest);
   writeFileSync(
     join(defaultConfigDirectory, "network_security_config.xml"),
     validNetworkSecurityConfig
+  );
+  writeFileSync(
+    join(api36ConfigDirectory, "network_security_config.xml"),
+    validApi36NetworkSecurityConfig
+  );
+  writeFileSync(
+    join(api37ConfigDirectory, "network_security_config.xml"),
+    validApi37NetworkSecurityConfig
   );
 
   return { manifestPath, resourcesPath };
@@ -74,12 +111,131 @@ afterEach(() => {
 });
 
 describe("Android release network security verifier", () => {
-  it("accepts the canonical system-PKI release policy", () => {
+  it("accepts the canonical system-PKI fallback and API 36 CT policy", () => {
     const fixture = createFixture();
 
     const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
 
     expect(result.status, result.stderr).toBe(0);
+  });
+
+  it("rejects release resources without the API 36 CT policy", () => {
+    const fixture = createFixture();
+    rmSync(join(fixture.resourcesPath, "xml-v36"), {
+      recursive: true,
+      force: true,
+    });
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "must define an API 36 network security policy"
+    );
+  });
+
+  it("rejects release resources without the API 37 localhost hardening policy", () => {
+    const fixture = createFixture();
+    rmSync(join(fixture.resourcesPath, "xml-v37"), {
+      recursive: true,
+      force: true,
+    });
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "must define an API 37 localhost hardening policy"
+    );
+  });
+
+  it("rejects an API 37 policy that leaves Android's implicit localhost exception active", () => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml-v37", "network_security_config.xml"),
+      validApi37NetworkSecurityConfig.replace(
+        `  <domain-config>
+    <domain includeSubdomains="false">localhost</domain>
+  </domain-config>
+`,
+        ""
+      )
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must explicitly configure localhost");
+  });
+
+  it("rejects CT elements that can be selected below API 36", () => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml", "network_security_config.xml"),
+      validNetworkSecurityConfig.replace(
+        "</base-config>",
+        '  <certificateTransparency enabled="true" />\n  </base-config>'
+      )
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "exposes certificateTransparency below API 36"
+    );
+  });
+
+  it.each([
+    [
+      "disabled",
+      validApi36NetworkSecurityConfig.replace(
+        'enabled="true"',
+        'enabled="false"'
+      ),
+    ],
+    [
+      "missing",
+      validApi36NetworkSecurityConfig.replace(
+        '    <certificateTransparency enabled="true" />\n',
+        ""
+      ),
+    ],
+    [
+      "scoped to one domain",
+      validApi36NetworkSecurityConfig.replace(
+        '    <certificateTransparency enabled="true" />\n  </base-config>',
+        `  </base-config>
+  <domain-config>
+    <domain includeSubdomains="false">api.secpal.dev</domain>
+    <certificateTransparency enabled="true" />
+  </domain-config>`
+      ),
+    ],
+    [
+      "overridden for one domain",
+      validApi36NetworkSecurityConfig.replace(
+        "</network-security-config>",
+        `  <domain-config>
+    <domain includeSubdomains="false">customer-api.example</domain>
+    <certificateTransparency enabled="false" />
+  </domain-config>
+</network-security-config>`
+      ),
+    ],
+  ])("rejects an API 36 CT policy that is %s", (_, policy) => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml-v36", "network_security_config.xml"),
+      policy
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "must enforce certificate transparency globally"
+    );
   });
 
   it("rejects an insecure API-qualified resource selected by supported devices", () => {
