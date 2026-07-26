@@ -32,7 +32,7 @@
     "lint": "eslint . --ext ts,js --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "version:check": "node ./scripts/verify-version-sync.mjs",
-    "test:ruby": "ruby -c fastlane/Fastfile && ruby fastlane/test/secpal_android_versioning_test.rb && ruby fastlane/test/secpal_android_publish_lock_test.rb && ruby fastlane/test/secpal_android_release_test.rb",
+    "test:ruby": "bundle exec ruby -c fastlane/Fastfile && bundle exec ruby fastlane/test/secpal_android_versioning_test.rb && bundle exec ruby fastlane/test/secpal_android_publish_lock_test.rb && bundle exec ruby fastlane/test/secpal_android_release_test.rb",
     "test": "npm run version:check && npm run test:ruby && vitest run",
     "test:run": "npm run version:check && npm run test:ruby && vitest run --bail=1",
     "test:coverage": "npm run version:check && npm run test:ruby && vitest run --coverage",

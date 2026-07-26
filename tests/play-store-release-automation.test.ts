@@ -1146,6 +1146,10 @@ system("sh", "-eu", "-c", script, exception: true)
 
     expect(setupRubyReference).not.toBeNull();
     expect(setupRubyReference?.[1]).toMatch(/^[0-9a-f]{40}$/);
+    expect(qualityWorkflow).toContain("bundler-cache: true");
+    expect(qualityWorkflow.indexOf("bundler-cache: true")).toBeLessThan(
+      qualityWorkflow.indexOf("run: npm run test:coverage")
+    );
   });
 
   it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {
