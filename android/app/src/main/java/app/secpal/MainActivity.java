@@ -381,15 +381,14 @@ public class MainActivity extends BridgeActivity {
             return;
         }
 
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+            WebSettingsCompat.setWebAuthenticationSupport(
+                webView.getSettings(),
+                WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+            );
+        } else {
             Log.w(LOG_TAG, "Android WebView does not support Web Authentication");
-            return;
         }
-
-        WebSettingsCompat.setWebAuthenticationSupport(
-            webView.getSettings(),
-            WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-        );
     }
 
     private WebViewBackNavigationController.BackNavigationTarget resolveBackNavigationTarget() {

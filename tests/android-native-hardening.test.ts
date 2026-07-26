@@ -936,6 +936,36 @@ describe("Android native hardening", () => {
     expect(mainActivity).not.toContain("BuildConfig.WEBVIEW_DEBUGGING_ENABLED");
   });
 
+  it("uses a WebKit lint contract that accepts the Web Authentication feature guard", () => {
+    const mainActivity = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "MainActivity.java"
+    );
+    const variablesGradle = readRepoFile("android", "variables.gradle");
+    const webkitVersion = variablesGradle.match(
+      /androidxWebkitVersion\s*=\s*'(\d+)\.(\d+)\.(\d+)'/
+    );
+
+    expect(webkitVersion).not.toBeNull();
+
+    const [major, minor] = webkitVersion!.slice(1, 3).map(Number);
+
+    // WebKit 1.12.1 omitted WEB_AUTHENTICATION from isFeatureSupported's external StringDef.
+    expect(major > 1 || (major === 1 && minor >= 13)).toBe(true);
+    expect(mainActivity).toMatch(
+      /if\s*\(\s*WebViewFeature\.isFeatureSupported\(\s*WebViewFeature\.WEB_AUTHENTICATION\s*\)\s*\)\s*\{\s*WebSettingsCompat\.setWebAuthenticationSupport\(/
+    );
+    expect(mainActivity).toMatch(
+      /WebSettingsCompat\.WEB_AUTHENTICATION_SUPPORT_FOR_APP\s*\)\s*;\s*\}\s*else\s*\{\s*Log\.w\(\s*LOG_TAG,\s*"Android WebView does not support Web Authentication"\s*\)/
+    );
+  });
+
   it("declares a device-admin receiver for dedicated-device provisioning", () => {
     const manifest = readRepoFile(
       "android",
