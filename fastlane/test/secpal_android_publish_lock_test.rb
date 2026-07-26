@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "etc"
 require "tmpdir"
 require_relative "../lib/secpal_android_publish_lock"
 
@@ -21,36 +22,91 @@ class SecPalAndroidPublishLockTest < Minitest::Test
   end
 
   def test_resolves_the_configured_release_directory
-    Dir.mktmpdir do |directory|
+    Dir.mktmpdir do |home_directory|
+      directory = File.join(home_directory, "custom-release")
       paths = SecPalAndroidPublishLock.release_paths(
         environment: {
           "SECPAL_ANDROID_CONFIG_DIR" => directory
-        }
+        },
+        home_directory: home_directory
       )
 
       assert_equal File.join(directory, "android-release.env"),
                    paths.fetch(:release_env_file)
-      assert_equal File.join(directory, "android-publish.lock"),
+      assert_equal File.join(
+        home_directory,
+        ".config",
+        "secpal",
+        "android-publish.lock"
+      ),
                    paths.fetch(:publish_lock_file)
     end
   end
 
-  def test_places_the_lock_beside_an_explicit_release_env_file
-    Dir.mktmpdir do |directory|
-      config_directory = File.join(directory, "ignored-config")
-      release_directory = File.join(directory, "release-context")
+  def test_keeps_the_runner_lock_for_an_explicit_release_env_file
+    Dir.mktmpdir do |home_directory|
+      config_directory = File.join(home_directory, "ignored-config")
+      release_directory = File.join(home_directory, "release-context")
       release_env_file = File.join(release_directory, "custom.env")
       paths = SecPalAndroidPublishLock.release_paths(
         environment: {
           "SECPAL_ANDROID_CONFIG_DIR" => config_directory,
           "SECPAL_ANDROID_RELEASE_ENV_FILE" => release_env_file
-        }
+        },
+        home_directory: home_directory
       )
 
       assert_equal release_env_file, paths.fetch(:release_env_file)
-      assert_equal File.join(release_directory, "android-publish.lock"),
+      assert_equal File.join(
+        home_directory,
+        ".config",
+        "secpal",
+        "android-publish.lock"
+      ),
                    paths.fetch(:publish_lock_file)
     end
+  end
+
+  def test_different_release_contexts_share_one_runner_lock
+    Dir.mktmpdir do |home_directory|
+      default_paths = SecPalAndroidPublishLock.release_paths(
+        environment: {},
+        home_directory: home_directory
+      )
+      custom_paths = SecPalAndroidPublishLock.release_paths(
+        environment: {
+          "SECPAL_ANDROID_CONFIG_DIR" => File.join(home_directory, "custom"),
+          "SECPAL_ANDROID_RELEASE_ENV_FILE" => File.join(
+            home_directory,
+            "other",
+            "release.env"
+          )
+        },
+        home_directory: home_directory
+      )
+
+      assert_equal default_paths.fetch(:publish_lock_file),
+                   custom_paths.fetch(:publish_lock_file)
+    end
+  end
+
+  def test_runner_lock_ignores_a_process_home_override
+    original_home = ENV["HOME"]
+    Dir.mktmpdir do |overridden_home|
+      ENV["HOME"] = overridden_home
+
+      paths = SecPalAndroidPublishLock.release_paths(environment: {})
+      expected_lock = File.join(
+        Etc.getpwuid(Process.uid).dir,
+        ".config",
+        "secpal",
+        "android-publish.lock"
+      )
+
+      assert_equal expected_lock, paths.fetch(:publish_lock_file)
+    end
+  ensure
+    ENV["HOME"] = original_home
   end
 
   def test_creates_a_missing_private_lock_directory

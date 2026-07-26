@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "etc"
 require "fileutils"
 
 module SecPalAndroidPublishLock
@@ -9,11 +10,16 @@ module SecPalAndroidPublishLock
 
   module_function
 
-  def release_paths(environment: ENV, home_directory: Dir.home)
+  def runner_home_directory
+    Etc.getpwuid(Process.uid).dir
+  end
+
+  def release_paths(environment: ENV, home_directory: runner_home_directory)
+    runner_lock_directory = File.join(home_directory, ".config", "secpal")
     configured_directory = environment["SECPAL_ANDROID_CONFIG_DIR"].to_s
     release_directory =
       if configured_directory.empty?
-        File.join(home_directory, ".config", "secpal")
+        runner_lock_directory
       else
         File.expand_path(configured_directory)
       end
@@ -29,7 +35,7 @@ module SecPalAndroidPublishLock
     {
       release_env_file: release_env_file,
       publish_lock_file: File.join(
-        File.dirname(release_env_file),
+        runner_lock_directory,
         "android-publish.lock"
       )
     }
