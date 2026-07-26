@@ -213,4 +213,20 @@ describe("Android release network security verifier", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("must not alias network_security_config");
   });
+
+  it("rejects a comment boundary that exposes a new XML comment opener", () => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml", "network_security_config.xml"),
+      validNetworkSecurityConfig.replace(
+        "</network-security-config>",
+        "<<!-- removed comment -->!--\n</network-security-config>"
+      )
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("unterminated XML comment");
+  });
 });

@@ -47,7 +47,23 @@ const findFiles = (root) => {
   return files;
 };
 
-const stripXmlComments = (xml) => xml.replace(/<!--[\s\S]*?-->/g, "");
+const stripXmlComments = (xml) => {
+  let stripped = xml;
+
+  while (true) {
+    const commentStart = stripped.indexOf("<!--");
+    if (commentStart === -1) {
+      return stripped;
+    }
+
+    const commentEnd = stripped.indexOf("-->", commentStart + 4);
+    if (commentEnd === -1) {
+      fail("XML contains an unterminated XML comment");
+    }
+
+    stripped = stripped.slice(0, commentStart) + stripped.slice(commentEnd + 3);
+  }
+};
 
 const readAndroidAttribute = (xml, name) => {
   const matches = Array.from(
