@@ -40,6 +40,7 @@ public final class EnterprisePolicyController {
     private static final String PREF_APPLIED_SCREEN_CAPTURE_POLICY = "applied_screen_capture_policy";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
+    private static final int DEVICE_OWNER_POLICY_REVISION = 1;
     private static final String[] KIOSK_REDIRECTED_SETTINGS_ACTIONS = new String[] {
         "android.settings.SETTINGS",
         "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
@@ -776,6 +777,18 @@ public final class EnterprisePolicyController {
         Context context,
         EnterpriseManagedState managedState
     ) {
+        return buildAppliedPolicySignature(
+            context,
+            managedState,
+            Build.VERSION.SDK_INT
+        );
+    }
+
+    static String buildAppliedPolicySignature(
+        Context context,
+        EnterpriseManagedState managedState,
+        int sdkInt
+    ) {
         List<String> allowedPackages = new ArrayList<>(managedState.resolveAllowedPackages(context));
         List<String> launchablePackages = new ArrayList<>(resolveLaunchablePackages(context));
 
@@ -784,6 +797,8 @@ public final class EnterprisePolicyController {
 
         return String.join(
             "|",
+            String.valueOf(DEVICE_OWNER_POLICY_REVISION),
+            String.valueOf(sdkInt >= Build.VERSION_CODES.P),
             managedState.getMode(),
             String.valueOf(managedState.isKioskActive()),
             String.valueOf(managedState.isLockTaskEnabled()),

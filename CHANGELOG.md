@@ -22,9 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Guarded Android 28 lock-task features and date/time user restrictions so
-  supported Android 24–27 enterprise devices only receive policies available
-  on their API level (issue #454).
+- Guarded Android 28 lock-task features and date/time user restrictions,
+  versioned the applied Device Owner policy state, and made Android 28
+  availability part of its signature so existing and OS-upgraded enterprise
+  devices receive the policies available on their API level (issue #454).
 
 ### Changed
 

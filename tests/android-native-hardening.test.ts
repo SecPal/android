@@ -1399,7 +1399,14 @@ describe("Android native hardening", () => {
     );
     const readme = readRepoFile("README.md");
 
-    expect(policyController).toContain("KIOSK_LOCK_TASK_FEATURES");
+    expect(policyController).toContain("@RequiresApi(Build.VERSION_CODES.P)");
+    expect(policyController).toContain(
+      "setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, true)"
+    );
+    expect(policyController).toContain(
+      "DevicePolicyManager.LOCK_TASK_FEATURE_HOME"
+    );
+    expect(policyController).toContain("UserManager.DISALLOW_CONFIG_DATE_TIME");
     expect(policyController).toContain(
       "setStatusBarDisabled(adminComponent, true)"
     );
