@@ -318,12 +318,12 @@ describe("Play Store release automation", () => {
     );
 
     expect(fastfile).toContain('require "open-uri"');
-    expect(fastfile).toContain("def highest_known_direct_version_code");
-    expect(fastfile).toContain("APK_DIRECT_CHANNELS.filter_map");
+    expect(fastfile).toContain("def direct_channel_version_code");
+    expect(fastfile).toContain("direct_channels: APK_DIRECT_CHANNELS");
     expect(fastfile).toContain("direct_channel_metadata_url(channel)");
-    expect(fastfile).toContain("configured_release_version_code_value");
-    expect(fastfile).toContain("highest_known_android_version_code");
-    expect(fastfile).toContain("highest_known_version_code + 1");
+    expect(fastfile).toContain("configured_last_published_version_code_value");
+    expect(fastfile).toContain("collect_known_android_version_codes!");
+    expect(fastfile).toContain("SecPalAndroidVersioning.next_version_code");
   });
 
   it("keeps generated Android version codes monotonic across Play and direct APK releases", () => {
@@ -332,53 +332,26 @@ describe("Play Store release automation", () => {
       "utf8"
     );
 
-    expect(fastfile).toContain("def highest_known_android_version_code");
-    expect(fastfile).toMatch(
-      /def next_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: json_key_path[\s\S]*\)/
-    );
-    expect(fastfile).toMatch(
-      /def next_direct_deploy_version_code[\s\S]*highest_known_android_version_code\([\s\S]*json_key_path: play_json_key_path[\s\S]*\)/
-    );
-    expect(fastfile).toContain("persist_configured_release_version_code!");
+    expect(fastfile).toContain("def with_selected_publish_version_code");
+    expect(fastfile).toContain("collect_known_android_version_codes!");
+    expect(fastfile).toContain("play_tracks: PLAY_VERSION_CODE_TRACKS");
+    expect(fastfile).toContain("direct_channels: APK_DIRECT_CHANNELS");
+    expect(fastfile).toContain("persist_last_published_version_code!");
+    expect(fastfile).not.toContain("Time.now.utc.strftime");
   });
 
   it("rejects reuse of withdrawn direct APK version codes without external release state", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-version-floor-"));
-    const rubyAdapter = `
-module UI
-  def self.user_error!(message) = raise(message)
-  def self.message(*) = nil
-end
-def default_platform(*) = nil
-def platform(*) = nil
-def desc(*) = nil
-def lane(*) = nil
-load ENV.fetch("SECPAL_TEST_FASTFILE")
-def configured_release_version_code_value = 0
-def highest_known_direct_version_code = 0
-def optional_play_json_key_path = nil
-ENV["SECPAL_ANDROID_DEPLOY_VERSION_CODE"] = "261932119"
-next_direct_deploy_version_code
-`;
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
 
-    try {
-      const result = spawnSync("ruby", ["-e", rubyAdapter], {
-        cwd: repoRoot,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          SECPAL_ANDROID_RELEASE_ENV_FILE: join(tempRoot, "missing.env"),
-          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
-        },
-      });
-
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain(
-        "local release baseline already uses 261932119"
-      );
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
+    expect(fastfile).toContain(
+      "RETIRED_ANDROID_VERSION_CODE_FLOOR = 261_932_119"
+    );
+    expect(fastfile).toContain(
+      'known_codes["retired schema-3 floor"] = RETIRED_ANDROID_VERSION_CODE_FLOOR'
+    );
   });
 
   it("parses shell-compatible release env assignments before using the configured version baseline", () => {
@@ -392,6 +365,167 @@ next_direct_deploy_version_code
       "line.match(/\\A(?:export\\s+)?#{Regexp.escape(key)}=(.*)\\z/)"
     );
     expect(fastfile).toContain("Shellwords.split");
+    expect(fastfile).toMatch(
+      /release_env_assignment_value\(\s*"SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE"\s*\)/
+    );
+    expect(fastfile).toContain(
+      "SecPalAndroidRelease.resolve_last_published_version_code"
+    );
+    expect(fastfile).toContain("environment: ENV");
+  });
+
+  it("requires explicit codes for build-only lanes and locks every publishing lane", () => {
+    const fastfile = readFileSync(
+      resolve(repoRoot, "fastlane", "Fastfile"),
+      "utf8"
+    );
+
+    expect(fastfile).toMatch(
+      /lane :build_signed_apk[\s\S]*require_signed_build_version_code!\("build_signed_apk"\)/
+    );
+    expect(fastfile).toMatch(
+      /lane :build_signed_aab[\s\S]*require_signed_build_version_code!\("build_signed_aab"\)/
+    );
+    expect(fastfile).toContain("SecPalAndroidPublishLock.with_lock");
+    expect(fastfile).toContain(
+      "SecPalAndroidPublishLock.release_paths(environment: ENV)"
+    );
+    expect(fastfile).not.toContain('"~/.config/secpal/android-publish.lock"');
+    expect(
+      fastfile.match(/^\s+with_selected_publish_version_code\(lane:/gm)
+    ).toHaveLength(4);
+  });
+
+  it("keeps allocation, upload, persistence, and cleanup inside one publishing lock", () => {
+    const tempRoot = mkdtempSync(
+      join(tmpdir(), "secpal-fastlane-publish-flow-")
+    );
+    const releaseEnvPath = join(tempRoot, "android-release.env");
+    const playKeyPath = join(tempRoot, "google-play.json");
+    const eventsPath = join(tempRoot, "events.txt");
+    const rubyAdapter = `
+module UI
+  module_function
+
+  def user_error!(message)
+    raise message
+  end
+
+  def message(*) = nil
+  def important(*) = nil
+end
+
+$secpal_test_lanes = {}
+def default_platform(*) = nil
+def desc(*) = nil
+def platform(*)
+  yield
+end
+def lane(name, &block)
+  $secpal_test_lanes[name] = block
+end
+
+load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+class << Time
+  def now
+    Time.utc(2026, 7, 22, 12, 0, 0)
+  end
+end
+
+def google_play_track_version_codes(**)
+  [2_026_072_208]
+end
+
+def direct_channel_version_code(_channel)
+  2_026_072_207
+end
+
+alias secpal_test_persist_last_published_version_code! persist_last_published_version_code!
+
+def record_publish_stage(stage)
+  unless ENV["SECPAL_ANDROID_VERSION_CODE"] == "2026072210"
+    raise "#{stage} observed the wrong temporary build code"
+  end
+
+  begin
+    SecPalAndroidPublishLock.with_lock(PUBLISH_LOCK_FILE) {}
+  rescue SecPalAndroidPublishLock::LockUnavailableError
+    File.open(ENV.fetch("SECPAL_TEST_EVENTS"), "a") { |file| file.puts(stage) }
+    return
+  end
+
+  raise "#{stage} ran without the publishing lock"
+end
+
+def build_signed_aab
+  record_publish_stage("build")
+end
+
+def upload_to_play_store(**)
+  record_publish_stage("upload")
+end
+
+def persist_last_published_version_code!(version_code)
+  record_publish_stage("persist")
+  secpal_test_persist_last_published_version_code!(version_code)
+end
+
+$secpal_test_lanes.fetch(:deploy_internal).call
+raise "temporary build code leaked" if ENV.key?("SECPAL_ANDROID_VERSION_CODE")
+
+lock_reacquired = false
+SecPalAndroidPublishLock.with_lock(PUBLISH_LOCK_FILE) do
+  lock_reacquired = true
+end
+raise "publishing lock was not released" unless lock_reacquired
+
+puts File.read(ENV.fetch("SECPAL_ANDROID_RELEASE_ENV_FILE"))
+`;
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE: "2026072204",
+      SECPAL_ANDROID_PLAY_JSON_KEY_PATH: playKeyPath,
+      SECPAL_ANDROID_RELEASE_ENV_FILE: releaseEnvPath,
+      SECPAL_TEST_EVENTS: eventsPath,
+      SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
+    };
+    delete environment.SECPAL_ANDROID_DEPLOY_VERSION_CODE;
+    delete environment.SECPAL_ANDROID_VERSION_CODE;
+    delete environment.SECPAL_ANDROID_VERSION_NAME;
+
+    try {
+      writeFileSync(
+        releaseEnvPath,
+        "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072209\n"
+      );
+      writeFileSync(playKeyPath, "{}\n");
+      chmodSync(releaseEnvPath, 0o600);
+      chmodSync(playKeyPath, 0o600);
+
+      const result = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "load-android-release-env.sh"),
+          "ruby",
+          "-e",
+          rubyAdapter,
+        ],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: environment,
+        }
+      );
+
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(readFileSync(eventsPath, "utf8")).toBe("build\nupload\npersist\n");
+      expect(result.stdout.trim()).toBe(
+        "SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE=2026072210"
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps direct APK metadata aligned with the actual signing key and latest checksum name", () => {
@@ -449,7 +583,6 @@ next_direct_deploy_version_code
     const tempRoot = mkdtempSync(join(tmpdir(), "direct-apk-lock-"));
     const publicRoot = join(tempRoot, "public");
     const lockRoot = `${publicRoot}.release.lock`;
-    const isolatedFastfilePath = join(tempRoot, "Fastfile");
     const rubyAdapter = `
 require "open3"
 def default_platform(*) = nil
@@ -488,20 +621,13 @@ raise "failed release body retained the lock" if Dir.exist?(ENV.fetch("SECPAL_TE
 `;
 
     try {
-      writeFile(
-        isolatedFastfilePath,
-        readFileSync(resolve(repoRoot, "fastlane", "Fastfile"), "utf8").replace(
-          'require "open3"\n',
-          ""
-        )
-      );
       const result = spawnSync("ruby", ["-e", rubyAdapter], {
         cwd: repoRoot,
         encoding: "utf8",
         env: {
           ...process.env,
           SECPAL_ANDROID_DIRECT_ROOT: publicRoot,
-          SECPAL_TEST_FASTFILE: isolatedFastfilePath,
+          SECPAL_TEST_FASTFILE: resolve(repoRoot, "fastlane", "Fastfile"),
           SECPAL_TEST_LOCK_ROOT: lockRoot,
         },
       });
@@ -994,13 +1120,32 @@ system("sh", "-eu", "-c", script, exception: true)
       resolve(repoRoot, "fastlane", "Fastfile"),
       "utf8"
     );
-
-    expect(fastfile).toContain(
-      "Failed to resolve the highest known direct APK version code"
+    const releaseHelper = readFileSync(
+      resolve(repoRoot, "fastlane", "lib", "secpal_android_release.rb"),
+      "utf8"
     );
+
+    expect(releaseHelper).toContain(
+      "Failed to read required Direct #{channel}"
+    );
+    expect(releaseHelper).toContain("Failed to read required Play #{track}");
     expect(fastfile).not.toContain(
       "Skipping direct APK channel '#{channel}' while resolving the next version code"
     );
+    expect(fastfile).not.toContain("Skipping Google Play track");
+  });
+
+  it("pins the third-party Ruby setup action to an immutable commit", () => {
+    const qualityWorkflow = readFileSync(
+      resolve(repoRoot, ".github", "workflows", "quality.yml"),
+      "utf8"
+    );
+    const setupRubyReference = qualityWorkflow.match(
+      /uses:\s*ruby\/setup-ruby@([^\s#]+)/
+    );
+
+    expect(setupRubyReference).not.toBeNull();
+    expect(setupRubyReference?.[1]).toMatch(/^[0-9a-f]{40}$/);
   });
 
   it("accepts valid landscape Play screenshots without aspect-ratio warnings", () => {

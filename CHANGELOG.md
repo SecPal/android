@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added canonical Android `0.1.0` versioning, a fail-closed Ruby UTC build-code allocator, shared Play/Direct publication source checks, and a VPS publishing process lock (issue #424).
 - Added the `SECPAL_ANDROID_FRONTEND_DIR` override for frontend builds so
   linked workspaces can use a frontend checkout outside the conventional
   `SecPal/{frontend,android}` layout (issue #445).
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Separated the persisted Android publication baseline, manual deploy override, and temporary Gradle build code; signed build-only lanes now require an explicit code and legacy version-name environment values are ignored.
 - Corrected the direct-download release state by publishing non-downloadable unavailable metadata for Stable, the Stable aliases, and Beta and permanently deleting the affected schema-3 Latest, checksum, and versioned-release files. The completed one-time withdrawal machinery is not retained; future Stable/Beta publications remain serialized by the shared remote lock, restore the exact prior APK/checksum presence after an interrupted replacement, reject reuse of the retired schema-3 version codes from a tracked floor, and must pass the signed schema-4 artifact guard (issue `#434`, part of `SecPal/.github#590`).
 - Enforced schema `4` as the only Android runtime-bootstrap contract: shared frontend discovery requires strict integer schema `4`, the injected bridge always emits integer schema `4` for notification registration after fresh setup or native restoration, persisted schema and minimum-version/build markers cannot override or gate that value, and signed APK/AAB builds fail before upload unless the artifact-type-specific WebView index contains exactly one canonical, executable schema-4 registration path; artifact inspection independently parses the bridge schema constant and registration assignment, rejects missing, duplicate, conflicting, commented, or non-canonical paths and tags, reports corrupt archives accurately, preserves archive-fixture process failures, and removes the superseded compatibility wording without changing authentication, push lifecycle, or Device Owner/profile-owner behavior (issue `#432`, part of `SecPal/.github#590`).
 - Removed the retired frontend-issued Android enrollment bootstrap exchange, its persisted state, enterprise bridge payload, token-prefix storage abstraction, parsing helpers, and obsolete `managedAndroidEnrollment` runtime-bootstrap compatibility flag; both regular and dedicated-home app startup now delete any encrypted token and derived enrollment state left by an older installation without reading it, Android push registration uses bootstrap schema `4`, and independent Device Owner/profile-owner policy and Stable/Beta distribution behavior remain unchanged.
@@ -83,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept the highest valid Android publication baseline across shell, persisted, and legacy values, preventing stale configuration from reusing previously issued version codes.
+- Kept one runner-account-wide Android publishing lock across custom release contexts and process-level home overrides while securely creating its private directory, and kept Fastlane aligned with the exact release env file selected by the shell loader.
+- Required explicit shared-sequence codes for every signed build-only entry point, honored caller-provided publication baselines, and rejected SemVer-invalid numeric prerelease identifiers.
+- Pinned the third-party Ruby setup action used by Android release tests to an immutable reviewed commit.
+- Made Direct release metadata validation unambiguous and fail-closed, persisted the successful publication baseline atomically, and regression-tested publication failure cleanup.
 - Made the Capacitor core-plugin exclusion guard reject reformatted forbidden
   class and instance registrations while ignoring comment-only structural
   examples, blocked the direct same-origin Capacitor native HTTP interceptor,

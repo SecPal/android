@@ -1009,6 +1009,12 @@ describe("Android native hardening", () => {
     expect(existsSync(appfilePath)).toBe(true);
     expect(existsSync(fastfilePath)).toBe(true);
     expect(packageJson.scripts["fastlane:install"]).toContain("bundle install");
+    expect(packageJson.scripts["native:assemble:release:signed"]).toContain(
+      "require-android-build-version-code.rb"
+    );
+    expect(packageJson.scripts["native:bundle:release:signed"]).toContain(
+      "require-android-build-version-code.rb"
+    );
     expect(packageJson.scripts["native:assemble:store-listing"]).toContain(
       "./gradlew assembleStoreListing"
     );
@@ -1109,12 +1115,13 @@ describe("Android native hardening", () => {
       "verify_android_runtime_schema_artifact!(signed_aab_path)"
     );
     expect(fastfile).toContain("published_at: Time.now.utc.iso8601");
-    expect(fastfile).toContain("next_deploy_version_code");
-    expect(fastfile).toContain("configured_release_version_code");
+    expect(fastfile).toContain("select_publish_version_code!");
+    expect(fastfile).toContain("configured_last_published_version_code");
     expect(fastfile).toContain("SECPAL_ANDROID_DEPLOY_VERSION_CODE");
     expect(fastfile).toContain("google_play_track_version_codes");
     expect(fastfile).toContain("PLAY_VERSION_CODE_TRACKS");
-    expect(fastfile).toContain("Time.now.utc.strftime");
+    expect(fastfile).toContain("SecPalAndroidVersioning.next_version_code");
+    expect(fastfile).toContain("with_android_publish_lock");
     expect(fastfile).toContain('ENV["SECPAL_ANDROID_VERSION_CODE"]');
     expect(fastfile).toContain("load-android-release-env.sh");
     expect(releaseEnvLoader).toContain('$(dirname "${BASH_SOURCE[0]}")');

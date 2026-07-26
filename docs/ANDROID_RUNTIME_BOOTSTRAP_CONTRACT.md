@@ -11,6 +11,8 @@ This contract defines the merged shared frontend runtime-discovery flow, the
 Android native auth plugin, the injected WebView bridge, and persisted bootstrap
 payloads. Schema `4` is the only supported Android runtime schema.
 
+Runtime identity keeps the visible version and technical build separate. `appVersion` comes from the repository-root `VERSION` file through Android `versionName`; `appBuild` is the decimal Android `versionCode`, including the ten-digit UTC `YYYYMMDDXX` release format. The value remains below Google Play's integer ceiling and is carried through the native Java `long` and JSON number paths without truncation.
+
 ## Source Surfaces
 
 - Frontend facade:
