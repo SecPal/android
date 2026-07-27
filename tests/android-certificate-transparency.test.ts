@@ -26,6 +26,16 @@ describe("Android Certificate Transparency regression contract", () => {
       "secpal",
       "CertificateTransparencyInstrumentedTest.java"
     );
+    const exampleInstrumentedTest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "androidTest",
+      "java",
+      "app",
+      "secpal",
+      "ExampleInstrumentedTest.java"
+    );
     const workflow = readRepoFile(
       ".github",
       "workflows",
@@ -114,6 +124,8 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(instrumentedTest).toContain("https://api.secpal.dev/");
     expect(instrumentedTest).toContain("secpalLiveCtProbe");
     expect(instrumentedTest).toContain("secpalLiveCtProbeUrl");
+    expect(exampleInstrumentedTest).toContain("BuildConfig.APPLICATION_ID");
+    expect(exampleInstrumentedTest).not.toContain('assertEquals("app.secpal",');
     expect(api36Policy).toContain('<certificateTransparency enabled="true"');
     expect(api36Policy).not.toContain("<domain-config");
     expect(api37Policy).toContain('<certificateTransparency enabled="true"');
@@ -130,6 +142,15 @@ describe("Android Certificate Transparency regression contract", () => {
     );
     expect(workflow).not.toContain("experimental:");
     expect(workflow).not.toContain("continue-on-error:");
+    for (const harnessDependency of [
+      "package.json",
+      "package-lock.json",
+      "scripts/start-android-emulator.sh",
+      "scripts/wait-for-android-device.sh",
+      "scripts/with-android-env.sh",
+    ]) {
+      expect(workflow.split(`- "${harnessDependency}"`)).toHaveLength(3);
+    }
     expect(workflow).toMatch(
       /sdkmanager --channel="\$SDK_CHANNEL" \\\s+"platform-tools" "emulator" "\$image"/
     );

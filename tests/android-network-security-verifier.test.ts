@@ -4,7 +4,13 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -96,10 +102,8 @@ const runVerifier = (manifestPath: string, resourcesPath: string) =>
   });
 
 const writeQualifiedConfig = (resourcesPath: string, contents: string) => {
-  const qualifiedConfigDirectory = join(resourcesPath, "xml-v24");
-  mkdirSync(qualifiedConfigDirectory);
   writeFileSync(
-    join(qualifiedConfigDirectory, "network_security_config.xml"),
+    join(resourcesPath, "xml-v36", "network_security_config.xml"),
     contents
   );
 };
@@ -146,6 +150,47 @@ describe("Android release network security verifier", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
       "must define an API 37 localhost hardening policy"
+    );
+  });
+
+  it.each([
+    ["API 36", "xml-v36", "xml-night-v36"],
+    ["API 37", "xml-v37", "xml-night-v37"],
+  ])(
+    "rejects an %s policy confined to a non-version resource qualifier",
+    (_, canonicalDirectory, qualifiedDirectory) => {
+      const fixture = createFixture();
+      renameSync(
+        join(fixture.resourcesPath, canonicalDirectory),
+        join(fixture.resourcesPath, qualifiedDirectory)
+      );
+
+      const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "must use only the canonical xml, xml-v36, and xml-v37 directories"
+      );
+    }
+  );
+
+  it.each([
+    ["mode-qualified fallback", "xml-night-v35", validNetworkSecurityConfig],
+    ["future API policy", "xml-v38", validApi36NetworkSecurityConfig],
+  ])("rejects an unsupported %s", (_, directory, policy) => {
+    const fixture = createFixture();
+    const qualifiedDirectory = join(fixture.resourcesPath, directory);
+    mkdirSync(qualifiedDirectory);
+    writeFileSync(
+      join(qualifiedDirectory, "network_security_config.xml"),
+      policy
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "must use only the canonical xml, xml-v36, and xml-v37 directories"
     );
   });
 
@@ -250,6 +295,25 @@ describe("Android release network security verifier", () => {
   </base-config>
 </network-security-config>
 `
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("permits cleartext traffic");
+  });
+
+  it("rejects an XML-encoded cleartext opt-in", () => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml-v36", "network_security_config.xml"),
+      validApi36NetworkSecurityConfig.replace(
+        "</network-security-config>",
+        `  <domain-config cleartextTrafficPermitted="&#116;rue">
+    <domain>api.secpal.dev</domain>
+  </domain-config>
+</network-security-config>`
+      )
     );
 
     const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
@@ -383,6 +447,6 @@ describe("Android release network security verifier", () => {
     const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("unterminated XML comment");
+    expect(result.stderr).toContain("XML is malformed");
   });
 });

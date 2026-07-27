@@ -9,6 +9,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/android-certificate-transparency.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/with-android-env.sh"
       - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
@@ -19,6 +24,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/android-certificate-transparency.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/with-android-env.sh"
       - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"

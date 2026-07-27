@@ -96,6 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made Android network-policy verification parse decoded XML values, reject
+  configuration-qualified policy replacements, keep the release-derived
+  instrumentation package assertion variant-safe, and run the packaged
+  Certificate Transparency matrix whenever its emulator harness changes (issue
+  #450).
 - Kept the AndroidX tracing and Kotlin runtime boundaries in the separately
   minified Certificate Transparency regression app so AndroidJUnitRunner
   starts before the packaged policy tests on supported API levels (issue

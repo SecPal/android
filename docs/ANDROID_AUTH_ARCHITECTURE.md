@@ -235,10 +235,12 @@ distributable release artifact. APIs below 36 must load the fallback policy and
 reject cleartext. API 36 must report CT as required for both SecPal-operated
 hosts and an arbitrary customer API hostname. API 37 must also prove that the
 platform's implicit localhost cleartext exception is suppressed. The
-release-resource verifier independently rejects a missing, disabled, or
-domain-scoped API 36 policy, any CT element selectable below API 36, a missing
-API 37 localhost hardening policy, user or inline CAs, debug trust overrides,
-cleartext, and certificate pins.
+release-resource verifier accepts the policy only from the canonical `xml`,
+`xml-v36`, and `xml-v37` resource directories and parses decoded XML values. It
+independently rejects a missing, disabled, or domain-scoped API 36 policy, any
+CT element selectable below API 36, a missing API 37 localhost hardening
+policy, configuration-qualified replacements, user or inline CAs, debug trust
+overrides, cleartext, and certificate pins.
 
 #### Certificate Transparency operations
 
