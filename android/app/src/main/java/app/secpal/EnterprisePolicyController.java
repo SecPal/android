@@ -22,6 +22,8 @@ import android.os.PersistableBundle;
 import android.os.UserManager;
 import android.util.Log;
 
+import androidx.annotation.RequiresApi;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -38,7 +40,7 @@ public final class EnterprisePolicyController {
     private static final String PREF_APPLIED_SCREEN_CAPTURE_POLICY = "applied_screen_capture_policy";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
-    private static final int KIOSK_LOCK_TASK_FEATURES = DevicePolicyManager.LOCK_TASK_FEATURE_HOME;
+    private static final int DEVICE_OWNER_POLICY_REVISION = 2;
     private static final String[] KIOSK_REDIRECTED_SETTINGS_ACTIONS = new String[] {
         "android.settings.SETTINGS",
         "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
@@ -52,13 +54,12 @@ public final class EnterprisePolicyController {
         "android.settings.APPLICATION_SETTINGS",
         "android.settings.CALL_SETTINGS"
     };
-    private static final String[] KIOSK_USER_RESTRICTIONS = new String[] {
+    private static final String[] BASE_KIOSK_USER_RESTRICTIONS = new String[] {
         UserManager.DISALLOW_CONFIG_WIFI,
         UserManager.DISALLOW_CONFIG_BLUETOOTH,
         UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS,
         UserManager.DISALLOW_CONFIG_TETHERING,
         UserManager.DISALLOW_CONFIG_VPN,
-        UserManager.DISALLOW_CONFIG_DATE_TIME,
         UserManager.DISALLOW_APPS_CONTROL,
         UserManager.DISALLOW_INSTALL_APPS,
         UserManager.DISALLOW_UNINSTALL_APPS,
@@ -468,10 +469,7 @@ public final class EnterprisePolicyController {
                 adminComponent,
                 allowedPackages.toArray(new String[0])
             );
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                devicePolicyManager.setLockTaskFeatures(adminComponent, KIOSK_LOCK_TASK_FEATURES);
-            }
+            setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, true);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 devicePolicyManager.setStatusBarDisabled(adminComponent, true);
@@ -497,15 +495,7 @@ public final class EnterprisePolicyController {
         restoreManagedHiddenPackages(devicePolicyManager, adminComponent, managedHiddenPackages);
 
         devicePolicyManager.setLockTaskPackages(adminComponent, new String[] { context.getPackageName() });
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            devicePolicyManager.setLockTaskFeatures(
-                adminComponent,
-                DevicePolicyManager.LOCK_TASK_FEATURE_HOME
-                    | DevicePolicyManager.LOCK_TASK_FEATURE_NOTIFICATIONS
-                    | DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO
-            );
-        }
+        setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, false);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             devicePolicyManager.setStatusBarDisabled(adminComponent, false);
@@ -619,12 +609,92 @@ public final class EnterprisePolicyController {
         ComponentName adminComponent,
         boolean enabled
     ) {
-        for (String restriction : KIOSK_USER_RESTRICTIONS) {
+        if (BuildConfig.DEBUG) {
+            // Revision 1 blocked the documented ADB replacement path for test-only APKs.
+            devicePolicyManager.clearUserRestriction(
+                adminComponent,
+                UserManager.DISALLOW_INSTALL_APPS
+            );
+        }
+
+        for (String restriction : resolveKioskUserRestrictions()) {
             if (enabled) {
                 devicePolicyManager.addUserRestriction(adminComponent, restriction);
             } else {
                 devicePolicyManager.clearUserRestriction(adminComponent, restriction);
             }
+        }
+    }
+
+    static List<String> resolveKioskUserRestrictions() {
+        return resolveKioskUserRestrictions(BuildConfig.DEBUG);
+    }
+
+    static List<String> resolveKioskUserRestrictions(boolean debugBuild) {
+        ArrayList<String> restrictions = new ArrayList<>();
+
+        Collections.addAll(restrictions, BASE_KIOSK_USER_RESTRICTIONS);
+
+        if (debugBuild) {
+            restrictions.remove(UserManager.DISALLOW_INSTALL_APPS);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            restrictions.add(Api28EnterprisePolicy.dateTimeRestriction());
+        }
+
+        return restrictions;
+    }
+
+    static Integer resolveLockTaskFeatures(boolean kioskActive) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return null;
+        }
+
+        return Api28EnterprisePolicy.resolveLockTaskFeatures(kioskActive);
+    }
+
+    private static void setLockTaskFeaturesIfSupported(
+        DevicePolicyManager devicePolicyManager,
+        ComponentName adminComponent,
+        boolean kioskActive
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return;
+        }
+
+        Api28EnterprisePolicy.setLockTaskFeatures(
+            devicePolicyManager,
+            adminComponent,
+            resolveLockTaskFeatures(kioskActive)
+        );
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    private static final class Api28EnterprisePolicy {
+        private Api28EnterprisePolicy() {
+        }
+
+        static String dateTimeRestriction() {
+            return UserManager.DISALLOW_CONFIG_DATE_TIME;
+        }
+
+        static int resolveLockTaskFeatures(boolean kioskActive) {
+            if (kioskActive) {
+                return DevicePolicyManager.LOCK_TASK_FEATURE_HOME;
+            }
+
+            return DevicePolicyManager.LOCK_TASK_FEATURE_HOME
+                | DevicePolicyManager.LOCK_TASK_FEATURE_NOTIFICATIONS
+                | DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO;
+        }
+
+        static void setLockTaskFeatures(
+            DevicePolicyManager devicePolicyManager,
+            ComponentName adminComponent,
+            int lockTaskFeatures
+        ) {
+            devicePolicyManager.setLockTaskFeatures(adminComponent, lockTaskFeatures);
         }
     }
 
@@ -723,6 +793,18 @@ public final class EnterprisePolicyController {
         Context context,
         EnterpriseManagedState managedState
     ) {
+        return buildAppliedPolicySignature(
+            context,
+            managedState,
+            Build.VERSION.SDK_INT
+        );
+    }
+
+    static String buildAppliedPolicySignature(
+        Context context,
+        EnterpriseManagedState managedState,
+        int sdkInt
+    ) {
         List<String> allowedPackages = new ArrayList<>(managedState.resolveAllowedPackages(context));
         List<String> launchablePackages = new ArrayList<>(resolveLaunchablePackages(context));
 
@@ -731,6 +813,8 @@ public final class EnterprisePolicyController {
 
         return String.join(
             "|",
+            String.valueOf(DEVICE_OWNER_POLICY_REVISION),
+            String.valueOf(sdkInt >= Build.VERSION_CODES.P),
             managedState.getMode(),
             String.valueOf(managedState.isKioskActive()),
             String.valueOf(managedState.isLockTaskEnabled()),
