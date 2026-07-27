@@ -355,4 +355,103 @@ exit 1
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("retries only an API 37 PackageManager broken pipe once", () => {
+    const runScenario = (
+      apiLevel: number,
+      failureMode: "package-manager" | "package-manager-always" | "test"
+    ) => {
+      const tempRoot = mkdtempSync(
+        join(tmpdir(), "secpal-connected-test-script-")
+      );
+      const androidRoot = join(tempRoot, "android");
+      const scriptsRoot = join(tempRoot, "scripts");
+      const attemptPath = join(tempRoot, "attempts");
+      const waitPath = join(tempRoot, "waits");
+
+      try {
+        mkdirSync(androidRoot, { recursive: true });
+        mkdirSync(scriptsRoot, { recursive: true });
+        writeExecutable(
+          join(androidRoot, "gradlew"),
+          `#!/usr/bin/env bash
+attempt=0
+if [[ -f "${attemptPath}" ]]; then
+  attempt="$(cat "${attemptPath}")"
+fi
+attempt=$((attempt + 1))
+printf '%s' "$attempt" > "${attemptPath}"
+if [[ "$attempt" == "1" || "${failureMode}" == "package-manager-always" ]]; then
+  if [[ "${failureMode}" == package-manager* ]]; then
+    printf '%s\n' 'Failed to commit install session 1234'
+    printf '%s\n' 'Failure calling service package: Broken pipe (32)'
+  else
+    printf '%s\n' 'There were failing tests'
+  fi
+  exit 1
+fi
+printf '%s\n' 'connected test passed'
+`
+        );
+        writeExecutable(
+          join(scriptsRoot, "wait-for-android-device.sh"),
+          `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${waitPath}"
+`
+        );
+
+        const result = spawnSync(
+          "bash",
+          [
+            resolve(repoRoot, "scripts", "run-android-connected-test.sh"),
+            "emulator-5570",
+            apiLevel.toString(),
+            "60",
+            ":app:connectedCtRegressionAndroidTest",
+          ],
+          {
+            cwd: tempRoot,
+            env: {
+              ...process.env,
+              TMPDIR: tempRoot,
+            },
+            encoding: "utf8",
+          }
+        );
+
+        return {
+          result,
+          attempts: Number.parseInt(readFileSync(attemptPath, "utf8"), 10),
+          waits: existsSync(waitPath)
+            ? readFileSync(waitPath, "utf8").trim().split("\n")
+            : [],
+        };
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    };
+
+    const recoverableApi37Failure = runScenario(37, "package-manager");
+    expect(recoverableApi37Failure.result.status).toBe(0);
+    expect(recoverableApi37Failure.attempts).toBe(2);
+    expect(recoverableApi37Failure.waits).toEqual(["emulator-5570 60"]);
+    expect(recoverableApi37Failure.result.stdout).toContain(
+      "Retrying API 37 instrumentation after PackageManager connection failure"
+    );
+
+    const repeatedApi37Failure = runScenario(37, "package-manager-always");
+    expect(repeatedApi37Failure.result.status).toBe(1);
+    expect(repeatedApi37Failure.attempts).toBe(2);
+    expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    const api36Failure = runScenario(36, "package-manager");
+    expect(api36Failure.result.status).toBe(1);
+    expect(api36Failure.attempts).toBe(1);
+    expect(api36Failure.waits).toEqual([]);
+
+    const testFailure = runScenario(37, "test");
+    expect(testFailure.result.status).toBe(1);
+    expect(testFailure.attempts).toBe(1);
+    expect(testFailure.waits).toEqual([]);
+  });
 });

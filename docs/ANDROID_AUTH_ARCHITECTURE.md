@@ -234,8 +234,11 @@ with the debug key only so the test runner can install it. It is not a
 distributable release artifact. APIs below 36 must load the fallback policy and
 reject cleartext. API 36 must report CT as required for both SecPal-operated
 hosts and an arbitrary customer API hostname. API 37 must also prove that the
-platform's implicit localhost cleartext exception is suppressed. The
-release-resource verifier accepts the policy only from the canonical `xml`,
+platform's implicit localhost cleartext exception is suppressed. The API 37
+harness retries once only when Gradle reports both a failed package install
+commit and a broken PackageManager connection; policy assertions and all other
+instrumentation failures remain fail-closed. The release-resource verifier
+accepts the policy only from the canonical `xml`,
 `xml-v36`, and `xml-v37` resource directories and parses decoded XML values. It
 independently rejects a missing, disabled, or domain-scoped API 36 policy, any
 CT element selectable below API 36, a missing API 37 localhost hardening

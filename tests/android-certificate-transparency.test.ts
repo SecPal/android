@@ -147,6 +147,7 @@ describe("Android Certificate Transparency regression contract", () => {
       "package-lock.json",
       "scripts/start-android-emulator.sh",
       "scripts/wait-for-android-device.sh",
+      "scripts/run-android-connected-test.sh",
       "scripts/with-android-env.sh",
     ]) {
       expect(workflow.split(`- "${harnessDependency}"`)).toHaveLength(3);
@@ -182,6 +183,7 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(
       workflow.indexOf(":app:assembleCtRegressionAndroidTest")
     ).toBeLessThan(workflow.indexOf("npm run android:emulator:start"));
+    expect(workflow).toContain("bash ./scripts/run-android-connected-test.sh");
     expect(workflow).toContain('cat "$emulator_log"');
     expect(workflow).toContain("connectedCtRegressionAndroidTest");
     expect(workflow).not.toContain("connectedDebugAndroidTest");
