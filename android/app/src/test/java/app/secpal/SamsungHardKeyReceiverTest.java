@@ -6,13 +6,97 @@
 package app.secpal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import android.content.Intent;
+import android.os.Process;
 
 import org.junit.Test;
 
 public class SamsungHardKeyReceiverTest {
+
+    @Test
+    public void rejectsHardKeySenderWhenAndroidCannotExposeItsIdentity() {
+        assertFalse(
+            SamsungHardKeyReceiver.isTrustedKnoxSender(
+                33,
+                Process.SYSTEM_UID,
+                (permission, uid) -> true
+            )
+        );
+    }
+
+    @Test
+    public void rejectsHardKeySenderWithoutKnoxPermission() {
+        assertFalse(
+            SamsungHardKeyReceiver.isTrustedKnoxSender(
+                34,
+                20_001,
+                (permission, uid) -> false
+            )
+        );
+    }
+
+    @Test
+    public void rejectsHardKeySenderWithUnavailableIdentity() {
+        assertFalse(
+            SamsungHardKeyReceiver.isTrustedKnoxSender(
+                34,
+                Process.INVALID_UID,
+                (permission, uid) -> true
+            )
+        );
+    }
+
+    @Test
+    public void acceptsManagedKeyMappingSenderPermission() {
+        assertTrue(
+            SamsungHardKeyReceiver.isTrustedKnoxSender(
+                34,
+                20_001,
+                (permission, uid) ->
+                    SamsungHardKeyReceiver.KNOX_CUSTOM_SETTING_PERMISSION.equals(permission)
+            )
+        );
+    }
+
+    @Test
+    public void acceptsLegacyKnoxSystemSenderPermission() {
+        assertTrue(
+            SamsungHardKeyReceiver.isTrustedKnoxSender(
+                34,
+                Process.SYSTEM_UID,
+                (permission, uid) ->
+                    SamsungHardKeyReceiver.KNOX_CUSTOM_SYSTEM_PERMISSION.equals(permission)
+            )
+        );
+    }
+
+    @Test
+    public void acceptsPermissionHeldByPackageInSenderUid() {
+        assertTrue(
+            SamsungHardKeyReceiver.senderPackagesHoldPermission(
+                new String[] { "com.example.untrusted", "com.samsung.android.knox.kpecore" },
+                SamsungHardKeyReceiver.KNOX_CUSTOM_SETTING_PERMISSION,
+                (permission, packageName) ->
+                    "com.samsung.android.knox.kpecore".equals(packageName)
+                        && SamsungHardKeyReceiver.KNOX_CUSTOM_SETTING_PERMISSION.equals(permission)
+            )
+        );
+    }
+
+    @Test
+    public void rejectsSenderUidWithoutPackages() {
+        assertFalse(
+            SamsungHardKeyReceiver.senderPackagesHoldPermission(
+                null,
+                SamsungHardKeyReceiver.KNOX_CUSTOM_SETTING_PERMISSION,
+                (permission, packageName) -> true
+            )
+        );
+    }
 
     @Test
     public void ignoresSamsungHardKeyBroadcastsOutsideManagedMode() {

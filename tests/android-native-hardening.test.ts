@@ -1008,7 +1008,7 @@ describe("Android native hardening", () => {
 
     expect(manifest).toContain("SamsungHardKeyReceiver");
     expect(manifest).toMatch(
-      /<receiver\b[^>]*android:name="\.SamsungHardKeyReceiver"[^>]*android:exported="true"/
+      /<receiver\b[^>]*android:name="\.SamsungHardKeyReceiver"[^>]*android:exported="true"[^>]*tools:ignore="ExportedReceiver"/
     );
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
@@ -1017,7 +1017,7 @@ describe("Android native hardening", () => {
       "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
     );
     expect(manifest).toContain(
-      "Knox hard-key broadcasts come from outside the app UID"
+      "Runtime sender validation accepts only callers holding a documented Knox permission"
     );
     expect(manifest).toMatch(
       /<meta-data\b[^>]*android:name="com\.samsung\.android\.knox\.intent\.action\.HARD_KEY_PRESS"[^>]*android:value="true"[^>]*\/?>/
@@ -1048,6 +1048,23 @@ describe("Android native hardening", () => {
     );
 
     expect(debugManifest).toContain('android:testOnly="true"');
+  });
+
+  it("restricts debug enterprise-policy broadcasts to the adb shell", () => {
+    const debugManifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "debug",
+      "AndroidManifest.xml"
+    );
+
+    expect(debugManifest).toMatch(
+      /<receiver\b[^>]*android:name="\.DebugEnterprisePolicyReceiver"[^>]*android:exported="true"[^>]*android:permission="android\.permission\.DUMP"/
+    );
+    expect(debugManifest).toContain(
+      "Only the adb shell caller needs this debug-only receiver"
+    );
     expect(debugManifest).toContain("DEBUG_SET_ENTERPRISE_POLICY");
     expect(debugManifest).toContain("DEBUG_CLEAR_ENTERPRISE_POLICY");
   });

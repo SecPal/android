@@ -58,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Restricted debug enterprise-policy broadcasts to callers holding the
+  privileged `android.permission.DUMP` permission held by the Android shell;
+  Samsung hard-key broadcasts now fail closed before Android 14 and otherwise
+  require the original sender UID to hold `KNOX_CUSTOM_SETTING` or
+  `KNOX_CUSTOM_SYSTEM`, with a scoped lint exception because the manifest
+  cannot express that permission alternative (issue #455).
 - Enabled Android platform Certificate Transparency enforcement for every
   remote HTTPS destination on API 36 and later so runtime-selected customer
   instances and canonical API origins receive the same policy, retained a
