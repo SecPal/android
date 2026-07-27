@@ -58,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Enabled Android platform Certificate Transparency enforcement for every
+  remote HTTPS destination on API 36 and later so runtime-selected customer
+  instances and canonical API origins receive the same policy, retained a
+  separately packaged API 24-through-35 system-PKI fallback, and added
+  Android 17 loopback hardening, release-equivalent emulator regressions, a
+  parameterized SecPal reference/customer-chain probe, and a customer-operator
+  recovery contract (issue #450).
 - Removed the unaudited static Android SPKI pins that locked signed clients out
   after a legitimate certificate-chain rotation; global cleartext prohibition,
   Android system trust, and standard TLS certificate and hostname validation
@@ -100,6 +107,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made Android network-policy verification parse decoded XML values, reject
+  configuration-qualified policy replacements, keep the release-derived
+  instrumentation package assertion variant-safe, and run the packaged
+  Certificate Transparency matrix whenever its emulator harness changes. The
+  scheduled probe now creates only API 36/37 jobs, the release-derived test
+  manifest excludes the exported debug enterprise-policy receiver, and the API
+  37 lane retries once only after a transient PackageManager broken pipe or an
+  Android system crash before the first instrumented test starts. Slow negative
+  emulator-readiness cases now have an explicit test timeout budget (issue
+  #450).
+- Kept the AndroidX tracing and Kotlin runtime boundaries in the separately
+  minified Certificate Transparency regression app so AndroidJUnitRunner
+  starts before the packaged policy tests on supported API levels (issue
+  #450).
+- Installed the current Android SDK Platform Tools alongside the API 37
+  emulator image, selected a current Pixel phone profile, and allocated the
+  4 GB of VM memory required by Android 17 (issue #450).
+- Built the Certificate Transparency regression APK before starting the API 37
+  emulator, provisioned an 8 GB data partition, and waited for both the settings
+  provider and package manager before installation, avoiding attempts against a
+  partially available framework or a full default data partition (issue #450).
 - Upgraded AndroidX WebKit to 1.13.0 and placed Web Authentication setup inside
   its positive runtime feature guard so Android lint validates both the feature
   constant and the guarded API call without baselines or suppressions (issue

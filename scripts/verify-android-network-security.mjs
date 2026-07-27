@@ -5,6 +5,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
+import { DOMParser } from "@xmldom/xmldom";
 
 const fail = (message) => {
   throw new Error(message);
@@ -47,51 +48,63 @@ const findFiles = (root) => {
   return files;
 };
 
-const stripXmlComments = (xml) => {
-  let stripped = xml;
+const parseXml = (xml, path) => {
+  const diagnostics = [];
+  const document = new DOMParser({
+    errorHandler: {
+      warning: (message) => diagnostics.push(message),
+      error: (message) => diagnostics.push(message),
+      fatalError: (message) => diagnostics.push(message),
+    },
+  }).parseFromString(xml, "application/xml");
 
-  while (true) {
-    const commentStart = stripped.indexOf("<!--");
-    if (commentStart === -1) {
-      return stripped;
-    }
-
-    const commentEnd = stripped.indexOf("-->", commentStart + 4);
-    if (commentEnd === -1) {
-      fail("XML contains an unterminated XML comment");
-    }
-
-    stripped = stripped.slice(0, commentStart) + stripped.slice(commentEnd + 3);
+  if (!document || diagnostics.length > 0) {
+    fail(
+      `XML is malformed in ${path}: ${diagnostics.join("; ") || "unknown parse error"}`
+    );
   }
+  if (document.doctype) {
+    fail(`XML document types are prohibited in ${path}`);
+  }
+
+  return document;
 };
 
-const readAndroidAttribute = (xml, name) => {
-  const matches = Array.from(
-    xml.matchAll(
-      new RegExp(`\\bandroid:${name}\\s*=\\s*["']([^"']+)["']`, "g")
-    ),
-    (match) => match[1]
-  );
-
-  if (matches.length !== 1) {
+const readAndroidAttribute = (application, name) => {
+  const attributeName = `android:${name}`;
+  if (!application.hasAttribute(attributeName)) {
     fail(
-      `Merged release manifest must define android:${name} exactly once; found ${matches.length}`
+      `Merged release manifest must define android:${name} exactly once; found 0`
     );
   }
 
-  return matches[0];
+  return application.getAttribute(attributeName);
 };
 
 const verifyManifest = (manifestPath) => {
-  const manifest = stripXmlComments(
-    readRequiredFile(manifestPath, "Merged release manifest")
+  const manifest = parseXml(
+    readRequiredFile(manifestPath, "Merged release manifest"),
+    manifestPath
   );
+  if (manifest.documentElement?.nodeName !== "manifest") {
+    fail(
+      `Merged release manifest has an invalid root element: ${manifestPath}`
+    );
+  }
+  const applications = Array.from(manifest.getElementsByTagName("application"));
+  if (applications.length !== 1) {
+    fail(
+      `Merged release manifest must define application exactly once; found ${applications.length}`
+    );
+  }
+
+  const [application] = applications;
   const networkSecurityConfig = readAndroidAttribute(
-    manifest,
+    application,
     "networkSecurityConfig"
   );
   const usesCleartextTraffic = readAndroidAttribute(
-    manifest,
+    application,
     "usesCleartextTraffic"
   );
 
@@ -107,18 +120,19 @@ const verifyManifest = (manifestPath) => {
   }
 };
 
-const verifyCertificateSources = (xml, path) => {
-  const certificateTags = Array.from(xml.matchAll(/<certificates\b([^>]*)>/g));
+const verifyCertificateSources = (document, path) => {
+  const certificateTags = Array.from(
+    document.getElementsByTagName("certificates")
+  );
   if (certificateTags.length === 0) {
     fail(`Network Security Configuration has no trust anchors: ${path}`);
   }
 
-  for (const [, attributes] of certificateTags) {
-    const sources = Array.from(
-      attributes.matchAll(/\bsrc\s*=\s*["']([^"']+)["']/g),
-      (match) => match[1]
-    );
-    if (sources.length !== 1 || sources[0] !== "system") {
+  for (const certificateTag of certificateTags) {
+    if (
+      !certificateTag.hasAttribute("src") ||
+      certificateTag.getAttribute("src") !== "system"
+    ) {
       fail(
         `Network Security Configuration contains a non-system trust source in ${path}`
       );
@@ -126,38 +140,168 @@ const verifyCertificateSources = (xml, path) => {
   }
 };
 
-const verifyNetworkSecurityConfig = (path) => {
-  const xml = stripXmlComments(
-    readRequiredFile(path, "Merged Network Security Configuration")
+const canonicalPolicyDirectories = new Map([
+  ["xml", null],
+  ["xml-v36", 36],
+  ["xml-v37", 37],
+]);
+
+const readResourcePolicy = (resourcesRoot, path) => {
+  const directorySegments = relative(resourcesRoot, path)
+    .split(sep)
+    .slice(0, -1);
+  const xmlDirectory = directorySegments.find((segment) =>
+    /^xml(?:-.+)?$/.test(segment)
+  );
+  if (!xmlDirectory) {
+    fail(
+      `Network Security Configuration is outside an XML resource directory: ${path}`
+    );
+  }
+
+  if (
+    directorySegments.length !== 1 ||
+    !canonicalPolicyDirectories.has(xmlDirectory)
+  ) {
+    fail(
+      `Merged release network security policies must use only the canonical xml, xml-v36, and xml-v37 directories: ${path}`
+    );
+  }
+
+  return {
+    directory: xmlDirectory,
+    apiLevel: canonicalPolicyDirectories.get(xmlDirectory),
+  };
+};
+
+const verifyApi36CertificateTransparency = (
+  document,
+  baseConfig,
+  path,
+  apiLevel
+) => {
+  const certificateTransparencyTags = Array.from(
+    document.getElementsByTagName("certificateTransparency")
   );
 
-  if (/\bcleartextTrafficPermitted\s*=\s*["']true["']/.test(xml)) {
-    fail(`Network Security Configuration permits cleartext traffic: ${path}`);
-  }
   if (
-    !/<base-config\b[^>]*\bcleartextTrafficPermitted\s*=\s*["']false["']/.test(
-      xml
-    )
+    certificateTransparencyTags.length > 0 &&
+    (apiLevel === null || apiLevel < 36)
+  ) {
+    fail(
+      `Network Security Configuration exposes certificateTransparency below API 36: ${path}`
+    );
+  }
+
+  if (apiLevel === null || apiLevel < 36) {
+    return;
+  }
+
+  const hasGlobalCtPolicy =
+    certificateTransparencyTags.length === 1 &&
+    certificateTransparencyTags[0].parentNode === baseConfig &&
+    certificateTransparencyTags[0].getAttribute("enabled") === "true";
+
+  if (!hasGlobalCtPolicy) {
+    fail(
+      `API 36 Network Security Configuration must enforce certificate transparency globally: ${path}`
+    );
+  }
+};
+
+const verifyApi37LocalhostHardening = (document, path, apiLevel) => {
+  if (apiLevel !== 37) {
+    return;
+  }
+
+  const explicitlyConfiguredLocalhost = Array.from(
+    document.getElementsByTagName("domain")
+  ).filter(
+    (domain) =>
+      domain.textContent.trim() === "localhost" &&
+      domain.parentNode?.nodeName === "domain-config"
+  );
+  if (explicitlyConfiguredLocalhost.length !== 1) {
+    fail(
+      `API 37 Network Security Configuration must explicitly configure localhost exactly once to disable Android's implicit cleartext exception: ${path}`
+    );
+  }
+};
+
+const verifyNetworkSecurityConfig = (resourcesRoot, path) => {
+  const document = parseXml(
+    readRequiredFile(path, "Merged Network Security Configuration"),
+    path
+  );
+  if (document.documentElement?.nodeName !== "network-security-config") {
+    fail(`Network Security Configuration has an invalid root element: ${path}`);
+  }
+  const { apiLevel } = readResourcePolicy(resourcesRoot, path);
+  const baseConfigs = Array.from(document.getElementsByTagName("base-config"));
+  if (baseConfigs.length !== 1) {
+    fail(`Network Security Configuration must define one base policy: ${path}`);
+  }
+  const [baseConfig] = baseConfigs;
+
+  const policyConfigurations = [
+    baseConfig,
+    ...Array.from(document.getElementsByTagName("domain-config")),
+  ];
+  for (const configuration of policyConfigurations) {
+    if (!configuration.hasAttribute("cleartextTrafficPermitted")) {
+      continue;
+    }
+
+    const cleartextValue = configuration
+      .getAttribute("cleartextTrafficPermitted")
+      .toLowerCase();
+    if (cleartextValue === "true") {
+      fail(`Network Security Configuration permits cleartext traffic: ${path}`);
+    }
+    if (cleartextValue !== "false") {
+      fail(
+        `Network Security Configuration has an invalid cleartext policy value in ${path}`
+      );
+    }
+  }
+
+  if (
+    !baseConfig.hasAttribute("cleartextTrafficPermitted") ||
+    baseConfig.getAttribute("cleartextTrafficPermitted").toLowerCase() !==
+      "false"
   ) {
     fail(
       `Network Security Configuration does not disable cleartext traffic in its base policy: ${path}`
     );
   }
-  if (/<pin-set(?:\s|\/?>)/.test(xml) || /<pin(?:\s|\/?>)/.test(xml)) {
+
+  if (
+    document.getElementsByTagName("pin-set").length > 0 ||
+    document.getElementsByTagName("pin").length > 0
+  ) {
     fail(
       `Network Security Configuration contains certificate pinning: ${path}`
     );
   }
-  if (/\boverridePins\s*=\s*["']true["']/.test(xml)) {
-    fail(`Network Security Configuration overrides pin validation: ${path}`);
+
+  for (const element of Array.from(document.getElementsByTagName("*"))) {
+    if (
+      element.hasAttribute("overridePins") &&
+      element.getAttribute("overridePins").toLowerCase() !== "false"
+    ) {
+      fail(`Network Security Configuration overrides pin validation: ${path}`);
+    }
   }
-  if (/<debug-overrides(?:\s|>)/.test(xml)) {
+
+  if (document.getElementsByTagName("debug-overrides").length > 0) {
     fail(
       `Network Security Configuration contains debug trust overrides: ${path}`
     );
   }
 
-  verifyCertificateSources(xml, path);
+  verifyCertificateSources(document, path);
+  verifyApi36CertificateTransparency(document, baseConfig, path, apiLevel);
+  verifyApi37LocalhostHardening(document, path, apiLevel);
 };
 
 const isNetworkSecurityConfig = (root, path) => {
@@ -178,14 +322,11 @@ const verifyResources = (resourcesRoot) => {
       return false;
     }
 
-    const xml = stripXmlComments(readFileSync(path, "utf8"));
-    return (
-      /<item\b(?=[^>]*\btype\s*=\s*["']xml["'])(?=[^>]*\bname\s*=\s*["']network_security_config["'])[^>]*>/.test(
-        xml
-      ) ||
-      /<item\b(?=[^>]*\bname\s*=\s*["']network_security_config["'])(?=[^>]*\btype\s*=\s*["']xml["'])[^>]*>/.test(
-        xml
-      )
+    const document = parseXml(readFileSync(path, "utf8"), path);
+    return Array.from(document.getElementsByTagName("item")).some(
+      (item) =>
+        item.getAttribute("type") === "xml" &&
+        item.getAttribute("name") === "network_security_config"
     );
   });
   if (aliases.length > 0) {
@@ -203,8 +344,38 @@ const verifyResources = (resourcesRoot) => {
     );
   }
 
+  const policyDirectories = configurations.map(
+    (path) => readResourcePolicy(resourcesRoot, path).directory
+  );
+  const defaultConfigurations = policyDirectories.filter(
+    (directory) => directory === "xml"
+  );
+  if (defaultConfigurations.length !== 1) {
+    fail(
+      `Merged release resources must define the fallback network security policy exactly once; found ${defaultConfigurations.length}`
+    );
+  }
+
+  const api36Configurations = policyDirectories.filter(
+    (directory) => directory === "xml-v36"
+  );
+  if (api36Configurations.length !== 1) {
+    fail(
+      `Merged release resources must define an API 36 network security policy exactly once; found ${api36Configurations.length}`
+    );
+  }
+
+  const api37Configurations = policyDirectories.filter(
+    (directory) => directory === "xml-v37"
+  );
+  if (api37Configurations.length !== 1) {
+    fail(
+      `Merged release resources must define an API 37 localhost hardening policy exactly once; found ${api37Configurations.length}`
+    );
+  }
+
   for (const configuration of configurations) {
-    verifyNetworkSecurityConfig(configuration);
+    verifyNetworkSecurityConfig(resourcesRoot, configuration);
   }
 };
 

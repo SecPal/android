@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+name: Android Certificate Transparency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-certificate-transparency.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/run-android-connected-test.sh"
+      - "scripts/with-android-env.sh"
+      - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
+      - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
+      - "android/app/src/ctRegression/AndroidManifest.xml"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/xml*/network_security_config.xml"
+      - "android/variables.gradle"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-certificate-transparency.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/run-android-connected-test.sh"
+      - "scripts/with-android-env.sh"
+      - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
+      - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
+      - "android/app/src/ctRegression/AndroidManifest.xml"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/xml*/network_security_config.xml"
+      - "android/variables.gradle"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      probe_url:
+        description: HTTPS URL checked on API 36 and API 37
+        required: false
+        default: "https://api.secpal.dev/"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  platform-policy:
+    name: Platform policy (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: >-
+          ${{
+            fromJSON(
+              (github.event_name == 'push' || github.event_name == 'pull_request')
+              && '[24,29,35,36,37]'
+              || '[36,37]'
+            )
+          }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run packaged policy regression or production probe
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
+          API_LEVEL: ${{ matrix.api-level }}
+          BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}
+          IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}
+          LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          SDK_CHANNEL: 0
+          SECPAL_ANDROID_EMULATOR_GPU_MODE: software
+          SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
+          SECPAL_LIVE_CT_PROBE_URL: ${{ inputs.probe_url || 'https://api.secpal.dev/' }}
+        run: |
+          sudo chmod 666 /dev/kvm
+          mkdir -p "$ANDROID_AVD_HOME"
+          image="system-images;android-${IMAGE_API_LEVEL};google_apis;x86_64"
+          bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" \
+            "platform-tools" "emulator" "$image"
+          bash ./scripts/with-android-env.sh adb version
+          avd_device_args=()
+          if (( API_LEVEL >= 37 )); then
+            avd_device_args=(--device pixel_7_pro)
+            export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096
+            export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192
+          fi
+          echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
+            --force --name "secpal-ct-api${API_LEVEL}" --package "$image" \
+            "${avd_device_args[@]}"
+          if (( API_LEVEL >= 37 )); then
+            (
+              cd android
+              ./gradlew --no-daemon \
+                -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+                :app:assembleCtRegression \
+                :app:assembleCtRegressionAndroidTest
+            )
+          fi
+          emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
+          npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
+          if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"; then
+            echo "Android emulator failed to become usable; emulator log follows:" >&2
+            cat "$emulator_log" >&2 || true
+            exit 1
+          fi
+          trap 'bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true' EXIT
+          test_class="app.secpal.CertificateTransparencyInstrumentedTest"
+          live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
+          if [[ "$LIVE_PROBE" == "true" ]]; then
+            log_list_path="/data/misc/keychain/ct/v2/current/log_list.json"
+            log_list=""
+            for _ in {1..30}; do
+              if bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+                shell test -r "$log_list_path"; then
+                log_list="$(bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+                  shell cat "$log_list_path")"
+                break
+              fi
+              sleep 10
+            done
+            [[ -n "$log_list" ]]
+            now_timestamp_ms=$(( $(date +%s) * 1000 ))
+            minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
+            jq -e \
+              --argjson minimum "$minimum_timestamp_ms" \
+              --argjson maximum "$now_timestamp_ms" \
+              '(.version | type == "string") and
+              (.log_list_timestamp | type == "number") and
+              (.log_list_timestamp >= $minimum) and
+              (.log_list_timestamp <= $maximum) and
+              (.operators | type == "array" and length > 0) and
+              all(.operators[];
+                (.name | type == "string") and
+                (.logs | type == "array")) and
+              ([.operators[].logs[]] | length > 0)' \
+              <<<"$log_list" >/dev/null
+            bash ./scripts/run-android-connected-test.sh \
+              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+              :app:connectedCtRegressionAndroidTest \
+              "-Pandroid.testInstrumentationRunnerArguments.class=${live_method}" \
+              -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
+              "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=${SECPAL_LIVE_CT_PROBE_URL}"
+          else
+            bash ./scripts/run-android-connected-test.sh \
+              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+              :app:connectedCtRegressionAndroidTest \
+              "-Pandroid.testInstrumentationRunnerArguments.class=${test_class}"
+          fi

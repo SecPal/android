@@ -40,6 +40,7 @@ android {
     buildFeatures {
         buildConfig true
     }
+    testBuildType "ctRegression"
     testOptions {
         unitTests.includeAndroidResources = true
     }
@@ -83,6 +84,14 @@ android {
                 signingConfig signingConfigs.release
             }
         }
+        ctRegression {
+            initWith release
+            applicationIdSuffix ".ctregression"
+            matchingFallbacks = ['release']
+            proguardFile 'ct-regression-proguard-rules.pro'
+            testProguardFile 'ct-regression-proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
         storeListing {
             initWith debug
             debuggable true
@@ -91,6 +100,14 @@ android {
             applicationIdSuffix ".storelisting"
             matchingFallbacks = ['debug']
             buildConfigField "boolean", "ALLOW_SCREENSHOTS", "true"
+        }
+    }
+    sourceSets {
+        ctRegression {
+            manifest.srcFile "src/ctRegression/AndroidManifest.xml"
+            java.srcDirs = ["src/debug/java"]
+            res.srcDirs = ["src/debug/res"]
+            assets.srcDirs = ["src/debug/assets"]
         }
     }
     packaging {
@@ -125,8 +142,33 @@ tasks.register("verifyReleasePasskeyDependencies") {
     }
 }
 
+tasks.register("verifyCtRegressionSecurityDependencies") {
+    group = "verification"
+    description = "Fails when release-forbidden FIDO or Tink code reaches the CT regression runtime."
+
+    doLast {
+        def forbiddenComponents = configurations.ctRegressionRuntimeClasspath.incoming.resolutionResult.allComponents.findAll {
+            it.moduleVersion != null && (
+                (it.moduleVersion.group == "com.google.android.gms" && it.moduleVersion.name == "play-services-fido")
+                || it.moduleVersion.group == "com.google.crypto.tink"
+            )
+        }
+
+        if (!forbiddenComponents.isEmpty()) {
+            throw new GradleException(
+                "CT regression runtime classpath contains release-forbidden security components: " +
+                    forbiddenComponents.collect { it.moduleVersion }.join(", ")
+            )
+        }
+    }
+}
+
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     dependsOn("verifyReleasePasskeyDependencies")
+}
+
+tasks.matching { it.name == "preCtRegressionBuild" }.configureEach {
+    dependsOn("verifyCtRegressionSecurityDependencies")
 }
 
 dependencies {

@@ -84,6 +84,7 @@
     "@typescript-eslint/eslint-plugin": "^8.63.0",
     "@typescript-eslint/parser": "^8.63.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "@xmldom/xmldom": "0.8.13",
     "entities": "^8.0.0",
     "eslint": "^10.8.0",
     "globals": "^17.8.0",

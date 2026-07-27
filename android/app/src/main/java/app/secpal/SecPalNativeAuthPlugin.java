@@ -693,6 +693,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static String resolveConfiguredApiBaseUrl(String configuredValue) {
         try {
             return NativeAuthHttpClient.normalizeBaseUrl(configuredValue);
+        } catch (InsecureApiBaseUrlException exception) {
+            throw new ConfiguredApiBaseUrlException(
+                "Android auth API origin must use HTTPS",
+                "INSECURE_API_BASE_URL",
+                exception
+            );
         } catch (NativeAuthHttpException exception) {
             throw new ConfiguredApiBaseUrlException(
                 "Invalid Android auth API origin configuration",
@@ -703,16 +709,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     static String resolveRuntimeApiBaseUrl(String configuredValue) {
-        String normalizedApiBaseUrl = resolveConfiguredApiBaseUrl(configuredValue);
-
-        if (!normalizedApiBaseUrl.startsWith("https://")) {
-            throw new ConfiguredApiBaseUrlException(
-                "Android auth API origin must use HTTPS",
-                "INSECURE_API_BASE_URL"
-            );
-        }
-
-        return normalizedApiBaseUrl;
+        return resolveConfiguredApiBaseUrl(configuredValue);
     }
 
     static String resolveCanonicalBootstrapApiOrigin(String configuredValue) {

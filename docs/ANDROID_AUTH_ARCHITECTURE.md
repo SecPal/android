@@ -163,7 +163,8 @@ Recommended hardening:
 ### Transport Trust Policy
 
 Android release networking remains HTTPS-only. The application manifest and
-Network Security Configuration both prohibit cleartext traffic, while the
+Network Security Configuration both prohibit cleartext traffic, and the native
+HTTP client rejects a non-HTTPS API origin before opening a connection. The
 Cordova access allowlist remains restricted to the first-party HTTPS API and
 frontend origins.
 
@@ -191,8 +192,175 @@ all of the following:
 - client compatibility testing before certificate changes
 - a recovery procedure for already published clients
 
-Android Certificate Transparency enforcement is a separate compatibility and
-operations decision tracked in issue #450.
+### Certificate Transparency
+
+SecPal enables Android's platform Certificate Transparency (CT) policy for all
+remote HTTPS destinations on Android 16 (API 36) and later. This includes the
+instance URL entered during runtime discovery, a different canonical
+`api_base_url` returned by that instance, SecPal-operated endpoints, and any
+other remote HTTPS host used by the generic app. Network Security Configuration
+is packaged into the APK and cannot add a domain after installation, so a static
+allowlist cannot cover customer API origins that are intentionally unknown at
+build time.
+
+The unqualified Network Security Configuration remains the API 24 through 35
+fallback and does not contain the API-36-only element. A qualified `res/xml-v36`
+configuration enables CT in its `base-config` while retaining cleartext
+prohibition and system-only trust anchors. It must not contain a per-domain CT
+opt-out. Android 17 would otherwise add an implicit localhost configuration
+that permits loopback cleartext and disables CT. The `res/xml-v37`
+configuration explicitly defines `localhost`, which suppresses that implicit
+configuration for all loopback hosts; the explicit host and every other
+loopback address then retain the inherited cleartext prohibition, global CT
+policy, and system-only trust.
+
+The project must continue compiling with SDK 36 or newer so the API 36
+regression can call
+`NetworkSecurityPolicy.isCertificateTransparencyVerificationRequired(...)`.
+The explicit XML opt-in is not gated by the app's target SDK, so target SDK 35
+remains valid. Android 16 disables CT by default but honors this opt-in; Android
+15 and lower do not provide CT enforcement. Android platform source and CTS use
+the same policy API to prove the effective per-host setting:
+
+- [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config#CertificateTransparency)
+- [Android 16 Network Security Configuration parser](https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/packages/NetworkSecurityConfig/platform/src/android/security/net/config/XmlConfigSource.java)
+- [Android CT Network Security Configuration platform regression](https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/tests/NetworkSecurityConfigTest/src/android/security/net/config/XmlConfigTests.java)
+
+Device regressions install the `ctRegression` app variant on representative API
+24, 29, 35, 36, and 37 stable emulators. That variant inherits release
+minification, shrinking, dependencies, manifest policy, and resources, remains
+non-debuggable, uses an isolated `.ctregression` application ID, and is signed
+with the debug key only so the test runner can install it. It is not a
+distributable release artifact. Its dedicated test-only manifest retains the
+non-exported bridge-isolation activity required by instrumented tests but does
+not register the exported debug enterprise-policy receiver. APIs below 36 must
+load the fallback policy and reject cleartext. API 36 must report CT as required for both SecPal-operated
+hosts and an arbitrary customer API hostname. API 37 must also prove that the
+platform's implicit localhost cleartext exception is suppressed. The API 37
+harness retries once only when Gradle reports either both a failed package
+install commit and a broken PackageManager connection or an Android system
+crash before the first instrumented test starts; policy assertions and all
+other instrumentation failures remain fail-closed. The release-resource verifier
+accepts the policy only from the canonical `xml`,
+`xml-v36`, and `xml-v37` resource directories and parses decoded XML values. It
+independently rejects a missing, disabled, or domain-scoped API 36 policy, any
+CT element selectable below API 36, a missing API 37 localhost hardening
+policy, configuration-qualified replacements, user or inline CAs, debug trust
+overrides, cleartext, and certificate pins.
+
+#### Certificate Transparency operations
+
+CT adds a public auditability requirement on top of ordinary Android system-PKI
+chain and hostname validation. It reduces exposure to publicly trusted
+mis-issuance that was not logged correctly. It does not restrict the app to one
+CA or key, so legitimate renewal, key rotation, and chain changes remain
+possible without an app update. It also does not replace certificate expiry,
+revocation, DNS, TLS, or endpoint monitoring.
+
+The availability cost is deliberate: an otherwise trusted public certificate
+on any destination that lacks enough acceptable Signed Certificate Timestamps
+is rejected by published API 36 clients. Android evaluates SCT count, log state,
+and distinct log operators under the current
+[Android CT policy](https://developer.android.com/privacy-and-security/certificate-transparency-policy).
+The platform disables enforcement if its downloaded log list is missing or more
+than 70 days old; SecPal must not copy or independently enforce against that log
+list.
+
+Monitoring and certificate-lifecycle ownership have three layers:
+
+1. The scheduled `Android Certificate Transparency` workflow performs a daily
+   reference handshake to `https://api.secpal.dev/` from the packaged app on an
+   API 36 Google APIs image. It first asserts that the global app policy requires
+   CT and that the Android 16 compatibility-v2 log list has a structurally valid
+   timestamp inside the platform's enforcement window. This proves the SecPal
+   reference chain and test lane, not unknown customer chains.
+2. SecPal's certificate-renewal process must run the reference workflow after
+   every issuance, renewal, key rotation, CA change, or served-chain change.
+   Deployment must not complete until it passes.
+3. Customer operators must apply the equivalent gate to both the discovery URL
+   given to users and any different canonical API origin returned by bootstrap.
+   Their issuance and renewal automation must test the exact served certificate
+   and complete chain with an API 36 SecPal build before promotion, then retain a
+   continuous API 36 probe. Ordinary expiry, DNS, TLS, and endpoint checks remain
+   required because a successful CT check does not cover those failure modes.
+
+The workflow's manual `probe_url` input runs the same API 36 check against an
+arbitrary public HTTPS URL. A SecPal operator can invoke it before a customer
+certificate rollout with:
+
+```shell
+gh workflow run android-certificate-transparency.yml \
+  --ref main \
+  -f probe_url=https://customer.example/
+```
+
+For a directly attached API 36 test device, the equivalent repository-local
+sequence first proves that the platform's compatibility-v2 log list is present
+and inside the 70-day enforcement window, then runs the packaged-app probe.
+`jq` must be available on the development host:
+
+```shell
+device_serial=DEVICE_SERIAL
+probe_url=https://customer.example/
+log_list="$(
+  bash ./scripts/with-android-env.sh adb -s "$device_serial" \
+    shell cat /data/misc/keychain/ct/v2/current/log_list.json
+)"
+now_timestamp_ms=$(( $(date +%s) * 1000 ))
+minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
+jq -e \
+  --argjson minimum "$minimum_timestamp_ms" \
+  --argjson maximum "$now_timestamp_ms" \
+  '(.version | type == "string") and
+  (.log_list_timestamp | type == "number") and
+  (.log_list_timestamp >= $minimum) and
+  (.log_list_timestamp <= $maximum) and
+  ([.operators[].logs[]] | length > 0)' \
+  <<<"$log_list" >/dev/null
+(
+  cd android
+  ANDROID_SERIAL="$device_serial" ./gradlew \
+    -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+    :app:connectedCtRegressionAndroidTest \
+    "-Pandroid.testInstrumentationRunnerArguments.class=app.secpal.CertificateTransparencyInstrumentedTest#apiEndpointPassesThePlatformCertificateTransparencyPolicy" \
+    -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
+    "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=$probe_url"
+)
+```
+
+Both the discovery URL and a different canonical API origin require separate
+probe runs. Customer renewal automation may request these workflow runs or
+execute the same device command in its own controlled test lane. The scoped
+protobuf property suppresses a warning from AGP's build-time-only Tink 1.7.0;
+the CT regression pre-build fails if Tink or Google Play services FIDO reaches
+the test app's runtime classpath, matching the release artifact prohibition.
+
+The app's real discovery and API requests are the final enforcement point. A
+customer origin that is system-trusted but not CT-compliant fails closed during
+the TLS handshake; the app must not fall back to a fixed SecPal origin or a less
+strict transport.
+
+If a scheduled or renewal-triggered probe fails, SecPal or the responsible
+customer operator first distinguishes runner or platform-log-list availability
+from a reproducible API 36 handshake failure. For a real production failure:
+
+1. freeze further certificate and chain rollout;
+2. restore the last known CT-compliant certificate and complete served chain
+   if it is still valid, or urgently reissue through a CA that supplies
+   Android-policy-compliant SCTs;
+3. verify the restored chain through the manual API 36 workflow and normal API
+   health checks before ending the incident;
+4. preserve incident evidence and correct the issuance/renewal guard before the
+   next rollout.
+
+Already published clients cannot receive a remotely changed Network Security
+Configuration. Server-side restoration by SecPal or customer operators is
+therefore the only immediate recovery for affected API 36 clients; an app update
+that relaxes CT is not a timely primary recovery path. Release builds must never
+add user-installed CAs, inline emergency roots, permissive hostname verifiers,
+trust-all TLS code, debug overrides, or other TLS bypasses as recovery
+mechanisms. Older supported clients keep the fallback system-PKI policy and are
+not made dependent on the API 36 element.
 
 ## Prohibited Shortcuts
 
