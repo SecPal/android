@@ -36,9 +36,8 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
             return;
         }
 
-        // Short-circuit before any binder call: this receiver is exported, so
-        // any app can broadcast to it. Reject unknown actions before touching
-        // DevicePolicyManager to reduce unnecessary IPC overhead.
+        // The manifest restricts this exported receiver to Knox's
+        // platform-signature-protected managed-key sender permission.
         String action = intent.getAction();
         if (!ACTION_HARD_KEY_PRESS.equals(action) && !ACTION_HARD_KEY_REPORT.equals(action)) {
             return;

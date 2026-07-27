@@ -157,10 +157,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             </intent-filter>
         </receiver>
 
-        <!-- Knox hard-key broadcasts come from outside the app UID, and current Samsung framework references expose no public sender permission we can require here. Keep this receiver exported so HARD_KEY_PRESS and HARD_KEY_REPORT can reach SecPal until Samsung documents a verifiable broadcast permission contract. -->
+        <!-- Samsung's managed-key contract requires the platform-signature-protected
+             KNOX_CUSTOM_SETTING permission on the exported receiver. -->
         <receiver
             android:name=".SamsungHardKeyReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_SETTING">
 
             <meta-data
                 android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"

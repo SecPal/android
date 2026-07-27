@@ -265,6 +265,10 @@ Known limits from real-device validation on `SM-G556B` / Android 16:
 - `adb shell am start -n app.secpal/.SamsungEmergencyShortPressAlias` is expected to fail with `Permission Denial` because the Samsung alias activities are not exported. That means plain ADB cannot simulate the external alias launch path either.
 - Final proof for this investigation still requires a real physical XCover or SOS button press on the managed device.
 - Local builds keep `app_key_ptt_data` and `app_key_sos_data` empty unless `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA` and `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA` are provided before the build. If your Samsung distribution path depends on partner-issued app-key metadata, validate with those values present instead of repeating the empty-token local build.
+- The exported Samsung receiver requires Samsung's platform-signature-protected
+  `KNOX_CUSTOM_SETTING` permission on every supported Android version, matching
+  the managed-key receiver contract. The existing action and managed-owner
+  checks still apply after Android admits the broadcast.
 
 Important notes:
 

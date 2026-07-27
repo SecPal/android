@@ -13,9 +13,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBarLaunch" />
 
+        <!-- Only the adb shell caller needs this debug-only receiver. DUMP is a
+             privileged permission held by the Android shell UID, so documented
+             am broadcast commands still work without exposing policy mutation
+             to ordinary apps. -->
         <receiver
             android:name=".DebugEnterprisePolicyReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
 
             <intent-filter>
                 <action android:name="app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY" />
