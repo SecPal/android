@@ -61,13 +61,24 @@ if (( attempt_status == 0 )); then
     exit 0
 fi
 
-if (( api_level != 37 )) ||
-    ! grep -Fq "Failed to commit install session" "$attempt_log" ||
-    ! grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+if (( api_level != 37 )); then
     exit "$attempt_status"
 fi
 
-echo "Retrying API 37 instrumentation after PackageManager connection failure"
+retry_reason=""
+if grep -Fq "Failed to commit install session" "$attempt_log" &&
+    grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+    retry_reason="PackageManager connection failure"
+elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+    grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
+    retry_reason="pre-test system crash"
+fi
+
+if [[ -z "$retry_reason" ]]; then
+    exit "$attempt_status"
+fi
+
+echo "Retrying API 37 instrumentation after ${retry_reason}"
 bash "${repo_root}/scripts/wait-for-android-device.sh" \
     "$serial" "$readiness_timeout"
 run_connected_test
