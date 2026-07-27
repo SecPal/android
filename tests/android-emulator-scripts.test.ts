@@ -364,6 +364,9 @@ exit 1
         | "package-manager-always"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
+        | "command-error"
+        | "command-error-always"
+        | "command-error-with-tests"
         | "test"
     ) => {
       const tempRoot = mkdtempSync(
@@ -394,6 +397,13 @@ if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Test run failed to complete. No test results.'
     printf '%s\n' 'INSTRUMENTATION_ABORTED: System has crashed.'
+  elif [[ "${failureMode}" == command-error* ]]; then
+    if [[ "${failureMode}" == "command-error-with-tests" ]]; then
+      printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
+    else
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
+    printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
   else
     printf '%s\n' 'There were failing tests'
   fi
@@ -472,6 +482,19 @@ printf '%s\n' "$*" >> "${waitPath}"
     expect(repeatedInstrumentationCrash.attempts).toBe(2);
     expect(repeatedInstrumentationCrash.waits).toEqual(["emulator-5570 60"]);
 
+    const recoverableCommandError = runScenario(37, "command-error");
+    expect(recoverableCommandError.result.status).toBe(0);
+    expect(recoverableCommandError.attempts).toBe(2);
+    expect(recoverableCommandError.waits).toEqual(["emulator-5570 60"]);
+    expect(recoverableCommandError.result.stdout).toContain(
+      "Retrying API 37 instrumentation after zero-test command error"
+    );
+
+    const repeatedCommandError = runScenario(37, "command-error-always");
+    expect(repeatedCommandError.result.status).toBe(1);
+    expect(repeatedCommandError.attempts).toBe(2);
+    expect(repeatedCommandError.waits).toEqual(["emulator-5570 60"]);
+
     const api36Failure = runScenario(36, "package-manager");
     expect(api36Failure.result.status).toBe(1);
     expect(api36Failure.attempts).toBe(1);
@@ -481,6 +504,19 @@ printf '%s\n' "$*" >> "${waitPath}"
     expect(api36InstrumentationCrash.result.status).toBe(1);
     expect(api36InstrumentationCrash.attempts).toBe(1);
     expect(api36InstrumentationCrash.waits).toEqual([]);
+
+    const api36CommandError = runScenario(36, "command-error");
+    expect(api36CommandError.result.status).toBe(1);
+    expect(api36CommandError.attempts).toBe(1);
+    expect(api36CommandError.waits).toEqual([]);
+
+    const commandErrorAfterTestStart = runScenario(
+      37,
+      "command-error-with-tests"
+    );
+    expect(commandErrorAfterTestStart.result.status).toBe(1);
+    expect(commandErrorAfterTestStart.attempts).toBe(1);
+    expect(commandErrorAfterTestStart.waits).toEqual([]);
 
     const testFailure = runScenario(37, "test");
     expect(testFailure.result.status).toBe(1);

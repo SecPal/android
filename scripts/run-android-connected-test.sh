@@ -72,6 +72,11 @@ if grep -Fq "Failed to commit install session" "$attempt_log" &&
 elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
     grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
     retry_reason="pre-test system crash"
+elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+    grep -Fq \
+        "Test run failed to complete. No test results. onError: commandError=true message=null" \
+        "$attempt_log"; then
+    retry_reason="zero-test command error"
 fi
 
 if [[ -z "$retry_reason" ]]; then

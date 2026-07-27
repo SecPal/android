@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retried the complete zero-test instrumentation command-error failure once on
+  API 37 without retrying it on earlier API levels or after tests have started
+  (issue #473).
 - Guarded Android 28 lock-task features and date/time user restrictions,
   versioned the applied Device Owner policy state, and made Android 28
   availability part of its signature so existing and OS-upgraded enterprise
