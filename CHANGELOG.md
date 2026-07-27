@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   versioned the applied Device Owner policy state, and made Android 28
   availability part of its signature so existing and OS-upgraded enterprise
   devices receive the policies available on their API level (issue #454).
+- Kept the documented test-only APK replacement path available during debug
+  dedicated-device kiosk tests, bumped the Device Owner policy revision, and
+  cleared the legacy debug install-apps restriction during policy migration
+  without weakening the corresponding release restriction.
 
 ### Changed
 

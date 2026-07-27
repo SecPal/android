@@ -40,7 +40,7 @@ public final class EnterprisePolicyController {
     private static final String PREF_APPLIED_SCREEN_CAPTURE_POLICY = "applied_screen_capture_policy";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
-    private static final int DEVICE_OWNER_POLICY_REVISION = 1;
+    private static final int DEVICE_OWNER_POLICY_REVISION = 2;
     private static final String[] KIOSK_REDIRECTED_SETTINGS_ACTIONS = new String[] {
         "android.settings.SETTINGS",
         "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
@@ -609,6 +609,14 @@ public final class EnterprisePolicyController {
         ComponentName adminComponent,
         boolean enabled
     ) {
+        if (BuildConfig.DEBUG) {
+            // Revision 1 blocked the documented ADB replacement path for test-only APKs.
+            devicePolicyManager.clearUserRestriction(
+                adminComponent,
+                UserManager.DISALLOW_INSTALL_APPS
+            );
+        }
+
         for (String restriction : resolveKioskUserRestrictions()) {
             if (enabled) {
                 devicePolicyManager.addUserRestriction(adminComponent, restriction);
@@ -619,9 +627,17 @@ public final class EnterprisePolicyController {
     }
 
     static List<String> resolveKioskUserRestrictions() {
+        return resolveKioskUserRestrictions(BuildConfig.DEBUG);
+    }
+
+    static List<String> resolveKioskUserRestrictions(boolean debugBuild) {
         ArrayList<String> restrictions = new ArrayList<>();
 
         Collections.addAll(restrictions, BASE_KIOSK_USER_RESTRICTIONS);
+
+        if (debugBuild) {
+            restrictions.remove(UserManager.DISALLOW_INSTALL_APPS);
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             restrictions.add(Api28EnterprisePolicy.dateTimeRestriction());

@@ -1424,7 +1424,18 @@ describe("Android native hardening", () => {
     expect(policyController).toContain(
       "UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS"
     );
+    expect(policyController).toContain(
+      "private static final int DEVICE_OWNER_POLICY_REVISION = 2"
+    );
+    expect(policyController).toContain("if (BuildConfig.DEBUG)");
+    expect(policyController).toContain(
+      "restrictions.remove(UserManager.DISALLOW_INSTALL_APPS)"
+    );
+    expect(policyController).toMatch(
+      /clearUserRestriction\(\s*adminComponent,\s*UserManager\.DISALLOW_INSTALL_APPS\s*\)/
+    );
     expect(policyController).toContain("UserManager.DISALLOW_INSTALL_APPS");
+    expect(policyController).toContain("UserManager.DISALLOW_UNINSTALL_APPS");
     expect(readme).not.toContain("com.android.settings");
   });
 });
