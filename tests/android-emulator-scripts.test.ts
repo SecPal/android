@@ -354,7 +354,7 @@ exit 1
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("retries only recognized API 37 infrastructure failures once", () => {
     const runScenario = (

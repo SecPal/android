@@ -114,7 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scheduled probe now creates only API 36/37 jobs, the release-derived test
   manifest excludes the exported debug enterprise-policy receiver, and the API
   37 lane retries once only after a transient PackageManager broken pipe or an
-  Android system crash before the first instrumented test starts (issue #450).
+  Android system crash before the first instrumented test starts. Slow negative
+  emulator-readiness cases now have an explicit test timeout budget (issue
+  #450).
 - Kept the AndroidX tracing and Kotlin runtime boundaries in the separately
   minified Certificate Transparency regression app so AndroidJUnitRunner
   starts before the packaged policy tests on supported API levels (issue
