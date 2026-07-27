@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retried the API 37 platform-policy instrumentation once when Android reports
+  zero discovered tests and an infrastructure command error before test
+  execution, while preserving immediate failures for real test results.
 - Guarded Android 28 lock-task features and date/time user restrictions,
   versioned the applied Device Owner policy state, and made Android 28
   availability part of its signature so existing and OS-upgraded enterprise

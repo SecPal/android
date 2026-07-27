@@ -362,6 +362,8 @@ exit 1
       failureMode:
         | "package-manager"
         | "package-manager-always"
+        | "instrumentation-command-error"
+        | "instrumentation-command-error-always"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
         | "test"
@@ -394,6 +396,9 @@ if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Test run failed to complete. No test results.'
     printf '%s\n' 'INSTRUMENTATION_ABORTED: System has crashed.'
+  elif [[ "${failureMode}" == instrumentation-command-error* ]]; then
+    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
   else
     printf '%s\n' 'There were failing tests'
   fi
@@ -472,6 +477,29 @@ printf '%s\n' "$*" >> "${waitPath}"
     expect(repeatedInstrumentationCrash.attempts).toBe(2);
     expect(repeatedInstrumentationCrash.waits).toEqual(["emulator-5570 60"]);
 
+    const recoverableInstrumentationCommandError = runScenario(
+      37,
+      "instrumentation-command-error"
+    );
+    expect(recoverableInstrumentationCommandError.result.status).toBe(0);
+    expect(recoverableInstrumentationCommandError.attempts).toBe(2);
+    expect(recoverableInstrumentationCommandError.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+    expect(recoverableInstrumentationCommandError.result.stdout).toContain(
+      "Retrying API 37 instrumentation after pre-test command failure"
+    );
+
+    const repeatedInstrumentationCommandError = runScenario(
+      37,
+      "instrumentation-command-error-always"
+    );
+    expect(repeatedInstrumentationCommandError.result.status).toBe(1);
+    expect(repeatedInstrumentationCommandError.attempts).toBe(2);
+    expect(repeatedInstrumentationCommandError.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+
     const api36Failure = runScenario(36, "package-manager");
     expect(api36Failure.result.status).toBe(1);
     expect(api36Failure.attempts).toBe(1);
@@ -481,6 +509,14 @@ printf '%s\n' "$*" >> "${waitPath}"
     expect(api36InstrumentationCrash.result.status).toBe(1);
     expect(api36InstrumentationCrash.attempts).toBe(1);
     expect(api36InstrumentationCrash.waits).toEqual([]);
+
+    const api36InstrumentationCommandError = runScenario(
+      36,
+      "instrumentation-command-error"
+    );
+    expect(api36InstrumentationCommandError.result.status).toBe(1);
+    expect(api36InstrumentationCommandError.attempts).toBe(1);
+    expect(api36InstrumentationCommandError.waits).toEqual([]);
 
     const testFailure = runScenario(37, "test");
     expect(testFailure.result.status).toBe(1);
