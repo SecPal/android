@@ -231,8 +231,10 @@ Device regressions install the `ctRegression` app variant on representative API
 minification, shrinking, dependencies, manifest policy, and resources, remains
 non-debuggable, uses an isolated `.ctregression` application ID, and is signed
 with the debug key only so the test runner can install it. It is not a
-distributable release artifact. APIs below 36 must load the fallback policy and
-reject cleartext. API 36 must report CT as required for both SecPal-operated
+distributable release artifact. Its dedicated test-only manifest retains the
+non-exported bridge-isolation activity required by instrumented tests but does
+not register the exported debug enterprise-policy receiver. APIs below 36 must
+load the fallback policy and reject cleartext. API 36 must report CT as required for both SecPal-operated
 hosts and an arbitrary customer API hostname. API 37 must also prove that the
 platform's implicit localhost cleartext exception is suppressed. The API 37
 harness retries once only when Gradle reports both a failed package install

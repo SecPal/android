@@ -104,7 +104,7 @@ android {
     }
     sourceSets {
         ctRegression {
-            manifest.srcFile "src/debug/AndroidManifest.xml"
+            manifest.srcFile "src/ctRegression/AndroidManifest.xml"
             java.srcDirs = ["src/debug/java"]
             res.srcDirs = ["src/debug/res"]
             assets.srcDirs = ["src/debug/assets"]

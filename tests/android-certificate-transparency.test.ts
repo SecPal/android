@@ -73,6 +73,32 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(appBuildGradle).toContain(
       "testProguardFile 'ct-regression-proguard-rules.pro'"
     );
+    expect(appBuildGradle).toContain(
+      'manifest.srcFile "src/ctRegression/AndroidManifest.xml"'
+    );
+    const ctRegressionManifestPath = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "src",
+      "ctRegression",
+      "AndroidManifest.xml"
+    );
+    expect(existsSync(ctRegressionManifestPath)).toBe(true);
+    const ctRegressionManifest = readFileSync(ctRegressionManifestPath, "utf8");
+    expect(ctRegressionManifest).toContain('android:testOnly="true"');
+    expect(ctRegressionManifest).toContain(
+      'android:name=".BridgeIsolationTestActivity"'
+    );
+    expect(ctRegressionManifest).toContain('android:exported="false"');
+    expect(ctRegressionManifest).not.toContain('android:exported="true"');
+    expect(ctRegressionManifest).not.toContain("DebugEnterprisePolicyReceiver");
+    expect(ctRegressionManifest).not.toContain(
+      "app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY"
+    );
+    expect(ctRegressionManifest).not.toContain(
+      "app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY"
+    );
     const ctRegressionProguardRulesPath = resolve(
       repoRoot,
       "android",
@@ -130,16 +156,10 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(api36Policy).not.toContain("<domain-config");
     expect(api37Policy).toContain('<certificateTransparency enabled="true"');
     expect(api37Policy).toContain(">localhost</domain>");
-    for (const apiLevel of [24, 29, 35, 36]) {
-      expect(workflow).toMatch(
-        new RegExp(
-          `- api-level: ${apiLevel}\\s+image-api-level: "${apiLevel}"\\s+sdk-channel: 0\\s+boot-timeout: 300`
-        )
-      );
-    }
     expect(workflow).toMatch(
-      /- api-level: 37\s+image-api-level: "37\.0"\s+sdk-channel: 0\s+boot-timeout: 600/
+      /api-level: >-\s+\${{\s+fromJSON\(\s+\(github\.event_name == 'push' \|\| github\.event_name == 'pull_request'\)\s+&& '\[24,29,35,36,37\]'\s+\|\| '\[36,37\]'\s+\)\s+}}/
     );
+    expect(workflow).not.toContain("matrix.api-level >= 36");
     expect(workflow).not.toContain("experimental:");
     expect(workflow).not.toContain("continue-on-error:");
     for (const harnessDependency of [
@@ -149,6 +169,7 @@ describe("Android Certificate Transparency regression contract", () => {
       "scripts/wait-for-android-device.sh",
       "scripts/run-android-connected-test.sh",
       "scripts/with-android-env.sh",
+      "android/app/src/ctRegression/AndroidManifest.xml",
     ]) {
       expect(workflow.split(`- "${harnessDependency}"`)).toHaveLength(3);
     }
@@ -158,7 +179,6 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain(
       "bash ./scripts/with-android-env.sh adb version"
     );
-    expect(workflow).toContain("matrix.api-level >= 36");
     expect(workflow).not.toContain("api37-stable-availability:");
     expect(workflow).toContain("SECPAL_ANDROID_EMULATOR_GPU_MODE: software");
     expect(workflow).toContain(
@@ -169,7 +189,13 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain(
       "export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192"
     );
-    expect(workflow).toContain("BOOT_TIMEOUT: ${{ matrix.boot-timeout }}");
+    expect(workflow).toContain(
+      "BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}"
+    );
+    expect(workflow).toContain(
+      "IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}"
+    );
+    expect(workflow).toContain("SDK_CHANNEL: 0");
     expect(workflow).toContain(
       'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
     );

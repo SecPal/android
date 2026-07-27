@@ -100,8 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration-qualified policy replacements, keep the release-derived
   instrumentation package assertion variant-safe, and run the packaged
   Certificate Transparency matrix whenever its emulator harness changes. The
-  API 37 lane now retries once only after the package install reports a
-  transient PackageManager broken pipe (issue #450).
+  scheduled probe now creates only API 36/37 jobs, the release-derived test
+  manifest excludes the exported debug enterprise-policy receiver, and the API
+  37 lane retries once only after the package install reports a transient
+  PackageManager broken pipe (issue #450).
 - Kept the AndroidX tracing and Kotlin runtime boundaries in the separately
   minified Certificate Transparency regression app so AndroidJUnitRunner
   starts before the packaged policy tests on supported API levels (issue
