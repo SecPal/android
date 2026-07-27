@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Defined explicit fail-closed Android 12+ cloud-backup and device-transfer
+  rules, retained the legacy backup disable/configuration, and added focused
+  manifest policy coverage (issue #456).
 - Retried the complete zero-test instrumentation command-error failure once on
   API 37 without retrying it on earlier API levels or after tests have started
   (issue #473).
