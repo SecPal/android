@@ -22,9 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Retried the API 37 platform-policy instrumentation once when Android reports
-  zero discovered tests and an infrastructure command error before test
-  execution, while preserving immediate failures for real test results.
 - Guarded Android 28 lock-task features and date/time user restrictions,
   versioned the applied Device Owner policy state, and made Android 28
   availability part of its signature so existing and OS-upgraded enterprise
@@ -63,10 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Restricted debug enterprise-policy broadcasts to callers holding the
   privileged `android.permission.DUMP` permission held by the Android shell;
-  Samsung hard-key broadcasts now fail closed before Android 14 and otherwise
-  require the original sender UID to hold `KNOX_CUSTOM_SETTING` or
-  `KNOX_CUSTOM_SYSTEM`, with a scoped lint exception because the manifest
-  cannot express that permission alternative (issue #455).
+  Samsung hard-key broadcasts now require the platform-signature-protected
+  `KNOX_CUSTOM_SETTING` permission declared by Samsung's managed-key receiver
+  contract on every supported Android version (issue #455).
 - Enabled Android platform Certificate Transparency enforcement for every
   remote HTTPS destination on API 36 and later so runtime-selected customer
   instances and canonical API origins receive the same policy, retained a

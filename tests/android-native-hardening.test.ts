@@ -1005,11 +1005,26 @@ describe("Android native hardening", () => {
       "main",
       "AndroidManifest.xml"
     );
+    const receiver = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SamsungHardKeyReceiver.java"
+    );
 
     expect(manifest).toContain("SamsungHardKeyReceiver");
     expect(manifest).toMatch(
-      /<receiver\b[^>]*android:name="\.SamsungHardKeyReceiver"[^>]*android:exported="true"[^>]*tools:ignore="ExportedReceiver"/
+      /<receiver\b(?=[^>]*android:name="\.SamsungHardKeyReceiver")(?=[^>]*android:exported="true")(?=[^>]*android:permission="com\.samsung\.android\.knox\.permission\.KNOX_CUSTOM_SETTING")[^>]*>/
     );
+    expect(manifest).not.toMatch(
+      /<receiver\b(?=[^>]*android:name="\.SamsungHardKeyReceiver")[^>]*tools:ignore="ExportedReceiver"/
+    );
+    expect(receiver).not.toContain("getSentFromUid");
+    expect(receiver).not.toContain("getPackagesForUid");
     expect(manifest).toContain(
       "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
     );
@@ -1017,7 +1032,7 @@ describe("Android native hardening", () => {
       "com.samsung.android.knox.intent.action.HARD_KEY_REPORT"
     );
     expect(manifest).toContain(
-      "Runtime sender validation accepts only callers holding a documented Knox permission"
+      "Samsung's managed-key contract requires the platform-signature-protected"
     );
     expect(manifest).toMatch(
       /<meta-data\b[^>]*android:name="com\.samsung\.android\.knox\.intent\.action\.HARD_KEY_PRESS"[^>]*android:value="true"[^>]*\/?>/
@@ -1060,7 +1075,7 @@ describe("Android native hardening", () => {
     );
 
     expect(debugManifest).toMatch(
-      /<receiver\b[^>]*android:name="\.DebugEnterprisePolicyReceiver"[^>]*android:exported="true"[^>]*android:permission="android\.permission\.DUMP"/
+      /<receiver\b(?=[^>]*android:name="\.DebugEnterprisePolicyReceiver")(?=[^>]*android:exported="true")(?=[^>]*android:permission="android\.permission\.DUMP")[^>]*>/
     );
     expect(debugManifest).toContain(
       "Only the adb shell caller needs this debug-only receiver"

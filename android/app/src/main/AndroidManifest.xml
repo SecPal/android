@@ -157,14 +157,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
             </intent-filter>
         </receiver>
 
-        <!-- Runtime sender validation accepts only callers holding a documented Knox permission.
-             A single manifest permission cannot express the required KNOX_CUSTOM_SETTING or
-             KNOX_CUSTOM_SYSTEM alternatives, so keep this receiver exported and scope the lint
-             exception here. Android versions without original-sender identity fail closed. -->
+        <!-- Samsung's managed-key contract requires the platform-signature-protected
+             KNOX_CUSTOM_SETTING permission on the exported receiver. -->
         <receiver
             android:name=".SamsungHardKeyReceiver"
             android:exported="true"
-            tools:ignore="ExportedReceiver">
+            android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_SETTING">
 
             <meta-data
                 android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
