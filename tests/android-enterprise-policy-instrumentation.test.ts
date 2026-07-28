@@ -44,6 +44,12 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(instrumentedTest).toContain("assertFalse");
 
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
+    expect(workflow).toContain(
+      'image="system-images;android-35;default;x86_64"'
+    );
+    expect(workflow).not.toContain(
+      "system-images;android-35;google_apis;x86_64"
+    );
     expect(workflow).toContain("app-ctRegression.apk");
     expect(workflow).toContain("app-ctRegression-androidTest.apk");
     expect(workflow.match(/adb -s emulator-5570 install -t -r/g)).toHaveLength(
