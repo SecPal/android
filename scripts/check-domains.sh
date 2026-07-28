@@ -55,6 +55,7 @@ fi
 # quoted value is passed as a literal key to a browser storage API. This
 # preserves detection of a domain-like value with an unapproved suffix.
 regex_prefix='(^|[^A-Za-z0-9.-])'
+regex_android_identifier_prefix='(^|[^A-Za-z0-9./@-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
 regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
 
@@ -64,7 +65,7 @@ allow_apk_secpal_app="${regex_prefix}apk\\.secpal\\.app${regex_suffix}"
 allow_secpal_dev="${regex_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_suffix}"
 allow_api_secpal_app="${regex_prefix}api\\.secpal\\.app${regex_suffix}"
 allow_app_secpal_identifier="${regex_prefix}app\\.secpal${regex_identifier_suffix}"
-allow_app_secpal_test_identifiers="${regex_prefix}app\\.secpal(\\.ctregression(\\.test)?|\\.test)${regex_identifier_suffix}"
+allow_app_secpal_test_identifiers="${regex_android_identifier_prefix}app\\.secpal(\\.ctregression(\\.test)?|\\.test)${regex_identifier_suffix}"
 allow_app_secpal_class="${regex_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*${regex_identifier_suffix}"
 allow_app_secpal_action="${regex_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*${regex_identifier_suffix}"
 

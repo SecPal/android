@@ -1918,6 +1918,12 @@ describe("preflight", () => {
     const forbiddenDerivedHost = `${derivedApplicationId}.com`;
     const forbiddenTestHost = `${baseTestApplicationId}.com`;
     const forbiddenHost = ["secpal", "invalid"].join(".");
+    const forbiddenExactHostUrls = [
+      `https://${derivedApplicationId}/api`,
+      `https://${testApplicationId}/api`,
+      `https://${baseTestApplicationId}/api`,
+      `https://user@${derivedApplicationId}/api`,
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -1943,6 +1949,26 @@ describe("preflight", () => {
       });
 
       expect(allowedResult.status, allowedResult.stdout).toBe(0);
+
+      const exactHostsFile = join(tempRoot, "forbidden-exact-hosts.yml");
+      writeFileSync(
+        exactHostsFile,
+        forbiddenExactHostUrls
+          .map((url, index) => `exact_url_${index}: "${url}"`)
+          .join("\n")
+      );
+
+      const exactHostsResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(exactHostsResult.status).toBe(1);
+      for (const url of forbiddenExactHostUrls) {
+        expect(exactHostsResult.stdout).toContain(url);
+      }
+      unlinkSync(exactHostsFile);
 
       writeFileSync(
         join(tempRoot, "forbidden-hosts.yml"),
