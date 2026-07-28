@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+name: Android Enterprise Policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-enterprise-policy.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/with-android-env.sh"
+      - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
+      - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
+      - "android/app/src/ctRegression/AndroidManifest.xml"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/java/app/secpal/EnterprisePolicyController.java"
+      - "android/app/src/main/java/app/secpal/SecPalDeviceAdminReceiver.java"
+      - "android/variables.gradle"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-enterprise-policy.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/with-android-env.sh"
+      - "android/app/build.gradle"
+      - "android/app/ct-regression-proguard-rules.pro"
+      - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
+      - "android/app/src/ctRegression/AndroidManifest.xml"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/java/app/secpal/EnterprisePolicyController.java"
+      - "android/app/src/main/java/app/secpal/SecPalDeviceAdminReceiver.java"
+      - "android/variables.gradle"
+
+permissions:
+  contents: read
+
+jobs:
+  device-owner-policy:
+    name: Device-owner policy (API 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify device-owner install restrictions
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-enterprise-avd
+          SECPAL_ANDROID_EMULATOR_GPU_MODE: software
+          SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
+        run: |
+          sudo chmod 666 /dev/kvm
+          mkdir -p "$ANDROID_AVD_HOME"
+          image="system-images;android-35;google_apis;x86_64"
+          bash ./scripts/with-android-env.sh sdkmanager --channel=0 \
+            "platform-tools" "emulator" "$image"
+          echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
+            --force --name "secpal-enterprise-api35" --package "$image"
+          (
+            cd android
+            ./gradlew --no-daemon \
+              -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
+              :app:assembleCtRegression \
+              :app:assembleCtRegressionAndroidTest
+          )
+          npm run android:emulator:start -- "secpal-enterprise-api35" 5570
+          if ! npm run android:device:wait -- emulator-5570 300; then
+            emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-enterprise-api35-5570.log"
+            cat "$emulator_log" >&2 || true
+            exit 1
+          fi
+
+          admin_component="app.secpal.ctregression/app.secpal.SecPalDeviceAdminReceiver"
+          cleanup() {
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              shell dpm remove-active-admin --user 0 "$admin_component" || true
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              uninstall app.secpal.ctregression.test || true
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              uninstall app.secpal.ctregression || true
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true
+          }
+          trap cleanup EXIT
+
+          bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
+            android/app/build/outputs/apk/ctRegression/app-ctRegression.apk
+          bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+            shell dpm set-device-owner --user 0 "$admin_component"
+          bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
+            android/app/build/outputs/apk/androidTest/ctRegression/app-ctRegression-androidTest.apk
+
+          instrumentation_output="$(
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 shell am instrument \
+              -w -r \
+              -e class app.secpal.EnterprisePolicyInstrumentedTest \
+              app.secpal.ctregression.test/androidx.test.runner.AndroidJUnitRunner
+          )"
+          echo "$instrumentation_output"
+          grep -F "OK (1 test)" <<<"$instrumentation_output"
+          grep -F "INSTRUMENTATION_CODE: -1" <<<"$instrumentation_output"
