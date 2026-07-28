@@ -34,6 +34,12 @@ describe("Android enterprise policy instrumentation contract", () => {
       "app",
       "ct-regression-proguard-rules.pro"
     );
+    const devicePolicyWaitScript = readRepoFile(
+      "scripts",
+      "wait-for-device-policy-account-scan.sh"
+    );
+    const devicePolicyWaitCommand =
+      "bash ./scripts/wait-for-device-policy-account-scan.sh emulator-5570 60";
 
     expect(instrumentedTest).toContain("isDeviceOwnerApp");
     expect(instrumentedTest).toContain(
@@ -55,9 +61,17 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(workflow.match(/adb -s emulator-5570 install -t -r/g)).toHaveLength(
       2
     );
+    expect(workflow).toContain(devicePolicyWaitCommand);
+    expect(workflow.indexOf(devicePolicyWaitCommand)).toBeLessThan(
+      workflow.indexOf("dpm set-device-owner")
+    );
     expect(workflow).toContain("dpm set-device-owner");
     expect(workflow).toContain("app.secpal.EnterprisePolicyInstrumentedTest");
     expect(workflow).toContain("dpm remove-active-admin");
+    expect(devicePolicyWaitScript).toContain(
+      "Finished calculating hasIncompatibleAccountsTask"
+    );
+    expect(devicePolicyWaitScript).toContain("dumpsys account");
     expect(proguardRules).toContain(
       "-keep class app.secpal.EnterprisePolicyController"
     );

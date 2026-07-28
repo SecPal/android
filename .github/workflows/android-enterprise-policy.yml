@@ -13,6 +13,7 @@ on:
       - "package-lock.json"
       - "scripts/start-android-emulator.sh"
       - "scripts/wait-for-android-device.sh"
+      - "scripts/wait-for-device-policy-account-scan.sh"
       - "scripts/with-android-env.sh"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
@@ -30,6 +31,7 @@ on:
       - "package-lock.json"
       - "scripts/start-android-emulator.sh"
       - "scripts/wait-for-android-device.sh"
+      - "scripts/wait-for-device-policy-account-scan.sh"
       - "scripts/with-android-env.sh"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
@@ -110,6 +112,7 @@ jobs:
 
           bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
             android/app/build/outputs/apk/ctRegression/app-ctRegression.apk
+          bash ./scripts/wait-for-device-policy-account-scan.sh emulator-5570 60
           bash ./scripts/with-android-env.sh adb -s emulator-5570 \
             shell dpm set-device-owner --user 0 "$admin_component"
           bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
