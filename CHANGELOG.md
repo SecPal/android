@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Normalized Android push-provider metadata with the locale-independent root
+  locale so device language settings cannot alter internal identifiers (issue
+  #458).
 - Made kiosk managed-update policy tests select debug and release semantics
   explicitly so release-derived `ctRegression` validates both without changing
   production build-mode selection, including a device-owner instrumentation
