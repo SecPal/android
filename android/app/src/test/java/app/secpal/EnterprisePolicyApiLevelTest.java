@@ -30,6 +30,15 @@ import org.robolectric.annotation.Config;
 public class EnterprisePolicyApiLevelTest {
 
     @Test
+    @Config(sdk = 24)
+    public void api24AppliesKioskPolicy() {
+        Context context = RuntimeEnvironment.getApplication();
+        applyKioskDeviceOwnerPolicy(context);
+
+        assertTrue(EnterprisePolicyController.syncPolicy(context).isKioskActive());
+    }
+
+    @Test
     @Config(sdk = 27)
     public void api27OmitsAndroid28EnterprisePolicies() {
         assertNull(EnterprisePolicyController.resolveLockTaskFeatures(true));

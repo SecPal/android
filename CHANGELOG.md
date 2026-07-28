@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed unreachable Android 23 compatibility guards from Device Owner
+  status-bar policy handling and made the launcher foreground drawable available
+  through the unqualified resource path now that the minimum SDK is 24 (issue
+  #461).
 - Loaded dedicated-device home fallback icons through AppCompat resources so
   vector and themed drawables remain compatible across supported Android
   versions (issue #460).
