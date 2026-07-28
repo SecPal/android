@@ -1907,6 +1907,69 @@ describe("preflight", () => {
     }
   });
 
+  it("allows derived Android test application IDs without allowing hosts", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const baseApplicationId = ["app", "secpal"].join(".");
+    const derivedApplicationId = `${baseApplicationId}.ctregression`;
+    const baseTestApplicationId = `${baseApplicationId}.test`;
+    const testApplicationId = `${derivedApplicationId}.test`;
+    const forbiddenAppHost = `${baseApplicationId}.com`;
+    const forbiddenDerivedHost = `${derivedApplicationId}.com`;
+    const forbiddenTestHost = `${baseTestApplicationId}.com`;
+    const forbiddenHost = ["secpal", "invalid"].join(".");
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
+      writeFileSync(
+        join(tempRoot, "android-test.yml"),
+        [
+          `admin_component="${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver"`,
+          `uninstall ${baseTestApplicationId}`,
+          `uninstall ${testApplicationId}`,
+          `uninstall ${derivedApplicationId}`,
+          `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
+        ].join("\n")
+      );
+
+      const allowedResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(allowedResult.status, allowedResult.stdout).toBe(0);
+
+      writeFileSync(
+        join(tempRoot, "forbidden-hosts.yml"),
+        [
+          `app_url: "https://${forbiddenAppHost}/api"`,
+          `derived_url: "https://${forbiddenDerivedHost}/api"`,
+          `test_url: "https://${forbiddenTestHost}/api"`,
+          `other_url: "https://${forbiddenHost}/api"`,
+        ].join("\n")
+      );
+
+      const forbiddenResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(forbiddenResult.status).toBe(1);
+      expect(forbiddenResult.stdout).toContain(forbiddenAppHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenDerivedHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenTestHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenHost);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsafe storage-key exemption proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");

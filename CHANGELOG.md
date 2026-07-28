@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed the `ctRegression` Android application ID and its instrumentation
+  test derivative in domain-policy checks without permitting arbitrary
+  `app.secpal.*` hostnames (issue #482).
 - Normalized Android push-provider metadata with the locale-independent root
   locale so device language settings cannot alter internal identifiers (issue
   #458).
