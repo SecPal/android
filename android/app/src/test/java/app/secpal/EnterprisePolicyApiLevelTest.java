@@ -92,16 +92,27 @@ public class EnterprisePolicyApiLevelTest {
     @Config(sdk = 28)
     public void debugKioskPolicyKeepsManagedPackageUpdatesAvailable() {
         assertFalse(
-            EnterprisePolicyController.resolveKioskUserRestrictions()
+            EnterprisePolicyController.resolveKioskUserRestrictions(true)
                 .contains(UserManager.DISALLOW_INSTALL_APPS)
         );
         assertTrue(
-            EnterprisePolicyController.resolveKioskUserRestrictions()
+            EnterprisePolicyController.resolveKioskUserRestrictions(true)
                 .contains(UserManager.DISALLOW_UNINSTALL_APPS)
         );
 
         Context context = RuntimeEnvironment.getApplication();
-        applyKioskDeviceOwnerPolicy(context);
+        DevicePolicyManager devicePolicyManager = setDeviceOwner(context);
+        ComponentName adminComponent = new ComponentName(
+            context,
+            SecPalDeviceAdminReceiver.class
+        );
+
+        EnterprisePolicyController.setKioskUserRestrictions(
+            devicePolicyManager,
+            adminComponent,
+            true,
+            true
+        );
         UserManager userManager = context.getSystemService(UserManager.class);
 
         assertFalse(userManager.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS));
@@ -115,22 +126,37 @@ public class EnterprisePolicyApiLevelTest {
             EnterprisePolicyController.resolveKioskUserRestrictions(false)
                 .contains(UserManager.DISALLOW_INSTALL_APPS)
         );
+
+        Context context = RuntimeEnvironment.getApplication();
+        DevicePolicyManager devicePolicyManager = setDeviceOwner(context);
+        ComponentName adminComponent = new ComponentName(
+            context,
+            SecPalDeviceAdminReceiver.class
+        );
+
+        EnterprisePolicyController.setKioskUserRestrictions(
+            devicePolicyManager,
+            adminComponent,
+            true,
+            false
+        );
+
+        assertTrue(
+            context.getSystemService(UserManager.class)
+                .hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
+        );
     }
 
     @Test
     @Config(sdk = 28)
     public void debugKioskPolicyClearsLegacyInstallRestrictionForManagedUpdates() {
         Context context = RuntimeEnvironment.getApplication();
-        DevicePolicyManager devicePolicyManager = context.getSystemService(
-            DevicePolicyManager.class
-        );
+        DevicePolicyManager devicePolicyManager = setDeviceOwner(context);
         ComponentName adminComponent = new ComponentName(
             context,
             SecPalDeviceAdminReceiver.class
         );
-        Map<String, Object> policyValues = new LinkedHashMap<>();
 
-        assertTrue(shadowOf(devicePolicyManager).setDeviceOwner(adminComponent));
         devicePolicyManager.addUserRestriction(
             adminComponent,
             UserManager.DISALLOW_INSTALL_APPS
@@ -140,11 +166,40 @@ public class EnterprisePolicyApiLevelTest {
                 .hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
         );
 
+        EnterprisePolicyController.setKioskUserRestrictions(
+            devicePolicyManager,
+            adminComponent,
+            true,
+            true
+        );
+
+        assertFalse(
+            context.getSystemService(UserManager.class)
+                .hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
+        );
+    }
+
+    @Test
+    @Config(sdk = 28)
+    public void kioskPolicyUsesCurrentBuildModeForManagedPackageUpdates() {
+        Context context = RuntimeEnvironment.getApplication();
+        DevicePolicyManager devicePolicyManager = setDeviceOwner(context);
+        ComponentName adminComponent = new ComponentName(
+            context,
+            SecPalDeviceAdminReceiver.class
+        );
+        Map<String, Object> policyValues = new LinkedHashMap<>();
+
+        devicePolicyManager.addUserRestriction(
+            adminComponent,
+            UserManager.DISALLOW_INSTALL_APPS
+        );
         policyValues.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
         EnterprisePolicyController.persistDebugPolicy(context, policyValues);
         EnterprisePolicyController.syncPolicy(context);
 
-        assertFalse(
+        assertEquals(
+            !BuildConfig.DEBUG,
             context.getSystemService(UserManager.class)
                 .hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
         );
@@ -185,6 +240,17 @@ public class EnterprisePolicyApiLevelTest {
     }
 
     private static DevicePolicyManager applyKioskDeviceOwnerPolicy(Context context) {
+        DevicePolicyManager devicePolicyManager = setDeviceOwner(context);
+        Map<String, Object> policyValues = new LinkedHashMap<>();
+
+        policyValues.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
+        EnterprisePolicyController.persistDebugPolicy(context, policyValues);
+        EnterprisePolicyController.syncPolicy(context);
+
+        return devicePolicyManager;
+    }
+
+    private static DevicePolicyManager setDeviceOwner(Context context) {
         DevicePolicyManager devicePolicyManager = context.getSystemService(
             DevicePolicyManager.class
         );
@@ -192,12 +258,8 @@ public class EnterprisePolicyApiLevelTest {
             context,
             SecPalDeviceAdminReceiver.class
         );
-        Map<String, Object> policyValues = new LinkedHashMap<>();
 
         assertTrue(shadowOf(devicePolicyManager).setDeviceOwner(adminComponent));
-        policyValues.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
-        EnterprisePolicyController.persistDebugPolicy(context, policyValues);
-        EnterprisePolicyController.syncPolicy(context);
 
         return devicePolicyManager;
     }

@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made kiosk managed-update policy tests select debug and release semantics
+  explicitly so release-derived `ctRegression` validates both without changing
+  production build-mode selection, including a device-owner instrumentation
+  check that waits for Android's post-boot account compatibility scan before
+  provisioning against the platform policy service (issue #479).
 - Restored canonical Android manifest ordering by declaring network permissions
   before the application element, preventing the `ManifestOrder` lint finding
   without changing the permission or application contract (issue #457).
