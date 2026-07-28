@@ -1925,6 +1925,11 @@ describe("preflight", () => {
       `x${["secpal", "dev"].join(".")}`,
       `x${baseApplicationId}`,
     ];
+    const terminalDotIdentifierHosts = [
+      `${baseApplicationId}.`,
+      `${baseApplicationId}.SecPal.`,
+      `${baseApplicationId}.action.MANAGE.`,
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -1939,6 +1944,8 @@ describe("preflight", () => {
         `uninstall ${derivedApplicationId}`,
         `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
         `homepage: "https://secpal.app"`,
+        `homepage_root: "https://secpal.app."`,
+        `api_root: "https://api.secpal.dev."`,
         `package: ${baseApplicationId}`,
       ];
       writeFileSync(
@@ -1998,6 +2005,12 @@ describe("preflight", () => {
           "forbidden-prefixed-approved-hosts.yml",
           prefixedApprovedHosts
             .map((host, index) => `endpoint_${index}: "https://${host}/api"`)
+            .join("\n")
+        ),
+        fixture(
+          "forbidden-terminal-dot-identifier-hosts.yml",
+          terminalDotIdentifierHosts
+            .map((host, index) => `host_${index}: ${host}`)
             .join("\n")
         ),
         fixture(
@@ -2081,6 +2094,9 @@ describe("preflight", () => {
       expect(forbiddenResult.stdout).toContain(forbiddenTestHost);
       expect(forbiddenResult.stdout).toContain(forbiddenHost);
       for (const host of prefixedApprovedHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
+      for (const host of terminalDotIdentifierHosts) {
         expect(forbiddenResult.stdout).toContain(host);
       }
     } finally {

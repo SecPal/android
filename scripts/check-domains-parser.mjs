@@ -39,7 +39,7 @@ try {
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
   /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
-const secpalReferenceSource = String.raw`(?<![A-Za-z0-9_*-])(?:[A-Za-z0-9_*-]+\.)*(?:[A-Za-z0-9_*-]*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|[A-Za-z0-9_*-]*app\.secpal(?=$|[^A-Za-z0-9_-]))`;
+const secpalReferenceSource = String.raw`(?<![A-Za-z0-9_*-])(?:[A-Za-z0-9_*-]+\.)*(?:[A-Za-z0-9_*-]*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|[A-Za-z0-9_*-]*app\.secpal(?=$|[^A-Za-z0-9_-]))(?:\.(?=$|[^A-Za-z0-9._-]))?`;
 const secpalReferencePattern = new RegExp(secpalReferenceSource, "g");
 const androidTestApplicationIdPattern =
   /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;

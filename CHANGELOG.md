@@ -24,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Allowed derived Android test application IDs only in complete, CRLF-safe,
   line-anchored uninstall, admin-component, and instrumentation-runner contexts
-  while retaining linear-time whole-authority forbidden-host detection (issue
-  #482).
+  while retaining linear-time whole-authority forbidden-host detection,
+  including terminal DNS root dots (issue #482).
 - Normalized Android push-provider metadata with the locale-independent root
   locale so device language settings cannot alter internal identifiers (issue
   #458).
