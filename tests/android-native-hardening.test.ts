@@ -13,6 +13,18 @@ const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
+const readInstalledDependencyFile = (...segments: string[]) => {
+  const dependencyPath = resolve(repoRoot, "node_modules", ...segments);
+
+  if (!existsSync(dependencyPath)) {
+    throw new Error(
+      `Missing installed dependency source: ${dependencyPath}. Run npm ci before running the native hardening tests.`
+    );
+  }
+
+  return readFileSync(dependencyPath, "utf8");
+};
+
 const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
 const corePluginRegistrationPattern = (pluginId: string) =>
   new RegExp(
@@ -22,6 +34,26 @@ const PLUGIN_METHOD_ANNOTATION_PATTERN =
   /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
 
 describe("Android native hardening", () => {
+  it("reports a targeted error when an installed dependency source is unavailable", () => {
+    const missingSegments = [
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "Missing.java",
+    ];
+
+    expect(() => readInstalledDependencyFile(...missingSegments)).toThrowError(
+      `Missing installed dependency source: ${resolve(
+        repoRoot,
+        "node_modules",
+        ...missingSegments
+      )}. Run npm ci before running the native hardening tests.`
+    );
+  });
+
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       scripts: Record<string, string>;
@@ -68,8 +100,7 @@ describe("Android native hardening", () => {
       expect(existsSync(resolve(resourcesRoot, resourcePath))).toBe(false);
     }
 
-    const capacitorBridgeActivity = readRepoFile(
-      "node_modules",
+    const capacitorBridgeActivity = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -205,8 +236,7 @@ describe("Android native hardening", () => {
   });
 
   it("keeps unused Capacitor core plugins outside the WebView bridge", () => {
-    const bridge = readRepoFile(
-      "node_modules",
+    const bridge = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -217,8 +247,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "Bridge.java"
     );
-    const systemBars = readRepoFile(
-      "node_modules",
+    const systemBars = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -230,8 +259,7 @@ describe("Android native hardening", () => {
       "plugin",
       "SystemBars.java"
     );
-    const jsExport = readRepoFile(
-      "node_modules",
+    const jsExport = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -242,8 +270,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "JSExport.java"
     );
-    const webViewLocalServer = readRepoFile(
-      "node_modules",
+    const webViewLocalServer = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -389,8 +416,7 @@ describe("Android native hardening", () => {
   });
 
   it("proves the upstream registrations expose direct JavaScript dispatch", () => {
-    const bridge = readRepoFile(
-      "node_modules",
+    const bridge = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -401,8 +427,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "Bridge.java"
     );
-    const jsExport = readRepoFile(
-      "node_modules",
+    const jsExport = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -413,8 +438,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "JSExport.java"
     );
-    const pluginHandle = readRepoFile(
-      "node_modules",
+    const pluginHandle = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -446,8 +470,7 @@ describe("Android native hardening", () => {
 
     for (const [fileName, methodName] of corePluginSources) {
       const className = fileName.replace(".java", "");
-      const source = readRepoFile(
-        "node_modules",
+      const source = readInstalledDependencyFile(
         "@capacitor",
         "android",
         "capacitor",
