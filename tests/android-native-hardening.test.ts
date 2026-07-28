@@ -1531,7 +1531,13 @@ describe("Android native hardening", () => {
     expect(policyController).toContain(
       "private static final int DEVICE_OWNER_POLICY_REVISION = 2"
     );
-    expect(policyController).toContain("if (BuildConfig.DEBUG)");
+    expect(policyController).toMatch(
+      /setKioskUserRestrictions\(\s*devicePolicyManager,\s*adminComponent,\s*enabled,\s*BuildConfig\.DEBUG\s*\)/
+    );
+    expect(policyController).toContain("if (debugBuild)");
+    expect(policyController).toContain(
+      "resolveKioskUserRestrictions(debugBuild)"
+    );
     expect(policyController).toContain(
       "restrictions.remove(UserManager.DISALLOW_INSTALL_APPS)"
     );

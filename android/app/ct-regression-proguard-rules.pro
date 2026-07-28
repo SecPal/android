@@ -17,3 +17,9 @@
 # AndroidJUnitRunner uses Trace from the shared test process, while Android
 # packaging can place the dependency only in the separately minified app APK.
 -keep class androidx.tracing.Trace { *; }
+
+# The device-owner instrumentation test calls this package-private test seam
+# across the separately minified app and instrumentation APK boundary.
+-keep class app.secpal.EnterprisePolicyController {
+    static void setKioskUserRestrictions(android.app.admin.DevicePolicyManager, android.content.ComponentName, boolean, boolean);
+}
