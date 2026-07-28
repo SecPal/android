@@ -15,6 +15,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.view.View;
 import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -150,7 +151,7 @@ public final class DedicatedDeviceHomeActivityTest {
             kioskState(true, false),
             Collections.emptyList()
         );
-        dependencies.dialerPackage = "com.android.dialer";
+        dependencies.dialerPackage = "com.example.missing-dialer";
 
         DedicatedDeviceHomeActivity.setDependenciesForTest(dependencies);
 
@@ -164,6 +165,8 @@ public final class DedicatedDeviceHomeActivityTest {
             assertEquals(View.GONE, emptyState.getVisibility());
             TextView phoneTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
             assertEquals(activity.getString(R.string.enterprise_home_phone_label), phoneTileLabel.getText().toString());
+            ImageView phoneTileIcon = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_icon);
+            assertNotNull(phoneTileIcon.getDrawable());
 
             appGrid.getChildAt(1).performClick();
 
@@ -196,7 +199,7 @@ public final class DedicatedDeviceHomeActivityTest {
             kioskState(false, true),
             Collections.emptyList()
         );
-        dependencies.smsPackage = "com.android.mms";
+        dependencies.smsPackage = "com.example.missing-sms";
 
         DedicatedDeviceHomeActivity.setDependenciesForTest(dependencies);
 
@@ -210,6 +213,8 @@ public final class DedicatedDeviceHomeActivityTest {
             assertEquals(View.GONE, emptyState.getVisibility());
             TextView smsTileLabel = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_label);
             assertEquals(activity.getString(R.string.enterprise_home_sms_label), smsTileLabel.getText().toString());
+            ImageView smsTileIcon = appGrid.getChildAt(1).findViewById(R.id.enterprise_home_tile_icon);
+            assertNotNull(smsTileIcon.getDrawable());
 
             appGrid.getChildAt(1).performClick();
 

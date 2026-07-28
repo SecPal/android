@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Loaded dedicated-device home fallback icons through AppCompat resources so
+  vector and themed drawables remain compatible across supported Android
+  versions (issue #460).
 - Allowed derived Android test application IDs only in complete, CRLF-safe,
   line-anchored uninstall, admin-component, and instrumentation-runner contexts
   while retaining linear-time, Unicode-aware whole-authority forbidden-host
