@@ -10,6 +10,8 @@ import com.google.firebase.FirebaseOptions;
 
 import org.json.JSONObject;
 
+import java.util.Locale;
+
 final class AndroidPushRuntimeMetadata {
     private final String provider;
     private final int metadataRevision;
@@ -89,10 +91,12 @@ final class AndroidPushRuntimeMetadata {
             return null;
         }
 
-        String provider = SecPalNativeAuthPlugin.normalizeRequiredString(
-            SecPalNativeAuthPlugin.firstNonBlank(androidPush.optString("provider", null), null),
-            "Android runtime bootstrap requires the FCM Android push provider"
-        ).toLowerCase();
+        String provider = normalizeProvider(
+            SecPalNativeAuthPlugin.normalizeRequiredString(
+                SecPalNativeAuthPlugin.firstNonBlank(androidPush.optString("provider", null), null),
+                "Android runtime bootstrap requires the FCM Android push provider"
+            )
+        );
 
         if (!"fcm".equals(provider)) {
             throw new SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException(
@@ -126,6 +130,10 @@ final class AndroidPushRuntimeMetadata {
             requiredPublicClientMetadataValue(publicClientMetadata, "applicationId", "application_id"),
             requiredPublicClientMetadataValue(publicClientMetadata, "senderId", "sender_id")
         );
+    }
+
+    static String normalizeProvider(String provider) {
+        return provider.toLowerCase(Locale.ROOT);
     }
 
     private static String requiredPublicClientMetadataValue(JSONObject source, String camelKey, String snakeKey)
