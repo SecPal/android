@@ -20,6 +20,7 @@ import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.content.res.AppCompatResources;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,7 +168,7 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
             }
         }
 
-        return getDrawable(fallbackIconRes);
+        return AppCompatResources.getDrawable(this, fallbackIconRes);
     }
 
     static void setDependenciesForTest(DedicatedDeviceHomeDependencies testDependencies) {
