@@ -23,6 +23,7 @@ import android.os.UserManager;
 import android.util.Log;
 
 import androidx.annotation.RequiresApi;
+import androidx.annotation.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -609,7 +610,22 @@ public final class EnterprisePolicyController {
         ComponentName adminComponent,
         boolean enabled
     ) {
-        if (BuildConfig.DEBUG) {
+        setKioskUserRestrictions(
+            devicePolicyManager,
+            adminComponent,
+            enabled,
+            BuildConfig.DEBUG
+        );
+    }
+
+    @VisibleForTesting
+    static void setKioskUserRestrictions(
+        DevicePolicyManager devicePolicyManager,
+        ComponentName adminComponent,
+        boolean enabled,
+        boolean debugBuild
+    ) {
+        if (debugBuild) {
             // Revision 1 blocked the documented ADB replacement path for test-only APKs.
             devicePolicyManager.clearUserRestriction(
                 adminComponent,
@@ -617,7 +633,7 @@ public final class EnterprisePolicyController {
             );
         }
 
-        for (String restriction : resolveKioskUserRestrictions()) {
+        for (String restriction : resolveKioskUserRestrictions(debugBuild)) {
             if (enabled) {
                 devicePolicyManager.addUserRestriction(adminComponent, restriction);
             } else {

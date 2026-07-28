@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made kiosk managed-update policy tests select debug and release semantics
+  explicitly so release-derived `ctRegression` validates both without changing
+  production build-mode selection (issue #479).
 - Rebooted the API 37 emulator before the single retry for a pre-test
   PackageManager broken-pipe failure so the retry does not reuse the same
   damaged Android system service.
