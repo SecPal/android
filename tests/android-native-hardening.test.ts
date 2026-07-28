@@ -38,6 +38,153 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("keeps only Android resources with proven runtime or build-time callers", () => {
+    const resourcesRoot = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res"
+    );
+    const obsoleteResourcePaths = [
+      "layout/activity_main.xml",
+      "drawable/ic_launcher_background.xml",
+      "drawable/ic_launcher_foreground.xml",
+      "drawable/splash.png",
+      "drawable-land-hdpi/splash.png",
+      "drawable-land-mdpi/splash.png",
+      "drawable-land-xhdpi/splash.png",
+      "drawable-land-xxhdpi/splash.png",
+      "drawable-land-xxxhdpi/splash.png",
+      "drawable-port-hdpi/splash.png",
+      "drawable-port-mdpi/splash.png",
+      "drawable-port-xhdpi/splash.png",
+      "drawable-port-xxhdpi/splash.png",
+      "drawable-port-xxxhdpi/splash.png",
+    ];
+
+    for (const resourcePath of obsoleteResourcePaths) {
+      expect(existsSync(resolve(resourcesRoot, resourcePath))).toBe(false);
+    }
+
+    const capacitorBridgeActivity = readRepoFile(
+      "node_modules",
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "BridgeActivity.java"
+    );
+    expect(capacitorBridgeActivity).toContain(
+      "R.layout.capacitor_bridge_layout_main"
+    );
+    expect(capacitorBridgeActivity).not.toContain("R.layout.activity_main");
+
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const adaptiveLauncher = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "mipmap-anydpi-v26",
+      "ic_launcher.xml"
+    );
+    const launchTheme = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "styles.xml"
+    );
+    const splashBackground = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "drawable",
+      "splash_screen_background.xml"
+    );
+    expect(manifest).toContain('android:icon="@mipmap/ic_launcher"');
+    expect(adaptiveLauncher).toContain(
+      'android:drawable="@mipmap/ic_launcher_foreground"'
+    );
+    expect(adaptiveLauncher).toContain(
+      'android:drawable="@color/ic_launcher_background"'
+    );
+    expect(launchTheme).toContain(
+      '<item name="android:background">@drawable/splash_screen_background</item>'
+    );
+    expect(splashBackground).toContain(
+      'android:src="@drawable/secpal_splash_icon"'
+    );
+
+    expect(
+      existsSync(
+        resolve(
+          repoRoot,
+          "android",
+          "app",
+          "src",
+          "debug",
+          "res",
+          "values",
+          "strings.xml"
+        )
+      )
+    ).toBe(false);
+
+    const stringsXml = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "strings.xml"
+    );
+    expect(stringsXml).not.toContain('name="package_name"');
+    expect(stringsXml).not.toContain('name="custom_url_scheme"');
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(readRepoFile("scripts", "build-frontend-web.sh")).toContain(
+      'name="api_base_url"'
+    );
+    expect(readRepoFile("scripts", "inject-native-auth-bridge.mjs")).toContain(
+      'name="api_base_url"'
+    );
+
+    const resourceKeepContract = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "raw",
+      "keep.xml"
+    );
+    expect(resourceKeepContract).toContain(
+      'tools:keep="@xml/config,@string/api_base_url"'
+    );
+    expect(resourceKeepContract).not.toContain("tools:discard");
+    expect(resourceKeepContract).not.toContain("@*");
+  });
+
   it("patches Capacitor's unchecked Java generics after installation and sync", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       scripts: Record<string, string>;

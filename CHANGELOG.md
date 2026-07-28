@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed unused Capacitor template layout, launcher vectors, legacy splash
+  bitmaps and their brand-sync regeneration path, and string overrides while
+  retaining the name-resolved Cordova configuration through an exact resource
+  keep contract and documenting the build-time API URL source (issue #462).
 - Removed unreachable Android 23 compatibility guards from Device Owner
   status-bar policy handling and made the launcher foreground drawable available
   through the unqualified resource path now that the minimum SDK is 24 (issue
