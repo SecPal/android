@@ -23,7 +23,7 @@ echo "Allowed: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev"
 echo "Active web hosts: api.secpal.dev, app.secpal.dev"
 echo "Android artifact host: apk.secpal.app"
 echo "Changelog site: changelog.secpal.app"
-echo "Identifier-only: app.secpal (Android application ID)"
+echo "Identifier-only: app.secpal and positively identified Android test derivatives"
 echo "Deprecated web hosts: ${deprecated_api_host}"
 echo "Forbidden: ${forbidden_hosts}, ANY other"
 echo ""
@@ -41,35 +41,39 @@ if ! matches=$(find . \
     exit 1
 fi
 
-# Allowlist approach: flag any secpal.* domain not matching an approved pattern.
+# The parser emits one candidate per SecPal reference so an approved value
+# cannot hide a forbidden value elsewhere on the same source line.
+# Flag any isolated candidate not matching an approved pattern.
 # Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts and the deprecated API host for documentation only.
-# app.secpal sub-patterns are narrowed to:
+# app.secpal allowlist patterns are narrowed to:
 #   - standalone app.secpal (as Android app ID),
 #   - app.secpal.ClassName (Java class imports, starting with uppercase), and
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
+# Derived test application IDs are removed by the parser only in positively
+# identified Android uninstall, admin-component, and instrumentation contexts.
 # This prevents the application identifier plus a web suffix from passing as approved.
 # This catches unknown domains that a denylist-only check would miss.
 # Hyphenated SecPal storage identifiers are only allowed when the complete
 # quoted value is passed as a literal key to a browser storage API. This
 # preserves detection of a domain-like value with an unapproved suffix.
-regex_prefix='(^|[^A-Za-z0-9.-])'
-regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
-regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
+regex_candidate_prefix='^\./[^:]+:[0-9]+:'
+regex_host_prefix="(${regex_candidate_prefix}|[/:@])"
+regex_host_suffix='($|[/:@\\]|\.[/:@\\]|\.$)'
 
-allow_secpal_app="${regex_prefix}secpal\\.app${regex_suffix}"
-allow_changelog_secpal_app="${regex_prefix}changelog\\.secpal\\.app${regex_suffix}"
-allow_apk_secpal_app="${regex_prefix}apk\\.secpal\\.app${regex_suffix}"
-allow_secpal_dev="${regex_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_suffix}"
-allow_api_secpal_app="${regex_prefix}api\\.secpal\\.app${regex_suffix}"
-allow_app_secpal_identifier="${regex_prefix}app\\.secpal${regex_identifier_suffix}"
-allow_app_secpal_class="${regex_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*${regex_identifier_suffix}"
-allow_app_secpal_action="${regex_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*${regex_identifier_suffix}"
+allow_secpal_app="${regex_host_prefix}secpal\\.app${regex_host_suffix}"
+allow_changelog_secpal_app="${regex_host_prefix}changelog\\.secpal\\.app${regex_host_suffix}"
+allow_apk_secpal_app="${regex_host_prefix}apk\\.secpal\\.app${regex_host_suffix}"
+allow_secpal_dev="${regex_host_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_host_suffix}"
+allow_api_secpal_app="${regex_host_prefix}api\\.secpal\\.app${regex_host_suffix}"
+allow_app_secpal_identifier="${regex_candidate_prefix}app\\.secpal$"
+allow_app_secpal_class="${regex_candidate_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*$"
+allow_app_secpal_action="${regex_candidate_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*$"
 
 allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
 
 violations=$(printf '%s\n' "$matches" | \
     grep -Ev "$allowlist_pattern" | \
-    grep -E 'secpal\.' || true)
+    grep -E 'secpal\.|app\.secpal' || true)
 
 deprecated_web_hosts=$(printf '%s\n' "$matches" | \
     grep -E 'api\.secpal\.app' | \
@@ -100,7 +104,7 @@ else
     echo "  - api.secpal.dev: live API host"
     echo "  - app.secpal.dev: live PWA/frontend host"
     echo "  - secpal.dev: development, staging, testing, examples"
-    echo "  - app.secpal: Android application identifier only"
+    echo "  - Android application IDs only: app.secpal and positively identified test derivatives"
     echo "  - DEPRECATED as web hosts: ${deprecated_api_host}"
     echo "  - FORBIDDEN: ${forbidden_hosts}"
     echo ""

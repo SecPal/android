@@ -1907,6 +1907,216 @@ describe("preflight", () => {
     }
   });
 
+  it("allows derived Android test application IDs without allowing hosts", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
+    const checker = join(tempRoot, "check-domains.sh");
+    const baseApplicationId = ["app", "secpal"].join(".");
+    const derivedApplicationId = `${baseApplicationId}.ctregression`;
+    const baseTestApplicationId = `${baseApplicationId}.test`;
+    const testApplicationId = `${derivedApplicationId}.test`;
+    const forbiddenAppHost = `${baseApplicationId}.com`;
+    const forbiddenDerivedHost = `${derivedApplicationId}.com`;
+    const forbiddenTestHost = `${baseTestApplicationId}.com`;
+    const forbiddenHost = ["secpal", "invalid"].join(".");
+    const malformedEmptyLabelHost = ["secpal", "", "com"].join(".");
+    const malformedHyphenLabelHost = ["secpal", "-com"].join(".");
+    const prefixedApprovedHosts = [
+      `x${["secpal", "app"].join(".")}`,
+      `x${["secpal", "dev"].join(".")}`,
+      `x${baseApplicationId}`,
+    ];
+    const terminalDotIdentifierHosts = [
+      `${baseApplicationId}.`,
+      `${baseApplicationId}.SecPal.`,
+      `${baseApplicationId}.action.MANAGE.`,
+    ];
+    const unicodePrefixedIdentifierHosts = [
+      `é${baseApplicationId}`,
+      `é${baseApplicationId}..`,
+    ];
+
+    try {
+      copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
+      copyFileSync(
+        resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
+        join(tempRoot, "check-domains-parser.mjs")
+      );
+      const allowedAndroidCommands = [
+        `admin_component="${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver"`,
+        `uninstall ${baseTestApplicationId}`,
+        `uninstall ${testApplicationId}`,
+        `uninstall ${derivedApplicationId}`,
+        `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
+        `homepage: "https://secpal.app"`,
+        `homepage_root: "https://secpal.app."`,
+        `api_root: "https://api.secpal.dev."`,
+        `package: ${baseApplicationId}`,
+      ];
+      writeFileSync(
+        join(tempRoot, "android-test.yml"),
+        allowedAndroidCommands.join("\n")
+      );
+      writeFileSync(
+        join(tempRoot, "android-test-crlf.yml"),
+        allowedAndroidCommands.join("\r\n")
+      );
+
+      const allowedResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(allowedResult.status, allowedResult.stdout).toBe(0);
+
+      const fixture = (fileName: string, contents: string) =>
+        [fileName, contents] as const;
+      const forbiddenFixtures = [
+        fixture(
+          "forbidden-same-line-email.yml",
+          `cleanup: "uninstall ${derivedApplicationId}; contact mailto:user@${derivedApplicationId}"\n`
+        ),
+        fixture(
+          "forbidden-port-endpoint.yml",
+          `endpoint: ${derivedApplicationId}:443\n`
+        ),
+        fixture(
+          "forbidden-underscored-host.yml",
+          `endpoint: "https://foo_${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-mixed-domain-line.yml",
+          `sites: "https://secpal.app https://${forbiddenHost}"\n`
+        ),
+        fixture("forbidden-bare-host.yml", `host: ${derivedApplicationId}\n`),
+        fixture(
+          "forbidden-malformed-hosts.yml",
+          `sites: "https://${malformedEmptyLabelHost} https://${malformedHyphenLabelHost}"\n`
+        ),
+        fixture(
+          "forbidden-escaped-url.js",
+          `const endpoint = "https:\\u{2f}\\u{2f}${derivedApplicationId}/api";\n`
+        ),
+        fixture(
+          "forbidden-uri-scheme.yml",
+          `redirect: ${derivedApplicationId}://callback\n`
+        ),
+        fixture(
+          "forbidden-unicode-host.yml",
+          `endpoint: "https://é${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-prefixed-approved-hosts.yml",
+          prefixedApprovedHosts
+            .map((host, index) => `endpoint_${index}: "https://${host}/api"`)
+            .join("\n")
+        ),
+        fixture(
+          "forbidden-terminal-dot-identifier-hosts.yml",
+          terminalDotIdentifierHosts
+            .map((host, index) => `host_${index}: ${host}`)
+            .join("\n")
+        ),
+        fixture(
+          "forbidden-unicode-prefixed-identifier-hosts.yml",
+          unicodePrefixedIdentifierHosts
+            .map((host, index) => `url_${index}: "https://${host}/api"`)
+            .join("\n")
+        ),
+        fixture(
+          "forbidden-runner-host.yml",
+          `endpoint: https://${derivedApplicationId}/androidx.test.runner.AndroidJUnitRunner\n`
+        ),
+        fixture(
+          "forbidden-admin-component-host.yml",
+          `endpoint: https://admin_component=${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver\n`
+        ),
+        fixture(
+          "forbidden-same-line-url.yml",
+          `cleanup: "uninstall ${derivedApplicationId}; open https:${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-many-references.yml",
+          Array.from(
+            { length: 10_000 },
+            (_, index) => `host_${index}=${derivedApplicationId}`
+          ).join(" ")
+        ),
+        fixture(
+          "forbidden-hosts.yml",
+          [
+            `https://${baseApplicationId}.com/api`,
+            `https://${derivedApplicationId}.com/api`,
+            `https://${baseTestApplicationId}.com/api`,
+            `https://${forbiddenHost}/api`,
+          ]
+            .map((url, index) => `url_${index}: "${url}"`)
+            .join("\n")
+        ),
+        ...[
+          `https://${derivedApplicationId}/api`,
+          `https://${testApplicationId}/api`,
+          `https://${baseTestApplicationId}/api`,
+          `https://user@${derivedApplicationId}/api`,
+          `https:${baseApplicationId}/api`,
+          `https:\t${baseApplicationId}/api`,
+          `https:\t${baseApplicationId}.SecPalDeviceAdminReceiver/api`,
+          `https:\t${baseApplicationId}.action.MANAGE/api`,
+          `https:\t${derivedApplicationId}/api`,
+          `https:\n${derivedApplicationId}/api`,
+          `https:\r${derivedApplicationId}/api`,
+          `https:/\t${derivedApplicationId}/api`,
+          `https:\\\t${derivedApplicationId}/api`,
+          `https:user@\t${derivedApplicationId}/api`,
+          `https:\r\n${derivedApplicationId}/api`,
+          ["//", "\t", derivedApplicationId, "/api"].join(""),
+          ["\\\\", "\t", derivedApplicationId, "/api"].join(""),
+        ].map((url, index) =>
+          fixture(`forbidden-url-${index}.yml`, `url: "${url}"\n`)
+        ),
+        ...["&#9;", "&#10;", "&#13;", "&Tab;", "&NewLine;"].map(
+          (whitespace, index) =>
+            fixture(
+              `forbidden-encoded-url-${index}.html`,
+              `<a href="https:${whitespace}${derivedApplicationId}/api">Open</a>\n`
+            )
+        ),
+      ];
+
+      for (const [fileName, contents] of forbiddenFixtures) {
+        writeFileSync(join(tempRoot, fileName), contents);
+      }
+
+      const forbiddenResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+        timeout: 5_000,
+      });
+
+      expect(forbiddenResult.error, forbiddenResult.stderr).toBeUndefined();
+      expect(forbiddenResult.status).toBe(1);
+      for (const [fileName] of forbiddenFixtures) {
+        expect(forbiddenResult.stdout).toContain(`./${fileName}:`);
+      }
+      expect(forbiddenResult.stdout).toContain(forbiddenAppHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenDerivedHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenTestHost);
+      expect(forbiddenResult.stdout).toContain(forbiddenHost);
+      for (const host of prefixedApprovedHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
+      for (const host of terminalDotIdentifierHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
+      for (const host of unicodePrefixedIdentifierHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsafe storage-key exemption proof contexts", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-domain-policy-"));
     const parser = resolve(repoRoot, "scripts", "check-domains-parser.mjs");

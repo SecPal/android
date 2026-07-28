@@ -37,7 +37,18 @@ try {
 }
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
-const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
+const secpalDomainPattern =
+  /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
+const domainReferenceCharacterSource = String.raw`\p{L}\p{M}\p{N}_*\-`;
+const secpalReferenceSource = String.raw`(?<![${domainReferenceCharacterSource}])(?=[${domainReferenceCharacterSource}.]*secpal)(?:[${domainReferenceCharacterSource}]+\.+)+[${domainReferenceCharacterSource}]+\.*(?![${domainReferenceCharacterSource}])`;
+const secpalReferencePattern = new RegExp(secpalReferenceSource, "gu");
+const androidTestApplicationIdPattern =
+  /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;
+const secpalNetworkPrefixSource = String.raw`(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})`;
+const secpalNetworkReferencePattern = new RegExp(
+  `(${secpalNetworkPrefixSource})(${secpalReferenceSource})[A-Za-z0-9._~!$&'()*+,;=%:@/\\\\-]*`,
+  "giu"
+);
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
@@ -3010,6 +3021,63 @@ function makeProgram(
   );
 }
 
+function isAllowedAndroidTestApplicationId(line, start, reference) {
+  if (!androidTestApplicationIdPattern.test(reference)) {
+    return false;
+  }
+  const prefix = line.slice(0, start);
+  const suffix = line.slice(start + reference.length);
+  return (
+    (/^[ \t]*uninstall[ \t]+$/.test(prefix) &&
+      /^(?:[ \t]+(?:\|\||&&|;)|[ \t]*$)/.test(suffix)) ||
+    (/^[ \t]*admin_component[ \t]*=[ \t]*["']?$/.test(prefix) &&
+      /^\/app\.secpal\.[A-Z][A-Za-z0-9_]*["']?(?:[ \t]|$)/.test(suffix)) ||
+    (/^[ \t]*$/.test(prefix) &&
+      /^\/androidx\.test\.runner\.AndroidJUnitRunner(?:[ \t]|$)/.test(suffix))
+  );
+}
+
+function secpalReferenceOutputs(file, lineOffset, source) {
+  const outputs = new Set();
+  let networkLineNumber = lineOffset + 1;
+  let networkLineCursor = 0;
+  for (const match of source.matchAll(secpalNetworkReferencePattern)) {
+    if (!secpalDomainPattern.test(match[2])) {
+      continue;
+    }
+    const referenceStart = match.index + match[1].length;
+    let nextLineBreak = source.indexOf("\n", networkLineCursor);
+    while (nextLineBreak !== -1 && nextLineBreak < referenceStart) {
+      networkLineNumber += 1;
+      networkLineCursor = nextLineBreak + 1;
+      nextLineBreak = source.indexOf("\n", networkLineCursor);
+    }
+    outputs.add(
+      `${file}:${networkLineNumber}:${match[0].replace(/[\t\r\n]/g, "")}`
+    );
+  }
+
+  for (const [lineIndex, line] of source.split(/\r?\n/).entries()) {
+    for (const match of line.matchAll(secpalReferencePattern)) {
+      const start = match.index;
+      const reference = match[0];
+      if (!secpalDomainPattern.test(reference)) {
+        continue;
+      }
+      const end = start + reference.length;
+      if (isAllowedAndroidTestApplicationId(line, start, reference)) {
+        continue;
+      }
+      const emailPrefix = line[start - 1] === "@" ? "@" : "";
+      const portSuffix = line.slice(end).match(/^:[0-9]+/)?.[0] ?? "";
+      outputs.add(
+        `${file}:${lineOffset + lineIndex + 1}:${emailPrefix}${reference}${portSuffix}`
+      );
+    }
+  }
+  return outputs;
+}
+
 const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
@@ -3041,12 +3109,12 @@ for (const file of files) {
   }
 
   for (const analyzed of analyzedSources) {
-    analyzed.source.split("\n").forEach((line, index) => {
-      if (secpalDomainPattern.test(line)) {
-        process.stdout.write(
-          `${file}:${analyzed.lineOffset + index + 1}:${line}\n`
-        );
-      }
-    });
+    for (const output of secpalReferenceOutputs(
+      file,
+      analyzed.lineOffset,
+      analyzed.source
+    )) {
+      process.stdout.write(`${output}\n`);
+    }
   }
 }
