@@ -23,7 +23,7 @@ echo "Allowed: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev"
 echo "Active web hosts: api.secpal.dev, app.secpal.dev"
 echo "Android artifact host: apk.secpal.app"
 echo "Changelog site: changelog.secpal.app"
-echo "Identifier-only: app.secpal and ctRegression/test derivatives (Android application IDs)"
+echo "Identifier-only Android application IDs: app.secpal, app.secpal.test, app.secpal.ctregression, app.secpal.ctregression.test"
 echo "Deprecated web hosts: ${deprecated_api_host}"
 echo "Forbidden: ${forbidden_hosts}, ANY other"
 echo ""
@@ -55,7 +55,7 @@ fi
 # quoted value is passed as a literal key to a browser storage API. This
 # preserves detection of a domain-like value with an unapproved suffix.
 regex_prefix='(^|[^A-Za-z0-9.-])'
-regex_android_identifier_prefix='(^|[^A-Za-z0-9./@-])'
+regex_android_identifier_prefix='(^|^\./[^:]+:[0-9]+:|[^A-Za-z0-9./@:\\-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
 regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
 
@@ -104,7 +104,7 @@ else
     echo "  - api.secpal.dev: live API host"
     echo "  - app.secpal.dev: live PWA/frontend host"
     echo "  - secpal.dev: development, staging, testing, examples"
-    echo "  - app.secpal and ctRegression/test derivatives: Android application identifiers only"
+    echo "  - Android application IDs only: app.secpal, app.secpal.test, app.secpal.ctregression, app.secpal.ctregression.test"
     echo "  - DEPRECATED as web hosts: ${deprecated_api_host}"
     echo "  - FORBIDDEN: ${forbidden_hosts}"
     echo ""

@@ -1923,6 +1923,8 @@ describe("preflight", () => {
       `https://${testApplicationId}/api`,
       `https://${baseTestApplicationId}/api`,
       `https://user@${derivedApplicationId}/api`,
+      `https:${derivedApplicationId}/api`,
+      `https:\\${derivedApplicationId}/api`,
     ];
 
     try {
