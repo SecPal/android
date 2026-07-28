@@ -15,7 +15,7 @@ import org.junit.Test;
 public class AndroidPushRuntimeMetadataTest {
 
     @Test
-    public void fromBootstrapNormalizesProviderIndependentlyOfDefaultLocale() throws Exception {
+    public void normalizeProviderUsesRootLocale() throws Exception {
         Locale originalLocale = Locale.getDefault();
         Locale.setDefault(Locale.forLanguageTag("tr-TR"));
 
