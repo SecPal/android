@@ -1930,6 +1930,10 @@ describe("preflight", () => {
       `${baseApplicationId}.SecPal.`,
       `${baseApplicationId}.action.MANAGE.`,
     ];
+    const unicodePrefixedIdentifierHosts = [
+      `é${baseApplicationId}`,
+      `é${baseApplicationId}..`,
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -2011,6 +2015,12 @@ describe("preflight", () => {
           "forbidden-terminal-dot-identifier-hosts.yml",
           terminalDotIdentifierHosts
             .map((host, index) => `host_${index}: ${host}`)
+            .join("\n")
+        ),
+        fixture(
+          "forbidden-unicode-prefixed-identifier-hosts.yml",
+          unicodePrefixedIdentifierHosts
+            .map((host, index) => `url_${index}: "https://${host}/api"`)
             .join("\n")
         ),
         fixture(
@@ -2097,6 +2107,9 @@ describe("preflight", () => {
         expect(forbiddenResult.stdout).toContain(host);
       }
       for (const host of terminalDotIdentifierHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
+      for (const host of unicodePrefixedIdentifierHosts) {
         expect(forbiddenResult.stdout).toContain(host);
       }
     } finally {

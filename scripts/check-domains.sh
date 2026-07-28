@@ -56,19 +56,18 @@ fi
 # Hyphenated SecPal storage identifiers are only allowed when the complete
 # quoted value is passed as a literal key to a browser storage API. This
 # preserves detection of a domain-like value with an unapproved suffix.
-regex_prefix='(^|[^A-Za-z0-9.-])'
-regex_app_secpal_identifier_prefix='(^|^\./[^:]+:[0-9]+:|[^A-Za-z0-9_./@:\\-])'
-regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
-regex_identifier_suffix='($|[^A-Za-z0-9._:-]|:($|[^0-9]))'
+regex_candidate_prefix='^\./[^:]+:[0-9]+:'
+regex_host_prefix="(${regex_candidate_prefix}|[/:@])"
+regex_host_suffix='($|[/:@\\]|\.[/:@\\]|\.$)'
 
-allow_secpal_app="${regex_prefix}secpal\\.app${regex_suffix}"
-allow_changelog_secpal_app="${regex_prefix}changelog\\.secpal\\.app${regex_suffix}"
-allow_apk_secpal_app="${regex_prefix}apk\\.secpal\\.app${regex_suffix}"
-allow_secpal_dev="${regex_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_suffix}"
-allow_api_secpal_app="${regex_prefix}api\\.secpal\\.app${regex_suffix}"
-allow_app_secpal_identifier="${regex_app_secpal_identifier_prefix}app\\.secpal${regex_identifier_suffix}"
-allow_app_secpal_class="${regex_app_secpal_identifier_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*${regex_identifier_suffix}"
-allow_app_secpal_action="${regex_app_secpal_identifier_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*${regex_identifier_suffix}"
+allow_secpal_app="${regex_host_prefix}secpal\\.app${regex_host_suffix}"
+allow_changelog_secpal_app="${regex_host_prefix}changelog\\.secpal\\.app${regex_host_suffix}"
+allow_apk_secpal_app="${regex_host_prefix}apk\\.secpal\\.app${regex_host_suffix}"
+allow_secpal_dev="${regex_host_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_host_suffix}"
+allow_api_secpal_app="${regex_host_prefix}api\\.secpal\\.app${regex_host_suffix}"
+allow_app_secpal_identifier="${regex_candidate_prefix}app\\.secpal$"
+allow_app_secpal_class="${regex_candidate_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*$"
+allow_app_secpal_action="${regex_candidate_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*$"
 
 allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
 

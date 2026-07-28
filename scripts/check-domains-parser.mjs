@@ -39,14 +39,15 @@ try {
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
   /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
-const secpalReferenceSource = String.raw`(?<![A-Za-z0-9_*-])(?:[A-Za-z0-9_*-]+\.)*(?:[A-Za-z0-9_*-]*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|[A-Za-z0-9_*-]*app\.secpal(?=$|[^A-Za-z0-9_-]))(?:\.(?=$|[^A-Za-z0-9._-]))?`;
-const secpalReferencePattern = new RegExp(secpalReferenceSource, "g");
+const domainReferenceCharacterSource = String.raw`\p{L}\p{M}\p{N}_*\-`;
+const secpalReferenceSource = String.raw`(?<![${domainReferenceCharacterSource}])(?=[${domainReferenceCharacterSource}.]*secpal)(?:[${domainReferenceCharacterSource}]+\.+)+[${domainReferenceCharacterSource}]+\.*(?![${domainReferenceCharacterSource}])`;
+const secpalReferencePattern = new RegExp(secpalReferenceSource, "gu");
 const androidTestApplicationIdPattern =
   /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;
 const secpalNetworkPrefixSource = String.raw`(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})`;
 const secpalNetworkReferencePattern = new RegExp(
   `(${secpalNetworkPrefixSource})(${secpalReferenceSource})[A-Za-z0-9._~!$&'()*+,;=%:@/\\\\-]*`,
-  "gi"
+  "giu"
 );
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
@@ -3041,6 +3042,9 @@ function secpalReferenceOutputs(file, lineOffset, source) {
   let networkLineNumber = lineOffset + 1;
   let networkLineCursor = 0;
   for (const match of source.matchAll(secpalNetworkReferencePattern)) {
+    if (!secpalDomainPattern.test(match[2])) {
+      continue;
+    }
     const referenceStart = match.index + match[1].length;
     let nextLineBreak = source.indexOf("\n", networkLineCursor);
     while (nextLineBreak !== -1 && nextLineBreak < referenceStart) {
@@ -3057,6 +3061,9 @@ function secpalReferenceOutputs(file, lineOffset, source) {
     for (const match of line.matchAll(secpalReferencePattern)) {
       const start = match.index;
       const reference = match[0];
+      if (!secpalDomainPattern.test(reference)) {
+        continue;
+      }
       const end = start + reference.length;
       if (isAllowedAndroidTestApplicationId(line, start, reference)) {
         continue;
