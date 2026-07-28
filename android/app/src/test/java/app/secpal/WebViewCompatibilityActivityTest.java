@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.WebView;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.junit.Test;
@@ -52,6 +53,17 @@ public final class WebViewCompatibilityActivityTest {
             assertEquals(activity.getString(R.string.webview_compatibility_title), title.getText().toString());
             assertEquals(activity.getString(R.string.webview_compatibility_message), message.getText().toString());
             assertFalse(containsWebView(activity.findViewById(android.R.id.content)));
+        }
+    }
+
+    @Test
+    public void sizesScrollableContentToWrapLongAccessibilityText() {
+        try (ActivityController<WebViewCompatibilityActivity> controller =
+            Robolectric.buildActivity(WebViewCompatibilityActivity.class).setup()) {
+            ViewGroup content = controller.get().findViewById(android.R.id.content);
+            ScrollView scrollView = (ScrollView) content.getChildAt(0);
+
+            assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, scrollView.getChildAt(0).getLayoutParams().height);
         }
     }
 

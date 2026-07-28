@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line-anchored uninstall, admin-component, and instrumentation-runner contexts
   while retaining linear-time, Unicode-aware whole-authority forbidden-host
   detection, including repeated terminal DNS root dots (issue #482).
+- Sized the native WebView compatibility screen's scrollable content to its
+  text so long update guidance remains accessible on constrained displays
+  (issue #459).
 - Normalized Android push-provider metadata with the locale-independent root
   locale so device language settings cannot alter internal identifiers (issue
   #458).
