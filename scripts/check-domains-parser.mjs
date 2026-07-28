@@ -39,8 +39,11 @@ try {
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
   /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
-const appSecPalUrlPattern =
-  /(?:\b(?:https?|wss?|ftp):|\/\/|\\\\)[A-Za-z0-9._~!$&'()*+,;=%:@/\\\t\r\n-]*app\.secpal[A-Za-z0-9._-]*/gi;
+const secpalReferencePattern =
+  /app\.secpal(?=$|[^A-Za-z0-9_-])|secpal\.[A-Za-z0-9]/g;
+const domainReferenceCharacterPattern = /[A-Za-z0-9_*._-]/;
+const appSecPalNetworkPrefixPattern =
+  /(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})$/i;
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
@@ -3013,13 +3016,45 @@ function makeProgram(
   );
 }
 
-function appSecPalUrlOutputs(file, lineOffset, source) {
-  return Array.from(source.matchAll(appSecPalUrlPattern)).map((match) => {
+function secpalReferenceOutputs(file, lineOffset, source) {
+  const outputs = new Set();
+  for (const match of source.matchAll(secpalReferencePattern)) {
+    let start = match.index;
+    while (
+      start > 0 &&
+      domainReferenceCharacterPattern.test(source[start - 1])
+    ) {
+      start -= 1;
+    }
+
+    let end = match.index + match[0].length;
+    while (
+      end < source.length &&
+      domainReferenceCharacterPattern.test(source[end])
+    ) {
+      end += 1;
+    }
+
+    const reference = source.slice(start, end);
+    const networkPrefix = source
+      .slice(0, start)
+      .match(appSecPalNetworkPrefixPattern)?.[0];
+    const emailPrefix = source[start - 1] === "@" ? "@" : "";
+    const portSuffix = source.slice(end).match(/^:[0-9]+/)?.[0] ?? "";
+    const networkSuffix = networkPrefix
+      ? (source.slice(end).match(/^[A-Za-z0-9._~!$&'()*+,;=%:@/\\-]*/)?.[0] ??
+        "")
+      : portSuffix;
+    const candidate =
+      `${networkPrefix ?? emailPrefix}${reference}${networkSuffix}`.replace(
+        /[\t\r\n]/g,
+        ""
+      );
     const precedingLineCount =
       source.slice(0, match.index).match(/\n/g)?.length ?? 0;
-    const normalizedUrl = match[0].replace(/[\t\r\n]/g, "");
-    return `${file}:${lineOffset + precedingLineCount + 1}:${normalizedUrl}`;
-  });
+    outputs.add(`${file}:${lineOffset + precedingLineCount + 1}:${candidate}`);
+  }
+  return outputs;
 }
 
 const files = process.argv.slice(2);
@@ -3053,19 +3088,12 @@ for (const file of files) {
   }
 
   for (const analyzed of analyzedSources) {
-    for (const output of appSecPalUrlOutputs(
+    for (const output of secpalReferenceOutputs(
       file,
       analyzed.lineOffset,
       analyzed.source
     )) {
       process.stdout.write(`${output}\n`);
     }
-    analyzed.source.split("\n").forEach((line, index) => {
-      if (secpalDomainPattern.test(line)) {
-        process.stdout.write(
-          `${file}:${analyzed.lineOffset + index + 1}:${line}\n`
-        );
-      }
-    });
   }
 }

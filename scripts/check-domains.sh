@@ -41,7 +41,9 @@ if ! matches=$(find . \
     exit 1
 fi
 
-# Allowlist approach: flag any secpal.* domain not matching an approved pattern.
+# The parser emits one candidate per SecPal reference so an approved value
+# cannot hide a forbidden value elsewhere on the same source line.
+# Flag any isolated candidate not matching an approved pattern.
 # Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts and the deprecated API host for documentation only.
 # app.secpal sub-patterns are narrowed to:
 #   - standalone app.secpal (as Android app ID),
@@ -55,9 +57,9 @@ fi
 # quoted value is passed as a literal key to a browser storage API. This
 # preserves detection of a domain-like value with an unapproved suffix.
 regex_prefix='(^|[^A-Za-z0-9.-])'
-regex_app_secpal_identifier_prefix='(^|^\./[^:]+:[0-9]+:|[^A-Za-z0-9./@:\\-])'
+regex_app_secpal_identifier_prefix='(^|^\./[^:]+:[0-9]+:|[^A-Za-z0-9_./@:\\-])'
 regex_suffix='($|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)'
-regex_identifier_suffix='([^A-Za-z0-9._-]|$)'
+regex_identifier_suffix='($|[^A-Za-z0-9._:-]|:($|[^0-9]))'
 
 allow_secpal_app="${regex_prefix}secpal\\.app${regex_suffix}"
 allow_changelog_secpal_app="${regex_prefix}changelog\\.secpal\\.app${regex_suffix}"

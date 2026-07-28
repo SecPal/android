@@ -1974,6 +1974,67 @@ describe("preflight", () => {
 
       expect(allowedResult.status, allowedResult.stdout).toBe(0);
 
+      const adjacentAllowedReferencesFile = join(
+        tempRoot,
+        "allowed-adjacent-references.yml"
+      );
+      writeFileSync(
+        adjacentAllowedReferencesFile,
+        [
+          `homepage: "https://secpal.app"`,
+          `package: ${baseApplicationId}`,
+        ].join("\n")
+      );
+
+      const adjacentAllowedReferencesResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(
+        adjacentAllowedReferencesResult.status,
+        adjacentAllowedReferencesResult.stdout
+      ).toBe(0);
+      unlinkSync(adjacentAllowedReferencesFile);
+
+      const forbiddenReferenceContexts = [
+        [
+          "forbidden-same-line-email.yml",
+          `cleanup: "uninstall ${derivedApplicationId}; contact mailto:user@${derivedApplicationId}"\n`,
+        ],
+        [
+          "forbidden-port-endpoint.yml",
+          `endpoint: ${derivedApplicationId}:443\n`,
+        ],
+        [
+          "forbidden-underscored-host.yml",
+          `endpoint: "https://foo_${derivedApplicationId}/api"\n`,
+        ],
+        [
+          "forbidden-mixed-domain-line.yml",
+          `sites: "https://secpal.app https://${forbiddenHost}"\n`,
+        ],
+      ] as const;
+
+      for (const [fileName, contents] of forbiddenReferenceContexts) {
+        const forbiddenReferenceFile = join(tempRoot, fileName);
+        writeFileSync(forbiddenReferenceFile, contents);
+
+        const forbiddenReferenceResult = spawnSync("bash", [checker], {
+          cwd: tempRoot,
+          encoding: "utf8",
+          env: domainCheckerEnvironment,
+        });
+
+        expect(
+          forbiddenReferenceResult.status,
+          forbiddenReferenceResult.stdout
+        ).toBe(1);
+        expect(forbiddenReferenceResult.stdout).toContain(fileName);
+        unlinkSync(forbiddenReferenceFile);
+      }
+
       const sameLineUrl = `https:${derivedApplicationId}/api`;
       const sameLineUrlFile = join(
         tempRoot,

@@ -24,9 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Allowed `app.secpal.test`, `app.secpal.ctregression`, and
   `app.secpal.ctregression.test` as Android application IDs in domain-policy
-  checks while keeping direct, same-line, delimiter-separated,
-  removable-whitespace, HTML-encoded, and protocol-relative URL forms
-  forbidden (issue #482).
+  checks while evaluating every SecPal reference independently and keeping
+  direct, same-line, delimiter-separated, removable-whitespace, HTML-encoded,
+  protocol-relative, email, port, and embedded-host forms forbidden
+  (issue #482).
 - Normalized Android push-provider metadata with the locale-independent root
   locale so device language settings cannot alter internal identifiers (issue
   #458).
