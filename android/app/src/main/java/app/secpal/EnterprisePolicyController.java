@@ -472,9 +472,7 @@ public final class EnterprisePolicyController {
             );
             setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, true);
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                devicePolicyManager.setStatusBarDisabled(adminComponent, true);
-            }
+            devicePolicyManager.setStatusBarDisabled(adminComponent, true);
 
             setKioskUserRestrictions(devicePolicyManager, adminComponent, true);
 
@@ -498,9 +496,7 @@ public final class EnterprisePolicyController {
         devicePolicyManager.setLockTaskPackages(adminComponent, new String[] { context.getPackageName() });
         setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, false);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            devicePolicyManager.setStatusBarDisabled(adminComponent, false);
-        }
+        devicePolicyManager.setStatusBarDisabled(adminComponent, false);
 
         setKioskUserRestrictions(devicePolicyManager, adminComponent, false);
 

@@ -24,10 +24,38 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowDevicePolicyManager;
 
 @RunWith(RobolectricTestRunner.class)
 public class EnterprisePolicyApiLevelTest {
+
+    @Test
+    @Config(sdk = 24, shadows = RecordingDevicePolicyManager.class)
+    public void api24AppliesAndClearsStatusBarPolicy() {
+        Context context = RuntimeEnvironment.getApplication();
+        DevicePolicyManager devicePolicyManager = applyKioskDeviceOwnerPolicy(context);
+        ComponentName adminComponent = new ComponentName(
+            context,
+            SecPalDeviceAdminReceiver.class
+        );
+        RecordingDevicePolicyManager shadowDevicePolicyManager =
+            (RecordingDevicePolicyManager) shadowOf(devicePolicyManager);
+
+        assertEquals(adminComponent, shadowDevicePolicyManager.getStatusBarAdmin());
+        assertTrue(shadowDevicePolicyManager.isStatusBarDisabled());
+
+        EnterprisePolicyController.persistDebugPolicy(
+            context,
+            new LinkedHashMap<>()
+        );
+        EnterprisePolicyController.syncPolicy(context);
+
+        assertEquals(adminComponent, shadowDevicePolicyManager.getStatusBarAdmin());
+        assertFalse(shadowDevicePolicyManager.isStatusBarDisabled());
+    }
 
     @Test
     @Config(sdk = 27)
@@ -262,5 +290,29 @@ public class EnterprisePolicyApiLevelTest {
         assertTrue(shadowOf(devicePolicyManager).setDeviceOwner(adminComponent));
 
         return devicePolicyManager;
+    }
+
+    @Implements(DevicePolicyManager.class)
+    public static class RecordingDevicePolicyManager extends ShadowDevicePolicyManager {
+        private ComponentName statusBarAdmin;
+        private boolean statusBarDisabled;
+
+        @Implementation(minSdk = 23)
+        protected boolean setStatusBarDisabled(
+            ComponentName adminComponent,
+            boolean disabled
+        ) {
+            statusBarAdmin = adminComponent;
+            statusBarDisabled = disabled;
+            return true;
+        }
+
+        ComponentName getStatusBarAdmin() {
+            return statusBarAdmin;
+        }
+
+        boolean isStatusBarDisabled() {
+            return statusBarDisabled;
+        }
     }
 }
