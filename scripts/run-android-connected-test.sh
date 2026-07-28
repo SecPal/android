@@ -67,8 +67,13 @@ fi
 
 retry_reason=""
 reboot_before_retry=false
-if grep -Fq "Failed to commit install session" "$attempt_log" &&
-    grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+if {
+    grep -Fq "Failed to commit install session" "$attempt_log" &&
+        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
+} || {
+    grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
+        grep -Fq "Can't find service: package" "$attempt_log"
+}; then
     retry_reason="PackageManager connection failure"
     reboot_before_retry=true
 elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
