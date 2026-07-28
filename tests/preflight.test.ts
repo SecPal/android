@@ -1985,8 +1985,23 @@ describe("preflight", () => {
           `endpoint: "https://é${derivedApplicationId}/api"\n`
         ),
         fixture(
+          "forbidden-runner-host.yml",
+          `endpoint: https://${derivedApplicationId}/androidx.test.runner.AndroidJUnitRunner\n`
+        ),
+        fixture(
+          "forbidden-admin-component-host.yml",
+          `endpoint: https://admin_component=${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver\n`
+        ),
+        fixture(
           "forbidden-same-line-url.yml",
           `cleanup: "uninstall ${derivedApplicationId}; open https:${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-many-references.yml",
+          Array.from(
+            { length: 10_000 },
+            (_, index) => `host_${index}=${derivedApplicationId}`
+          ).join(" ")
         ),
         fixture(
           "forbidden-hosts.yml",
@@ -2037,8 +2052,10 @@ describe("preflight", () => {
         cwd: tempRoot,
         encoding: "utf8",
         env: domainCheckerEnvironment,
+        timeout: 5_000,
       });
 
+      expect(forbiddenResult.error, forbiddenResult.stderr).toBeUndefined();
       expect(forbiddenResult.status).toBe(1);
       for (const [fileName] of forbiddenFixtures) {
         expect(forbiddenResult.stdout).toContain(`./${fileName}:`);

@@ -39,12 +39,15 @@ try {
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
   /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
-const secpalReferencePattern =
-  /(?:[A-Za-z0-9_*-]+\.)*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|app\.secpal(?=$|[^A-Za-z0-9_-])/g;
+const secpalReferenceSource = String.raw`(?:[A-Za-z0-9_*-]+\.)*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|app\.secpal(?=$|[^A-Za-z0-9_-])`;
+const secpalReferencePattern = new RegExp(secpalReferenceSource, "g");
 const androidTestApplicationIdPattern =
   /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;
-const appSecPalNetworkPrefixPattern =
-  /(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})$/i;
+const secpalNetworkPrefixSource = String.raw`(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})`;
+const secpalNetworkReferencePattern = new RegExp(
+  `(${secpalNetworkPrefixSource})(${secpalReferenceSource})[A-Za-z0-9._~!$&'()*+,;=%:@/\\\\-]*`,
+  "gi"
+);
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
@@ -3017,52 +3020,53 @@ function makeProgram(
   );
 }
 
-function isAllowedAndroidTestApplicationId(source, start, reference) {
+function isAllowedAndroidTestApplicationId(line, start, reference) {
   if (!androidTestApplicationIdPattern.test(reference)) {
     return false;
   }
-  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
-  const lineEnd = source.indexOf("\n", start);
-  const prefix = source.slice(lineStart, start);
-  const suffix = source.slice(
-    start + reference.length,
-    lineEnd === -1 ? source.length : lineEnd
-  );
+  const prefix = line.slice(0, start);
+  const suffix = line.slice(start + reference.length);
   return (
-    (/\buninstall[ \t]+$/.test(prefix) &&
+    (/^[ \t]*uninstall[ \t]+$/.test(prefix) &&
       /^(?:[ \t]+(?:\|\||&&|;)|[ \t]*$)/.test(suffix)) ||
-    (/\badmin_component\s*=\s*["']?$/.test(prefix) &&
+    (/^[ \t]*admin_component[ \t]*=[ \t]*["']?$/.test(prefix) &&
       /^\/app\.secpal\.[A-Z][A-Za-z0-9_]*["']?(?:[ \t]|$)/.test(suffix)) ||
-    /^\/androidx\.test\.runner\.AndroidJUnitRunner(?:[ \t]|$)/.test(suffix)
+    (/^[ \t]*$/.test(prefix) &&
+      /^\/androidx\.test\.runner\.AndroidJUnitRunner(?:[ \t]|$)/.test(suffix))
   );
 }
 
 function secpalReferenceOutputs(file, lineOffset, source) {
   const outputs = new Set();
-  for (const match of source.matchAll(secpalReferencePattern)) {
-    const start = match.index;
-    const reference = match[0];
-    const end = start + reference.length;
-    if (isAllowedAndroidTestApplicationId(source, start, reference)) {
-      continue;
+  let networkLineNumber = lineOffset + 1;
+  let networkLineCursor = 0;
+  for (const match of source.matchAll(secpalNetworkReferencePattern)) {
+    const referenceStart = match.index + match[1].length;
+    let nextLineBreak = source.indexOf("\n", networkLineCursor);
+    while (nextLineBreak !== -1 && nextLineBreak < referenceStart) {
+      networkLineNumber += 1;
+      networkLineCursor = nextLineBreak + 1;
+      nextLineBreak = source.indexOf("\n", networkLineCursor);
     }
-    const networkPrefix = source
-      .slice(0, start)
-      .match(appSecPalNetworkPrefixPattern)?.[0];
-    const emailPrefix = source[start - 1] === "@" ? "@" : "";
-    const portSuffix = source.slice(end).match(/^:[0-9]+/)?.[0] ?? "";
-    const networkSuffix = networkPrefix
-      ? (source.slice(end).match(/^[A-Za-z0-9._~!$&'()*+,;=%:@/\\-]*/)?.[0] ??
-        "")
-      : portSuffix;
-    const candidate =
-      `${networkPrefix ?? emailPrefix}${reference}${networkSuffix}`.replace(
-        /[\t\r\n]/g,
-        ""
+    outputs.add(
+      `${file}:${networkLineNumber}:${match[0].replace(/[\t\r\n]/g, "")}`
+    );
+  }
+
+  for (const [lineIndex, line] of source.split("\n").entries()) {
+    for (const match of line.matchAll(secpalReferencePattern)) {
+      const start = match.index;
+      const reference = match[0];
+      const end = start + reference.length;
+      if (isAllowedAndroidTestApplicationId(line, start, reference)) {
+        continue;
+      }
+      const emailPrefix = line[start - 1] === "@" ? "@" : "";
+      const portSuffix = line.slice(end).match(/^:[0-9]+/)?.[0] ?? "";
+      outputs.add(
+        `${file}:${lineOffset + lineIndex + 1}:${emailPrefix}${reference}${portSuffix}`
       );
-    const precedingLineCount =
-      source.slice(0, match.index).match(/\n/g)?.length ?? 0;
-    outputs.add(`${file}:${lineOffset + precedingLineCount + 1}:${candidate}`);
+    }
   }
   return outputs;
 }

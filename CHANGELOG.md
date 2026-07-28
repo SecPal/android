@@ -22,9 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Allowed derived Android test application IDs in positively identified
-  uninstall, admin-component, and instrumentation-runner contexts while
-  keeping every other use subject to domain-policy checks (issue #482).
+- Allowed derived Android test application IDs only in line-anchored uninstall,
+  admin-component, and instrumentation-runner contexts while retaining
+  linear-time forbidden-host detection (issue #482).
 - Normalized Android push-provider metadata with the locale-independent root
   locale so device language settings cannot alter internal identifiers (issue
   #458).
