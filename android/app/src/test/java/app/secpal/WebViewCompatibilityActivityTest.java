@@ -57,7 +57,7 @@ public final class WebViewCompatibilityActivityTest {
     }
 
     @Test
-    public void sizesScrollableContentToWrapLongAccessibilityText() {
+    public void usesWrapContentForTheScrollChildSizingContract() {
         try (ActivityController<WebViewCompatibilityActivity> controller =
             Robolectric.buildActivity(WebViewCompatibilityActivity.class).setup()) {
             ViewGroup content = controller.get().findViewById(android.R.id.content);
@@ -65,6 +65,48 @@ public final class WebViewCompatibilityActivityTest {
 
             assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, scrollView.getChildAt(0).getLayoutParams().height);
         }
+    }
+
+    @Test
+    public void keepsShortUpdateGuidanceCenteredInTheViewport() {
+        try (ActivityController<WebViewCompatibilityActivity> controller =
+            Robolectric.buildActivity(WebViewCompatibilityActivity.class).setup()) {
+            ViewGroup content = controller.get().findViewById(android.R.id.content);
+            ScrollView scrollView = (ScrollView) content.getChildAt(0);
+            ViewGroup scrollableContent = (ViewGroup) scrollView.getChildAt(0);
+            TextView title = controller.get().findViewById(R.id.webview_compatibility_title);
+
+            measureAndLayout(scrollView, 480, 1_000);
+
+            assertEquals(scrollView.getMeasuredHeight(), scrollableContent.getMeasuredHeight());
+            assertTrue(title.getTop() > scrollableContent.getPaddingTop());
+            assertFalse(scrollView.canScrollVertically(1));
+        }
+    }
+
+    @Test
+    public void keepsLongUpdateGuidanceScrollableInAConstrainedViewport() {
+        try (ActivityController<WebViewCompatibilityActivity> controller =
+            Robolectric.buildActivity(WebViewCompatibilityActivity.class).setup()) {
+            ViewGroup content = controller.get().findViewById(android.R.id.content);
+            ScrollView scrollView = (ScrollView) content.getChildAt(0);
+            View scrollableContent = scrollView.getChildAt(0);
+            TextView message = controller.get().findViewById(R.id.webview_compatibility_message);
+            String updateGuidance = message.getText().toString();
+            message.setText((updateGuidance + "\n").repeat(20));
+
+            measureAndLayout(scrollView, 480, 200);
+
+            assertTrue(scrollableContent.getMeasuredHeight() > scrollView.getMeasuredHeight());
+            assertTrue(scrollView.canScrollVertically(1));
+        }
+    }
+
+    private static void measureAndLayout(View view, int width, int height) {
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY);
+        view.measure(widthSpec, heightSpec);
+        view.layout(0, 0, view.getMeasuredWidth(), view.getMeasuredHeight());
     }
 
     private static boolean containsWebView(View view) {
