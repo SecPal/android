@@ -362,6 +362,7 @@ exit 1
       failureMode:
         | "package-manager"
         | "package-manager-always"
+        | "missing-package-service"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
         | "command-error"
@@ -394,6 +395,10 @@ if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   if [[ "${failureMode}" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
+  elif [[ "${failureMode}" == "missing-package-service" ]]; then
+    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
+    printf '%s\n' "Unknown failure: cmd: Can't find service: package"
   elif [[ "${failureMode}" == instrumentation-crash* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Test run failed to complete. No test results.'
@@ -468,6 +473,22 @@ printf '%s\n' "$*" >> "${rebootPath}"
     ]);
     expect(recoverableApi37Failure.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableApi37Failure.result.stdout).toContain(
+      "Retrying API 37 instrumentation after PackageManager connection failure"
+    );
+
+    const recoverableMissingPackageService = runScenario(
+      37,
+      "missing-package-service"
+    );
+    expect(recoverableMissingPackageService.result.status).toBe(0);
+    expect(recoverableMissingPackageService.attempts).toBe(2);
+    expect(recoverableMissingPackageService.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableMissingPackageService.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+    expect(recoverableMissingPackageService.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
 
