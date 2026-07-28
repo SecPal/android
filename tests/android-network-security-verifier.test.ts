@@ -449,4 +449,17 @@ describe("Android release network security verifier", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("XML is malformed");
   });
+
+  it("reports fatal parser errors as malformed XML", () => {
+    const fixture = createFixture();
+    writeFileSync(
+      join(fixture.resourcesPath, "xml", "network_security_config.xml"),
+      "<network-security-config>"
+    );
+
+    const result = runVerifier(fixture.manifestPath, fixture.resourcesPath);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("XML is malformed");
+  });
 });

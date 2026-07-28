@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept Android release network-security verification compatible with
+  `@xmldom/xmldom` 0.9 by collecting parser diagnostics through its current
+  `onError` callback.
 - Defined explicit fail-closed Android 12+ cloud-backup and device-transfer
   rules, retained the legacy backup disable/configuration, and added focused
   manifest policy coverage (issue #456).

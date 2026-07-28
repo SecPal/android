@@ -50,13 +50,16 @@ const findFiles = (root) => {
 
 const parseXml = (xml, path) => {
   const diagnostics = [];
-  const document = new DOMParser({
-    errorHandler: {
-      warning: (message) => diagnostics.push(message),
-      error: (message) => diagnostics.push(message),
-      fatalError: (message) => diagnostics.push(message),
-    },
-  }).parseFromString(xml, "application/xml");
+  let document;
+  try {
+    document = new DOMParser({
+      onError: (_level, message) => diagnostics.push(message),
+    }).parseFromString(xml, "application/xml");
+  } catch (error) {
+    if (diagnostics.length === 0) {
+      throw error;
+    }
+  }
 
   if (!document || diagnostics.length > 0) {
     fail(

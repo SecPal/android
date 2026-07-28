@@ -84,7 +84,14 @@ describe("third-party license provenance", () => {
       "utf8"
     );
 
-    expect(audit).toContain("license-checker-rseidelsohn@5.0.1");
+    const auditToolVersions = Array.from(
+      audit.matchAll(
+        /npx --yes license-checker-rseidelsohn@(\d+\.\d+\.\d+) --(?:production --)?json/g
+      ),
+      ([, version]) => version
+    );
+    expect(auditToolVersions).toHaveLength(2);
+    expect(new Set(auditToolVersions).size).toBe(1);
     expect(audit).toContain(
       "https://docs.gradle.org/current/userguide/licenses.html"
     );
