@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Rebooted the API 37 emulator before the single retry for a pre-test
+  PackageManager broken-pipe failure so the retry does not reuse the same
+  damaged Android system service.
+- Kept Android release network-security verification compatible with
+  `@xmldom/xmldom` 0.9 by collecting parser diagnostics through its current
+  `onError` callback.
 - Defined explicit fail-closed Android 12+ cloud-backup and device-transfer
   rules, retained the legacy backup disable/configuration, and added focused
   manifest policy coverage (issue #456).

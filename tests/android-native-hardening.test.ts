@@ -464,17 +464,31 @@ describe("Android native hardening", () => {
     ).toBe(false);
   });
 
-  it("pins a patched xmldom version for Capacitor CLI tooling", () => {
+  it("keeps xmldom exactly pinned and aligned for Capacitor CLI tooling", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      devDependencies?: Record<string, unknown>;
       overrides?: Record<string, unknown>;
     };
     const packageLock = JSON.parse(readRepoFile("package-lock.json")) as {
-      packages?: Record<string, { version?: string }>;
+      packages?: Record<
+        string,
+        {
+          devDependencies?: Record<string, unknown>;
+          version?: string;
+        }
+      >;
     };
+    const declaredVersion = packageJson.devDependencies?.["@xmldom/xmldom"];
 
-    expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe("0.8.13");
+    expect(declaredVersion).toMatch(
+      /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+    );
+    expect(packageJson.overrides?.["@xmldom/xmldom"]).toBe(declaredVersion);
+    expect(
+      packageLock.packages?.[""]?.devDependencies?.["@xmldom/xmldom"]
+    ).toBe(declaredVersion);
     expect(packageLock.packages?.["node_modules/@xmldom/xmldom"]?.version).toBe(
-      "0.8.13"
+      declaredVersion
     );
   });
 
