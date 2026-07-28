@@ -1918,36 +1918,8 @@ describe("preflight", () => {
     const forbiddenDerivedHost = `${derivedApplicationId}.com`;
     const forbiddenTestHost = `${baseTestApplicationId}.com`;
     const forbiddenHost = ["secpal", "invalid"].join(".");
-    const forbiddenExactHostUrls = [
-      `https://${derivedApplicationId}/api`,
-      `https://${testApplicationId}/api`,
-      `https://${baseTestApplicationId}/api`,
-      `https://user@${derivedApplicationId}/api`,
-      `https:${derivedApplicationId}/api`,
-      `https:\\${derivedApplicationId}/api`,
-    ];
-    const forbiddenIdentifierContextUrls = [
-      `https:${baseApplicationId}/api`,
-      `https:\t${baseApplicationId}/api`,
-      `https:\t${baseApplicationId}.SecPalDeviceAdminReceiver/api`,
-      `https:\t${baseApplicationId}.action.MANAGE/api`,
-      `https:\t${derivedApplicationId}/api`,
-      `https:\n${derivedApplicationId}/api`,
-      `https:\r${derivedApplicationId}/api`,
-      `https:/\t${derivedApplicationId}/api`,
-      `https:\\\t${derivedApplicationId}/api`,
-      `https:user@\t${derivedApplicationId}/api`,
-      `https:\r\n${derivedApplicationId}/api`,
-      ["//", "\t", derivedApplicationId, "/api"].join(""),
-      ["\\\\", "\t", derivedApplicationId, "/api"].join(""),
-    ];
-    const htmlEncodedUrlWhitespace = [
-      "&#9;",
-      "&#10;",
-      "&#13;",
-      "&Tab;",
-      "&NewLine;",
-    ];
+    const malformedEmptyLabelHost = ["secpal", "", "com"].join(".");
+    const malformedHyphenLabelHost = ["secpal", "-com"].join(".");
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -1963,6 +1935,8 @@ describe("preflight", () => {
           `uninstall ${testApplicationId}`,
           `uninstall ${derivedApplicationId}`,
           `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
+          `homepage: "https://secpal.app"`,
+          `package: ${baseApplicationId}`,
         ].join("\n")
       );
 
@@ -1974,150 +1948,90 @@ describe("preflight", () => {
 
       expect(allowedResult.status, allowedResult.stdout).toBe(0);
 
-      const adjacentAllowedReferencesFile = join(
-        tempRoot,
-        "allowed-adjacent-references.yml"
-      );
-      writeFileSync(
-        adjacentAllowedReferencesFile,
-        [
-          `homepage: "https://secpal.app"`,
-          `package: ${baseApplicationId}`,
-        ].join("\n")
-      );
-
-      const adjacentAllowedReferencesResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(
-        adjacentAllowedReferencesResult.status,
-        adjacentAllowedReferencesResult.stdout
-      ).toBe(0);
-      unlinkSync(adjacentAllowedReferencesFile);
-
-      const forbiddenReferenceContexts = [
-        [
+      const fixture = (fileName: string, contents: string) =>
+        [fileName, contents] as const;
+      const forbiddenFixtures = [
+        fixture(
           "forbidden-same-line-email.yml",
-          `cleanup: "uninstall ${derivedApplicationId}; contact mailto:user@${derivedApplicationId}"\n`,
-        ],
-        [
+          `cleanup: "uninstall ${derivedApplicationId}; contact mailto:user@${derivedApplicationId}"\n`
+        ),
+        fixture(
           "forbidden-port-endpoint.yml",
-          `endpoint: ${derivedApplicationId}:443\n`,
-        ],
-        [
+          `endpoint: ${derivedApplicationId}:443\n`
+        ),
+        fixture(
           "forbidden-underscored-host.yml",
-          `endpoint: "https://foo_${derivedApplicationId}/api"\n`,
-        ],
-        [
+          `endpoint: "https://foo_${derivedApplicationId}/api"\n`
+        ),
+        fixture(
           "forbidden-mixed-domain-line.yml",
-          `sites: "https://secpal.app https://${forbiddenHost}"\n`,
-        ],
-      ] as const;
+          `sites: "https://secpal.app https://${forbiddenHost}"\n`
+        ),
+        fixture("forbidden-bare-host.yml", `host: ${derivedApplicationId}\n`),
+        fixture(
+          "forbidden-malformed-hosts.yml",
+          `sites: "https://${malformedEmptyLabelHost} https://${malformedHyphenLabelHost}"\n`
+        ),
+        fixture(
+          "forbidden-escaped-url.js",
+          `const endpoint = "https:\\u{2f}\\u{2f}${derivedApplicationId}/api";\n`
+        ),
+        fixture(
+          "forbidden-uri-scheme.yml",
+          `redirect: ${derivedApplicationId}://callback\n`
+        ),
+        fixture(
+          "forbidden-unicode-host.yml",
+          `endpoint: "https://é${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-same-line-url.yml",
+          `cleanup: "uninstall ${derivedApplicationId}; open https:${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-hosts.yml",
+          [
+            `https://${baseApplicationId}.com/api`,
+            `https://${derivedApplicationId}.com/api`,
+            `https://${baseTestApplicationId}.com/api`,
+            `https://${forbiddenHost}/api`,
+          ]
+            .map((url, index) => `url_${index}: "${url}"`)
+            .join("\n")
+        ),
+        ...[
+          `https://${derivedApplicationId}/api`,
+          `https://${testApplicationId}/api`,
+          `https://${baseTestApplicationId}/api`,
+          `https://user@${derivedApplicationId}/api`,
+          `https:${baseApplicationId}/api`,
+          `https:\t${baseApplicationId}/api`,
+          `https:\t${baseApplicationId}.SecPalDeviceAdminReceiver/api`,
+          `https:\t${baseApplicationId}.action.MANAGE/api`,
+          `https:\t${derivedApplicationId}/api`,
+          `https:\n${derivedApplicationId}/api`,
+          `https:\r${derivedApplicationId}/api`,
+          `https:/\t${derivedApplicationId}/api`,
+          `https:\\\t${derivedApplicationId}/api`,
+          `https:user@\t${derivedApplicationId}/api`,
+          `https:\r\n${derivedApplicationId}/api`,
+          ["//", "\t", derivedApplicationId, "/api"].join(""),
+          ["\\\\", "\t", derivedApplicationId, "/api"].join(""),
+        ].map((url, index) =>
+          fixture(`forbidden-url-${index}.yml`, `url: "${url}"\n`)
+        ),
+        ...["&#9;", "&#10;", "&#13;", "&Tab;", "&NewLine;"].map(
+          (whitespace, index) =>
+            fixture(
+              `forbidden-encoded-url-${index}.html`,
+              `<a href="https:${whitespace}${derivedApplicationId}/api">Open</a>\n`
+            )
+        ),
+      ];
 
-      for (const [fileName, contents] of forbiddenReferenceContexts) {
-        const forbiddenReferenceFile = join(tempRoot, fileName);
-        writeFileSync(forbiddenReferenceFile, contents);
-
-        const forbiddenReferenceResult = spawnSync("bash", [checker], {
-          cwd: tempRoot,
-          encoding: "utf8",
-          env: domainCheckerEnvironment,
-        });
-
-        expect(
-          forbiddenReferenceResult.status,
-          forbiddenReferenceResult.stdout
-        ).toBe(1);
-        expect(forbiddenReferenceResult.stdout).toContain(fileName);
-        unlinkSync(forbiddenReferenceFile);
+      for (const [fileName, contents] of forbiddenFixtures) {
+        writeFileSync(join(tempRoot, fileName), contents);
       }
-
-      const sameLineUrl = `https:${derivedApplicationId}/api`;
-      const sameLineUrlFile = join(
-        tempRoot,
-        "forbidden-same-line-identifier-url.yml"
-      );
-      writeFileSync(
-        sameLineUrlFile,
-        `cleanup: "uninstall ${derivedApplicationId}; open ${sameLineUrl}"\n`
-      );
-
-      const sameLineUrlResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(sameLineUrlResult.status, sameLineUrlResult.stdout).toBe(1);
-      expect(sameLineUrlResult.stdout).toContain(derivedApplicationId);
-      unlinkSync(sameLineUrlFile);
-
-      const identifierUrlFiles = forbiddenIdentifierContextUrls.map(
-        (url, index) => {
-          const fileName = `forbidden-identifier-url-${index}.yml`;
-          const identifierUrlFile = join(tempRoot, fileName);
-          writeFileSync(identifierUrlFile, `url: "${url}"\n`);
-          return { fileName, path: identifierUrlFile };
-        }
-      );
-      const encodedUrlFiles = htmlEncodedUrlWhitespace.map(
-        (whitespace, index) => {
-          const fileName = `forbidden-encoded-identifier-url-${index}.html`;
-          const encodedUrlFile = join(tempRoot, fileName);
-          writeFileSync(
-            encodedUrlFile,
-            `<a href="https:${whitespace}${derivedApplicationId}/api">Open</a>\n`
-          );
-          return { fileName, path: encodedUrlFile };
-        }
-      );
-
-      const identifierUrlResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(identifierUrlResult.status, identifierUrlResult.stdout).toBe(1);
-      for (const { fileName } of [...identifierUrlFiles, ...encodedUrlFiles]) {
-        expect(identifierUrlResult.stdout).toContain(`./${fileName}:`);
-      }
-      for (const { path } of [...identifierUrlFiles, ...encodedUrlFiles]) {
-        unlinkSync(path);
-      }
-
-      const exactHostsFile = join(tempRoot, "forbidden-exact-hosts.yml");
-      writeFileSync(
-        exactHostsFile,
-        forbiddenExactHostUrls
-          .map((url, index) => `exact_url_${index}: "${url}"`)
-          .join("\n")
-      );
-
-      const exactHostsResult = spawnSync("bash", [checker], {
-        cwd: tempRoot,
-        encoding: "utf8",
-        env: domainCheckerEnvironment,
-      });
-
-      expect(exactHostsResult.status).toBe(1);
-      for (const url of forbiddenExactHostUrls) {
-        expect(exactHostsResult.stdout).toContain(url);
-      }
-      unlinkSync(exactHostsFile);
-
-      writeFileSync(
-        join(tempRoot, "forbidden-hosts.yml"),
-        [
-          `app_url: "https://${forbiddenAppHost}/api"`,
-          `derived_url: "https://${forbiddenDerivedHost}/api"`,
-          `test_url: "https://${forbiddenTestHost}/api"`,
-          `other_url: "https://${forbiddenHost}/api"`,
-        ].join("\n")
-      );
 
       const forbiddenResult = spawnSync("bash", [checker], {
         cwd: tempRoot,
@@ -2126,6 +2040,9 @@ describe("preflight", () => {
       });
 
       expect(forbiddenResult.status).toBe(1);
+      for (const [fileName] of forbiddenFixtures) {
+        expect(forbiddenResult.stdout).toContain(`./${fileName}:`);
+      }
       expect(forbiddenResult.stdout).toContain(forbiddenAppHost);
       expect(forbiddenResult.stdout).toContain(forbiddenDerivedHost);
       expect(forbiddenResult.stdout).toContain(forbiddenTestHost);

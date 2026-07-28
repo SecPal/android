@@ -40,8 +40,9 @@ const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
   /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
 const secpalReferencePattern =
-  /app\.secpal(?=$|[^A-Za-z0-9_-])|secpal\.[A-Za-z0-9]/g;
-const domainReferenceCharacterPattern = /[A-Za-z0-9_*._-]/;
+  /(?:[A-Za-z0-9_*-]+\.)*secpal(?:\.[A-Za-z0-9_-]+|\.\.[A-Za-z0-9._-]+)+|app\.secpal(?=$|[^A-Za-z0-9_-])/g;
+const androidTestApplicationIdPattern =
+  /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;
 const appSecPalNetworkPrefixPattern =
   /(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})$/i;
 const approvedSecPalDomainPattern =
@@ -3016,26 +3017,35 @@ function makeProgram(
   );
 }
 
+function isAllowedAndroidTestApplicationId(source, start, reference) {
+  if (!androidTestApplicationIdPattern.test(reference)) {
+    return false;
+  }
+  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+  const lineEnd = source.indexOf("\n", start);
+  const prefix = source.slice(lineStart, start);
+  const suffix = source.slice(
+    start + reference.length,
+    lineEnd === -1 ? source.length : lineEnd
+  );
+  return (
+    (/\buninstall[ \t]+$/.test(prefix) &&
+      /^(?:[ \t]+(?:\|\||&&|;)|[ \t]*$)/.test(suffix)) ||
+    (/\badmin_component\s*=\s*["']?$/.test(prefix) &&
+      /^\/app\.secpal\.[A-Z][A-Za-z0-9_]*["']?(?:[ \t]|$)/.test(suffix)) ||
+    /^\/androidx\.test\.runner\.AndroidJUnitRunner(?:[ \t]|$)/.test(suffix)
+  );
+}
+
 function secpalReferenceOutputs(file, lineOffset, source) {
   const outputs = new Set();
   for (const match of source.matchAll(secpalReferencePattern)) {
-    let start = match.index;
-    while (
-      start > 0 &&
-      domainReferenceCharacterPattern.test(source[start - 1])
-    ) {
-      start -= 1;
+    const start = match.index;
+    const reference = match[0];
+    const end = start + reference.length;
+    if (isAllowedAndroidTestApplicationId(source, start, reference)) {
+      continue;
     }
-
-    let end = match.index + match[0].length;
-    while (
-      end < source.length &&
-      domainReferenceCharacterPattern.test(source[end])
-    ) {
-      end += 1;
-    }
-
-    const reference = source.slice(start, end);
     const networkPrefix = source
       .slice(0, start)
       .match(appSecPalNetworkPrefixPattern)?.[0];
