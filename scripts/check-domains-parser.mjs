@@ -37,7 +37,10 @@ try {
 }
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
-const secpalDomainPattern = /secpal\.[A-Za-z0-9.-]{1,100}/;
+const secpalDomainPattern =
+  /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
+const appSecPalUrlPattern =
+  /(?:\b(?:https?|wss?|ftp):|\/\/|\\\\)[A-Za-z0-9._~!$&'()*+,;=%:@/\\\t\r\n-]*app\.secpal[A-Za-z0-9._-]*/gi;
 const approvedSecPalDomainPattern =
   /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
@@ -3010,6 +3013,15 @@ function makeProgram(
   );
 }
 
+function appSecPalUrlOutputs(file, lineOffset, source) {
+  return Array.from(source.matchAll(appSecPalUrlPattern)).map((match) => {
+    const precedingLineCount =
+      source.slice(0, match.index).match(/\n/g)?.length ?? 0;
+    const normalizedUrl = match[0].replace(/[\t\r\n]/g, "");
+    return `${file}:${lineOffset + precedingLineCount + 1}:${normalizedUrl}`;
+  });
+}
+
 const files = process.argv.slice(2);
 const sourceFiles = files.filter((file) =>
   sourceExtensionPattern.test(extname(file))
@@ -3041,6 +3053,13 @@ for (const file of files) {
   }
 
   for (const analyzed of analyzedSources) {
+    for (const output of appSecPalUrlOutputs(
+      file,
+      analyzed.lineOffset,
+      analyzed.source
+    )) {
+      process.stdout.write(`${output}\n`);
+    }
     analyzed.source.split("\n").forEach((line, index) => {
       if (secpalDomainPattern.test(line)) {
         process.stdout.write(

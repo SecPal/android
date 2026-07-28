@@ -1926,6 +1926,28 @@ describe("preflight", () => {
       `https:${derivedApplicationId}/api`,
       `https:\\${derivedApplicationId}/api`,
     ];
+    const forbiddenIdentifierContextUrls = [
+      `https:${baseApplicationId}/api`,
+      `https:\t${baseApplicationId}/api`,
+      `https:\t${baseApplicationId}.SecPalDeviceAdminReceiver/api`,
+      `https:\t${baseApplicationId}.action.MANAGE/api`,
+      `https:\t${derivedApplicationId}/api`,
+      `https:\n${derivedApplicationId}/api`,
+      `https:\r${derivedApplicationId}/api`,
+      `https:/\t${derivedApplicationId}/api`,
+      `https:\\\t${derivedApplicationId}/api`,
+      `https:user@\t${derivedApplicationId}/api`,
+      `https:\r\n${derivedApplicationId}/api`,
+      ["//", "\t", derivedApplicationId, "/api"].join(""),
+      ["\\\\", "\t", derivedApplicationId, "/api"].join(""),
+    ];
+    const htmlEncodedUrlWhitespace = [
+      "&#9;",
+      "&#10;",
+      "&#13;",
+      "&Tab;",
+      "&NewLine;",
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -1951,6 +1973,60 @@ describe("preflight", () => {
       });
 
       expect(allowedResult.status, allowedResult.stdout).toBe(0);
+
+      const sameLineUrl = `https:${derivedApplicationId}/api`;
+      const sameLineUrlFile = join(
+        tempRoot,
+        "forbidden-same-line-identifier-url.yml"
+      );
+      writeFileSync(
+        sameLineUrlFile,
+        `cleanup: "uninstall ${derivedApplicationId}; open ${sameLineUrl}"\n`
+      );
+
+      const sameLineUrlResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(sameLineUrlResult.status, sameLineUrlResult.stdout).toBe(1);
+      expect(sameLineUrlResult.stdout).toContain(derivedApplicationId);
+      unlinkSync(sameLineUrlFile);
+
+      const identifierUrlFiles = forbiddenIdentifierContextUrls.map(
+        (url, index) => {
+          const fileName = `forbidden-identifier-url-${index}.yml`;
+          const identifierUrlFile = join(tempRoot, fileName);
+          writeFileSync(identifierUrlFile, `url: "${url}"\n`);
+          return { fileName, path: identifierUrlFile };
+        }
+      );
+      const encodedUrlFiles = htmlEncodedUrlWhitespace.map(
+        (whitespace, index) => {
+          const fileName = `forbidden-encoded-identifier-url-${index}.html`;
+          const encodedUrlFile = join(tempRoot, fileName);
+          writeFileSync(
+            encodedUrlFile,
+            `<a href="https:${whitespace}${derivedApplicationId}/api">Open</a>\n`
+          );
+          return { fileName, path: encodedUrlFile };
+        }
+      );
+
+      const identifierUrlResult = spawnSync("bash", [checker], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: domainCheckerEnvironment,
+      });
+
+      expect(identifierUrlResult.status, identifierUrlResult.stdout).toBe(1);
+      for (const { fileName } of [...identifierUrlFiles, ...encodedUrlFiles]) {
+        expect(identifierUrlResult.stdout).toContain(`./${fileName}:`);
+      }
+      for (const { path } of [...identifierUrlFiles, ...encodedUrlFiles]) {
+        unlinkSync(path);
+      }
 
       const exactHostsFile = join(tempRoot, "forbidden-exact-hosts.yml");
       writeFileSync(
