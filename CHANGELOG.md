@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored canonical Android manifest ordering by declaring network permissions
+  before the application element, preventing the `ManifestOrder` lint finding
+  without changing the permission or application contract (issue #457).
 - Rebooted the API 37 emulator before the single retry for a pre-test
   PackageManager broken-pipe failure so the retry does not reuse the same
   damaged Android system service.

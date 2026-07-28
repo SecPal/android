@@ -7,12 +7,16 @@ package app.secpal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.XmlResourceParser;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -66,6 +70,52 @@ public final class BackupPolicyManifestTest {
         }
 
         throw new AssertionError("Merged manifest must contain an application element");
+    }
+
+    @Test
+    public void permissionsPrecedeApplicationInSourceManifest() throws Exception {
+        assertNetworkPermissionsPrecedeApplication(readSourceManifest());
+    }
+
+    @Test(expected = AssertionError.class)
+    public void sourceManifestRequiresNetworkStatePermission() throws Exception {
+        assertNetworkPermissionsPrecedeApplication(
+            readSourceManifest().replace(
+                "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n",
+                ""
+            )
+        );
+    }
+
+    private static void assertNetworkPermissionsPrecedeApplication(String manifest) {
+        int applicationIndex = manifest.indexOf("<application");
+        int networkStatePermissionIndex = manifest.indexOf("android.permission.ACCESS_NETWORK_STATE");
+        int internetPermissionIndex = manifest.indexOf("android.permission.INTERNET");
+
+        assertTrue("Source manifest must contain an application element", applicationIndex >= 0);
+        assertTrue(
+            "Source manifest must retain ACCESS_NETWORK_STATE permission",
+            networkStatePermissionIndex >= 0
+        );
+        assertTrue(
+            "ACCESS_NETWORK_STATE must precede the application element",
+            networkStatePermissionIndex < applicationIndex
+        );
+        assertTrue(
+            "Source manifest must retain INTERNET permission",
+            internetPermissionIndex >= 0
+        );
+        assertTrue(
+            "INTERNET must precede the application element",
+            internetPermissionIndex < applicationIndex
+        );
+    }
+
+    private static String readSourceManifest() throws Exception {
+        return new String(
+            Files.readAllBytes(new File("src/main/AndroidManifest.xml").toPath()),
+            StandardCharsets.UTF_8
+        );
     }
 
     @Test
