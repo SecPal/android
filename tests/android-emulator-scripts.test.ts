@@ -375,6 +375,7 @@ exit 1
       const androidRoot = join(tempRoot, "android");
       const scriptsRoot = join(tempRoot, "scripts");
       const attemptPath = join(tempRoot, "attempts");
+      const rebootPath = join(tempRoot, "reboots");
       const waitPath = join(tempRoot, "waits");
 
       try {
@@ -418,6 +419,12 @@ printf '%s\n' 'connected test passed'
 printf '%s\n' "$*" >> "${waitPath}"
 `
         );
+        writeExecutable(
+          join(scriptsRoot, "with-android-env.sh"),
+          `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${rebootPath}"
+`
+        );
 
         const result = spawnSync(
           "bash",
@@ -441,6 +448,9 @@ printf '%s\n' "$*" >> "${waitPath}"
         return {
           result,
           attempts: Number.parseInt(readFileSync(attemptPath, "utf8"), 10),
+          reboots: existsSync(rebootPath)
+            ? readFileSync(rebootPath, "utf8").trim().split("\n")
+            : [],
           waits: existsSync(waitPath)
             ? readFileSync(waitPath, "utf8").trim().split("\n")
             : [],
@@ -453,6 +463,9 @@ printf '%s\n' "$*" >> "${waitPath}"
     const recoverableApi37Failure = runScenario(37, "package-manager");
     expect(recoverableApi37Failure.result.status).toBe(0);
     expect(recoverableApi37Failure.attempts).toBe(2);
+    expect(recoverableApi37Failure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(recoverableApi37Failure.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableApi37Failure.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager connection failure"
@@ -461,6 +474,9 @@ printf '%s\n' "$*" >> "${waitPath}"
     const repeatedApi37Failure = runScenario(37, "package-manager-always");
     expect(repeatedApi37Failure.result.status).toBe(1);
     expect(repeatedApi37Failure.attempts).toBe(2);
+    expect(repeatedApi37Failure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
 
     const recoverableInstrumentationCrash = runScenario(
@@ -469,6 +485,7 @@ printf '%s\n' "$*" >> "${waitPath}"
     );
     expect(recoverableInstrumentationCrash.result.status).toBe(0);
     expect(recoverableInstrumentationCrash.attempts).toBe(2);
+    expect(recoverableInstrumentationCrash.reboots).toEqual([]);
     expect(recoverableInstrumentationCrash.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableInstrumentationCrash.result.stdout).toContain(
       "Retrying API 37 instrumentation after pre-test system crash"
@@ -485,6 +502,7 @@ printf '%s\n' "$*" >> "${waitPath}"
     const recoverableCommandError = runScenario(37, "command-error");
     expect(recoverableCommandError.result.status).toBe(0);
     expect(recoverableCommandError.attempts).toBe(2);
+    expect(recoverableCommandError.reboots).toEqual([]);
     expect(recoverableCommandError.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableCommandError.result.stdout).toContain(
       "Retrying API 37 instrumentation after zero-test command error"
@@ -498,6 +516,7 @@ printf '%s\n' "$*" >> "${waitPath}"
     const api36Failure = runScenario(36, "package-manager");
     expect(api36Failure.result.status).toBe(1);
     expect(api36Failure.attempts).toBe(1);
+    expect(api36Failure.reboots).toEqual([]);
     expect(api36Failure.waits).toEqual([]);
 
     const api36InstrumentationCrash = runScenario(36, "instrumentation-crash");
@@ -521,6 +540,7 @@ printf '%s\n' "$*" >> "${waitPath}"
     const testFailure = runScenario(37, "test");
     expect(testFailure.result.status).toBe(1);
     expect(testFailure.attempts).toBe(1);
+    expect(testFailure.reboots).toEqual([]);
     expect(testFailure.waits).toEqual([]);
   });
 });
