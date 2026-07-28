@@ -1920,6 +1920,11 @@ describe("preflight", () => {
     const forbiddenHost = ["secpal", "invalid"].join(".");
     const malformedEmptyLabelHost = ["secpal", "", "com"].join(".");
     const malformedHyphenLabelHost = ["secpal", "-com"].join(".");
+    const prefixedApprovedHosts = [
+      `x${["secpal", "app"].join(".")}`,
+      `x${["secpal", "dev"].join(".")}`,
+      `x${baseApplicationId}`,
+    ];
 
     try {
       copyFileSync(resolve(repoRoot, "scripts", "check-domains.sh"), checker);
@@ -1927,17 +1932,22 @@ describe("preflight", () => {
         resolve(repoRoot, "scripts", "check-domains-parser.mjs"),
         join(tempRoot, "check-domains-parser.mjs")
       );
+      const allowedAndroidCommands = [
+        `admin_component="${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver"`,
+        `uninstall ${baseTestApplicationId}`,
+        `uninstall ${testApplicationId}`,
+        `uninstall ${derivedApplicationId}`,
+        `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
+        `homepage: "https://secpal.app"`,
+        `package: ${baseApplicationId}`,
+      ];
       writeFileSync(
         join(tempRoot, "android-test.yml"),
-        [
-          `admin_component="${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver"`,
-          `uninstall ${baseTestApplicationId}`,
-          `uninstall ${testApplicationId}`,
-          `uninstall ${derivedApplicationId}`,
-          `${testApplicationId}/androidx.test.runner.AndroidJUnitRunner`,
-          `homepage: "https://secpal.app"`,
-          `package: ${baseApplicationId}`,
-        ].join("\n")
+        allowedAndroidCommands.join("\n")
+      );
+      writeFileSync(
+        join(tempRoot, "android-test-crlf.yml"),
+        allowedAndroidCommands.join("\r\n")
       );
 
       const allowedResult = spawnSync("bash", [checker], {
@@ -1983,6 +1993,12 @@ describe("preflight", () => {
         fixture(
           "forbidden-unicode-host.yml",
           `endpoint: "https://é${derivedApplicationId}/api"\n`
+        ),
+        fixture(
+          "forbidden-prefixed-approved-hosts.yml",
+          prefixedApprovedHosts
+            .map((host, index) => `endpoint_${index}: "https://${host}/api"`)
+            .join("\n")
         ),
         fixture(
           "forbidden-runner-host.yml",
@@ -2064,6 +2080,9 @@ describe("preflight", () => {
       expect(forbiddenResult.stdout).toContain(forbiddenDerivedHost);
       expect(forbiddenResult.stdout).toContain(forbiddenTestHost);
       expect(forbiddenResult.stdout).toContain(forbiddenHost);
+      for (const host of prefixedApprovedHosts) {
+        expect(forbiddenResult.stdout).toContain(host);
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
