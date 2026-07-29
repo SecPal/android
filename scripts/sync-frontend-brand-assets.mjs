@@ -258,6 +258,28 @@ function renderMonochromeSquareLogo(
   ]);
 }
 
+export function renderLegacyLauncherAssets(plan) {
+  for (const target of plan.launcherTargets) {
+    renderLegacyLauncherLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      calculateLegacyLauncherLogoSize(target.size),
+      false
+    );
+  }
+
+  for (const target of plan.roundLauncherTargets) {
+    renderLegacyLauncherLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      calculateLegacyLauncherLogoSize(target.size),
+      true
+    );
+  }
+}
+
 export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
   const plan = buildFrontendBrandAssetPlan(repoRoot);
 
@@ -282,25 +304,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     );
   }
 
-  for (const target of plan.launcherTargets) {
-    renderLegacyLauncherLogo(
-      plan.launcherSource,
-      target.path,
-      target.size,
-      calculateLegacyLauncherLogoSize(target.size),
-      false
-    );
-  }
-
-  for (const target of plan.roundLauncherTargets) {
-    renderLegacyLauncherLogo(
-      plan.launcherSource,
-      target.path,
-      target.size,
-      calculateLegacyLauncherLogoSize(target.size),
-      true
-    );
-  }
+  renderLegacyLauncherAssets(plan);
 
   renderTransparentSquareLogo(
     plan.splashIconLightSource,
