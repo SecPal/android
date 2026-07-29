@@ -131,18 +131,40 @@ function ensureParentDirectory(filePath) {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
-function renderSquareLogo(
+export function buildLegacyLauncherRenderArguments(
   sourcePath,
   targetPath,
   canvasSize,
   logoSize,
-  background
+  round
 ) {
-  ensureParentDirectory(targetPath);
-  runMagick([
+  if (!round) {
+    return [
+      sourcePath,
+      "-trim",
+      "+repage",
+      "-resize",
+      `${logoSize}x${logoSize}`,
+      "-background",
+      "none",
+      "-gravity",
+      "center",
+      "-extent",
+      `${canvasSize}x${canvasSize}`,
+      targetPath,
+    ];
+  }
+
+  const center = canvasSize / 2;
+
+  return [
     "-size",
     `${canvasSize}x${canvasSize}`,
-    `xc:${background}`,
+    "xc:none",
+    "-fill",
+    launcherBackgroundColor,
+    "-draw",
+    `circle ${center},${center} ${center},0`,
     "(",
     sourcePath,
     "-trim",
@@ -154,7 +176,26 @@ function renderSquareLogo(
     "center",
     "-composite",
     targetPath,
-  ]);
+  ];
+}
+
+function renderLegacyLauncherLogo(
+  sourcePath,
+  targetPath,
+  canvasSize,
+  logoSize,
+  round
+) {
+  ensureParentDirectory(targetPath);
+  runMagick(
+    buildLegacyLauncherRenderArguments(
+      sourcePath,
+      targetPath,
+      canvasSize,
+      logoSize,
+      round
+    )
+  );
 }
 
 function renderTransparentSquareLogo(
@@ -233,16 +274,23 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     );
   }
 
-  for (const target of [
-    ...plan.launcherTargets,
-    ...plan.roundLauncherTargets,
-  ]) {
-    renderSquareLogo(
+  for (const target of plan.launcherTargets) {
+    renderLegacyLauncherLogo(
       plan.launcherSource,
       target.path,
       target.size,
       Math.round(target.size * launcherInsetFactor),
-      launcherBackgroundColor
+      false
+    );
+  }
+
+  for (const target of plan.roundLauncherTargets) {
+    renderLegacyLauncherLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      Math.round(target.size * launcherInsetFactor),
+      true
     );
   }
 

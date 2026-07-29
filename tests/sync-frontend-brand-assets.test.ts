@@ -27,6 +27,13 @@ async function loadBrandSyncModule(): Promise<{
     splashIconCanvasSize: number;
     splashIconLogoSize: number;
   };
+  buildLegacyLauncherRenderArguments: (
+    sourcePath: string,
+    targetPath: string,
+    canvasSize: number,
+    logoSize: number,
+    round: boolean
+  ) => string[];
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/sync-frontend-brand-assets.mjs");
@@ -76,6 +83,52 @@ describe("frontend brand asset sync", () => {
     );
     expect(plan.splashIconCanvasSize).toBe(512);
     expect(plan.splashIconLogoSize).toBe(164);
+  });
+
+  it("renders legacy launcher assets with transparent and circular silhouettes", async () => {
+    const { buildLegacyLauncherRenderArguments } = await loadBrandSyncModule();
+    const sourcePath = "/workspace/frontend/public/logo-source.png";
+    const targetPath = "/workspace/android/ic_launcher.png";
+
+    expect(
+      buildLegacyLauncherRenderArguments(sourcePath, targetPath, 48, 25, false)
+    ).toEqual([
+      sourcePath,
+      "-trim",
+      "+repage",
+      "-resize",
+      "25x25",
+      "-background",
+      "none",
+      "-gravity",
+      "center",
+      "-extent",
+      "48x48",
+      targetPath,
+    ]);
+
+    expect(
+      buildLegacyLauncherRenderArguments(sourcePath, targetPath, 48, 25, true)
+    ).toEqual([
+      "-size",
+      "48x48",
+      "xc:none",
+      "-fill",
+      "#FFFFFF",
+      "-draw",
+      "circle 24,24 24,0",
+      "(",
+      sourcePath,
+      "-trim",
+      "+repage",
+      "-resize",
+      "25x25",
+      ")",
+      "-gravity",
+      "center",
+      "-composite",
+      targetPath,
+    ]);
   });
 
   it("covers every launcher density bucket without legacy splash outputs", async () => {
