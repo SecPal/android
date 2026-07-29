@@ -32,7 +32,8 @@ def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DA
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
-def generatedAndroidWebIndex = new File(projectDir, 'src/main/assets/public/index.html')
+def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
+def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
@@ -130,8 +131,11 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
 
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Fails when the generated Android web asset drifts from the canonical schema-4 bridge."
+    description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
     inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
+    onlyIf("generated Android web asset directory is present") {
+        generatedAndroidWebAssets.isDirectory()
+    }
     commandLine(
         "node",
         runtimeSchemaVerifier.absolutePath,
