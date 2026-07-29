@@ -24,18 +24,17 @@ export function isDirectNodeExecution(moduleUrl, argvPath = process.argv[1]) {
   return directModuleUrls.has(moduleUrl);
 }
 
-export function assertCompleteAndroidWebApplicationShell(
-  html,
-  sourceLabel = "Android web index"
-) {
+function inspectAndroidWebApplicationShell(html) {
   const document = parse(html, { sourceCodeLocationInfo: true });
   const requiredElements = {
     body: false,
     head: false,
     html: false,
   };
+  let headEndTagStartOffset = null;
   let hasHtmlDoctype = false;
   let hasModuleEntry = false;
+  let moduleEntryStartOffset = null;
   const pending = [document];
 
   while (pending.length > 0) {
@@ -58,6 +57,10 @@ export function assertCompleteAndroidWebApplicationShell(
       requiredElements[node.tagName] = true;
     }
 
+    if (node.tagName === "head" && location?.endTag) {
+      headEndTagStartOffset = location.endTag.startOffset;
+    }
+
     if (
       node.tagName === "script" &&
       location?.startTag &&
@@ -71,17 +74,36 @@ export function assertCompleteAndroidWebApplicationShell(
       )
     ) {
       hasModuleEntry = true;
+      moduleEntryStartOffset =
+        moduleEntryStartOffset === null
+          ? location.startTag.startOffset
+          : Math.min(moduleEntryStartOffset, location.startTag.startOffset);
     }
 
     pending.push(...(node.childNodes ?? []));
   }
 
+  return {
+    hasHtmlDoctype,
+    hasModuleEntry,
+    headEndTagStartOffset,
+    moduleEntryStartOffset,
+    requiredElements,
+  };
+}
+
+export function assertCompleteAndroidWebApplicationShell(
+  html,
+  sourceLabel = "Android web index"
+) {
+  const shell = inspectAndroidWebApplicationShell(html);
+
   if (
-    !hasHtmlDoctype ||
-    !requiredElements.html ||
-    !requiredElements.head ||
-    !requiredElements.body ||
-    !hasModuleEntry
+    !shell.hasHtmlDoctype ||
+    !shell.requiredElements.html ||
+    !shell.requiredElements.head ||
+    !shell.requiredElements.body ||
+    !shell.hasModuleEntry
   ) {
     throw new Error(
       `${sourceLabel} must contain a complete Android web application shell with an HTML doctype, explicit html/head/body elements, and a module entry script.`
@@ -2221,16 +2243,14 @@ export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
     return html.replace(existingScriptPattern, scriptTag);
   }
 
-  const moduleScriptIndex = html.indexOf('<script type="module"');
+  const shell = inspectAndroidWebApplicationShell(html);
 
-  if (moduleScriptIndex >= 0) {
-    return `${html.slice(0, moduleScriptIndex)}${scriptTag}\n${html.slice(moduleScriptIndex)}`;
+  if (shell.moduleEntryStartOffset !== null) {
+    return `${html.slice(0, shell.moduleEntryStartOffset)}${scriptTag}\n${html.slice(shell.moduleEntryStartOffset)}`;
   }
 
-  const headCloseIndex = html.indexOf("</head>");
-
-  if (headCloseIndex >= 0) {
-    return `${html.slice(0, headCloseIndex)}${scriptTag}\n${html.slice(headCloseIndex)}`;
+  if (shell.headEndTagStartOffset !== null) {
+    return `${html.slice(0, shell.headEndTagStartOffset)}${scriptTag}\n${html.slice(shell.headEndTagStartOffset)}`;
   }
 
   return `${scriptTag}\n${html}`;

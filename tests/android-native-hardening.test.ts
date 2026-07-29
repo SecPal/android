@@ -1033,7 +1033,7 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       'tasks.register("verifyAndroidRuntimeSchemaAsset", Exec)'
     );
-    expect(appBuildGradle).toContain("scripts/inject-native-auth-bridge.mjs");
+    expect(appBuildGradle).not.toContain("def runtimeSchemaInjector");
     expect(appBuildGradle).toContain(
       "scripts/verify-android-runtime-schema.mjs"
     );
@@ -1045,6 +1045,9 @@ describe("Android native hardening", () => {
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*workingDir androidRepositoryRoot[\s\S]*commandLine\(\s*"npm",\s*"run",\s*"cap:copy"\s*\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
