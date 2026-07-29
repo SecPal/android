@@ -11,20 +11,17 @@ import { describe, expect, it } from "vitest";
 async function loadBrandSyncModule(): Promise<{
   assertFrontendBrandAssetSourcesExist: (plan: {
     launcherSource: string;
-    splashSource: string;
     splashIconLightSource: string;
     splashIconDarkSource: string;
   }) => void;
   buildFrontendBrandAssetPlan: (repoRoot: string) => {
     launcherSource: string;
-    splashSource: string;
     splashIconLightSource: string;
     splashIconDarkSource: string;
     launcherForegroundTargets: Array<{ path: string; size: number }>;
     launcherMonochromeTargets: Array<{ path: string; size: number }>;
     launcherTargets: Array<{ path: string; size: number }>;
     roundLauncherTargets: Array<{ path: string; size: number }>;
-    splashTargets: Array<{ path: string; width: number; height: number }>;
     splashIconLightTarget: string;
     splashIconDarkTarget: string;
     splashIconCanvasSize: number;
@@ -62,16 +59,15 @@ describe("frontend brand asset sync", () => {
     }
   });
 
-  it("maps canonical frontend logos to Android launcher and splash outputs", async () => {
+  it("maps canonical frontend logos to Android launcher and active splash outputs", async () => {
     const { buildFrontendBrandAssetPlan } = await loadBrandSyncModule();
     const plan = buildFrontendBrandAssetPlan("/workspace/android");
 
     expect(plan.launcherSource).toBe(
       "/workspace/frontend/public/logo-source.png"
     );
-    expect(plan.splashSource).toBe(
-      "/workspace/frontend/public/logo-dark-512.png"
-    );
+    expect(plan).not.toHaveProperty("splashSource");
+    expect(plan).not.toHaveProperty("splashTargets");
     expect(plan.splashIconLightTarget).toBe(
       "/workspace/android/android/app/src/main/res/drawable-nodpi/secpal_splash_icon.png"
     );
@@ -82,7 +78,7 @@ describe("frontend brand asset sync", () => {
     expect(plan.splashIconLogoSize).toBe(164);
   });
 
-  it("covers every Android density bucket and both splash orientations", async () => {
+  it("covers every launcher density bucket without legacy splash outputs", async () => {
     const { buildFrontendBrandAssetPlan } = await loadBrandSyncModule();
     const plan = buildFrontendBrandAssetPlan("/workspace/android");
 
@@ -178,62 +174,6 @@ describe("frontend brand asset sync", () => {
       },
     ]);
 
-    expect(plan.splashTargets).toEqual([
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable/splash.png",
-        width: 480,
-        height: 320,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-port-mdpi/splash.png",
-        width: 320,
-        height: 480,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-port-hdpi/splash.png",
-        width: 480,
-        height: 800,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-port-xhdpi/splash.png",
-        width: 720,
-        height: 1280,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-port-xxhdpi/splash.png",
-        width: 960,
-        height: 1600,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-port-xxxhdpi/splash.png",
-        width: 1280,
-        height: 1920,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-land-mdpi/splash.png",
-        width: 480,
-        height: 320,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-land-hdpi/splash.png",
-        width: 800,
-        height: 480,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-land-xhdpi/splash.png",
-        width: 1280,
-        height: 720,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-land-xxhdpi/splash.png",
-        width: 1600,
-        height: 960,
-      },
-      {
-        path: "/workspace/android/android/app/src/main/res/drawable-land-xxxhdpi/splash.png",
-        width: 1920,
-        height: 1280,
-      },
-    ]);
+    expect(plan).not.toHaveProperty("splashTargets");
   });
 });

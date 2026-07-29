@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal Contributors
+SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+-->
+<widget xmlns="http://www.w3.org/ns/widgets"
+    xmlns:cdv="http://cordova.apache.org/ns/1.0"
+    version="1.0.0">
+    <access origin="https://api.secpal.dev" />
+    <feature name="SecPalTestFixture">
+        <param name="android-package" value="app.secpal.TestFixturePlugin" />
+    </feature>
+</widget>

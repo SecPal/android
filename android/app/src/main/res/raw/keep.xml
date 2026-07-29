@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal Contributors
+SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+
+Capacitor's Bridge.Builder#create() calls Cordova ConfigXmlParser.parse(),
+which resolves res/xml/config.xml by the name "config" through
+Resources.getIdentifier().
+
+scripts/build-frontend-web.sh and scripts/inject-native-auth-bridge.mjs read
+api_base_url from strings.xml and inject it into the packaged web runtime.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@xml/config,@string/api_base_url" />

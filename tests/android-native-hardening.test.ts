@@ -13,6 +13,18 @@ const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
+const readInstalledDependencyFile = (...segments: string[]) => {
+  const dependencyPath = resolve(repoRoot, "node_modules", ...segments);
+
+  if (!existsSync(dependencyPath)) {
+    throw new Error(
+      `Missing installed dependency source: ${dependencyPath}. Run npm ci before running the native hardening tests.`
+    );
+  }
+
+  return readFileSync(dependencyPath, "utf8");
+};
+
 const VENDOR_SPECIFIC_PATTERN = /Samsung|samsung|com\.sec\./;
 const corePluginRegistrationPattern = (pluginId: string) =>
   new RegExp(
@@ -22,6 +34,26 @@ const PLUGIN_METHOD_ANNOTATION_PATTERN =
   /@(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*PluginMethod\b/;
 
 describe("Android native hardening", () => {
+  it("reports a targeted error when an installed dependency source is unavailable", () => {
+    const missingSegments = [
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "Missing.java",
+    ];
+
+    expect(() => readInstalledDependencyFile(...missingSegments)).toThrowError(
+      `Missing installed dependency source: ${resolve(
+        repoRoot,
+        "node_modules",
+        ...missingSegments
+      )}. Run npm ci before running the native hardening tests.`
+    );
+  });
+
   it("runs the Cordova config normalizer after Capacitor sync and add", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       scripts: Record<string, string>;
@@ -36,6 +68,152 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["cap:add:android"]).toContain(
       "native:normalize:cordova-config"
     );
+  });
+
+  it("keeps only Android resources with proven runtime or build-time callers", () => {
+    const resourcesRoot = resolve(
+      repoRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res"
+    );
+    const obsoleteResourcePaths = [
+      "layout/activity_main.xml",
+      "drawable/ic_launcher_background.xml",
+      "drawable/ic_launcher_foreground.xml",
+      "drawable/splash.png",
+      "drawable-land-hdpi/splash.png",
+      "drawable-land-mdpi/splash.png",
+      "drawable-land-xhdpi/splash.png",
+      "drawable-land-xxhdpi/splash.png",
+      "drawable-land-xxxhdpi/splash.png",
+      "drawable-port-hdpi/splash.png",
+      "drawable-port-mdpi/splash.png",
+      "drawable-port-xhdpi/splash.png",
+      "drawable-port-xxhdpi/splash.png",
+      "drawable-port-xxxhdpi/splash.png",
+    ];
+
+    for (const resourcePath of obsoleteResourcePaths) {
+      expect(existsSync(resolve(resourcesRoot, resourcePath))).toBe(false);
+    }
+
+    const capacitorBridgeActivity = readInstalledDependencyFile(
+      "@capacitor",
+      "android",
+      "capacitor",
+      "src",
+      "main",
+      "java",
+      "com",
+      "getcapacitor",
+      "BridgeActivity.java"
+    );
+    expect(capacitorBridgeActivity).toContain(
+      "R.layout.capacitor_bridge_layout_main"
+    );
+    expect(capacitorBridgeActivity).not.toContain("R.layout.activity_main");
+
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    const adaptiveLauncher = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "mipmap-anydpi-v26",
+      "ic_launcher.xml"
+    );
+    const launchTheme = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "styles.xml"
+    );
+    const splashBackground = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "drawable",
+      "splash_screen_background.xml"
+    );
+    expect(manifest).toContain('android:icon="@mipmap/ic_launcher"');
+    expect(adaptiveLauncher).toContain(
+      'android:drawable="@mipmap/ic_launcher_foreground"'
+    );
+    expect(adaptiveLauncher).toContain(
+      'android:drawable="@color/ic_launcher_background"'
+    );
+    expect(launchTheme).toContain(
+      '<item name="android:background">@drawable/splash_screen_background</item>'
+    );
+    expect(splashBackground).toContain(
+      'android:src="@drawable/secpal_splash_icon"'
+    );
+
+    expect(
+      existsSync(
+        resolve(
+          repoRoot,
+          "android",
+          "app",
+          "src",
+          "debug",
+          "res",
+          "values",
+          "strings.xml"
+        )
+      )
+    ).toBe(false);
+
+    const stringsXml = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "strings.xml"
+    );
+    expect(stringsXml).not.toContain('name="package_name"');
+    expect(stringsXml).not.toContain('name="custom_url_scheme"');
+    expect(stringsXml).toContain(
+      '<string name="api_base_url">https://runtime-bootstrap-required.secpal.dev</string>'
+    );
+    expect(readRepoFile("scripts", "build-frontend-web.sh")).toContain(
+      'name="api_base_url"'
+    );
+    expect(readRepoFile("scripts", "inject-native-auth-bridge.mjs")).toContain(
+      'name="api_base_url"'
+    );
+
+    const resourceKeepContract = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "raw",
+      "keep.xml"
+    );
+    expect(resourceKeepContract).toContain(
+      'tools:keep="@xml/config,@string/api_base_url"'
+    );
+    expect(resourceKeepContract).not.toContain("tools:discard");
+    expect(resourceKeepContract).not.toContain("@*");
   });
 
   it("patches Capacitor's unchecked Java generics after installation and sync", () => {
@@ -58,8 +236,7 @@ describe("Android native hardening", () => {
   });
 
   it("keeps unused Capacitor core plugins outside the WebView bridge", () => {
-    const bridge = readRepoFile(
-      "node_modules",
+    const bridge = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -70,8 +247,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "Bridge.java"
     );
-    const systemBars = readRepoFile(
-      "node_modules",
+    const systemBars = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -83,8 +259,7 @@ describe("Android native hardening", () => {
       "plugin",
       "SystemBars.java"
     );
-    const jsExport = readRepoFile(
-      "node_modules",
+    const jsExport = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -95,8 +270,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "JSExport.java"
     );
-    const webViewLocalServer = readRepoFile(
-      "node_modules",
+    const webViewLocalServer = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -242,8 +416,7 @@ describe("Android native hardening", () => {
   });
 
   it("proves the upstream registrations expose direct JavaScript dispatch", () => {
-    const bridge = readRepoFile(
-      "node_modules",
+    const bridge = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -254,8 +427,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "Bridge.java"
     );
-    const jsExport = readRepoFile(
-      "node_modules",
+    const jsExport = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -266,8 +438,7 @@ describe("Android native hardening", () => {
       "getcapacitor",
       "JSExport.java"
     );
-    const pluginHandle = readRepoFile(
-      "node_modules",
+    const pluginHandle = readInstalledDependencyFile(
       "@capacitor",
       "android",
       "capacitor",
@@ -299,8 +470,7 @@ describe("Android native hardening", () => {
 
     for (const [fileName, methodName] of corePluginSources) {
       const className = fileName.replace(".java", "");
-      const source = readRepoFile(
-        "node_modules",
+      const source = readInstalledDependencyFile(
         "@capacitor",
         "android",
         "capacitor",

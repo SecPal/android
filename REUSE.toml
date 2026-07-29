@@ -147,9 +147,6 @@ path = [
   "android/gradle.properties",
   "android/settings.gradle",
   "android/app/.gitignore",
-  "android/app/src/main/res/drawable/ic_launcher_foreground.xml",
-  "android/app/src/main/res/drawable/ic_launcher_background.xml",
-  "android/app/src/main/res/layout/activity_main.xml",
   "android/app/src/main/res/values/ic_launcher_background.xml",
 ]
 SPDX-FileCopyrightText = "2017-present Drifty Co."

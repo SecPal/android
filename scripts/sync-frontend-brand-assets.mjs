@@ -26,27 +26,11 @@ const launcherSpecs = [
   ["xxxhdpi", 192],
 ];
 
-const splashSpecs = [
-  ["drawable", 480, 320],
-  ["drawable-port-mdpi", 320, 480],
-  ["drawable-port-hdpi", 480, 800],
-  ["drawable-port-xhdpi", 720, 1280],
-  ["drawable-port-xxhdpi", 960, 1600],
-  ["drawable-port-xxxhdpi", 1280, 1920],
-  ["drawable-land-mdpi", 480, 320],
-  ["drawable-land-hdpi", 800, 480],
-  ["drawable-land-xhdpi", 1280, 720],
-  ["drawable-land-xxhdpi", 1600, 960],
-  ["drawable-land-xxxhdpi", 1920, 1280],
-];
-
 const launcherForegroundInsetFactor = 0.52;
 const launcherInsetFactor = 0.52;
-const legacySplashLogoFactor = 0.16;
 const splashIconCanvasSize = 512;
 const splashIconInsetFactor = 0.32;
 const launcherBackgroundColor = "#FFFFFF";
-const splashBackgroundColor = "#18181B";
 
 export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
   const frontendPublicDirectory = resolve(repoRoot, "../frontend/public");
@@ -57,7 +41,6 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
 
   return {
     launcherSource: resolve(frontendPublicDirectory, "logo-source.png"),
-    splashSource: resolve(frontendPublicDirectory, "logo-dark-512.png"),
     splashIconLightSource: resolve(
       frontendPublicDirectory,
       "logo-light-512.png"
@@ -95,11 +78,6 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
       ),
       size,
     })),
-    splashTargets: splashSpecs.map(([qualifier, width, height]) => ({
-      path: resolve(androidResourceDirectory, `${qualifier}/splash.png`),
-      width,
-      height,
-    })),
     splashIconLightTarget: resolve(
       androidResourceDirectory,
       "drawable-nodpi/secpal_splash_icon.png"
@@ -118,7 +96,6 @@ export function buildFrontendBrandAssetPlan(repoRoot = defaultRepoRoot) {
 export function assertFrontendBrandAssetSourcesExist(plan) {
   for (const sourcePath of [
     plan.launcherSource,
-    plan.splashSource,
     plan.splashIconLightSource,
     plan.splashIconDarkSource,
   ]) {
@@ -232,28 +209,6 @@ function renderMonochromeSquareLogo(
   ]);
 }
 
-function renderSplash(sourcePath, targetPath, width, height) {
-  const logoSize = Math.round(Math.min(width, height) * legacySplashLogoFactor);
-
-  ensureParentDirectory(targetPath);
-  runMagick([
-    "-size",
-    `${width}x${height}`,
-    `xc:${splashBackgroundColor}`,
-    "(",
-    sourcePath,
-    "-trim",
-    "+repage",
-    "-resize",
-    `${logoSize}x${logoSize}`,
-    ")",
-    "-gravity",
-    "center",
-    "-composite",
-    targetPath,
-  ]);
-}
-
 export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
   const plan = buildFrontendBrandAssetPlan(repoRoot);
 
@@ -304,10 +259,6 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     plan.splashIconCanvasSize,
     plan.splashIconLogoSize
   );
-
-  for (const target of plan.splashTargets) {
-    renderSplash(plan.splashSource, target.path, target.width, target.height);
-  }
 
   return plan;
 }
