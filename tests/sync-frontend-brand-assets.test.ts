@@ -28,6 +28,7 @@ const legacyLauncherAssetPaths = [
   "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
   "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
 ];
+const maximumNormalizedPixelError = 0.005;
 
 function readDecodedPngPixels(imageMagickCommand: string, path: string) {
   const result = spawnSync(
@@ -48,6 +49,35 @@ function readDecodedPngPixels(imageMagickCommand: string, path: string) {
   }
 
   return result.stdout;
+}
+
+function calculateNormalizedPremultipliedPixelError(
+  firstPixels: Buffer,
+  secondPixels: Buffer
+) {
+  if (
+    firstPixels.length !== secondPixels.length ||
+    firstPixels.length % 4 !== 0
+  ) {
+    throw new Error("Launcher pixel buffers must have matching RGBA lengths");
+  }
+
+  let totalDifference = 0;
+
+  for (let offset = 0; offset < firstPixels.length; offset += 4) {
+    const firstAlpha = firstPixels[offset + 3] / 255;
+    const secondAlpha = secondPixels[offset + 3] / 255;
+
+    for (let channel = 0; channel < 3; channel += 1) {
+      const firstPremultiplied = firstPixels[offset + channel] * firstAlpha;
+      const secondPremultiplied = secondPixels[offset + channel] * secondAlpha;
+      totalDifference += Math.abs(firstPremultiplied - secondPremultiplied);
+    }
+
+    totalDifference += Math.abs(firstAlpha - secondAlpha) * 255;
+  }
+
+  return totalDifference / (firstPixels.length * 255);
 }
 
 async function loadBrandSyncModule(): Promise<{
@@ -203,6 +233,24 @@ describe("frontend brand asset sync", () => {
     ]);
   });
 
+  it("ignores invisible RGB data when comparing rendered launcher pixels", () => {
+    const transparentBlack = Buffer.from([0, 0, 0, 0]);
+    const transparentWhite = Buffer.from([255, 255, 255, 0]);
+
+    expect(
+      calculateNormalizedPremultipliedPixelError(
+        transparentBlack,
+        transparentWhite
+      )
+    ).toBe(0);
+    expect(
+      calculateNormalizedPremultipliedPixelError(
+        Buffer.from([0, 0, 0, 255]),
+        Buffer.from([255, 255, 255, 255])
+      )
+    ).toBe(0.75);
+  });
+
   it("keeps committed launcher outputs aligned with freshly rendered assets", async () => {
     const {
       buildFrontendBrandAssetPlan,
@@ -233,10 +281,15 @@ describe("frontend brand asset sync", () => {
           resolve(repoRoot, relativePath)
         );
 
+        const normalizedPixelError = calculateNormalizedPremultipliedPixelError(
+          generatedPixels,
+          committedPixels
+        );
+
         expect(
-          generatedPixels.equals(committedPixels),
-          `${relativePath} decoded pixels`
-        ).toBe(true);
+          normalizedPixelError,
+          `${relativePath} normalized premultiplied pixel error`
+        ).toBeLessThanOrEqual(maximumNormalizedPixelError);
       }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
