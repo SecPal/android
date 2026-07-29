@@ -10,6 +10,7 @@ import {
   readFileSync,
   rmSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,6 +28,27 @@ const legacyLauncherAssetPaths = [
   "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
   "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
 ];
+
+function readDecodedPngPixels(imageMagickCommand: string, path: string) {
+  const result = spawnSync(
+    imageMagickCommand,
+    [path, "-alpha", "on", "-colorspace", "sRGB", "-depth", "8", "rgba:-"],
+    {
+      encoding: null,
+      maxBuffer: 8 * 1024 * 1024,
+    }
+  );
+
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    const detail =
+      result.error?.message ?? result.stderr?.toString("utf8").trim();
+    throw new Error(
+      `Failed to decode launcher PNG pixels${detail ? `: ${detail}` : ""}`
+    );
+  }
+
+  return result.stdout;
+}
 
 async function loadBrandSyncModule(): Promise<{
   assertFrontendBrandAssetSourcesExist: (plan: {
@@ -55,6 +77,9 @@ async function loadBrandSyncModule(): Promise<{
     round: boolean
   ) => string[];
   calculateLegacyLauncherLogoSize: (canvasSize: number) => number;
+  resolveImageMagickCommand: (
+    runCommand?: (command: string) => { status: number | null }
+  ) => string;
   renderLegacyLauncherAssets: (plan: {
     launcherSource: string;
     launcherTargets: Array<{ path: string; size: number }>;
@@ -115,6 +140,7 @@ describe("frontend brand asset sync", () => {
     const {
       buildLegacyLauncherRenderArguments,
       calculateLegacyLauncherLogoSize,
+      resolveImageMagickCommand,
     } = await loadBrandSyncModule();
     const sourcePath = "/workspace/frontend/public/logo-source.png";
     const targetPath = "/workspace/android/ic_launcher.png";
@@ -122,6 +148,15 @@ describe("frontend brand asset sync", () => {
     expect([48, 72, 96, 144, 192].map(calculateLegacyLauncherLogoSize)).toEqual(
       [25, 37, 50, 75, 100]
     );
+
+    const probedCommands: string[] = [];
+    expect(
+      resolveImageMagickCommand((command) => {
+        probedCommands.push(command);
+        return { status: command === "convert" ? 0 : 1 };
+      })
+    ).toBe("convert");
+    expect(probedCommands).toEqual(["magick", "convert"]);
 
     expect(
       buildLegacyLauncherRenderArguments(sourcePath, targetPath, 48, 25, false)
@@ -169,11 +204,15 @@ describe("frontend brand asset sync", () => {
   });
 
   it("keeps committed launcher outputs aligned with freshly rendered assets", async () => {
-    const { buildFrontendBrandAssetPlan, renderLegacyLauncherAssets } =
-      await loadBrandSyncModule();
+    const {
+      buildFrontendBrandAssetPlan,
+      renderLegacyLauncherAssets,
+      resolveImageMagickCommand,
+    } = await loadBrandSyncModule();
     const tempRoot = mkdtempSync(join(tmpdir(), "brand-sync-launchers-"));
     const isolatedRepoRoot = resolve(tempRoot, "android");
     const frontendPublicDirectory = resolve(tempRoot, "frontend/public");
+    const imageMagickCommand = resolveImageMagickCommand();
 
     try {
       mkdirSync(frontendPublicDirectory, { recursive: true });
@@ -185,16 +224,39 @@ describe("frontend brand asset sync", () => {
       renderLegacyLauncherAssets(buildFrontendBrandAssetPlan(isolatedRepoRoot));
 
       for (const relativePath of legacyLauncherAssetPaths) {
-        const generatedAsset = readFileSync(
+        const generatedPixels = readDecodedPngPixels(
+          imageMagickCommand,
           resolve(isolatedRepoRoot, relativePath)
         );
-        const committedAsset = readFileSync(resolve(repoRoot, relativePath));
+        const committedPixels = readDecodedPngPixels(
+          imageMagickCommand,
+          resolve(repoRoot, relativePath)
+        );
 
-        expect(generatedAsset.equals(committedAsset), relativePath).toBe(true);
+        expect(
+          generatedPixels.equals(committedPixels),
+          `${relativePath} decoded pixels`
+        ).toBe(true);
       }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it("provisions ImageMagick before the CI launcher render test", () => {
+    const qualityWorkflow = readFileSync(
+      resolve(repoRoot, ".github/workflows/quality.yml"),
+      "utf8"
+    );
+    const installImageMagickIndex = qualityWorkflow.indexOf(
+      "sudo apt-get install --yes imagemagick"
+    );
+    const coverageTestIndex = qualityWorkflow.indexOf(
+      "run: npm run test:coverage"
+    );
+
+    expect(installImageMagickIndex).toBeGreaterThan(-1);
+    expect(installImageMagickIndex).toBeLessThan(coverageTestIndex);
   });
 
   it("covers every launcher density bucket without legacy splash outputs", async () => {

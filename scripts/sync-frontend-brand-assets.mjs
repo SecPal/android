@@ -107,22 +107,31 @@ export function assertFrontendBrandAssetSourcesExist(plan) {
   }
 }
 
-function ensureMagickAvailable() {
-  const result = spawnSync("magick", ["-version"], { stdio: "ignore" });
+export function resolveImageMagickCommand(runCommand = spawnSync) {
+  for (const command of ["magick", "convert"]) {
+    const result = runCommand(command, ["-version"], { stdio: "ignore" });
 
-  if (result.status !== 0) {
-    throw new Error(
-      "ImageMagick 'magick' is required to sync Android brand assets."
-    );
+    if (result.status === 0) {
+      return command;
+    }
   }
+
+  throw new Error(
+    "ImageMagick 'magick' or 'convert' is required to sync Android brand assets."
+  );
 }
 
+let imageMagickCommand;
+
 function runMagick(argumentsList) {
-  const result = spawnSync("magick", argumentsList, { stdio: "inherit" });
+  imageMagickCommand ??= resolveImageMagickCommand();
+  const result = spawnSync(imageMagickCommand, argumentsList, {
+    stdio: "inherit",
+  });
 
   if (result.status !== 0) {
     throw new Error(
-      `ImageMagick failed for arguments: ${argumentsList.join(" ")}`
+      `ImageMagick '${imageMagickCommand}' failed for arguments: ${argumentsList.join(" ")}`
     );
   }
 }
@@ -284,7 +293,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
   const plan = buildFrontendBrandAssetPlan(repoRoot);
 
   assertFrontendBrandAssetSourcesExist(plan);
-  ensureMagickAvailable();
+  imageMagickCommand ??= resolveImageMagickCommand();
 
   for (const target of plan.launcherForegroundTargets) {
     renderTransparentSquareLogo(
