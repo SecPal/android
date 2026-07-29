@@ -42,7 +42,6 @@ describe("third-party license provenance", () => {
     const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
     const unchangedTemplatePaths = [
       "android/gradle.properties",
-      "android/settings.gradle",
       "android/app/.gitignore",
     ];
 
@@ -50,6 +49,25 @@ describe("third-party license provenance", () => {
       const quotedPath = `"${templatePath}"`;
       expect(reuseConfig.split(quotedPath)).toHaveLength(2);
     }
+  });
+
+  it("keeps Capacitor settings provenance separate from SecPal policy", () => {
+    const sidecarPath = resolve(repoRoot, "android/settings.gradle.license");
+    expect(existsSync(sidecarPath)).toBe(true);
+    const sidecar = readFileSync(sidecarPath, "utf8");
+    expect(sidecar).toContain(
+      "SPDX-FileCopyrightText: 2026 SecPal Contributors"
+    );
+    expect(sidecar).toContain(
+      "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+    );
+
+    const annotationBlock = annotationBlockFor("android/settings.gradle");
+    expect(annotationBlock).toMatch(/precedence\s*=\s*"aggregate"/);
+    expect(annotationBlock).toMatch(
+      /SPDX-FileCopyrightText\s*=\s*"2017-present Drifty Co\."/
+    );
+    expect(annotationBlock).toMatch(/SPDX-License-Identifier\s*=\s*"MIT"/);
   });
 
   it("keeps SecPal's Cordova Gradle normalization under AGPL terms", () => {

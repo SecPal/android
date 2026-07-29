@@ -26,12 +26,13 @@ the checked-in wrapper JAR is self-attributing through its embedded license.
 
 The committed Capacitor-generated files originate from the `@capacitor/cli`
 package and retain its `2017-present Drifty Co.` MIT provenance. The repository
-normalizes `android/capacitor-cordova-android-plugins/build.gradle`; its
-sidecar records that local change under AGPLv3 with the SecPal attribution
-terms, alongside the upstream MIT provenance. Unmodified Android template
-files remain MIT only. No Tailwind-derived material, copied third-party
-snippets, or replaced third-party notices were found outside the Gradle Wrapper,
-Capacitor template, and GitHub Android ignore-template provenance above.
+adds buildscript dependency policy to `android/settings.gradle` and normalizes
+`android/capacitor-cordova-android-plugins/build.gradle`; their sidecars record
+those local changes under AGPLv3 with the SecPal attribution terms, alongside
+the upstream MIT provenance. Unmodified Android template files remain MIT only.
+No Tailwind-derived material, copied third-party snippets, or replaced
+third-party notices were found outside the Gradle Wrapper, Capacitor template,
+and GitHub Android ignore-template provenance above.
 
 `android/.gitignore` retains the upstream GitHub Android ignore template's CC0
 provenance. Its local SecPal rules are recorded separately in an AGPLv3
