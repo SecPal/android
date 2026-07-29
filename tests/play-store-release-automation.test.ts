@@ -47,6 +47,10 @@ async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
 
 async function loadNativeAuthBridgeInjectorModule(): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
+  injectNativeAuthBridgeIntoFile: (
+    indexHtmlPath: string,
+    stringsXmlPath: string
+  ) => void;
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/inject-native-auth-bridge.mjs");
@@ -1111,6 +1115,49 @@ system("sh", "-eu", "-c", script, exception: true)
       expect(() =>
         verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
       ).toThrow(/must declare schema 4 independently/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a stale generated Android web runtime before verification", async () => {
+    const { verifyAndroidRuntimeSchemaIndex } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const {
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeIntoFile,
+    } = await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const staleIndexPath = join(tempRoot, "index.html");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+    const canonicalIndexHtml = `<!doctype html><html><head><script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script></head></html>`;
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        staleIndexPath,
+        canonicalIndexHtml.replace(
+          "currentBootstrapSchemaVersion = 4",
+          "currentBootstrapSchemaVersion = 3"
+        )
+      );
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
+      ).toThrow(/must declare schema 4 independently/i);
+
+      injectNativeAuthBridgeIntoFile(staleIndexPath, stringsXmlPath);
+
+      expect(readFileSync(staleIndexPath, "utf8")).toBe(canonicalIndexHtml);
+      expect(() =>
+        verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
+      ).not.toThrow();
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

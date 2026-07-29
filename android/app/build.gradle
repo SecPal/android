@@ -31,6 +31,7 @@ def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DA
 def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 def androidRepositoryRoot = rootProject.projectDir.parentFile
+def runtimeSchemaInjector = new File(androidRepositoryRoot, 'scripts/inject-native-auth-bridge.mjs')
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
@@ -129,9 +130,25 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
+    group = "verification"
+    description = "Re-injects the canonical schema-4 bridge into a present generated Android web asset."
+    inputs.files(runtimeSchemaInjector, generatedAndroidWebIndex, androidStringsXml)
+    onlyIf("generated Android web index is present") {
+        generatedAndroidWebIndex.isFile()
+    }
+    commandLine(
+        "node",
+        runtimeSchemaInjector.absolutePath,
+        generatedAndroidWebIndex.absolutePath,
+        androidStringsXml.absolutePath
+    )
+}
+
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
     description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
+    dependsOn("prepareAndroidRuntimeSchemaAsset")
     inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
     onlyIf("generated Android web asset directory is present") {
         generatedAndroidWebAssets.isDirectory()
