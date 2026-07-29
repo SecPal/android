@@ -15,6 +15,8 @@ on:
       - "scripts/wait-for-android-device.sh"
       - "scripts/wait-for-device-policy-account-scan.sh"
       - "scripts/with-android-env.sh"
+      - "android/build.gradle"
+      - "android/settings.gradle"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
       - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
@@ -33,6 +35,8 @@ on:
       - "scripts/wait-for-android-device.sh"
       - "scripts/wait-for-device-policy-account-scan.sh"
       - "scripts/with-android-env.sh"
+      - "android/build.gradle"
+      - "android/settings.gradle"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
       - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
@@ -87,7 +91,6 @@ jobs:
           (
             cd android
             ./gradlew --no-daemon \
-              -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
               :app:assembleCtRegression \
               :app:assembleCtRegressionAndroidTest
           )

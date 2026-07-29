@@ -50,6 +50,9 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(instrumentedTest).toContain("assertFalse");
 
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
+    expect(workflow.match(/android\/build\.gradle/g)).toHaveLength(2);
+    expect(workflow.match(/android\/settings\.gradle/g)).toHaveLength(2);
+    expect(workflow).not.toContain("use_unsafe_pre22_gencode");
     expect(workflow).toContain(
       'image="system-images;android-35;default;x86_64"'
     );

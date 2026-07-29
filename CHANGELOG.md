@@ -470,7 +470,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Scoped the protobuf legacy-generated-code warning suppression to Android OSS release verification after proving AGP's build-only Tink dependency is absent from the shipped release runtime graph
+- Replaced the protobuf generated-code warning suppression with a verified
+  buildscript pin from AGP's vulnerable Tink 1.7.0 edge to Tink 1.23.0, while
+  continuing to reject Tink from the shipped release runtime graph (issue #356).
 - Pinned `typescript` back to the supported `5.9.x` line so Android lint no longer emits the current `@typescript-eslint` unsupported-TypeScript warning
 - Removed unused `flatDir` repositories from the native Android app and Capacitor Cordova plugin modules so Gradle no longer emits the current metadata-format warning during debug APK builds
 - Normalized repository-owned YAML files by adding explicit document starts, aligning `yamllint` comment spacing with the repository Prettier style, refreshing edited SPDX year headers, and clarifying the repo-local workflow timeout rule for reusable workflow caller jobs

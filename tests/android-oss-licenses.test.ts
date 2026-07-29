@@ -69,6 +69,7 @@ const expectedLibraries = [
 
 describe("Android OSS licenses", () => {
   it("generates release notices without adding Android WebView presentation", () => {
+    const settingsGradle = readRepoFile("android", "settings.gradle");
     const rootBuildGradle = readRepoFile("android", "build.gradle");
     const cordovaPluginsBuildGradle = readRepoFile(
       "android",
@@ -96,6 +97,19 @@ describe("Android OSS licenses", () => {
       "verify-androidx-graphics-path.sh"
     );
     expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
+    expect(settingsGradle).toContain("tinkBuildToolVersion = '1.23.0'");
+    expect(settingsGradle).toContain(
+      'resolutionStrategy.force "com.google.crypto.tink:tink:${tinkBuildToolVersion}"'
+    );
+    expect(rootBuildGradle).toContain(
+      'tasks.register("verifyBuildToolTinkVersion")'
+    );
+    expect(appBuildGradle).toContain(
+      'dependsOn(rootProject.tasks.named("verifyBuildToolTinkVersion"))'
+    );
+    expect(appBuildGradle).toContain(
+      'tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }'
+    );
     expect(cordovaPluginsBuildGradle).toContain(
       "com.android.tools.build:gradle:8.9.1"
     );
@@ -144,12 +158,7 @@ describe("Android OSS licenses", () => {
     expect(verification).toContain(
       "Release runtime classpath contains build-tool-only Tink dependency"
     );
-    expect(verification).toContain(
-      'protobuf_unsafe_gencode_property="-Dcom.google.protobuf.use_unsafe_pre22_gencode=true"'
-    );
-    expect(
-      verification.match(/protobuf_unsafe_gencode_property/g)
-    ).toHaveLength(3);
+    expect(verification).not.toContain("use_unsafe_pre22_gencode");
     expect(verification).toContain("third_party_license_metadata");
     expect(verification).toContain("third_party_licenses");
     expect(verification).toContain("app-release.apk");
@@ -325,7 +334,7 @@ describe("Android OSS licenses", () => {
         "Release runtime classpath contains build-tool-only Tink dependency"
       );
       expect(readFileSync(gradleInvocationsPath, "utf8")).toBe(
-        "-Dcom.google.protobuf.use_unsafe_pre22_gencode=true :app:dependencies --configuration releaseRuntimeClasspath --console=plain\n"
+        ":app:dependencies --configuration releaseRuntimeClasspath --console=plain\n"
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });

@@ -206,6 +206,8 @@ describe("Android Certificate Transparency regression contract", () => {
       "pm path android"
     );
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
+    expect(workflow.match(/android\/build\.gradle/g)).toHaveLength(2);
+    expect(workflow.match(/android\/settings\.gradle/g)).toHaveLength(2);
     expect(
       workflow.indexOf(":app:assembleCtRegressionAndroidTest")
     ).toBeLessThan(workflow.indexOf("npm run android:emulator:start"));
@@ -215,9 +217,7 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).not.toContain("connectedDebugAndroidTest");
     expect(workflow).toContain("probe_url:");
     expect(workflow).toContain("SECPAL_LIVE_CT_PROBE_URL");
-    expect(workflow).toContain(
-      "-Dcom.google.protobuf.use_unsafe_pre22_gencode=true"
-    );
+    expect(workflow).not.toContain("use_unsafe_pre22_gencode");
     expect(workflow).toContain("schedule:");
     expect(workflow).toContain(
       "/data/misc/keychain/ct/v2/current/log_list.json"

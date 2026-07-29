@@ -163,6 +163,10 @@ tasks.register("verifyCtRegressionSecurityDependencies") {
     }
 }
 
+tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.configureEach {
+    dependsOn(rootProject.tasks.named("verifyBuildToolTinkVersion"))
+}
+
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     dependsOn("verifyReleasePasskeyDependencies")
 }
