@@ -28,11 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removing `IconLauncherShape` lint warnings without affecting adaptive icons
   (issue #463).
 - Refreshed the synced Android WebView asset to the canonical schema-4 bridge,
-  made every native pre-build refresh the complete generated frontend tree,
-  retained strict drift and shell rejection before packaging, and made bridge
-  insertion and the Node preparation entry point parser- and path-safe so
-  ignored Capacitor assets cannot silently produce broken apps or block Android
-  resource and lint validation (issues #487 and #493).
+  excluded the force-tracked generated index from PR-size accounting, made every
+  native pre-build refresh the complete generated frontend tree, retained strict
+  drift and shell rejection before packaging, and made bridge insertion and the
+  Node preparation entry point parser- and path-safe so ignored Capacitor assets
+  cannot silently produce broken apps or block Android resource and lint
+  validation (issues #487, #491, and #493).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource
