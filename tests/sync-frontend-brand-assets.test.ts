@@ -178,7 +178,7 @@ describe("frontend brand asset sync", () => {
     try {
       mkdirSync(frontendPublicDirectory, { recursive: true });
       copyFileSync(
-        resolve(repoRoot, "android/app/src/main/assets/public/logo-source.png"),
+        resolve(repoRoot, "tests/fixtures/logo-source.png"),
         resolve(frontendPublicDirectory, "logo-source.png")
       );
 
