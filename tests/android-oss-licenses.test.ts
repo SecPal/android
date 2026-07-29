@@ -104,6 +104,8 @@ describe("Android OSS licenses", () => {
     expect(rootBuildGradle).toContain(
       'tasks.register("verifyBuildToolTinkVersion")'
     );
+    expect(rootBuildGradle).toContain('unexpectedComponents.sort().join(", ")');
+    expect(rootBuildGradle).not.toContain('unexpectedComponents.join(", ")');
     expect(appBuildGradle).toContain(
       'dependsOn(rootProject.tasks.named("verifyBuildToolTinkVersion"))'
     );

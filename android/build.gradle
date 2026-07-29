@@ -58,7 +58,7 @@ tasks.register("verifyBuildToolTinkVersion") {
         if (!unexpectedComponents.isEmpty()) {
             throw new GradleException(
                 "Android buildscript classpaths contain unreviewed Tink components: " +
-                    unexpectedComponents.join(", ")
+                    unexpectedComponents.sort().join(", ")
             )
         }
     }
