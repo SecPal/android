@@ -11,12 +11,9 @@ aab_path="${android_dir}/app/build/outputs/bundle/release/app-release.aab"
 
 cd "${android_dir}"
 
-# AGP loads Tink 1.7.0 only on its build-time classpath. Its protobuf generated
-# types trigger this warning while AGP produces SDK dependency metadata, but the
-# app must never package Tink. Keep the protobuf opt-out scoped to this build
-# process and prove that the release runtime graph does not contain it.
-protobuf_unsafe_gencode_property="-Dcom.google.protobuf.use_unsafe_pre22_gencode=true"
-runtime_classpath="$(./gradlew "${protobuf_unsafe_gencode_property}" :app:dependencies --configuration releaseRuntimeClasspath --console=plain)"
+# Tink is required only by the Android build tool. Prove that it has not crossed
+# into the shipped app before assembling release artifacts.
+runtime_classpath="$(./gradlew :app:dependencies --configuration releaseRuntimeClasspath --console=plain)"
 grep -Fq "com.google.firebase:firebase-messaging" <<<"${runtime_classpath}"
 grep -Fq "com.google.android.gms:play-services-oss-licenses" <<<"${runtime_classpath}"
 if grep -Fq "com.google.crypto.tink:tink" <<<"${runtime_classpath}"; then
@@ -24,7 +21,7 @@ if grep -Fq "com.google.crypto.tink:tink" <<<"${runtime_classpath}"; then
     exit 1
 fi
 
-./gradlew "${protobuf_unsafe_gencode_property}" :app:assembleRelease :app:bundleRelease --console=plain
+./gradlew :app:assembleRelease :app:bundleRelease --console=plain
 
 if [[ -f "${apk_dir}/app-release.apk" ]]; then
     apk_path="${apk_dir}/app-release.apk"

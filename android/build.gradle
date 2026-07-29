@@ -32,3 +32,34 @@ allprojects {
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
+
+tasks.register("verifyBuildToolTinkVersion") {
+    group = "verification"
+    description = "Fails when an Android buildscript resolves an unreviewed Tink version."
+
+    doLast {
+        def expectedVersion = gradle.ext.tinkBuildToolVersion
+        def unexpectedComponents = rootProject.allprojects.collectMany { candidateProject ->
+            def classpath = candidateProject.buildscript.configurations.findByName("classpath")
+            if (classpath == null || !classpath.canBeResolved) {
+                return []
+            }
+
+            classpath.incoming.resolutionResult.allComponents.findAll { component ->
+                component.moduleVersion != null
+                    && component.moduleVersion.group == "com.google.crypto.tink"
+                    && component.moduleVersion.name == "tink"
+                    && component.moduleVersion.version != expectedVersion
+            }.collect { component ->
+                "${candidateProject.path}:${component.moduleVersion}"
+            }
+        }
+
+        if (!unexpectedComponents.isEmpty()) {
+            throw new GradleException(
+                "Android buildscript classpaths contain unreviewed Tink components: " +
+                    unexpectedComponents.sort().join(", ")
+            )
+        }
+    }
+}

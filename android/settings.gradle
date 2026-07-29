@@ -1,3 +1,15 @@
+def tinkBuildToolVersion = '1.23.0'
+gradle.ext.tinkBuildToolVersion = tinkBuildToolVersion
+
+// AGP 8.9.1 requests Tink 1.7.0, whose protobuf types were generated before
+// protoc 25.6. Pin the buildscript edge for every project before its classpath
+// resolves so release metadata generation never loads the vulnerable classes.
+gradle.beforeProject { project ->
+    project.buildscript.configurations.configureEach {
+        resolutionStrategy.force "com.google.crypto.tink:tink:${tinkBuildToolVersion}"
+    }
+}
+
 include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')

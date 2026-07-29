@@ -320,7 +320,6 @@ jq -e \
 (
   cd android
   ANDROID_SERIAL="$device_serial" ./gradlew \
-    -Dcom.google.protobuf.use_unsafe_pre22_gencode=true \
     :app:connectedCtRegressionAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=app.secpal.CertificateTransparencyInstrumentedTest#apiEndpointPassesThePlatformCertificateTransparencyPolicy" \
     -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
@@ -331,9 +330,10 @@ jq -e \
 Both the discovery URL and a different canonical API origin require separate
 probe runs. Customer renewal automation may request these workflow runs or
 execute the same device command in its own controlled test lane. The scoped
-protobuf property suppresses a warning from AGP's build-time-only Tink 1.7.0;
-the CT regression pre-build fails if Tink or Google Play services FIDO reaches
-the test app's runtime classpath, matching the release artifact prohibition.
+buildscript pin upgrades AGP's build-time-only Tink dependency before Gradle
+loads its generated protobuf types. The CT regression pre-build fails if Tink
+or Google Play services FIDO reaches the test app's runtime classpath, matching
+the release artifact prohibition.
 
 The app's real discovery and API requests are the final enforcement point. A
 customer origin that is system-trusted but not CT-compliant fails closed during

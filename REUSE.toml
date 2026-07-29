@@ -145,10 +145,15 @@ SPDX-License-Identifier = "MIT"
 [[annotations]]
 path = [
   "android/gradle.properties",
-  "android/settings.gradle",
   "android/app/.gitignore",
   "android/app/src/main/res/values/ic_launcher_background.xml",
 ]
+SPDX-FileCopyrightText = "2017-present Drifty Co."
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "android/settings.gradle"
+precedence = "aggregate"
 SPDX-FileCopyrightText = "2017-present Drifty Co."
 SPDX-License-Identifier = "MIT"
 
