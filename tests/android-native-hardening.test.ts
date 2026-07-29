@@ -1024,12 +1024,16 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
-  it("verifies a present generated Android web asset before native packaging", () => {
+  it("prepares and verifies a present generated Android web asset before native packaging", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
 
     expect(appBuildGradle).toContain(
+      'tasks.register("prepareAndroidRuntimeSchemaAsset", Exec)'
+    );
+    expect(appBuildGradle).toContain(
       'tasks.register("verifyAndroidRuntimeSchemaAsset", Exec)'
     );
+    expect(appBuildGradle).not.toContain("def runtimeSchemaInjector");
     expect(appBuildGradle).toContain(
       "scripts/verify-android-runtime-schema.mjs"
     );
@@ -1038,6 +1042,12 @@ describe("Android native hardening", () => {
     );
     expect(appBuildGradle).toContain(
       "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*workingDir androidRepositoryRoot[\s\S]*commandLine\(\s*"npm",\s*"run",\s*"cap:copy"\s*\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/

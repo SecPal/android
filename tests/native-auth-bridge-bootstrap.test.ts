@@ -356,6 +356,32 @@ describe("native auth bridge bootstrap injection", () => {
     ).toBe(injectedHtml);
   });
 
+  it("injects before a case-insensitive module entry without moving the doctype", async () => {
+    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+    const html = [
+      "<!DOCTYPE HTML>",
+      "<HTML>",
+      "<HEAD>",
+      '<SCRIPT TYPE="MODULE" SRC="/assets/index.js"></SCRIPT>',
+      "</HEAD>",
+      "<BODY></BODY>",
+      "</HTML>",
+    ].join("\n");
+
+    const injectedHtml = injectNativeAuthBridgeBootstrap(
+      html,
+      "https://api.secpal.dev"
+    );
+
+    expect(injectedHtml.startsWith("<!DOCTYPE HTML>")).toBe(true);
+    expect(
+      injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
+    ).toBeGreaterThan(injectedHtml.indexOf("<HEAD>"));
+    expect(
+      injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
+    ).toBeLessThan(injectedHtml.indexOf('<SCRIPT TYPE="MODULE"'));
+  });
+
   it("replaces an existing bootstrap script when reinjecting updated content", async () => {
     const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
     const html = [

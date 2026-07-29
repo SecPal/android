@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +48,10 @@ async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
 
 async function loadNativeAuthBridgeInjectorModule(): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
+  injectNativeAuthBridgeIntoFile: (
+    indexHtmlPath: string,
+    stringsXmlPath: string
+  ) => void;
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/inject-native-auth-bridge.mjs");
@@ -76,6 +81,14 @@ function createZipFixture(
     `zip exited with status ${zipResult.status ?? "unknown"}`;
   expect(zipResult.status, failureDetails).toBe(0);
   return artifactPath;
+}
+
+function buildAndroidRuntimeIndexHtml(runtimeBridge?: string) {
+  const runtimeScript = runtimeBridge
+    ? `<script id="secpal-native-auth-bridge-bootstrap">${runtimeBridge}</script>`
+    : "";
+
+  return `<!doctype html><html><head>${runtimeScript}<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`;
 }
 
 function writePngHeader(
@@ -923,7 +936,9 @@ system("sh", "-eu", "-c", script, exception: true)
     const stringsXmlPath = join(tempRoot, "strings.xml");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-    const canonicalIndexHtml = `<!doctype html><html><head><script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script><script type="module" src="/assets/index.js"></script></head></html>`;
+    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
+      canonicalRuntimeBridge
+    );
 
     try {
       writeFile(
@@ -1089,7 +1104,9 @@ system("sh", "-eu", "-c", script, exception: true)
     const staleIndexPath = join(tempRoot, "stale-index.html");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-    const canonicalIndexHtml = `<!doctype html><html><head><script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script></head></html>`;
+    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
+      canonicalRuntimeBridge
+    );
 
     try {
       writeFile(
@@ -1111,6 +1128,172 @@ system("sh", "-eu", "-c", script, exception: true)
       expect(() =>
         verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
       ).toThrow(/must declare schema 4 independently/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a stale generated Android web runtime before verification", async () => {
+    const { verifyAndroidRuntimeSchemaIndex } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const {
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeIntoFile,
+    } = await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const staleIndexPath = join(tempRoot, "index.html");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
+      canonicalRuntimeBridge
+    );
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        staleIndexPath,
+        canonicalIndexHtml.replace(
+          "currentBootstrapSchemaVersion = 4",
+          "currentBootstrapSchemaVersion = 3"
+        )
+      );
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
+      ).toThrow(/must declare schema 4 independently/i);
+
+      injectNativeAuthBridgeIntoFile(staleIndexPath, stringsXmlPath);
+
+      expect(readFileSync(staleIndexPath, "utf8")).toBe(canonicalIndexHtml);
+      expect(() =>
+        verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
+      ).not.toThrow();
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects corrupt Android web shells before injection and artifact verification", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const {
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeIntoFile,
+    } = await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+
+      for (const [name, corruptIndexHtml] of [
+        ["empty", ""],
+        [
+          "truncated",
+          '<!doctype html><html><head><script type="module" src="/assets/index.js"></script>',
+        ],
+      ] as const) {
+        const corruptIndexPath = join(tempRoot, `${name}.html`);
+        writeFile(corruptIndexPath, corruptIndexHtml);
+
+        expect(() =>
+          injectNativeAuthBridgeIntoFile(corruptIndexPath, stringsXmlPath)
+        ).toThrow(/complete Android web application shell/i);
+        expect(readFileSync(corruptIndexPath, "utf8")).toBe(corruptIndexHtml);
+      }
+
+      const bridgeOnlyArtifactPath = createZipFixture(
+        join(tempRoot, "bridge-only"),
+        "bridge-only.apk",
+        "assets",
+        ["assets", "public"],
+        `<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>`
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(
+          bridgeOnlyArtifactPath,
+          stringsXmlPath
+        )
+      ).toThrow(/complete Android web application shell/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("executes runtime schema CLIs through URL-encoded and symlinked entry paths", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "android runtime schema-"));
+    const repositoryAlias = join(tempRoot, "repository alias");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      symlinkSync(repoRoot, repositoryAlias, "dir");
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+
+      for (const preserveMainSymlink of [false, true]) {
+        const indexHtmlPath = join(
+          tempRoot,
+          preserveMainSymlink ? "preserved-index.html" : "resolved-index.html"
+        );
+        writeFile(indexHtmlPath, buildAndroidRuntimeIndexHtml());
+        const nodeArguments = preserveMainSymlink
+          ? ["--preserve-symlinks-main"]
+          : [];
+        const injectorResult = spawnSync(
+          process.execPath,
+          [
+            ...nodeArguments,
+            join(repositoryAlias, "scripts", "inject-native-auth-bridge.mjs"),
+            indexHtmlPath,
+            stringsXmlPath,
+          ],
+          { encoding: "utf8" }
+        );
+
+        expect(
+          injectorResult.status,
+          injectorResult.error?.message || injectorResult.stderr
+        ).toBe(0);
+        expect(readFileSync(indexHtmlPath, "utf8")).toContain(
+          'id="secpal-native-auth-bridge-bootstrap"'
+        );
+
+        const verifierResult = spawnSync(
+          process.execPath,
+          [
+            ...nodeArguments,
+            join(
+              repositoryAlias,
+              "scripts",
+              "verify-android-runtime-schema.mjs"
+            ),
+            indexHtmlPath,
+            stringsXmlPath,
+          ],
+          { encoding: "utf8" }
+        );
+        expect(
+          verifierResult.status,
+          verifierResult.error?.message || verifierResult.stderr
+        ).toBe(0);
+        expect(verifierResult.stdout).toContain(
+          "ANDROID_RUNTIME_SCHEMA_INDEX_OK"
+        );
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

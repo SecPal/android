@@ -5,11 +5,12 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { extname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { parse } from "parse5";
 import ts from "typescript";
 import {
+  assertCompleteAndroidWebApplicationShell,
   buildNativeAuthBridgeBootstrapScript,
+  isDirectNodeExecution,
   readApiBaseUrlFromStringsXml,
 } from "./inject-native-auth-bridge.mjs";
 
@@ -161,6 +162,7 @@ function assertCanonicalAndroidRuntimeIndex(
   sourceLabel,
   expectedBridge
 ) {
+  assertCompleteAndroidWebApplicationShell(indexHtml, sourceLabel);
   const actualBridge = extractAndroidRuntimeBridge(indexHtml, sourceLabel);
 
   assertCanonicalSchema4Registration(actualBridge, sourceLabel);
@@ -207,7 +209,7 @@ export function verifyAndroidRuntimeSchemaArtifact(
   );
 }
 
-if (import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isDirectNodeExecution(import.meta.url)) {
   try {
     const [, , inputPath, stringsXmlPath] = process.argv;
     if (!inputPath || !stringsXmlPath) {

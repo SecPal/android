@@ -129,9 +129,20 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
+    group = "verification"
+    description = "Rebuilds and copies the complete frontend when generated Android web assets are present."
+    onlyIf("generated Android web asset directory is present") {
+        generatedAndroidWebAssets.isDirectory()
+    }
+    workingDir androidRepositoryRoot
+    commandLine("npm", "run", "cap:copy")
+}
+
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
     description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
+    dependsOn("prepareAndroidRuntimeSchemaAsset")
     inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
     onlyIf("generated Android web asset directory is present") {
         generatedAndroidWebAssets.isDirectory()
