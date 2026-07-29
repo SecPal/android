@@ -107,22 +107,31 @@ export function assertFrontendBrandAssetSourcesExist(plan) {
   }
 }
 
-function ensureMagickAvailable() {
-  const result = spawnSync("magick", ["-version"], { stdio: "ignore" });
+export function resolveImageMagickCommand(runCommand = spawnSync) {
+  for (const command of ["magick", "convert"]) {
+    const result = runCommand(command, ["-version"], { stdio: "ignore" });
 
-  if (result.status !== 0) {
-    throw new Error(
-      "ImageMagick 'magick' is required to sync Android brand assets."
-    );
+    if (result.status === 0) {
+      return command;
+    }
   }
+
+  throw new Error(
+    "ImageMagick 'magick' or 'convert' is required to sync Android brand assets."
+  );
 }
 
+let imageMagickCommand;
+
 function runMagick(argumentsList) {
-  const result = spawnSync("magick", argumentsList, { stdio: "inherit" });
+  imageMagickCommand ??= resolveImageMagickCommand();
+  const result = spawnSync(imageMagickCommand, argumentsList, {
+    stdio: "inherit",
+  });
 
   if (result.status !== 0) {
     throw new Error(
-      `ImageMagick failed for arguments: ${argumentsList.join(" ")}`
+      `ImageMagick '${imageMagickCommand}' failed for arguments: ${argumentsList.join(" ")}`
     );
   }
 }
@@ -131,18 +140,46 @@ function ensureParentDirectory(filePath) {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
-function renderSquareLogo(
+export function calculateLegacyLauncherLogoSize(canvasSize) {
+  return Math.round(canvasSize * launcherInsetFactor);
+}
+
+export function buildLegacyLauncherRenderArguments(
   sourcePath,
   targetPath,
   canvasSize,
   logoSize,
-  background
+  round
 ) {
-  ensureParentDirectory(targetPath);
-  runMagick([
+  if (!round) {
+    return [
+      sourcePath,
+      "-trim",
+      "+repage",
+      "-resize",
+      `${logoSize}x${logoSize}`,
+      "-background",
+      "none",
+      "-gravity",
+      "center",
+      "-extent",
+      `${canvasSize}x${canvasSize}`,
+      "-define",
+      "png:exclude-chunks=date,time",
+      targetPath,
+    ];
+  }
+
+  const center = (canvasSize - 1) / 2;
+
+  return [
     "-size",
     `${canvasSize}x${canvasSize}`,
-    `xc:${background}`,
+    "xc:none",
+    "-fill",
+    launcherBackgroundColor,
+    "-draw",
+    `circle ${center},${center} ${center},0`,
     "(",
     sourcePath,
     "-trim",
@@ -153,8 +190,29 @@ function renderSquareLogo(
     "-gravity",
     "center",
     "-composite",
+    "-define",
+    "png:exclude-chunks=date,time",
     targetPath,
-  ]);
+  ];
+}
+
+function renderLegacyLauncherLogo(
+  sourcePath,
+  targetPath,
+  canvasSize,
+  logoSize,
+  round
+) {
+  ensureParentDirectory(targetPath);
+  runMagick(
+    buildLegacyLauncherRenderArguments(
+      sourcePath,
+      targetPath,
+      canvasSize,
+      logoSize,
+      round
+    )
+  );
 }
 
 function renderTransparentSquareLogo(
@@ -209,11 +267,33 @@ function renderMonochromeSquareLogo(
   ]);
 }
 
+export function renderLegacyLauncherAssets(plan) {
+  for (const target of plan.launcherTargets) {
+    renderLegacyLauncherLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      calculateLegacyLauncherLogoSize(target.size),
+      false
+    );
+  }
+
+  for (const target of plan.roundLauncherTargets) {
+    renderLegacyLauncherLogo(
+      plan.launcherSource,
+      target.path,
+      target.size,
+      calculateLegacyLauncherLogoSize(target.size),
+      true
+    );
+  }
+}
+
 export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
   const plan = buildFrontendBrandAssetPlan(repoRoot);
 
   assertFrontendBrandAssetSourcesExist(plan);
-  ensureMagickAvailable();
+  imageMagickCommand ??= resolveImageMagickCommand();
 
   for (const target of plan.launcherForegroundTargets) {
     renderTransparentSquareLogo(
@@ -233,18 +313,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
     );
   }
 
-  for (const target of [
-    ...plan.launcherTargets,
-    ...plan.roundLauncherTargets,
-  ]) {
-    renderSquareLogo(
-      plan.launcherSource,
-      target.path,
-      target.size,
-      Math.round(target.size * launcherInsetFactor),
-      launcherBackgroundColor
-    );
-  }
+  renderLegacyLauncherAssets(plan);
 
   renderTransparentSquareLogo(
     plan.splashIconLightSource,

@@ -74,7 +74,7 @@ npm ci
 npm --prefix ../frontend ci
 ```
 
-If you need to regenerate launcher icons or splash assets with `npm run brand:sync`, install ImageMagick first so the `magick` CLI is available in your shell.
+If you need to regenerate launcher icons or splash assets with `npm run brand:sync`, install ImageMagick first so its `magick` (version 7) or `convert` (version 6) CLI is available in your shell.
 
 For Fedora-based local builds, keep the Android toolchain available in your shell:
 

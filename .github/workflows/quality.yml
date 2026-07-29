@@ -119,6 +119,11 @@ jobs:
           ruby-version: "3.3"
           bundler-cache: true
 
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes imagemagick
+
       - name: Install dependencies
         run: npm ci
 

@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Corrected the legacy Android launcher icons so standard variants retain the
+  SecPal shield silhouette, round variants are genuinely circular, and repeated
+  brand syncs reproduce the checked-in raster geometry deterministically,
+  removing `IconLauncherShape` lint warnings without affecting adaptive icons
+  (issue #463).
 - Refreshed the synced Android WebView asset to the canonical schema-4 bridge
   and made every native pre-build reject generated index drift before packaging
   (issue #487).
