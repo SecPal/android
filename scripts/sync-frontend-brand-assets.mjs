@@ -131,6 +131,10 @@ function ensureParentDirectory(filePath) {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
+export function calculateLegacyLauncherLogoSize(canvasSize) {
+  return Math.round(canvasSize * launcherInsetFactor);
+}
+
 export function buildLegacyLauncherRenderArguments(
   sourcePath,
   targetPath,
@@ -151,11 +155,13 @@ export function buildLegacyLauncherRenderArguments(
       "center",
       "-extent",
       `${canvasSize}x${canvasSize}`,
+      "-define",
+      "png:exclude-chunks=date,time",
       targetPath,
     ];
   }
 
-  const center = canvasSize / 2;
+  const center = (canvasSize - 1) / 2;
 
   return [
     "-size",
@@ -175,6 +181,8 @@ export function buildLegacyLauncherRenderArguments(
     "-gravity",
     "center",
     "-composite",
+    "-define",
+    "png:exclude-chunks=date,time",
     targetPath,
   ];
 }
@@ -279,7 +287,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
       plan.launcherSource,
       target.path,
       target.size,
-      Math.round(target.size * launcherInsetFactor),
+      calculateLegacyLauncherLogoSize(target.size),
       false
     );
   }
@@ -289,7 +297,7 @@ export function syncFrontendBrandAssets(repoRoot = defaultRepoRoot) {
       plan.launcherSource,
       target.path,
       target.size,
-      Math.round(target.size * launcherInsetFactor),
+      calculateLegacyLauncherLogoSize(target.size),
       true
     );
   }
