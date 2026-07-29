@@ -156,26 +156,12 @@ function assertCanonicalSchema4Registration(runtimeBridge, sourceLabel) {
   }
 }
 
-export function verifyAndroidRuntimeSchemaArtifact(
-  artifactPath,
-  stringsXmlPath
+function assertCanonicalAndroidRuntimeIndex(
+  indexHtml,
+  sourceLabel,
+  expectedBridge
 ) {
-  const expectedBridge = buildNativeAuthBridgeBootstrapScript(
-    readApiBaseUrlFromStringsXml(readFileSync(stringsXmlPath, "utf8"))
-  );
-  const archiveEntries = readUnzipOutput(artifactPath, ["-Z1", artifactPath])
-    .split(/\r?\n/)
-    .filter(Boolean);
-  const runtimeIndexEntry = selectRuntimeIndexEntry(
-    artifactPath,
-    archiveEntries
-  );
-
-  const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
-  const actualBridge = extractAndroidRuntimeBridge(
-    readUnzipOutput(artifactPath, ["-p", artifactPath, runtimeIndexEntry]),
-    sourceLabel
-  );
+  const actualBridge = extractAndroidRuntimeBridge(indexHtml, sourceLabel);
 
   assertCanonicalSchema4Registration(actualBridge, sourceLabel);
 
@@ -186,19 +172,64 @@ export function verifyAndroidRuntimeSchemaArtifact(
   }
 }
 
+function buildExpectedBridge(stringsXmlPath) {
+  return buildNativeAuthBridgeBootstrapScript(
+    readApiBaseUrlFromStringsXml(readFileSync(stringsXmlPath, "utf8"))
+  );
+}
+
+export function verifyAndroidRuntimeSchemaIndex(indexHtmlPath, stringsXmlPath) {
+  assertCanonicalAndroidRuntimeIndex(
+    readFileSync(indexHtmlPath, "utf8"),
+    indexHtmlPath,
+    buildExpectedBridge(stringsXmlPath)
+  );
+}
+
+export function verifyAndroidRuntimeSchemaArtifact(
+  artifactPath,
+  stringsXmlPath
+) {
+  const expectedBridge = buildExpectedBridge(stringsXmlPath);
+  const archiveEntries = readUnzipOutput(artifactPath, ["-Z1", artifactPath])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const runtimeIndexEntry = selectRuntimeIndexEntry(
+    artifactPath,
+    archiveEntries
+  );
+
+  const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
+  assertCanonicalAndroidRuntimeIndex(
+    readUnzipOutput(artifactPath, ["-p", artifactPath, runtimeIndexEntry]),
+    sourceLabel,
+    expectedBridge
+  );
+}
+
 if (import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const [, , artifactPath, stringsXmlPath] = process.argv;
-    if (!artifactPath || !stringsXmlPath) {
+    const [, , inputPath, stringsXmlPath] = process.argv;
+    if (!inputPath || !stringsXmlPath) {
       throw new Error(
-        "Usage: node scripts/verify-android-runtime-schema.mjs <apk-or-aab> <strings-xml>"
+        "Usage: node scripts/verify-android-runtime-schema.mjs <apk-aab-or-index-html> <strings-xml>"
       );
     }
-    verifyAndroidRuntimeSchemaArtifact(
-      resolve(artifactPath),
-      resolve(stringsXmlPath)
-    );
-    console.log("ANDROID_RUNTIME_SCHEMA_ARTIFACT_OK");
+    const resolvedInputPath = resolve(inputPath);
+    const resolvedStringsXmlPath = resolve(stringsXmlPath);
+    if (extname(resolvedInputPath).toLowerCase() === ".html") {
+      verifyAndroidRuntimeSchemaIndex(
+        resolvedInputPath,
+        resolvedStringsXmlPath
+      );
+      console.log("ANDROID_RUNTIME_SCHEMA_INDEX_OK");
+    } else {
+      verifyAndroidRuntimeSchemaArtifact(
+        resolvedInputPath,
+        resolvedStringsXmlPath
+      );
+      console.log("ANDROID_RUNTIME_SCHEMA_ARTIFACT_OK");
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
