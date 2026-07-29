@@ -2,9 +2,93 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parse } from "parse5";
 
 const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
+
+export function isDirectNodeExecution(moduleUrl, argvPath = process.argv[1]) {
+  if (!argvPath) {
+    return false;
+  }
+
+  const directModuleUrls = new Set([pathToFileURL(resolve(argvPath)).href]);
+  try {
+    directModuleUrls.add(pathToFileURL(realpathSync(argvPath)).href);
+  } catch {
+    // The resolved URL still covers direct execution on non-canonical filesystems.
+  }
+
+  return directModuleUrls.has(moduleUrl);
+}
+
+export function assertCompleteAndroidWebApplicationShell(
+  html,
+  sourceLabel = "Android web index"
+) {
+  const document = parse(html, { sourceCodeLocationInfo: true });
+  const requiredElements = {
+    body: false,
+    head: false,
+    html: false,
+  };
+  let hasHtmlDoctype = false;
+  let hasModuleEntry = false;
+  const pending = [document];
+
+  while (pending.length > 0) {
+    const node = pending.pop();
+    const location = node.sourceCodeLocation;
+
+    if (
+      node.nodeName === "#documentType" &&
+      node.name?.toLowerCase() === "html" &&
+      location
+    ) {
+      hasHtmlDoctype = true;
+    }
+
+    if (
+      Object.hasOwn(requiredElements, node.tagName) &&
+      location?.startTag &&
+      location.endTag
+    ) {
+      requiredElements[node.tagName] = true;
+    }
+
+    if (
+      node.tagName === "script" &&
+      location?.startTag &&
+      location.endTag &&
+      node.attrs?.some(
+        ({ name, value }) =>
+          name === "type" && value.trim().toLowerCase() === "module"
+      ) &&
+      node.attrs?.some(
+        ({ name, value }) => name === "src" && value.trim().length > 0
+      )
+    ) {
+      hasModuleEntry = true;
+    }
+
+    pending.push(...(node.childNodes ?? []));
+  }
+
+  if (
+    !hasHtmlDoctype ||
+    !requiredElements.html ||
+    !requiredElements.head ||
+    !requiredElements.body ||
+    !hasModuleEntry
+  ) {
+    throw new Error(
+      `${sourceLabel} must contain a complete Android web application shell with an HTML doctype, explicit html/head/body elements, and a module entry script.`
+    );
+  }
+}
+
 function serializeInlineScriptString(value) {
   return JSON.stringify(value).replace(
     /<\/script(?=[\t\n\f\r />])/gi,
@@ -2155,12 +2239,13 @@ export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
 export function injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath) {
   const html = readFileSync(indexHtmlPath, "utf8");
   const stringsXml = readFileSync(stringsXmlPath, "utf8");
+  assertCompleteAndroidWebApplicationShell(html, indexHtmlPath);
   const apiBaseUrl = readApiBaseUrlFromStringsXml(stringsXml);
   const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiBaseUrl);
   writeFileSync(indexHtmlPath, injectedHtml, "utf8");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectNodeExecution(import.meta.url)) {
   const indexHtmlPath = process.argv[2];
   const stringsXmlPath = process.argv[3];
 
