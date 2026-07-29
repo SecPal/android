@@ -30,6 +30,11 @@ def releaseKeyPassword = System.getenv('SECPAL_ANDROID_KEY_PASSWORD')
 def samsungAppKeyPttData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim()
 def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim()
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
+def androidRepositoryRoot = rootProject.projectDir.parentFile
+def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
+def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
+def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
+def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
 def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
@@ -124,6 +129,21 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
+    group = "verification"
+    description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
+    inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
+    onlyIf("generated Android web asset directory is present") {
+        generatedAndroidWebAssets.isDirectory()
+    }
+    commandLine(
+        "node",
+        runtimeSchemaVerifier.absolutePath,
+        generatedAndroidWebIndex.absolutePath,
+        androidStringsXml.absolutePath
+    )
+}
+
 tasks.register("verifyReleasePasskeyDependencies") {
     group = "verification"
     description = "Fails when the vulnerable Google Play services FIDO dependency reaches the release classpath."
@@ -165,6 +185,10 @@ tasks.register("verifyCtRegressionSecurityDependencies") {
 
 tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.configureEach {
     dependsOn(rootProject.tasks.named("verifyBuildToolTinkVersion"))
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn("verifyAndroidRuntimeSchemaAsset")
 }
 
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {

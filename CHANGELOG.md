@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refreshed the synced Android WebView asset to the canonical schema-4 bridge
+  and made every native pre-build reject generated index drift before packaging
+  (issue #487).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource
