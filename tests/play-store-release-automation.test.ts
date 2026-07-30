@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,6 +19,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
+import { writeAndroidWebAssetInventory } from "../scripts/android-web-asset-inventory.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const locales = ["en-US", "de-DE"] as const;
@@ -36,10 +39,15 @@ async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
   verifyAndroidRuntimeSchemaArtifact: (
     artifactPath: string,
     stringsXmlPath: string
-  ) => void;
+  ) => Promise<void>;
   verifyAndroidRuntimeSchemaIndex: (
     indexHtmlPath: string,
     stringsXmlPath: string
+  ) => void;
+  verifyAndroidRuntimeSchemaDirectory: (
+    assetRoot: string,
+    stringsXmlPath: string,
+    fallbackInventoryPath?: string
   ) => void;
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
@@ -57,7 +65,7 @@ async function loadNativeAuthBridgeInjectorModule(): Promise<{
   return import("../scripts/inject-native-auth-bridge.mjs");
 }
 
-function writeFile(path: string, content: string) {
+function writeFile(path: string, content: string | Uint8Array) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
 }
@@ -67,10 +75,35 @@ function createZipFixture(
   archiveName: string,
   entryRoot: string,
   indexSegments: readonly string[],
-  indexHtml: string
+  indexHtml: string,
+  assets: string[] | Record<string, string | Uint8Array> | false = [
+    "assets/index.js",
+  ],
+  inventoryMutation: {
+    remove?: readonly string[];
+    write?: Readonly<Record<string, string>>;
+  } = {}
 ) {
   const artifactPath = join(root, archiveName);
-  writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
+  const assetRoot = join(root, ...indexSegments);
+  writeFile(join(assetRoot, "index.html"), indexHtml);
+  if (assets !== false) {
+    const assetEntries = Array.isArray(assets)
+      ? assets.map((assetPath) => [assetPath, ""] as const)
+      : Object.entries(assets);
+    for (const [assetPath, content] of assetEntries) {
+      writeFile(join(assetRoot, ...assetPath.split("/")), content);
+    }
+  }
+  writeAndroidWebAssetInventory(assetRoot);
+  for (const assetPath of inventoryMutation.remove ?? []) {
+    rmSync(join(assetRoot, ...assetPath.split("/")), { force: true });
+  }
+  for (const [assetPath, content] of Object.entries(
+    inventoryMutation.write ?? {}
+  )) {
+    writeFile(join(assetRoot, ...assetPath.split("/")), content);
+  }
   const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
     cwd: root,
     encoding: "utf8",
@@ -960,12 +993,27 @@ system("sh", "-eu", "-c", script, exception: true)
         canonicalIndexHtml
       );
 
-      expect(() =>
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(apkPath, stringsXmlPath)
-      ).not.toThrow();
-      expect(() =>
+      ).resolves.toBeUndefined();
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(aabPath, stringsXmlPath)
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
+
+      const incompleteApkPath = createZipFixture(
+        join(tempRoot, "incomplete-apk"),
+        "incomplete.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        ["assets/index.js"],
+        { remove: ["assets/index.js"] }
+      );
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(incompleteApkPath, stringsXmlPath)
+      ).rejects.toThrow(
+        /missing Android web assets declared by its inventory: assets\/index\.js/i
+      );
 
       const ambiguousAabRoot = join(tempRoot, "ambiguous-aab");
       const ambiguousAabPath = createZipFixture(
@@ -991,9 +1039,9 @@ system("sh", "-eu", "-c", script, exception: true)
         appendResult.status,
         appendResult.error?.message || appendResult.stderr
       ).toBe(0);
-      expect(() =>
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(ambiguousAabPath, stringsXmlPath)
-      ).toThrow(/exactly one .* runtime index/i);
+      ).rejects.toThrow(/exactly one .* runtime index/i);
 
       for (const [name, extension, entryRoot, indexSegments, expectedPath] of [
         [
@@ -1018,12 +1066,12 @@ system("sh", "-eu", "-c", script, exception: true)
           indexSegments,
           canonicalIndexHtml
         );
-        expect(() =>
+        await expect(
           verifyAndroidRuntimeSchemaArtifact(misplacedArtifact, stringsXmlPath)
-        ).toThrow(new RegExp(expectedPath));
+        ).rejects.toThrow(new RegExp(expectedPath));
       }
 
-      const expectInvalidArtifact = (
+      const expectInvalidArtifact = async (
         name: string,
         indexHtml: string,
         expectedError: RegExp
@@ -1035,11 +1083,11 @@ system("sh", "-eu", "-c", script, exception: true)
           ["assets", "public"],
           indexHtml
         );
-        expect(() =>
+        await expect(
           verifyAndroidRuntimeSchemaArtifact(artifactPath, stringsXmlPath)
-        ).toThrow(expectedError);
+        ).rejects.toThrow(expectedError);
       };
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "obsolete",
         canonicalIndexHtml.replace(
           "currentBootstrapSchemaVersion = 4",
@@ -1047,7 +1095,7 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /must declare schema 4 independently/i
       );
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "hardcoded-schema",
         canonicalIndexHtml.replace(
           "schema_version: currentBootstrapSchemaVersion",
@@ -1055,7 +1103,7 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /must declare schema 4 independently/i
       );
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "mutated-bridge",
         canonicalIndexHtml.replace(
           apiBaseUrl,
@@ -1063,7 +1111,7 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /does not contain the canonical schema 4 runtime bridge/i
       );
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "duplicate",
         canonicalIndexHtml.replace(
           "</head>",
@@ -1071,7 +1119,7 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /exactly one injected Android runtime bridge/i
       );
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "non-canonical-tag",
         canonicalIndexHtml.replace(
           '<script id="secpal-native-auth-bridge-bootstrap">',
@@ -1079,7 +1127,7 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /non-canonical Android runtime bridge tag/i
       );
-      expectInvalidArtifact(
+      await expectInvalidArtifact(
         "commented-bridge",
         canonicalIndexHtml.replace(
           `<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>`,
@@ -1087,6 +1135,291 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /exactly one injected Android runtime bridge/i
       );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("requires packaged WebView files to match the generated inventory", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-inventory-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
+      canonicalRuntimeBridge
+    ).replace(
+      "</head>",
+      '<script type="importmap">{"imports":{"app":"/assets/mapped.js"}}</script><style>.hero{background:url("/assets/inline.png")}</style></head>'
+    );
+    const completeAssets = {
+      "assets/index.js":
+        'import "app"; fetch("./config.json"); console.warn("./optional-worker.js");',
+      "assets/mapped.js": "",
+      "assets/config.json": "{}",
+      "assets/inline.png": "",
+      "frame.html":
+        '<!doctype html><html><head><link rel="stylesheet" href="/assets/frame.css"></head><body></body></html>',
+      "assets/frame.css":
+        '.frame{background:url("/assets/frame-background.png")}',
+      "assets/frame-background.png": "",
+    };
+    const missingAssets = [
+      "assets/mapped.js",
+      "assets/config.json",
+      "assets/inline.png",
+      "frame.html",
+      "assets/frame.css",
+      "assets/frame-background.png",
+    ];
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      const incompleteArtifactPath = createZipFixture(
+        join(tempRoot, "incomplete"),
+        "incomplete.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        { remove: missingAssets }
+      );
+      let incompleteArtifactError: unknown;
+      try {
+        await verifyAndroidRuntimeSchemaArtifact(
+          incompleteArtifactPath,
+          stringsXmlPath
+        );
+      } catch (error) {
+        incompleteArtifactError = error;
+      }
+      expect(incompleteArtifactError).toBeInstanceOf(Error);
+      for (const missingAsset of missingAssets) {
+        expect((incompleteArtifactError as Error).message).toContain(
+          missingAsset
+        );
+      }
+
+      const completeArtifactPath = createZipFixture(
+        join(tempRoot, "complete"),
+        "complete.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets
+      );
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(completeArtifactPath, stringsXmlPath)
+      ).resolves.toBeUndefined();
+
+      const tamperedArtifactPath = createZipFixture(
+        join(tempRoot, "tampered"),
+        "tampered.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        { write: { "assets/index.js": "tampered" } }
+      );
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(tamperedArtifactPath, stringsXmlPath)
+      ).rejects.toThrow(/does not match its Android web asset inventory/i);
+
+      const unexpectedArtifactPath = createZipFixture(
+        join(tempRoot, "unexpected"),
+        "unexpected.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        { write: { "assets/unexpected.js": "" } }
+      );
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(
+          unexpectedArtifactPath,
+          stringsXmlPath
+        )
+      ).rejects.toThrow(/not declared by its Android web asset inventory/i);
+
+      const unsafeInventoryArtifactPath = createZipFixture(
+        join(tempRoot, "unsafe-inventory"),
+        "unsafe-inventory.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        {
+          write: {
+            "secpal-web-assets.json":
+              '{"schema_version":1,"files":[{"path":"../index.html","sha256":"ba099ae6a7e21a2b1d42e354d87ac48561720436495ebbf1955fa8b0a257f6c2"}]}',
+          },
+        }
+      );
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(
+          unsafeInventoryArtifactPath,
+          stringsXmlPath
+        )
+      ).rejects.toThrow(/contains an invalid asset entry/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads literal names and streams large packaged WebView assets", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(
+      join(tmpdir(), "android-runtime-large-asset-")
+    );
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      const artifactPath = createZipFixture(
+        tempRoot,
+        "large-asset.apk",
+        "assets",
+        ["assets", "public"],
+        buildAndroidRuntimeIndexHtml(
+          buildNativeAuthBridgeBootstrapScript(apiBaseUrl)
+        ),
+        {
+          "assets/index.js": "",
+          "assets/[id].js": "literal-member-name",
+          "assets/large.bin": Buffer.alloc(33 * 1024 * 1024, 0x61),
+        }
+      );
+
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(artifactPath, stringsXmlPath)
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("validates the generated WebView directory before Android builds", async () => {
+    const { verifyAndroidRuntimeSchemaDirectory } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-directory-"));
+    const assetRoot = join(tempRoot, "public");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        join(assetRoot, "index.html"),
+        buildAndroidRuntimeIndexHtml(
+          buildNativeAuthBridgeBootstrapScript(apiBaseUrl)
+        )
+      );
+      writeFile(join(assetRoot, "assets", "index.js"), "complete");
+      writeFile(join(assetRoot, "cordova.js"), "generated");
+      writeFile(join(assetRoot, "cordova_plugins.js"), "generated");
+      const aaptExcludedAssets = [
+        "assets/source.SCC",
+        "CVS/Entries",
+        "assets/Thumbs.db",
+        "assets/PICASA.INI",
+        "assets/index.js~",
+        ".hidden/metadata.json",
+      ];
+      for (const assetPath of aaptExcludedAssets) {
+        writeFile(join(assetRoot, ...assetPath.split("/")), "excluded");
+      }
+      const inventoryResult = spawnSync(
+        process.execPath,
+        [
+          join(repoRoot, "scripts", "generate-android-web-asset-inventory.mjs"),
+          assetRoot,
+        ],
+        { encoding: "utf8" }
+      );
+      expect(
+        inventoryResult.status,
+        inventoryResult.error?.message || inventoryResult.stderr
+      ).toBe(0);
+      const inventory = JSON.parse(
+        readFileSync(join(assetRoot, "secpal-web-assets.json"), "utf8")
+      ) as { files: Array<{ path: string }> };
+      expect(inventory.files.map(({ path }) => path)).toEqual(
+        expect.arrayContaining(["cordova.js", "cordova_plugins.js"])
+      );
+      for (const assetPath of aaptExcludedAssets) {
+        expect(inventory.files.map(({ path }) => path)).not.toContain(
+          assetPath
+        );
+      }
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
+      ).not.toThrow();
+
+      writeFile(join(assetRoot, "assets", "index.js"), "tampered");
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
+      ).toThrow(/does not match its Android web asset inventory/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an immutable fallback inventory for standalone Android verification", async () => {
+    const { verifyAndroidRuntimeSchemaDirectory } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-fallback-"));
+    const assetRoot = join(tempRoot, "public");
+    const fallbackInventoryPath = join(tempRoot, "fallback.json");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        join(assetRoot, "index.html"),
+        buildAndroidRuntimeIndexHtml(
+          buildNativeAuthBridgeBootstrapScript(apiBaseUrl)
+        )
+      );
+      writeAndroidWebAssetInventory(assetRoot);
+      renameSync(
+        join(assetRoot, "secpal-web-assets.json"),
+        fallbackInventoryPath
+      );
+
+      expect(existsSync(join(assetRoot, "secpal-web-assets.json"))).toBe(false);
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(
+          assetRoot,
+          stringsXmlPath,
+          fallbackInventoryPath
+        )
+      ).not.toThrow();
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -1220,12 +1553,12 @@ system("sh", "-eu", "-c", script, exception: true)
         ["assets", "public"],
         `<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>`
       );
-      expect(() =>
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(
           bridgeOnlyArtifactPath,
           stringsXmlPath
         )
-      ).toThrow(/complete Android web application shell/i);
+      ).rejects.toThrow(/complete Android web application shell/i);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -1314,12 +1647,12 @@ system("sh", "-eu", "-c", script, exception: true)
       );
       writeFile(corruptArtifactPath, "not a zip archive");
 
-      expect(() =>
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(missingArtifactPath, stringsXmlPath)
-      ).toThrow(/Unable to inspect .*missing\.apk/i);
-      expect(() =>
+      ).rejects.toThrow(/Unable to inspect .*missing\.apk/i);
+      await expect(
         verifyAndroidRuntimeSchemaArtifact(corruptArtifactPath, stringsXmlPath)
-      ).toThrow(/Unable to inspect .*corrupt\.aab/i);
+      ).rejects.toThrow(/Unable to inspect .*corrupt\.aab/i);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

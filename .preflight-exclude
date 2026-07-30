@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 SecPal Contributors
+# SPDX-FileCopyrightText: 2025-2026 SecPal Contributors
 
 # SPDX-License-Identifier: CC0-1.0
 
@@ -29,6 +29,10 @@
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Generated Android WebView asset
+
+android/app/src/main/assets/public/index\.html$
 
 # License files (boilerplate)
 

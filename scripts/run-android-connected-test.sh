@@ -79,6 +79,7 @@ if {
 elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
     grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
     retry_reason="pre-test system crash"
+    reboot_before_retry=true
 elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
     grep -Fq \
         "Test run failed to complete. No test results. onError: commandError=true message=null" \
@@ -92,7 +93,7 @@ fi
 
 echo "Retrying API 37 instrumentation after ${retry_reason}"
 if [[ "$reboot_before_retry" == "true" ]]; then
-    echo "Rebooting API 37 emulator before retrying PackageManager installation"
+    echo "Rebooting API 37 emulator before retrying (${retry_reason})"
     bash "${repo_root}/scripts/with-android-env.sh" \
         adb -s "$serial" reboot
 fi

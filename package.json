@@ -29,6 +29,7 @@
     "native:patch:capacitor-android": "node ./scripts/patch-capacitor-android-unchecked.mjs",
     "native:normalize:cordova-config": "node ./scripts/normalize-cordova-config.mjs ./android/app/src/main/res/xml/config.xml",
     "native:normalize:cordova-gradle": "node ./scripts/normalize-capacitor-cordova-gradle.mjs ./android/capacitor-cordova-android-plugins/build.gradle",
+    "native:inventory:web-assets": "node ./scripts/generate-android-web-asset-inventory.mjs ./android/app/src/main/assets/public",
     "lint": "eslint . --ext ts,js --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "version:check": "node ./scripts/verify-version-sync.mjs",
@@ -41,9 +42,10 @@
     "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",
     "native:verify:network-security": "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-network-security.sh",
-    "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",
-    "cap:copy": "npm run frontend:build && npx cap copy android",
-    "cap:add:android": "npx cap add android && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle && npm run native:verify",
+    "native:verify:packaging-guard": "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-packaging-guard.sh",
+    "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:inventory:web-assets && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",
+    "cap:copy": "npm run frontend:build && npx cap copy android && npm run native:inventory:web-assets",
+    "cap:add:android": "npx cap add android && npm run native:inventory:web-assets && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle && npm run native:verify",
     "cap:open:android": "npx cap open android",
     "native:compile:debug:deprecations": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew :app:compileDebugJavaWithJavac -PsecpalJavaDeprecationLint=true'",
     "native:assemble:debug": "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew assembleDebug'",
@@ -94,7 +96,8 @@
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.65.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yauzl": "3.2.1"
   },
   "overrides": {
     "@xmldom/xmldom": "0.9.10",

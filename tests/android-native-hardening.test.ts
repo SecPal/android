@@ -905,12 +905,17 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["native:verify:network-security"]).toContain(
       "verify-android-network-security.sh"
     );
-    expect(verificationWrapper).toContain(":app:processReleaseResources");
     expect(verificationWrapper).toContain(
-      ":app:processReleaseManifestForPackage"
+      ":app:generateReleaseNetworkSecurityVerificationInputs"
     );
     expect(verificationWrapper).toContain("--rerun-tasks");
     expect(qualityWorkflow).toContain("npm run native:verify:network-security");
+    expect(appBuildGradle).toContain(
+      'tasks.register("generateReleaseNetworkSecurityVerificationInputs")'
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.register\("generateReleaseNetworkSecurityVerificationInputs"\)\s*\{[\s\S]*dependsOn\(\s*"processReleaseResources",\s*"processReleaseManifestForPackage"\s*\)/
+    );
     expect(appBuildGradle).toMatch(/ctRegression\s*\{/);
     expect(appBuildGradle).toMatch(/initWith\s+release/);
     expect(appBuildGradle).toMatch(/applicationIdSuffix\s+"\.ctregression"/);
@@ -1024,8 +1029,28 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
-  it("prepares and verifies a present generated Android web asset before native packaging", () => {
+  it("requires frontend source for packaging while allowing standalone verification", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
+    const frontendBuildScript = readRepoFile(
+      "scripts",
+      "build-frontend-web.sh"
+    );
+    const playStoreReleaseTests = readRepoFile(
+      "tests",
+      "play-store-release-automation.test.ts"
+    );
+    const androidGitignore = readRepoFile("android", ".gitignore");
+    const gitAttributes = readRepoFile(".gitattributes");
+    const aaptIgnoreAssetsPolicy = JSON.parse(
+      readRepoFile("android", "app", "aapt-ignore-assets.json")
+    ) as { ignore_assets_pattern: string };
+    const fallbackInventory = JSON.parse(
+      readRepoFile("android", "app", "src", "main", "web-assets-fallback.json")
+    ) as { files: Array<{ path: string }> };
 
     expect(appBuildGradle).toContain(
       'tasks.register("prepareAndroidRuntimeSchemaAsset", Exec)'
@@ -1041,7 +1066,98 @@ describe("Android native hardening", () => {
       "def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')"
     );
     expect(appBuildGradle).toContain(
-      "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
+      "def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')"
+    );
+    expect(appBuildGradle).toContain("scripts/android-web-asset-inventory.mjs");
+    expect(appBuildGradle).toContain("scripts/literal-zip-archive.mjs");
+    expect(aaptIgnoreAssetsPolicy.ignore_assets_pattern).toBe(
+      "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    );
+    expect(appBuildGradle).toContain(
+      "def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')"
+    );
+    expect(appBuildGradle).toContain(
+      "ignoreAssetsPattern androidAssetIgnorePattern"
+    );
+    expect(appBuildGradle).not.toContain(
+      "ignoreAssetsPattern '!.svn:!.git:!.ds_store"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/assets/public/index.html text eol=lf"
+    );
+    expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
+    expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
+    expect(appBuildGradle).toContain(
+      "fallbackAndroidWebAssetInventory.absolutePath"
+    );
+    expect(frontendBuildScript).not.toContain(
+      "scripts/generate-android-web-asset-inventory.mjs"
+    );
+    expect(packageJson.scripts["native:inventory:web-assets"]).toBe(
+      "node ./scripts/generate-android-web-asset-inventory.mjs ./android/app/src/main/assets/public"
+    );
+    for (const scriptName of [
+      "cap:copy",
+      "cap:sync",
+      "cap:add:android",
+    ] as const) {
+      const script = packageJson.scripts[scriptName];
+      const capacitorCopyIndex = script.indexOf(
+        `npx cap ${scriptName === "cap:add:android" ? "add" : scriptName.slice(4)}`
+      );
+      const inventoryIndex = script.indexOf(
+        "npm run native:inventory:web-assets"
+      );
+      expect(capacitorCopyIndex).toBeGreaterThanOrEqual(0);
+      expect(inventoryIndex).toBeGreaterThan(capacitorCopyIndex);
+    }
+    expect(androidGitignore).not.toContain(
+      "!app/src/main/assets/public/secpal-web-assets.json"
+    );
+    expect(fallbackInventory.files.map(({ path }) => path)).toEqual([
+      "index.html",
+    ]);
+    expect(playStoreReleaseTests).toContain(
+      "writeAndroidWebAssetInventory(assetRoot);"
+    );
+    const zipFixtureSource = playStoreReleaseTests.match(
+      /function createZipFixture\([\s\S]*?\n}\n\nfunction buildAndroidRuntimeIndexHtml/
+    )?.[0];
+    expect(zipFixtureSource).toBeDefined();
+    expect(zipFixtureSource).not.toContain(
+      "generate-android-web-asset-inventory.mjs"
+    );
+    expect(appBuildGradle).toContain(
+      "def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()"
+    );
+    expect(appBuildGradle).toContain(
+      "new File(androidRepositoryRoot, configuredFrontendRepositoryPath).canonicalFile"
+    );
+    expect(appBuildGradle).toContain(
+      ": new File(androidRepositoryRoot.parentFile, 'frontend')"
+    );
+    expect(appBuildGradle).not.toContain("gradle.startParameter.taskNames");
+    expect(appBuildGradle).toContain(
+      'tasks.register("requireFrontendSourceForAndroidPackaging")'
+    );
+    expect(appBuildGradle).toContain(
+      "androidComponents.onVariants(androidComponents.selector().all()) { variant ->"
+    );
+    expect(appBuildGradle).toContain('if (variant.name != "ctRegression")');
+    expect(appBuildGradle).not.toContain("android.applicationVariants");
+    expect(appBuildGradle).toContain(
+      '"package${variantTaskSuffix}UniversalApk"'
+    );
+    expect(appBuildGradle).toContain('"sign${variantTaskSuffix}Bundle"');
+    expect(appBuildGradle).toContain(
+      "tasks.matching { it.name == packagingTaskName }"
+    );
+    expect(appBuildGradle).toContain("gradle.taskGraph.hasTask(taskPath)");
+    expect(appBuildGradle).toContain(
+      'onlyIf("packaging is scheduled without frontend source")'
+    );
+    expect(appBuildGradle).toContain(
+      "Android packaging requires the SecPal frontend source"
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
@@ -1053,7 +1169,32 @@ describe("Android native hardening", () => {
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
-      /onlyIf\("[^"]*generated Android web asset directory[^"]*"\)\s*\{\s*generatedAndroidWebAssets\.isDirectory\(\)\s*\}/
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("frontend source is present"\)\s*\{\s*frontendRepositoryRoot\.isDirectory\(\)\s*\}/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\(frontendPackagingGuard\)/
+    );
+    expect(packageJson.scripts["native:verify:packaging-guard"]).toBe(
+      "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-packaging-guard.sh"
+    );
+    expect(qualityWorkflow).toContain(
+      "run: npm run native:verify:packaging-guard"
+    );
+  });
+
+  it("keeps complete WebView artifact verification off native-only ctRegression packages", () => {
+    const packagingGuardScript = readRepoFile(
+      "scripts",
+      "verify-android-packaging-guard.sh"
+    );
+
+    expect(packagingGuardScript).toContain(":app:assembleCtRegression");
+    expect(packagingGuardScript).toMatch(
+      /:app:assembleRelease[\s\S]*:app:bundleRelease[\s\S]*:app:packageReleaseBundle[\s\S]*:app:packageReleaseUniversalApk[\s\S]*:app:signReleaseBundle/
+    );
+    expect(packagingGuardScript).not.toContain("app-ctRegression.apk");
+    expect(packagingGuardScript).not.toContain(
+      "verify-android-runtime-schema.mjs"
     );
   });
 

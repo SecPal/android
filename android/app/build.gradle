@@ -32,9 +32,33 @@ def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DA
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
+def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
+def runtimeArchiveReader = new File(androidRepositoryRoot, 'scripts/literal-zip-archive.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
-def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
+def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
+def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')
+def androidAssetIgnorePolicy
+try {
+    androidAssetIgnorePolicy = new groovy.json.JsonSlurper().parse(androidAssetIgnorePolicyFile)
+} catch (Exception e) {
+    throw new GradleException("Invalid Android asset ignore policy: ${androidAssetIgnorePolicyFile}", e)
+}
+def androidAssetIgnorePattern = androidAssetIgnorePolicy.ignore_assets_pattern
+if (!(androidAssetIgnorePattern instanceof String) || !androidAssetIgnorePattern.trim()) {
+    throw new GradleException("Android asset ignore policy must define a non-empty ignore_assets_pattern: ${androidAssetIgnorePolicyFile}")
+}
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
+def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()
+def configuredFrontendRepositoryFile = configuredFrontendRepositoryPath
+    ? new File(configuredFrontendRepositoryPath)
+    : null
+def configuredFrontendRepositoryRoot = configuredFrontendRepositoryFile == null
+    ? null
+    : (configuredFrontendRepositoryFile.isAbsolute()
+        ? configuredFrontendRepositoryFile.canonicalFile
+        : new File(androidRepositoryRoot, configuredFrontendRepositoryPath).canonicalFile)
+def frontendRepositoryRoot = configuredFrontendRepositoryRoot
+    ?: new File(androidRepositoryRoot.parentFile, 'frontend').canonicalFile
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
 def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
@@ -63,7 +87,7 @@ android {
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+            ignoreAssetsPattern androidAssetIgnorePattern
         }
     }
     signingConfigs {
@@ -129,29 +153,87 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("generateReleaseNetworkSecurityVerificationInputs") {
+    group = "verification"
+    description = "Generates only the merged release resources needed for network-security verification."
+    dependsOn(
+        "processReleaseResources",
+        "processReleaseManifestForPackage"
+    )
+}
+
 tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Rebuilds and copies the complete frontend when generated Android web assets are present."
-    onlyIf("generated Android web asset directory is present") {
-        generatedAndroidWebAssets.isDirectory()
+    description = "Rebuilds and copies the complete frontend when frontend source is present."
+    onlyIf("frontend source is present") {
+        frontendRepositoryRoot.isDirectory()
     }
     workingDir androidRepositoryRoot
     commandLine("npm", "run", "cap:copy")
 }
 
+def androidPackagingTaskPaths = [] as Set
+def isAndroidPackagingScheduled = {
+    androidPackagingTaskPaths.any { taskPath ->
+        gradle.taskGraph.hasTask(taskPath)
+    }
+}
+def frontendPackagingGuard = tasks.register("requireFrontendSourceForAndroidPackaging") {
+    group = "verification"
+    description = "Fails distributable packaging when the complete frontend cannot be regenerated."
+    onlyIf("packaging is scheduled without frontend source") {
+        isAndroidPackagingScheduled() && !frontendRepositoryRoot.isDirectory()
+    }
+    doLast {
+        throw new GradleException(
+            "Android packaging requires the SecPal frontend source at ${frontendRepositoryRoot}. " +
+                "Set SECPAL_ANDROID_FRONTEND_DIR to a valid frontend checkout."
+        )
+    }
+}
+
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    // ctRegression packages only native CI instrumentation and is never published.
+    if (variant.name != "ctRegression") {
+        def variantTaskSuffix = variant.name.capitalize()
+        def packagingTaskNames = ["assemble", "bundle", "install", "package"].collect {
+            "${it}${variantTaskSuffix}"
+        } + [
+            "package${variantTaskSuffix}Bundle",
+            "package${variantTaskSuffix}UniversalApk",
+            "sign${variantTaskSuffix}Bundle",
+        ]
+        packagingTaskNames.each { packagingTaskName ->
+            androidPackagingTaskPaths.add("${project.path}:${packagingTaskName}")
+            tasks.matching { it.name == packagingTaskName }.configureEach {
+                dependsOn(frontendPackagingGuard)
+            }
+        }
+    }
+}
+
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
+    description = "Fails when generated Android web assets drift from their inventory or canonical schema-4 bridge."
     dependsOn("prepareAndroidRuntimeSchemaAsset")
-    inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
+    inputs.files(
+        runtimeSchemaVerifier,
+        runtimeAssetInventory,
+        runtimeArchiveReader,
+        fallbackAndroidWebAssetInventory,
+        androidAssetIgnorePolicyFile,
+        androidStringsXml
+    )
+    inputs.dir(generatedAndroidWebAssets)
     onlyIf("generated Android web asset directory is present") {
         generatedAndroidWebAssets.isDirectory()
     }
     commandLine(
         "node",
         runtimeSchemaVerifier.absolutePath,
-        generatedAndroidWebIndex.absolutePath,
-        androidStringsXml.absolutePath
+        generatedAndroidWebAssets.absolutePath,
+        androidStringsXml.absolutePath,
+        fallbackAndroidWebAssetInventory.absolutePath
     )
 }
 
@@ -199,6 +281,7 @@ tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.config
 }
 
 tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(frontendPackagingGuard)
     dependsOn("verifyAndroidRuntimeSchemaAsset")
 }
 

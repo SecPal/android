@@ -28,11 +28,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removing `IconLauncherShape` lint warnings without affecting adaptive icons
   (issue #463).
 - Refreshed the synced Android WebView asset to the canonical schema-4 bridge,
-  made every native pre-build refresh the complete generated frontend tree,
-  retained strict drift and shell rejection before packaging, and made bridge
-  insertion and the Node preparation entry point parser- and path-safe so
-  ignored Capacitor assets cannot silently produce broken apps or block Android
-  resource and lint validation (issues #487 and #493).
+  excluded the force-tracked generated index from PR-size accounting, made every
+  native pre-build refresh the complete generated frontend tree, retained strict
+  drift and shell rejection before packaging, and made bridge insertion and the
+  Node preparation entry point parser- and path-safe so ignored Capacitor assets
+  cannot silently produce broken apps or block Android resource and lint
+  validation, while standalone Android verification builds reuse the canonical
+  tracked index when frontend source is unavailable instead of requiring a
+  sibling checkout; distributable packaging now fails without frontend source,
+  the native-only `ctRegression` CI variant remains independently buildable, and
+  the clean-checkout task-graph guard does not treat that native-only APK as a
+  distributable WebView artifact; a deterministic SHA-256 inventory now binds
+  every packageable frontend build output to the generated directory and signed
+  APK or AAB, rejecting missing, modified, duplicate, or unexpected files
+  without guessing runtime dependencies from HTML, CSS, or JavaScript source;
+  the mutable inventory is generated after Capacitor adds its final Android
+  assets, while standalone verification uses a separate immutable fallback and
+  test fixtures generate inventories in-process; inventory generation and AAPT
+  packaging now consume the same checked-in, case-insensitive exclusion policy
+  so deliberately omitted frontend debris cannot poison artifact verification;
+  artifact inspection now reads literal ZIP member names and streams SHA-256
+  verification without a whole-file stdout limit, while the tracked fallback
+  index is pinned to LF so its inventory hash is checkout-independent;
+  verification still guards every release artifact task and resolves frontend
+  overrides relative to the Android root (issues #487, #491, and #493).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource
@@ -65,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebooted the API 37 emulator before the single retry for pre-test
   PackageManager broken-pipe or unavailable-service failures so the retry does
   not reuse the same damaged Android system service.
+- Rebooted the API 37 emulator before retrying a recognized pre-test system
+  crash so the second instrumentation attempt starts from a recovered Android
+  system instead of reusing the crashed instance (issue #498).
 - Kept Android release network-security verification compatible with
   `@xmldom/xmldom` 0.9 by collecting parser diagnostics through its current
   `onError` callback.
