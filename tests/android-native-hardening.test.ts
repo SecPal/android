@@ -1106,6 +1106,19 @@ describe("Android native hardening", () => {
     );
   });
 
+  it("keeps complete WebView artifact verification off native-only ctRegression packages", () => {
+    const packagingGuardScript = readRepoFile(
+      "scripts",
+      "verify-android-packaging-guard.sh"
+    );
+
+    expect(packagingGuardScript).toContain(":app:assembleCtRegression");
+    expect(packagingGuardScript).not.toContain("app-ctRegression.apk");
+    expect(packagingGuardScript).not.toContain(
+      "verify-android-runtime-schema.mjs"
+    );
+  });
+
   it("documents the schema-4-only runtime contract without rollout gates", () => {
     const runtimeContract = readRepoFile(
       "docs",

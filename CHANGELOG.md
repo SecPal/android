@@ -37,10 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tracked index when frontend source is unavailable instead of requiring a
   sibling checkout; distributable packaging now fails without frontend source,
   the native-only `ctRegression` CI variant remains independently buildable, and
-  signed artifact verification rejects indexes whose referenced web assets are
-  absent, including every responsive image candidate, and relative frontend
-  overrides are resolved consistently from the Android repository root
-  (issues #487, #491, and #493).
+  the clean-checkout task-graph guard does not treat that native-only APK as a
+  distributable WebView artifact; signed artifact verification rejects indexes
+  whose referenced web assets are absent, including every responsive image
+  candidate, and relative frontend overrides are resolved consistently from the
+  Android repository root (issues #487, #491, and #493).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource

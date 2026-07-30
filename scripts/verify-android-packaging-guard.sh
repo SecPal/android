@@ -28,11 +28,6 @@ run_gradle \
     :app:verifyAndroidRuntimeSchemaAsset \
     :app:assembleCtRegression
 
-node \
-    "${repository_root}/scripts/verify-android-runtime-schema.mjs" \
-    "${android_root}/app/build/outputs/apk/ctRegression/app-ctRegression.apk" \
-    "${android_root}/app/src/main/res/values/strings.xml"
-
 if run_gradle :app:assembleRelease >"$release_log" 2>&1; then
     echo "Release packaging unexpectedly succeeded without frontend source." >&2
     exit 1
