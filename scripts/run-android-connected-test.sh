@@ -61,6 +61,17 @@ if (( attempt_status == 0 )); then
     exit 0
 fi
 
+if grep -Fq \
+    "Could not GET 'https://repo.maven.apache.org/maven2/" \
+    "$attempt_log" &&
+    grep -Fq \
+        "Received status code 403 from server: Forbidden" \
+        "$attempt_log"; then
+    echo "Retrying Gradle after transient Maven Central HTTP 403"
+    run_connected_test
+    exit $?
+fi
+
 if (( api_level != 37 )); then
     exit "$attempt_status"
 fi

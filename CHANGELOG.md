@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation, while standalone Android verification builds reuse the canonical
   tracked index when frontend source is unavailable instead of requiring a
   sibling checkout (issues #487, #491, and #493).
+- Retried the connected-test Gradle invocation once after a Maven Central HTTP
+  403 during dependency resolution without retrying other repository responses
+  or Android test failures.
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource
