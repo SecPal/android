@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated Android device readiness polling to perform one immediate probe, cap
+  retry sleeps to the remaining timeout, and stop polling when the deadline is
+  exhausted (issue #497).
 - Corrected the legacy Android launcher icons so standard variants retain the
   SecPal shield silhouette, round variants are genuinely circular, and repeated
   brand syncs reproduce the checked-in raster geometry deterministically,
