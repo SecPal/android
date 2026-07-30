@@ -35,6 +35,10 @@ def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-andr
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
+def releaseNetworkSecurityInputsTaskPath = ':app:generateReleaseNetworkSecurityVerificationInputs'
+def isReleaseNetworkSecurityInputGeneration = {
+    gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]
+}
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
 def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
@@ -129,11 +133,21 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
     }
 }
 
+tasks.register("generateReleaseNetworkSecurityVerificationInputs") {
+    group = "verification"
+    description = "Generates only the merged release resources needed for network-security verification."
+    dependsOn(
+        "processReleaseResources",
+        "processReleaseManifestForPackage"
+    )
+}
+
 tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
     description = "Rebuilds and copies the complete frontend when generated Android web assets are present."
-    onlyIf("generated Android web asset directory is present") {
-        generatedAndroidWebAssets.isDirectory()
+    onlyIf("generated Android web asset directory is present outside release network-security input generation") {
+        !isReleaseNetworkSecurityInputGeneration() &&
+            generatedAndroidWebAssets.isDirectory()
     }
     workingDir androidRepositoryRoot
     commandLine("npm", "run", "cap:copy")

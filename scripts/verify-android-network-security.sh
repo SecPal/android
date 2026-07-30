@@ -11,8 +11,7 @@ merged_resources="${android_dir}/app/build/intermediates/merged-not-compiled-res
 
 cd "${android_dir}"
 ./gradlew \
-    :app:processReleaseResources \
-    :app:processReleaseManifestForPackage \
+    :app:generateReleaseNetworkSecurityVerificationInputs \
     --console=plain \
     --rerun-tasks
 

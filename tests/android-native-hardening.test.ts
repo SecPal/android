@@ -905,12 +905,17 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["native:verify:network-security"]).toContain(
       "verify-android-network-security.sh"
     );
-    expect(verificationWrapper).toContain(":app:processReleaseResources");
     expect(verificationWrapper).toContain(
-      ":app:processReleaseManifestForPackage"
+      ":app:generateReleaseNetworkSecurityVerificationInputs"
     );
     expect(verificationWrapper).toContain("--rerun-tasks");
     expect(qualityWorkflow).toContain("npm run native:verify:network-security");
+    expect(appBuildGradle).toContain(
+      'tasks.register("generateReleaseNetworkSecurityVerificationInputs")'
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.register\("generateReleaseNetworkSecurityVerificationInputs"\)\s*\{[\s\S]*dependsOn\(\s*"processReleaseResources",\s*"processReleaseManifestForPackage"\s*\)/
+    );
     expect(appBuildGradle).toMatch(/ctRegression\s*\{/);
     expect(appBuildGradle).toMatch(/initWith\s+release/);
     expect(appBuildGradle).toMatch(/applicationIdSuffix\s+"\.ctregression"/);
@@ -1043,6 +1048,12 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
     );
+    expect(appBuildGradle).toContain(
+      "def releaseNetworkSecurityInputsTaskPath = ':app:generateReleaseNetworkSecurityVerificationInputs'"
+    );
+    expect(appBuildGradle).toContain(
+      "gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]"
+    );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
     );
@@ -1053,7 +1064,7 @@ describe("Android native hardening", () => {
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
-      /onlyIf\("[^"]*generated Android web asset directory[^"]*"\)\s*\{\s*generatedAndroidWebAssets\.isDirectory\(\)\s*\}/
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("[^"]*generated Android web asset directory[^"]*"\)\s*\{\s*!isReleaseNetworkSecurityInputGeneration\(\)\s*&&\s*generatedAndroidWebAssets\.isDirectory\(\)\s*\}/
     );
   });
 
