@@ -378,6 +378,7 @@ exit 1
       const attemptPath = join(tempRoot, "attempts");
       const rebootPath = join(tempRoot, "reboots");
       const waitPath = join(tempRoot, "waits");
+      const recoveryEventPath = join(tempRoot, "recovery-events");
 
       try {
         mkdirSync(androidRoot, { recursive: true });
@@ -391,6 +392,7 @@ if [[ -f "${attemptPath}" ]]; then
 fi
 attempt=$((attempt + 1))
 printf '%s' "$attempt" > "${attemptPath}"
+printf 'attempt:%s\n' "$attempt" >> "${recoveryEventPath}"
 if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   if [[ "${failureMode}" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
@@ -422,12 +424,14 @@ printf '%s\n' 'connected test passed'
           join(scriptsRoot, "wait-for-android-device.sh"),
           `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${waitPath}"
+printf 'wait:%s\n' "$*" >> "${recoveryEventPath}"
 `
         );
         writeExecutable(
           join(scriptsRoot, "with-android-env.sh"),
           `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${rebootPath}"
+printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
 `
         );
 
@@ -459,6 +463,9 @@ printf '%s\n' "$*" >> "${rebootPath}"
           waits: existsSync(waitPath)
             ? readFileSync(waitPath, "utf8").trim().split("\n")
             : [],
+          recoveryEvents: readFileSync(recoveryEventPath, "utf8")
+            .trim()
+            .split("\n"),
         };
       } finally {
         rmSync(tempRoot, { recursive: true, force: true });
@@ -506,8 +513,16 @@ printf '%s\n' "$*" >> "${rebootPath}"
     );
     expect(recoverableInstrumentationCrash.result.status).toBe(0);
     expect(recoverableInstrumentationCrash.attempts).toBe(2);
-    expect(recoverableInstrumentationCrash.reboots).toEqual([]);
+    expect(recoverableInstrumentationCrash.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(recoverableInstrumentationCrash.waits).toEqual(["emulator-5570 60"]);
+    expect(recoverableInstrumentationCrash.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+    ]);
     expect(recoverableInstrumentationCrash.result.stdout).toContain(
       "Retrying API 37 instrumentation after pre-test system crash"
     );
@@ -518,6 +533,9 @@ printf '%s\n' "$*" >> "${rebootPath}"
     );
     expect(repeatedInstrumentationCrash.result.status).toBe(1);
     expect(repeatedInstrumentationCrash.attempts).toBe(2);
+    expect(repeatedInstrumentationCrash.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(repeatedInstrumentationCrash.waits).toEqual(["emulator-5570 60"]);
 
     const recoverableCommandError = runScenario(37, "command-error");

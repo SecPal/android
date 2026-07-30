@@ -84,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebooted the API 37 emulator before the single retry for pre-test
   PackageManager broken-pipe or unavailable-service failures so the retry does
   not reuse the same damaged Android system service.
+- Rebooted the API 37 emulator before retrying a recognized pre-test system
+  crash so the second instrumentation attempt starts from a recovered Android
+  system instead of reusing the crashed instance (issue #498).
 - Kept Android release network-security verification compatible with
   `@xmldom/xmldom` 0.9 by collecting parser diagnostics through its current
   `onError` callback.
