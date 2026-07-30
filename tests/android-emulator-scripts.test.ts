@@ -356,10 +356,17 @@ exit 1
     }
   }, 10_000);
 
-  it("retries only recognized API 37 infrastructure failures once", () => {
+  it("retries only recognized connected-test infrastructure failures", () => {
     const runScenario = (
       apiLevel: number,
       failureMode:
+        | "maven-403"
+        | "maven-403-always"
+        | "maven-403-same-line"
+        | "maven-403-then-package-manager"
+        | "maven-404"
+        | "mixed-repository-responses"
+        | "other-repository-403"
         | "package-manager"
         | "package-manager-always"
         | "missing-package-service"
@@ -393,20 +400,52 @@ fi
 attempt=$((attempt + 1))
 printf '%s' "$attempt" > "${attemptPath}"
 printf 'attempt:%s\n' "$attempt" >> "${recoveryEventPath}"
-if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
-  if [[ "${failureMode}" == package-manager* ]]; then
+attempt_failure_mode=""
+if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="maven-403"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="package-manager"
+  fi
+elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
+  attempt_failure_mode="${failureMode}"
+fi
+if [[ -n "$attempt_failure_mode" ]]; then
+  if [[ "$attempt_failure_mode" == "maven-403-same-line" ]]; then
+    printf '%s\n' "Could not GET 'https://repo.maven.apache.org/maven2/org/example/dependency/1.0/dependency-1.0.pom'. Received status code 403 from server: Forbidden"
+  elif [[ "$attempt_failure_mode" == "mixed-repository-responses" ]]; then
+    printf '%s\n' "Could not GET 'https://repo.maven.apache.org/maven2/org/example/dependency/1.0/dependency-1.0.pom'."
+    printf '%s\n' "Received status code 404 from server: Not Found"
+    printf '%s\n' "Could not GET 'https://dl.google.com/dl/android/maven2/org/example/dependency/1.0/dependency-1.0.pom'."
+    printf '%s\n' "Received status code 403 from server: Forbidden"
+  elif [[ "$attempt_failure_mode" == maven-* || "$attempt_failure_mode" == other-repository-* ]]; then
+    if [[ "$attempt_failure_mode" == "maven-404" ]]; then
+      status_code=404
+      status_text="Not Found"
+    else
+      status_code=403
+      status_text="Forbidden"
+    fi
+    if [[ "$attempt_failure_mode" == other-repository-* ]]; then
+      repository_url="https://dl.google.com/dl/android/maven2"
+    else
+      repository_url="https://repo.maven.apache.org/maven2"
+    fi
+    printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
+    printf '%s\n' "Received status code $status_code from server: $status_text"
+  elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
-  elif [[ "${failureMode}" == "missing-package-service" ]]; then
+  elif [[ "$attempt_failure_mode" == "missing-package-service" ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
     printf '%s\n' "Unknown failure: cmd: Can't find service: package"
-  elif [[ "${failureMode}" == instrumentation-crash* ]]; then
+  elif [[ "$attempt_failure_mode" == instrumentation-crash* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Test run failed to complete. No test results.'
     printf '%s\n' 'INSTRUMENTATION_ABORTED: System has crashed.'
-  elif [[ "${failureMode}" == command-error* ]]; then
-    if [[ "${failureMode}" == "command-error-with-tests" ]]; then
+  elif [[ "$attempt_failure_mode" == command-error* ]]; then
+    if [[ "$attempt_failure_mode" == "command-error-with-tests" ]]; then
       printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
     else
       printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
@@ -471,6 +510,72 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
         rmSync(tempRoot, { recursive: true, force: true });
       }
     };
+
+    const recoverableMavenCentralFailure = runScenario(29, "maven-403");
+    expect(recoverableMavenCentralFailure.result.status).toBe(0);
+    expect(recoverableMavenCentralFailure.attempts).toBe(2);
+    expect(recoverableMavenCentralFailure.reboots).toEqual([]);
+    expect(recoverableMavenCentralFailure.waits).toEqual([]);
+    expect(recoverableMavenCentralFailure.result.stdout).toContain(
+      "Retrying Gradle after transient Maven Central HTTP 403"
+    );
+
+    const sameLineMavenCentralFailure = runScenario(29, "maven-403-same-line");
+    expect(sameLineMavenCentralFailure.result.status).toBe(0);
+    expect(sameLineMavenCentralFailure.attempts).toBe(2);
+    expect(sameLineMavenCentralFailure.reboots).toEqual([]);
+    expect(sameLineMavenCentralFailure.waits).toEqual([]);
+
+    const repeatedMavenCentralFailure = runScenario(29, "maven-403-always");
+    expect(repeatedMavenCentralFailure.result.status).toBe(1);
+    expect(repeatedMavenCentralFailure.attempts).toBe(2);
+    expect(repeatedMavenCentralFailure.reboots).toEqual([]);
+    expect(repeatedMavenCentralFailure.waits).toEqual([]);
+
+    const nonTransientMavenFailure = runScenario(29, "maven-404");
+    expect(nonTransientMavenFailure.result.status).toBe(1);
+    expect(nonTransientMavenFailure.attempts).toBe(1);
+    expect(nonTransientMavenFailure.reboots).toEqual([]);
+    expect(nonTransientMavenFailure.waits).toEqual([]);
+
+    const unrelatedRepositoryFailure = runScenario(29, "other-repository-403");
+    expect(unrelatedRepositoryFailure.result.status).toBe(1);
+    expect(unrelatedRepositoryFailure.attempts).toBe(1);
+    expect(unrelatedRepositoryFailure.reboots).toEqual([]);
+    expect(unrelatedRepositoryFailure.waits).toEqual([]);
+
+    const mixedRepositoryResponses = runScenario(
+      29,
+      "mixed-repository-responses"
+    );
+    expect(mixedRepositoryResponses.result.status).toBe(1);
+    expect(mixedRepositoryResponses.attempts).toBe(1);
+    expect(mixedRepositoryResponses.reboots).toEqual([]);
+    expect(mixedRepositoryResponses.waits).toEqual([]);
+
+    const chainedApi37Failure = runScenario(
+      37,
+      "maven-403-then-package-manager"
+    );
+    expect(chainedApi37Failure.result.status).toBe(0);
+    expect(chainedApi37Failure.attempts).toBe(3);
+    expect(chainedApi37Failure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(chainedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+    expect(chainedApi37Failure.recoveryEvents).toEqual([
+      "attempt:1",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
+    expect(chainedApi37Failure.result.stdout).toContain(
+      "Retrying Gradle after transient Maven Central HTTP 403"
+    );
+    expect(chainedApi37Failure.result.stdout).toContain(
+      "Retrying API 37 instrumentation after PackageManager connection failure"
+    );
 
     const recoverableApi37Failure = runScenario(37, "package-manager");
     expect(recoverableApi37Failure.result.status).toBe(0);

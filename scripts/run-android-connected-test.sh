@@ -52,13 +52,52 @@ run_connected_test() {
     )
 }
 
-set +e
-run_connected_test 2>&1 | tee "$attempt_log"
-attempt_status=${PIPESTATUS[0]}
-set -e
+capture_connected_test() {
+    set +e
+    run_connected_test 2>&1 | tee "$attempt_log"
+    attempt_status=${PIPESTATUS[0]}
+    set -e
+}
+
+is_maven_central_http_403() {
+    local line
+    local pending_maven_central_request=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == *"Could not GET '"* ]]; then
+            if [[ "$line" == *"Could not GET 'https://repo.maven.apache.org/maven2/"* ]]; then
+                if [[ "$line" == *"Received status code 403 from server: Forbidden"* ]]; then
+                    return 0
+                fi
+                pending_maven_central_request=true
+            else
+                pending_maven_central_request=false
+            fi
+        elif [[ "$line" == *"Received status code "* ]]; then
+            if [[ "$pending_maven_central_request" == "true" ]] &&
+                [[ "$line" == *"Received status code 403 from server: Forbidden"* ]]; then
+                return 0
+            fi
+            pending_maven_central_request=false
+        fi
+    done < "$attempt_log"
+
+    return 1
+}
+
+attempt_status=0
+capture_connected_test
 
 if (( attempt_status == 0 )); then
     exit 0
+fi
+
+if is_maven_central_http_403; then
+    echo "Retrying Gradle after transient Maven Central HTTP 403"
+    capture_connected_test
+    if (( attempt_status == 0 )); then
+        exit 0
+    fi
 fi
 
 if (( api_level != 37 )); then
