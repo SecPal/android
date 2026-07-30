@@ -21,21 +21,39 @@ run_adb() {
     bash ./scripts/with-android-env.sh adb "$@"
 }
 
-deadline=$((SECONDS + timeout_seconds))
+SECONDS=0
+deadline="$timeout_seconds"
+retry_interval_seconds=2
 
-while (( SECONDS < deadline )); do
+sleep_before_retry() {
+    local remaining_seconds=$((deadline - SECONDS))
+    local sleep_seconds="$retry_interval_seconds"
+
+    if (( remaining_seconds <= 0 )); then
+        return 1
+    fi
+    if (( remaining_seconds < sleep_seconds )); then
+        sleep_seconds="$remaining_seconds"
+    fi
+
+    sleep "$sleep_seconds"
+}
+
+first_probe=true
+while [[ "$first_probe" == true ]] || (( SECONDS < deadline )); do
+    first_probe=false
     run_adb start-server >/dev/null 2>&1 || true
     state="$(run_adb -s "$serial" get-state 2>/dev/null || true)"
 
     if [[ "$state" == "offline" ]]; then
         run_adb reconnect offline >/dev/null 2>&1 || true
-        sleep 2
+        sleep_before_retry || break
         continue
     fi
 
     if [[ "$state" != "device" ]]; then
         echo "waiting serial=${serial} state=${state:-missing}" >&2
-        sleep 2
+        sleep_before_retry || break
         continue
     fi
 
@@ -62,7 +80,7 @@ while (( SECONDS < deadline )); do
     fi
 
     echo "waiting serial=${serial} state=device boot=${boot_completed:-missing} bootanim=${boot_animation:-missing} home=${home_activity:-missing} settings=${settings_ready} package=${package_ready}" >&2
-    sleep 2
+    sleep_before_retry || break
 done
 
 echo "Timed out waiting for usable Android device: ${serial}" >&2

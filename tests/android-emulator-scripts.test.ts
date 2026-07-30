@@ -214,6 +214,122 @@ printf '%s\n' "$*" > "${emulatorLogPath}"
     }
   });
 
+  it("performs a readiness probe even when the deadline expires before the first check", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
+    const fakeBinRoot = join(tempRoot, "bin");
+    const adbLogPath = join(tempRoot, "adb.log");
+    const sleepLogPath = join(tempRoot, "sleep.log");
+    const bashEnvPath = join(tempRoot, "bash-env");
+
+    try {
+      mkdirSync(fakeBinRoot, { recursive: true });
+      writeExecutable(
+        join(fakeBinRoot, "adb"),
+        `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${adbLogPath}"
+exit 1
+`
+      );
+      writeFileSync(
+        bashEnvPath,
+        `first_deadline_check=true
+trap 'if [[ "$BASH_COMMAND" == "(( SECONDS < deadline ))" && "$first_deadline_check" == true ]]; then first_deadline_check=false; SECONDS=$deadline; elif [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then SECONDS=$deadline; fi' DEBUG
+sleep() {
+  printf '%s\n' "$1" >> "${sleepLogPath}"
+  SECONDS=$((SECONDS + $1))
+}
+`
+      );
+
+      const result = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          "emulator-5570",
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            BASH_ENV: bashEnvPath,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(
+        existsSync(adbLogPath) ? readFileSync(adbLogPath, "utf8") : ""
+      ).toContain("-s emulator-5570 get-state");
+      expect(existsSync(sleepLogPath)).toBe(false);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("limits retry sleep and does not probe after the readiness deadline", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
+    const fakeBinRoot = join(tempRoot, "bin");
+    const adbLogPath = join(tempRoot, "adb.log");
+    const sleepLogPath = join(tempRoot, "sleep.log");
+    const bashEnvPath = join(tempRoot, "bash-env");
+
+    try {
+      mkdirSync(fakeBinRoot, { recursive: true });
+      writeExecutable(
+        join(fakeBinRoot, "adb"),
+        `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${adbLogPath}"
+exit 1
+`
+      );
+      writeFileSync(
+        bashEnvPath,
+        `sleep() {
+  printf '%s\n' "$1" >> "${sleepLogPath}"
+  SECONDS=$((SECONDS + $1))
+}
+`
+      );
+
+      const result = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          "emulator-5570",
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            BASH_ENV: bashEnvPath,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(
+        existsSync(sleepLogPath) ? readFileSync(sleepLogPath, "utf8") : ""
+      ).toBe("1\n");
+      expect(
+        readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
+      ).toHaveLength(1);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("passes Android device serials to adb without shell interpolation", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-emulator-script-"));
     const fakeBinRoot = join(tempRoot, "bin");
