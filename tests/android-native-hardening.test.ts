@@ -732,6 +732,13 @@ describe("Android native hardening", () => {
   it("does not package the vulnerable Google Play services FIDO backend", () => {
     const variablesGradle = readRepoFile("android", "variables.gradle");
     const buildGradle = readRepoFile("android", "app", "build.gradle");
+    const manifest = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
 
     expect(variablesGradle).toMatch(
       /androidxCredentialsVersion\s*=\s*'1\.6\.0'/
@@ -741,6 +748,12 @@ describe("Android native hardening", () => {
     );
     expect(buildGradle).not.toMatch(
       /implementation\s+["']com\.google\.android\.gms:play-services-fido/
+    );
+    expect(manifest).toMatch(
+      /<!-- Passkeys require Android 14\+; the Play services provider is intentionally excluded\. -->\s*<application\b/
+    );
+    expect(manifest).toMatch(
+      /<application\b[^>]*\btools:ignore="CredentialDependency"/
     );
     expect(buildGradle).toContain("verifyReleasePasskeyDependencies");
     expect(buildGradle).toContain("releaseRuntimeClasspath");
