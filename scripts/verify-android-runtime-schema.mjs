@@ -21,32 +21,16 @@ const runtimeIndexEntryByExtension = new Map([
   [".aab", "base/assets/public/index.html"],
 ]);
 const runtimeIndexEntries = [...runtimeIndexEntryByExtension.values()];
-const localAssetAttributesByTag = new Map([
-  ["audio", ["src"]],
-  ["embed", ["src"]],
-  ["iframe", ["src"]],
-  ["img", ["src"]],
-  ["image", ["href", "xlink:href"]],
-  ["input", ["src"]],
-  ["object", ["data"]],
-  ["script", ["src"]],
-  ["source", ["src"]],
-  ["track", ["src"]],
-  ["use", ["href", "xlink:href"]],
-  ["video", ["poster", "src"]],
-]);
-const localSrcsetAttributesByTag = new Map([
-  ["img", ["srcset"]],
-  ["link", ["imagesrcset"]],
-  ["source", ["srcset"]],
-]);
+const localAssetAttributePattern =
+  /^(?:(?:audio|embed|iframe|img|input|script|source|track|video):src|(?:image|use):(?:href|xlink:href)|object:data|video:poster|(?:img|source):srcset|link:imagesrcset)$/;
 const fetchedLinkRelationPattern =
-  /^(?:apple-touch-icon|apple-touch-startup-image|icon|manifest|mask-icon|modulepreload|prefetch|preload|stylesheet)$/;
-const newUrlDependencyPattern =
-  /\bnew\s+URL\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*import\.meta\.url\s*\)/g;
+  /^(?:apple-touch-icon|apple-touch-startup-image|icon|manifest|mask-icon|modulepreload|prefetch|preload|stylesheet)$/i;
 const cssDependencyPattern =
   /(?:url\(\s*|@import\s+(?:url\(\s*)?)["']?([^"')\s;]+)/g;
-const manifestDependencyPattern = /"src"\s*:\s*"([^"]+)"/g;
+const executableScriptTypePattern =
+  /^(?:module|(?:application|text)\/(?:java|ecma)script(?:1\.[0-5])?)$/i;
+const documentScriptLoaderPattern =
+  /^(?:Worker|SharedWorker|navigator\.serviceWorker\.register)$/;
 const androidWebApplicationOrigin = "https://app.secpal.dev";
 const asciiWhitespacePattern = /[\t\n\f\r ]/;
 
@@ -138,49 +122,21 @@ function parseSrcsetCandidateUrls(srcset) {
   let position = 0;
 
   while (position < srcset.length) {
-    while (
-      position < srcset.length &&
-      (asciiWhitespacePattern.test(srcset[position]) ||
-        srcset[position] === ",")
-    ) {
-      position += 1;
-    }
-    if (position >= srcset.length) {
-      break;
-    }
-
-    const urlStart = position;
-    while (
-      position < srcset.length &&
-      !asciiWhitespacePattern.test(srcset[position])
-    ) {
-      position += 1;
-    }
-
-    let candidateUrl = srcset.slice(urlStart, position);
-    let separatedByTrailingComma = false;
-    while (candidateUrl.endsWith(",")) {
-      candidateUrl = candidateUrl.slice(0, -1);
-      separatedByTrailingComma = true;
-    }
-    if (candidateUrl.length > 0) {
-      candidateUrls.push(candidateUrl);
-    }
-    if (separatedByTrailingComma) {
-      continue;
-    }
+    position += srcset.slice(position).match(/^[\t\n\f\r ,]*/)?.[0].length ?? 0;
+    if (position === srcset.length) break;
+    const candidateUrl = srcset.slice(position).match(/^[^\t\n\f\r ]+/)?.[0];
+    position += candidateUrl.length;
+    const normalizedUrl = candidateUrl.replace(/,+$/, "");
+    if (normalizedUrl) candidateUrls.push(normalizedUrl);
+    if (candidateUrl.endsWith(",")) continue;
 
     let parenthesesDepth = 0;
     while (position < srcset.length) {
-      const character = srcset[position];
-      position += 1;
-      if (character === "(") {
-        parenthesesDepth += 1;
-      } else if (character === ")" && parenthesesDepth > 0) {
-        parenthesesDepth -= 1;
-      } else if (character === "," && parenthesesDepth === 0) {
-        break;
-      }
+      const character = srcset[position++];
+      if (character === "(") parenthesesDepth += 1;
+      if (character === ")")
+        parenthesesDepth = Math.max(0, parenthesesDepth - 1);
+      if (character === "," && parenthesesDepth === 0) break;
     }
   }
 
@@ -188,33 +144,74 @@ function parseSrcsetCandidateUrls(srcset) {
 }
 
 function addLocalAssetPath(value, paths, baseUrl) {
-  if (value.length === 0) {
-    return;
-  }
-
+  if (!value) return;
   try {
     const assetUrl = new URL(value, baseUrl);
-    if (assetUrl.origin !== androidWebApplicationOrigin) {
-      return;
-    }
-
+    if (assetUrl.origin !== androidWebApplicationOrigin) return;
     const assetPath = decodeURIComponent(assetUrl.pathname).replace(/^\/+/, "");
-    if (assetPath.length > 0 && assetPath !== "index.html") {
-      paths.add(assetPath);
-    }
+    if (assetPath && assetPath !== "index.html") paths.add(assetPath);
   } catch {
     // Invalid local references are rejected as missing packaged assets.
     paths.add(value);
   }
 }
 
-function collectJavaScriptAssetPaths(source, localAssetPaths, baseUrl) {
+function collectJavaScriptAssetPaths(
+  source,
+  localAssetPaths,
+  sourceUrl,
+  documentBaseUrl
+) {
   for (const { fileName } of ts.preProcessFile(source, true, true)
     .importedFiles) {
-    addLocalAssetPath(fileName, localAssetPaths, baseUrl);
+    addLocalAssetPath(fileName, localAssetPaths, sourceUrl);
   }
-  for (const match of source.matchAll(newUrlDependencyPattern)) {
-    addLocalAssetPath(match[1], localAssetPaths, baseUrl);
+  const sourceFile = ts.createSourceFile(
+    "web.js",
+    source,
+    ts.ScriptTarget.Latest
+  );
+  const normalizedText = (node) =>
+    node?.getText(sourceFile).replace(/\s/g, "") ?? "";
+  const addArgument = (node, baseUrl) => {
+    if (node && ts.isStringLiteralLike(node)) {
+      addLocalAssetPath(node.text, localAssetPaths, baseUrl);
+    }
+  };
+  const visit = (node) => {
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const loader = normalizedText(node.expression);
+      const baseUrl =
+        loader === "importScripts" ||
+        (loader === "URL" &&
+          normalizedText(node.arguments?.[1]) === "import.meta.url")
+          ? sourceUrl
+          : documentScriptLoaderPattern.test(loader)
+            ? documentBaseUrl
+            : undefined;
+      if (baseUrl) {
+        for (const argument of [...(node.arguments ?? [])].slice(
+          0,
+          loader === "importScripts" ? undefined : 1
+        )) {
+          addArgument(argument, baseUrl);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
+function collectManifestAssetPaths(source, localAssetPaths, baseUrl) {
+  const pending = [JSON.parse(source)];
+  for (const value of pending) {
+    if (!value || typeof value !== "object") continue;
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "src" && typeof child === "string") {
+        addLocalAssetPath(child, localAssetPaths, baseUrl);
+      } else if (child && typeof child === "object") pending.push(child);
+    }
   }
 }
 
@@ -245,38 +242,44 @@ function collectLocalAndroidWebAssetPaths(indexHtml, documentUrl) {
   }
 
   for (const node of nodes) {
+    const attributes = Object.fromEntries(
+      (node.attrs ?? []).map(({ name, value }) => [name, value])
+    );
     if (node.tagName === "link") {
-      const relations = (
-        node.attrs?.find(({ name }) => name === "rel")?.value ?? ""
-      )
-        .split(asciiWhitespacePattern)
-        .map((relation) => relation.toLowerCase());
       if (
-        !relations.some((relation) => fetchedLinkRelationPattern.test(relation))
+        !(attributes.rel ?? "")
+          .split(asciiWhitespacePattern)
+          .some((relation) => fetchedLinkRelationPattern.test(relation))
       ) {
         continue;
       }
-      const href = node.attrs?.find(({ name }) => name === "href")?.value;
-      if (href !== undefined) {
-        addLocalAssetPath(href, localAssetPaths, baseUrl);
+      if (attributes.href !== undefined) {
+        addLocalAssetPath(attributes.href, localAssetPaths, baseUrl);
       }
     }
-    const assetAttributeNames = localAssetAttributesByTag.get(node.tagName);
-    const srcsetAttributeNames = localSrcsetAttributesByTag.get(node.tagName);
-
-    for (const { name, value } of node.attrs ?? []) {
-      if (assetAttributeNames?.includes(name)) {
-        addLocalAssetPath(value, localAssetPaths, baseUrl);
-      } else if (srcsetAttributeNames?.includes(name)) {
-        for (const candidateUrl of parseSrcsetCandidateUrls(value)) {
-          addLocalAssetPath(candidateUrl, localAssetPaths, baseUrl);
+    for (const [name, value] of Object.entries(attributes)) {
+      if (localAssetAttributePattern.test(`${node.tagName}:${name}`)) {
+        for (const asset of name.endsWith("srcset")
+          ? parseSrcsetCandidateUrls(value)
+          : [value]) {
+          addLocalAssetPath(asset, localAssetPaths, baseUrl);
         }
       }
     }
+    if (node.tagName === "script" && attributes.src === undefined) {
+      const type = (attributes.type ?? "").split(";")[0].trim();
+      if (type === "" || executableScriptTypePattern.test(type)) {
+        collectJavaScriptAssetPaths(
+          (node.childNodes ?? []).map((child) => child.value ?? "").join(""),
+          localAssetPaths,
+          baseUrl,
+          baseUrl
+        );
+      }
+    }
   }
-  collectJavaScriptAssetPaths(indexHtml, localAssetPaths, baseUrl);
 
-  return [...localAssetPaths].sort();
+  return { baseUrl, paths: localAssetPaths };
 }
 
 function assertPackagedAndroidWebAssets(
@@ -287,40 +290,37 @@ function assertPackagedAndroidWebAssets(
 ) {
   const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
   const archiveEntrySet = new Set(archiveEntries);
-  const referencedAssetPaths = new Set(
-    collectLocalAndroidWebAssetPaths(indexHtml, androidWebApplicationOrigin)
-  );
-  for (const entry of archiveEntries) {
-    const assetPath = entry.slice(runtimeAssetRoot.length);
+  const { baseUrl: documentBaseUrl, paths: referencedAssetPaths } =
+    collectLocalAndroidWebAssetPaths(
+      indexHtml,
+      new URL("/", androidWebApplicationOrigin)
+    );
+  for (const assetPath of referencedAssetPaths) {
+    const entry = `${runtimeAssetRoot}${assetPath}`;
+    if (!archiveEntrySet.has(entry)) {
+      continue;
+    }
     const extension = extname(assetPath).toLowerCase();
-    if (
-      entry.startsWith(runtimeAssetRoot) &&
-      (extension === ".js" || extension === ".mjs")
-    ) {
-      collectJavaScriptAssetPaths(
-        readUnzipOutput(artifactPath, ["-p", artifactPath, entry]),
-        referencedAssetPaths,
-        new URL(`/${assetPath}`, androidWebApplicationOrigin)
-      );
-      continue;
-    }
-    const dependencyPattern =
-      extension === ".css"
-        ? cssDependencyPattern
-        : extension === ".webmanifest" ||
-            /manifest[^/]*\.json$/i.test(assetPath)
-          ? manifestDependencyPattern
-          : undefined;
-    if (!entry.startsWith(runtimeAssetRoot) || !dependencyPattern) {
-      continue;
-    }
+    const sourceUrl = new URL(`/${assetPath}`, androidWebApplicationOrigin);
     const source = readUnzipOutput(artifactPath, ["-p", artifactPath, entry]);
-    for (const match of source.matchAll(dependencyPattern)) {
-      addLocalAssetPath(
-        match[1],
+    if (extension === ".js" || extension === ".mjs") {
+      collectJavaScriptAssetPaths(
+        source,
         referencedAssetPaths,
-        new URL(`/${assetPath}`, androidWebApplicationOrigin)
+        sourceUrl,
+        documentBaseUrl
       );
+    } else if (extension === ".css") {
+      for (const match of source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .matchAll(cssDependencyPattern)) {
+        addLocalAssetPath(match[1], referencedAssetPaths, sourceUrl);
+      }
+    } else if (
+      extension === ".webmanifest" ||
+      /manifest[^/]*\.json$/i.test(assetPath)
+    ) {
+      collectManifestAssetPaths(source, referencedAssetPaths, sourceUrl);
     }
   }
   const missingAssetEntries = [...referencedAssetPaths]

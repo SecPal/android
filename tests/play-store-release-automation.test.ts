@@ -1132,12 +1132,13 @@ system("sh", "-eu", "-c", script, exception: true)
       .replace('src="/assets/index.js"', 'src="index.js"')
       .replace(
         "</head>",
-        '<script type="module">import("inline.js")</script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
+        '<script type="module">import("inline.js")</script><script type="text/javascript; charset=UTF-8">new Worker("w.js")</script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
       )
       .replace(
         '<div id="root"></div>',
-        '<picture><source srcset="/assets/narrow.png 480w, /assets/wide.png 960w"><img src="/assets/fallback.png" srcset="/assets/compact.png 1x, /assets/expanded.png 2x"></picture><div id="root"></div>'
+        '<!-- import("./commented.js") --><pre>import("./example.js")</pre><picture><source srcset="/assets/narrow.png 480w, /assets/wide.png 960w"><img src="/assets/fallback.png" srcset="/assets/compact.png 1x, /assets/expanded.png 2x"></picture><div id="root"></div>'
       );
+    const workerAssetPaths = ["app/w.js", "app/s.js", "app/i.js", "sw.js"];
     const completeAssets = Object.fromEntries(
       [
         "app/lazy.js",
@@ -1151,12 +1152,15 @@ system("sh", "-eu", "-c", script, exception: true)
         "assets/preload-compact.png",
         "assets/preload-expanded.png",
         "assets/wide.png",
+        ...workerAssetPaths,
       ].map((assetPath) => [assetPath, ""])
     );
     Object.assign(completeAssets, {
-      "app/index.js": 'import("./lazy.js");',
-      "app/styles/app.css": '@font-face{src:url("../../fonts/app.woff2")}',
-      "app/app.webmanifest": '{"icons":[{"src":"icons/app.png"}]}',
+      "app/index.js":
+        'import("./lazy.js");new SharedWorker("s.js");navigator.serviceWorker.register("/sw.js");importScripts("./i.js");',
+      "app/styles/app.css":
+        '/* url("../../missing-comment.png") */@font-face{src:url("../../fonts/app.woff2")}',
+      "app/app.webmanifest": String.raw`{"icons":[{"src":"icons\/app.png"},{"src":"\u0069cons/app.png"}]}`,
     });
     const missingAssets = [
       "app/lazy.js",
@@ -1166,6 +1170,7 @@ system("sh", "-eu", "-c", script, exception: true)
       "assets/expanded.png",
       "assets/preload-expanded.png",
       "assets/wide.png",
+      ...workerAssetPaths,
     ];
     const incompleteAssets = Object.fromEntries(
       Object.entries(completeAssets).filter(
