@@ -21,6 +21,8 @@ run_adb() {
     bash ./scripts/with-android-env.sh adb "$@"
 }
 
+monotonic_uptime_path="${monotonic_uptime_path:-/proc/uptime}"
+
 read_node_monotonic_time_milliseconds() {
     local node_time
 
@@ -29,6 +31,20 @@ read_node_monotonic_time_milliseconds() {
         return 1
     fi
     current_time_milliseconds="$node_time"
+}
+
+read_monotonic_uptime_milliseconds() {
+    local uptime_fraction
+    local uptime_seconds
+    local uptime_value
+
+    if ! IFS=' ' read -r uptime_value _ < "$monotonic_uptime_path" \
+        || ! [[ "$uptime_value" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+        return 1
+    fi
+    uptime_seconds="${BASH_REMATCH[1]}"
+    uptime_fraction="${BASH_REMATCH[2]}000"
+    current_time_milliseconds=$((10#$uptime_seconds * 1000 + 10#${uptime_fraction:0:3}))
 }
 
 read_current_time_milliseconds() {
@@ -40,14 +56,21 @@ read_current_time_milliseconds() {
         return
     fi
 
-    current_time_milliseconds=$((SECONDS * 1000))
+    if ! read_monotonic_uptime_milliseconds; then
+        echo "Unable to read the monotonic system uptime clock." >&2
+        exit 69
+    fi
 }
 
-SECONDS=0
-clock_source="seconds"
+clock_source=""
 current_time_milliseconds=0
 if command -v node >/dev/null 2>&1 && read_node_monotonic_time_milliseconds; then
     clock_source="node"
+elif read_monotonic_uptime_milliseconds; then
+    clock_source="uptime"
+else
+    echo "A subsecond monotonic clock requires Node.js or system uptime support." >&2
+    exit 69
 fi
 deadline_milliseconds=$((current_time_milliseconds + timeout_seconds * 1000))
 retry_interval_milliseconds=2000

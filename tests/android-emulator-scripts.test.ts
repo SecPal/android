@@ -372,15 +372,17 @@ sleep() {
     }
   });
 
-  it("falls back to monotonic Bash seconds when the Node clock is unavailable", () => {
+  it("uses subsecond monotonic uptime when the Node clock is unavailable", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
     const fakeBinRoot = join(tempRoot, "bin");
     const adbLogPath = join(tempRoot, "adb.log");
     const sleepLogPath = join(tempRoot, "sleep.log");
     const bashEnvPath = join(tempRoot, "bash-env");
+    const monotonicUptimePath = join(tempRoot, "uptime");
 
     try {
       mkdirSync(fakeBinRoot, { recursive: true });
+      writeFileSync(monotonicUptimePath, "1000.000 0.000\n");
       writeExecutable(
         join(fakeBinRoot, "adb"),
         `#!/usr/bin/env bash
@@ -395,9 +397,11 @@ exit 1
       writeFileSync(
         bashEnvPath,
         `unset EPOCHREALTIME
+monotonic_uptime_path="${monotonicUptimePath}"
+trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then printf "1000.450 0.000\\n" > "${monotonicUptimePath}"; fi' DEBUG
 sleep() {
   printf '%s\n' "$1" >> "${sleepLogPath}"
-  SECONDS=$((SECONDS + 1))
+  printf "1001.000 0.000\\n" > "${monotonicUptimePath}"
 }
 `
       );
@@ -424,7 +428,7 @@ sleep() {
       );
 
       expect(result.status).toBe(1);
-      expect(readFileSync(sleepLogPath, "utf8")).toBe("1.000\n");
+      expect(readFileSync(sleepLogPath, "utf8")).toBe("0.550\n");
       expect(
         readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
       ).toHaveLength(1);
