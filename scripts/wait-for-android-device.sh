@@ -22,8 +22,10 @@ run_adb() {
 }
 
 deadline=$((SECONDS + timeout_seconds))
+first_probe=true
 
-while (( SECONDS < deadline )); do
+while [[ "$first_probe" == "true" ]] || (( SECONDS < deadline )); do
+    first_probe=false
     run_adb start-server >/dev/null 2>&1 || true
     state="$(run_adb -s "$serial" get-state 2>/dev/null || true)"
 
