@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test fixtures generate inventories in-process; inventory generation and AAPT
   packaging now consume the same checked-in, case-insensitive exclusion policy
   so deliberately omitted frontend debris cannot poison artifact verification;
+  artifact inspection now reads literal ZIP member names and streams SHA-256
+  verification without a whole-file stdout limit, while the tracked fallback
+  index is pinned to LF so its inventory hash is checkout-independent;
   verification still guards every release artifact task and resolves frontend
   overrides relative to the Android root (issues #487, #491, and #493).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash

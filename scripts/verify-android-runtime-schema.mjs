@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { parse } from "parse5";
@@ -18,6 +17,10 @@ import {
   isDirectNodeExecution,
   readApiBaseUrlFromStringsXml,
 } from "./inject-native-auth-bridge.mjs";
+import {
+  openLiteralZipArchive,
+  ZipArchiveReadError,
+} from "./literal-zip-archive.mjs";
 
 const runtimeScriptId = "secpal-native-auth-bridge-bootstrap";
 const runtimeScriptStart = '<script id="secpal-native-auth-bridge-bootstrap">';
@@ -26,36 +29,6 @@ const runtimeIndexEntryByExtension = new Map([
   [".aab", "base/assets/public/index.html"],
 ]);
 const runtimeIndexEntries = [...runtimeIndexEntryByExtension.values()];
-
-function readUnzipOutput(artifactPath, argumentsList, encoding) {
-  const result = spawnSync("unzip", argumentsList, {
-    encoding,
-    maxBuffer: 32 * 1024 * 1024,
-  });
-
-  if (result.error || result.status !== 0) {
-    const stderr =
-      typeof result.stderr === "string"
-        ? result.stderr.trim()
-        : result.stderr?.toString("utf8").trim();
-    const details = result.error?.message || stderr;
-    throw new Error(
-      `Unable to inspect ${artifactPath}: ${
-        details || `unzip exited with status ${result.status ?? "unknown"}`
-      }`
-    );
-  }
-
-  return result.stdout;
-}
-
-function readUnzipText(artifactPath, argumentsList) {
-  return readUnzipOutput(artifactPath, argumentsList, "utf8");
-}
-
-function readUnzipBuffer(artifactPath, argumentsList) {
-  return readUnzipOutput(artifactPath, argumentsList, null);
-}
 
 function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
   const runtimeScripts = [];
@@ -226,34 +199,40 @@ export function verifyAndroidRuntimeSchemaDirectory(
   );
 }
 
-export function verifyAndroidRuntimeSchemaArtifact(
+export async function verifyAndroidRuntimeSchemaArtifact(
   artifactPath,
   stringsXmlPath
 ) {
   const expectedBridge = buildExpectedBridge(stringsXmlPath);
-  const archiveEntries = readUnzipText(artifactPath, ["-Z1", artifactPath])
-    .split(/\r?\n/)
-    .filter(Boolean);
-  const runtimeIndexEntry = selectRuntimeIndexEntry(
-    artifactPath,
-    archiveEntries
-  );
-  const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
-  assertAndroidWebAssetArchive({
-    archiveEntries,
-    readEntry: (entry) =>
-      readUnzipBuffer(artifactPath, ["-p", artifactPath, entry]),
-    runtimeAssetRoot,
-    sourceLabel: artifactPath,
-  });
+  let archive;
+  try {
+    archive = await openLiteralZipArchive(artifactPath);
+    const runtimeIndexEntry = selectRuntimeIndexEntry(
+      artifactPath,
+      archive.entries
+    );
+    const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
+    await assertAndroidWebAssetArchive({
+      archiveEntries: archive.entries,
+      hashEntry: archive.hashEntry,
+      readEntry: archive.readEntry,
+      runtimeAssetRoot,
+      sourceLabel: artifactPath,
+    });
 
-  const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
-  const indexHtml = readUnzipText(artifactPath, [
-    "-p",
-    artifactPath,
-    runtimeIndexEntry,
-  ]);
-  assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel, expectedBridge);
+    const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
+    const indexHtml = (await archive.readEntry(runtimeIndexEntry)).toString(
+      "utf8"
+    );
+    assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel, expectedBridge);
+  } catch (error) {
+    if (error instanceof ZipArchiveReadError) {
+      throw new Error(`Unable to inspect ${artifactPath}: ${error.message}`);
+    }
+    throw error;
+  } finally {
+    archive?.close();
+  }
 }
 
 if (isDirectNodeExecution(import.meta.url)) {
@@ -280,7 +259,7 @@ if (isDirectNodeExecution(import.meta.url)) {
       );
       console.log("ANDROID_RUNTIME_SCHEMA_INDEX_OK");
     } else {
-      verifyAndroidRuntimeSchemaArtifact(
+      await verifyAndroidRuntimeSchemaArtifact(
         resolvedInputPath,
         resolvedStringsXmlPath
       );

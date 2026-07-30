@@ -33,6 +33,7 @@ def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releas
 def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
 def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
+def runtimeArchiveReader = new File(androidRepositoryRoot, 'scripts/literal-zip-archive.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
 def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')
@@ -218,6 +219,7 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     inputs.files(
         runtimeSchemaVerifier,
         runtimeAssetInventory,
+        runtimeArchiveReader,
         fallbackAndroidWebAssetInventory,
         androidAssetIgnorePolicyFile,
         androidStringsXml

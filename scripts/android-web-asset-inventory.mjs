@@ -177,12 +177,7 @@ function parseInventory(source, sourceLabel) {
   return files;
 }
 
-function assertMatchingFiles({
-  actualPaths,
-  expectedFiles,
-  readAsset,
-  sourceLabel,
-}) {
+function assertMatchingPaths({ actualPaths, expectedFiles, sourceLabel }) {
   const actualPathSet = new Set(actualPaths);
   const missingPaths = [...expectedFiles.keys()].filter(
     (path) => !actualPathSet.has(path)
@@ -201,11 +196,9 @@ function assertMatchingFiles({
       `${sourceLabel} contains Android web assets that are not declared by its Android web asset inventory: ${unexpectedPaths.join(", ")}`
     );
   }
+}
 
-  const mismatchedPaths = [...expectedFiles].flatMap(
-    ([path, expectedSha256]) =>
-      hash(readAsset(path)) === expectedSha256 ? [] : [path]
-  );
+function assertNoMismatchedPaths(mismatchedPaths, sourceLabel) {
   if (mismatchedPaths.length > 0) {
     throw new Error(
       `${sourceLabel} does not match its Android web asset inventory: ${mismatchedPaths.join(", ")}`
@@ -232,16 +225,25 @@ export function assertAndroidWebAssetDirectory(assetRoot, inventoryPath) {
     readFileSync(inventoryPath, "utf8"),
     inventoryPath
   );
-  assertMatchingFiles({
-    actualPaths: collectPackageableFiles(assetRoot),
+  const actualPaths = collectPackageableFiles(assetRoot);
+  assertMatchingPaths({
+    actualPaths,
     expectedFiles,
-    readAsset: (path) => readFileSync(join(assetRoot, ...path.split("/"))),
     sourceLabel: assetRoot,
   });
+  assertNoMismatchedPaths(
+    [...expectedFiles].flatMap(([path, expectedSha256]) =>
+      hash(readFileSync(join(assetRoot, ...path.split("/")))) === expectedSha256
+        ? []
+        : [path]
+    ),
+    assetRoot
+  );
 }
 
-export function assertAndroidWebAssetArchive({
+export async function assertAndroidWebAssetArchive({
   archiveEntries,
+  hashEntry,
   readEntry,
   runtimeAssetRoot,
   sourceLabel,
@@ -273,13 +275,19 @@ export function assertAndroidWebAssetArchive({
 
   const inventoryEntry = `${runtimeAssetRoot}${androidWebAssetInventoryName}`;
   const expectedFiles = parseInventory(
-    readEntry(inventoryEntry).toString("utf8"),
+    (await readEntry(inventoryEntry)).toString("utf8"),
     `${sourceLabel}:${inventoryEntry}`
   );
-  assertMatchingFiles({
+  assertMatchingPaths({
     actualPaths: actualPaths.sort(),
     expectedFiles,
-    readAsset: (path) => readEntry(`${runtimeAssetRoot}${path}`),
     sourceLabel,
   });
+  const mismatchedPaths = [];
+  for (const [path, expectedSha256] of expectedFiles) {
+    if ((await hashEntry(`${runtimeAssetRoot}${path}`)) !== expectedSha256) {
+      mismatchedPaths.push(path);
+    }
+  }
+  assertNoMismatchedPaths(mismatchedPaths, sourceLabel);
 }

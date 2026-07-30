@@ -1044,6 +1044,7 @@ describe("Android native hardening", () => {
       "play-store-release-automation.test.ts"
     );
     const androidGitignore = readRepoFile("android", ".gitignore");
+    const gitAttributes = readRepoFile(".gitattributes");
     const aaptIgnoreAssetsPolicy = JSON.parse(
       readRepoFile("android", "app", "aapt-ignore-assets.json")
     ) as { ignore_assets_pattern: string };
@@ -1068,6 +1069,7 @@ describe("Android native hardening", () => {
       "def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')"
     );
     expect(appBuildGradle).toContain("scripts/android-web-asset-inventory.mjs");
+    expect(appBuildGradle).toContain("scripts/literal-zip-archive.mjs");
     expect(aaptIgnoreAssetsPolicy.ignore_assets_pattern).toBe(
       "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
     );
@@ -1079,6 +1081,9 @@ describe("Android native hardening", () => {
     );
     expect(appBuildGradle).not.toContain(
       "ignoreAssetsPattern '!.svn:!.git:!.ds_store"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/assets/public/index.html text eol=lf"
     );
     expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
     expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
