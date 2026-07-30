@@ -362,11 +362,13 @@ exit 1
       failureMode:
         | "maven-403"
         | "maven-403-always"
+        | "maven-403-resource"
         | "maven-403-same-line"
         | "maven-403-then-package-manager"
         | "maven-404"
         | "mixed-repository-responses"
         | "other-repository-403"
+        | "other-repository-403-resource"
         | "package-manager"
         | "package-manager-always"
         | "missing-package-service"
@@ -413,6 +415,14 @@ fi
 if [[ -n "$attempt_failure_mode" ]]; then
   if [[ "$attempt_failure_mode" == "maven-403-same-line" ]]; then
     printf '%s\n' "Could not GET 'https://repo.maven.apache.org/maven2/org/example/dependency/1.0/dependency-1.0.pom'. Received status code 403 from server: Forbidden"
+  elif [[ "$attempt_failure_mode" == *-403-resource ]]; then
+    if [[ "$attempt_failure_mode" == other-repository-* ]]; then
+      repository_url="https://dl.google.com/dl/android/maven2"
+    else
+      repository_url="https://repo.maven.apache.org/maven2"
+    fi
+    printf '%s\n' "Could not get resource '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
+    printf '%s\n' "Received status code 403 from server: Forbidden"
   elif [[ "$attempt_failure_mode" == "mixed-repository-responses" ]]; then
     printf '%s\n' "Could not GET 'https://repo.maven.apache.org/maven2/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code 404 from server: Not Found"
@@ -526,6 +536,12 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(sameLineMavenCentralFailure.reboots).toEqual([]);
     expect(sameLineMavenCentralFailure.waits).toEqual([]);
 
+    const resourceMavenCentralFailure = runScenario(29, "maven-403-resource");
+    expect(resourceMavenCentralFailure.result.status).toBe(0);
+    expect(resourceMavenCentralFailure.attempts).toBe(2);
+    expect(resourceMavenCentralFailure.reboots).toEqual([]);
+    expect(resourceMavenCentralFailure.waits).toEqual([]);
+
     const repeatedMavenCentralFailure = runScenario(29, "maven-403-always");
     expect(repeatedMavenCentralFailure.result.status).toBe(1);
     expect(repeatedMavenCentralFailure.attempts).toBe(2);
@@ -543,6 +559,15 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(unrelatedRepositoryFailure.attempts).toBe(1);
     expect(unrelatedRepositoryFailure.reboots).toEqual([]);
     expect(unrelatedRepositoryFailure.waits).toEqual([]);
+
+    const unrelatedResourceFailure = runScenario(
+      29,
+      "other-repository-403-resource"
+    );
+    expect(unrelatedResourceFailure.result.status).toBe(1);
+    expect(unrelatedResourceFailure.attempts).toBe(1);
+    expect(unrelatedResourceFailure.reboots).toEqual([]);
+    expect(unrelatedResourceFailure.waits).toEqual([]);
 
     const mixedRepositoryResponses = runScenario(
       29,

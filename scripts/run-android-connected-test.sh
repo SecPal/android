@@ -64,8 +64,9 @@ is_maven_central_http_403() {
     local pending_maven_central_request=false
 
     while IFS= read -r line; do
-        if [[ "$line" == *"Could not GET '"* ]]; then
-            if [[ "$line" == *"Could not GET 'https://repo.maven.apache.org/maven2/"* ]]; then
+        if [[ "$line" == *"Could not GET '"* ]] ||
+            [[ "$line" == *"Could not get resource '"* ]]; then
+            if [[ "$line" == *"https://repo.maven.apache.org/maven2/"* ]]; then
                 if [[ "$line" == *"Received status code 403 from server: Forbidden"* ]]; then
                     return 0
                 fi
