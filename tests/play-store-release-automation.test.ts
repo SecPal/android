@@ -1132,7 +1132,7 @@ system("sh", "-eu", "-c", script, exception: true)
       .replace('src="/assets/index.js"', 'src="index.js"')
       .replace(
         "</head>",
-        '<script type="module">import("inline.js")</script><script type="text/javascript; charset=UTF-8">new Worker("w.js")</script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
+        '<script type="module">import("inline.js")</script><script type="text/javascript; charset=UTF-8">new Worker("w.js")</script><script src="scripts/worker-loader.js"></script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
       )
       .replace(
         '<div id="root"></div>',
@@ -1142,8 +1142,17 @@ system("sh", "-eu", "-c", script, exception: true)
     const completeAssets = Object.fromEntries(
       [
         "app/lazy.js",
+        "app/template-lazy.js",
         "app/inline.js",
         "app/icons/app.png",
+        "app/logo.png",
+        "app/nested.js",
+        "app/precache-notice.md",
+        "app/document-worker.js",
+        "app/scripts/worker-loader.js",
+        "app/sw.js",
+        "app/workers/nested.js",
+        "app/workers/parent.js",
         "fonts/app.woff2",
         "assets/fallback.png",
         "assets/compact.png",
@@ -1157,15 +1166,24 @@ system("sh", "-eu", "-c", script, exception: true)
     );
     Object.assign(completeAssets, {
       "app/index.js":
-        'import("./lazy.js");new SharedWorker("s.js");navigator.serviceWorker.register("/sw.js");importScripts("./i.js");',
+        'import("./lazy.js");import(`./template-lazy.js`);const logo={src:"./logo.png"};new SharedWorker("s.js");new Worker("./workers/parent.js");new Workbox("./sw.js");navigator.serviceWorker.register("/sw.js");importScripts("./i.js");',
+      "app/sw.js":
+        'precacheAndRoute([{revision:"1",url:"precache-notice.md"}]);',
+      "app/scripts/worker-loader.js": 'new Worker("./document-worker.js");',
+      "app/workers/parent.js": 'new Worker("./nested.js");',
       "app/styles/app.css":
         '/* url("../../missing-comment.png") */@font-face{src:url("../../fonts/app.woff2")}',
       "app/app.webmanifest": String.raw`{"icons":[{"src":"icons\/app.png"},{"src":"\u0069cons/app.png"}]}`,
     });
     const missingAssets = [
       "app/lazy.js",
+      "app/template-lazy.js",
       "app/inline.js",
       "app/icons/app.png",
+      "app/logo.png",
+      "app/precache-notice.md",
+      "app/document-worker.js",
+      "app/workers/nested.js",
       "fonts/app.woff2",
       "assets/expanded.png",
       "assets/preload-expanded.png",

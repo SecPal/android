@@ -31,6 +31,12 @@ const executableScriptTypePattern =
   /^(?:module|(?:application|text)\/(?:java|ecma)script(?:1\.[0-5])?)$/i;
 const documentScriptLoaderPattern =
   /^(?:Worker|SharedWorker|navigator\.serviceWorker\.register)$/;
+const workerConstructorPattern = /^(?:Worker|SharedWorker)$/;
+const packagedAssetLiteralPattern =
+  /^(?:\/|\.{1,2}\/).+\.(?:avif|css|gif|html?|ico|jpe?g|js|md|mjs|otf|png|svg|ttf|txt|wasm|webmanifest|webp|woff2?)(?:[?#].*)?$/i;
+const packagedAssetPropertyPattern = /^(?:badge|href|icon|poster|src)$/;
+const packagedAssetPropertyValuePattern =
+  /(?:^|\/)(?:\.[^/]+|[^/]+\.[A-Za-z0-9]{1,16})(?:[?#].*)?$/;
 const androidWebApplicationOrigin = "https://app.secpal.dev";
 const asciiWhitespacePattern = /[\t\n\f\r ]/;
 
@@ -144,32 +150,59 @@ function parseSrcsetCandidateUrls(srcset) {
 }
 
 function addLocalAssetPath(value, paths, baseUrl) {
-  if (!value) return;
+  if (!value) return null;
   try {
     const assetUrl = new URL(value, baseUrl);
-    if (assetUrl.origin !== androidWebApplicationOrigin) return;
+    if (assetUrl.origin !== androidWebApplicationOrigin) return null;
     const assetPath = decodeURIComponent(assetUrl.pathname).replace(/^\/+/, "");
-    if (assetPath && assetPath !== "index.html") paths.add(assetPath);
+    if (!assetPath || assetPath === "index.html") return null;
+    paths.add(assetPath);
+    return assetPath;
   } catch {
     // Invalid local references are rejected as missing packaged assets.
     paths.add(value);
+    return value;
   }
+}
+
+function addScriptAssetPath(
+  value,
+  localAssetPaths,
+  baseUrl,
+  scriptExecutionContexts,
+  executionContext
+) {
+  const assetPath = addLocalAssetPath(value, localAssetPaths, baseUrl);
+  if (!assetPath) return;
+  const contexts = scriptExecutionContexts.get(assetPath) ?? new Set();
+  contexts.add(executionContext);
+  scriptExecutionContexts.set(assetPath, contexts);
 }
 
 function collectJavaScriptAssetPaths(
   source,
   localAssetPaths,
   sourceUrl,
-  documentBaseUrl
+  documentBaseUrl,
+  scriptExecutionContexts,
+  executionContext
 ) {
   for (const { fileName } of ts.preProcessFile(source, true, true)
     .importedFiles) {
-    addLocalAssetPath(fileName, localAssetPaths, sourceUrl);
+    addScriptAssetPath(
+      fileName,
+      localAssetPaths,
+      sourceUrl,
+      scriptExecutionContexts,
+      executionContext
+    );
   }
   const sourceFile = ts.createSourceFile(
     "web.js",
     source,
-    ts.ScriptTarget.Latest
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS
   );
   const normalizedText = (node) =>
     node?.getText(sourceFile).replace(/\s/g, "") ?? "";
@@ -178,24 +211,94 @@ function collectJavaScriptAssetPaths(
       addLocalAssetPath(node.text, localAssetPaths, baseUrl);
     }
   };
+  const addScriptArgument = (node, baseUrl, context) => {
+    if (node && ts.isStringLiteralLike(node)) {
+      addScriptAssetPath(
+        node.text,
+        localAssetPaths,
+        baseUrl,
+        scriptExecutionContexts,
+        context
+      );
+    }
+  };
+  const addWorkerArgument = (node, baseUrl) => {
+    if (node && ts.isStringLiteralLike(node)) {
+      addScriptArgument(node, baseUrl, "worker");
+      return;
+    }
+    if (
+      (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+      normalizedText(node.expression) === "URL" &&
+      normalizedText(node.arguments?.[1]) === "import.meta.url"
+    ) {
+      addScriptArgument(node.arguments?.[0], sourceUrl, "worker");
+    }
+  };
+  const hasSpecializedReferenceParent = (node) => {
+    const parent = node.parent;
+    if (
+      !parent ||
+      (!ts.isCallExpression(parent) && !ts.isNewExpression(parent))
+    ) {
+      return false;
+    }
+    const loader = normalizedText(parent.expression);
+    return (
+      parent.arguments?.[0] === node &&
+      (parent.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        loader === "importScripts" ||
+        documentScriptLoaderPattern.test(loader) ||
+        (loader === "URL" &&
+          normalizedText(parent.arguments?.[1]) === "import.meta.url"))
+    );
+  };
+  const propertyName = (node) =>
+    ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : "";
+  const isPrecacheUrlProperty = (node) =>
+    propertyName(node.name) === "url" &&
+    ts.isObjectLiteralExpression(node.parent) &&
+    node.parent.properties.some(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        propertyName(property.name) === "revision"
+    );
   const visit = (node) => {
+    if (
+      ts.isStringLiteralLike(node) &&
+      !hasSpecializedReferenceParent(node) &&
+      packagedAssetLiteralPattern.test(node.text)
+    ) {
+      addLocalAssetPath(node.text, localAssetPaths, sourceUrl);
+    }
+    if (
+      ts.isPropertyAssignment(node) &&
+      (packagedAssetPropertyPattern.test(propertyName(node.name)) ||
+        isPrecacheUrlProperty(node)) &&
+      ts.isStringLiteralLike(node.initializer) &&
+      packagedAssetPropertyValuePattern.test(node.initializer.text)
+    ) {
+      addLocalAssetPath(node.initializer.text, localAssetPaths, sourceUrl);
+    }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const loader = normalizedText(node.expression);
-      const baseUrl =
-        loader === "importScripts" ||
-        (loader === "URL" &&
-          normalizedText(node.arguments?.[1]) === "import.meta.url")
-          ? sourceUrl
-          : documentScriptLoaderPattern.test(loader)
-            ? documentBaseUrl
-            : undefined;
-      if (baseUrl) {
-        for (const argument of [...(node.arguments ?? [])].slice(
-          0,
-          loader === "importScripts" ? undefined : 1
-        )) {
-          addArgument(argument, baseUrl);
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        addScriptArgument(node.arguments?.[0], sourceUrl, executionContext);
+      } else if (loader === "importScripts") {
+        for (const argument of node.arguments ?? []) {
+          addScriptArgument(argument, sourceUrl, "worker");
         }
+      } else if (
+        loader === "URL" &&
+        normalizedText(node.arguments?.[1]) === "import.meta.url"
+      ) {
+        addArgument(node.arguments?.[0], sourceUrl);
+      } else if (documentScriptLoaderPattern.test(loader)) {
+        const baseUrl =
+          executionContext === "worker" && workerConstructorPattern.test(loader)
+            ? sourceUrl
+            : documentBaseUrl;
+        addWorkerArgument(node.arguments?.[0], baseUrl);
       }
     }
     ts.forEachChild(node, visit);
@@ -215,7 +318,11 @@ function collectManifestAssetPaths(source, localAssetPaths, baseUrl) {
   }
 }
 
-function collectLocalAndroidWebAssetPaths(indexHtml, documentUrl) {
+function collectLocalAndroidWebAssetPaths(
+  indexHtml,
+  documentUrl,
+  scriptExecutionContexts
+) {
   const localAssetPaths = new Set();
   const pending = [parse(indexHtml)];
   const nodes = [];
@@ -262,7 +369,17 @@ function collectLocalAndroidWebAssetPaths(indexHtml, documentUrl) {
         for (const asset of name.endsWith("srcset")
           ? parseSrcsetCandidateUrls(value)
           : [value]) {
-          addLocalAssetPath(asset, localAssetPaths, baseUrl);
+          if (node.tagName === "script" && name === "src") {
+            addScriptAssetPath(
+              asset,
+              localAssetPaths,
+              baseUrl,
+              scriptExecutionContexts,
+              "document"
+            );
+          } else {
+            addLocalAssetPath(asset, localAssetPaths, baseUrl);
+          }
         }
       }
     }
@@ -273,7 +390,9 @@ function collectLocalAndroidWebAssetPaths(indexHtml, documentUrl) {
           (node.childNodes ?? []).map((child) => child.value ?? "").join(""),
           localAssetPaths,
           baseUrl,
-          baseUrl
+          baseUrl,
+          scriptExecutionContexts,
+          "document"
         );
       }
     }
@@ -290,37 +409,62 @@ function assertPackagedAndroidWebAssets(
 ) {
   const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
   const archiveEntrySet = new Set(archiveEntries);
+  const scriptExecutionContexts = new Map();
   const { baseUrl: documentBaseUrl, paths: referencedAssetPaths } =
     collectLocalAndroidWebAssetPaths(
       indexHtml,
-      new URL("/", androidWebApplicationOrigin)
+      new URL("/", androidWebApplicationOrigin),
+      scriptExecutionContexts
     );
-  for (const assetPath of referencedAssetPaths) {
-    const entry = `${runtimeAssetRoot}${assetPath}`;
-    if (!archiveEntrySet.has(entry)) {
-      continue;
-    }
-    const extension = extname(assetPath).toLowerCase();
-    const sourceUrl = new URL(`/${assetPath}`, androidWebApplicationOrigin);
-    const source = readUnzipOutput(artifactPath, ["-p", artifactPath, entry]);
-    if (extension === ".js" || extension === ".mjs") {
-      collectJavaScriptAssetPaths(
-        source,
-        referencedAssetPaths,
-        sourceUrl,
-        documentBaseUrl
-      );
-    } else if (extension === ".css") {
-      for (const match of source
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .matchAll(cssDependencyPattern)) {
-        addLocalAssetPath(match[1], referencedAssetPaths, sourceUrl);
+  const processedAssetContexts = new Set();
+  let foundPendingAsset = true;
+  while (foundPendingAsset) {
+    foundPendingAsset = false;
+    for (const assetPath of referencedAssetPaths) {
+      const entry = `${runtimeAssetRoot}${assetPath}`;
+      if (!archiveEntrySet.has(entry)) {
+        continue;
       }
-    } else if (
-      extension === ".webmanifest" ||
-      /manifest[^/]*\.json$/i.test(assetPath)
-    ) {
-      collectManifestAssetPaths(source, referencedAssetPaths, sourceUrl);
+      const extension = extname(assetPath).toLowerCase();
+      const sourceUrl = new URL(`/${assetPath}`, androidWebApplicationOrigin);
+      const executionContexts =
+        extension === ".js" || extension === ".mjs"
+          ? (scriptExecutionContexts.get(assetPath) ?? new Set(["document"]))
+          : new Set(["asset"]);
+      for (const executionContext of executionContexts) {
+        const contextKey = `${executionContext}:${assetPath}`;
+        if (processedAssetContexts.has(contextKey)) {
+          continue;
+        }
+        processedAssetContexts.add(contextKey);
+        foundPendingAsset = true;
+        const source = readUnzipOutput(artifactPath, [
+          "-p",
+          artifactPath,
+          entry,
+        ]);
+        if (extension === ".js" || extension === ".mjs") {
+          collectJavaScriptAssetPaths(
+            source,
+            referencedAssetPaths,
+            sourceUrl,
+            documentBaseUrl,
+            scriptExecutionContexts,
+            executionContext
+          );
+        } else if (extension === ".css") {
+          for (const match of source
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .matchAll(cssDependencyPattern)) {
+            addLocalAssetPath(match[1], referencedAssetPaths, sourceUrl);
+          }
+        } else if (
+          extension === ".webmanifest" ||
+          /manifest[^/]*\.json$/i.test(assetPath)
+        ) {
+          collectManifestAssetPaths(source, referencedAssetPaths, sourceUrl);
+        }
+      }
     }
   }
   const missingAssetEntries = [...referencedAssetPaths]
