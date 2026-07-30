@@ -163,8 +163,7 @@ export function writeAndroidWebAssetInventory(assetRoot) {
   return inventoryPath;
 }
 
-export function assertAndroidWebAssetDirectory(assetRoot) {
-  const inventoryPath = join(assetRoot, androidWebAssetInventoryName);
+export function assertAndroidWebAssetDirectory(assetRoot, inventoryPath) {
   const expectedFiles = parseInventory(
     readFileSync(inventoryPath, "utf8"),
     inventoryPath

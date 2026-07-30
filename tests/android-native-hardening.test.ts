@@ -1039,6 +1039,14 @@ describe("Android native hardening", () => {
       "scripts",
       "build-frontend-web.sh"
     );
+    const playStoreReleaseTests = readRepoFile(
+      "tests",
+      "play-store-release-automation.test.ts"
+    );
+    const androidGitignore = readRepoFile("android", ".gitignore");
+    const fallbackInventory = JSON.parse(
+      readRepoFile("android", "app", "src", "main", "web-assets-fallback.json")
+    ) as { files: Array<{ path: string }> };
 
     expect(appBuildGradle).toContain(
       'tasks.register("prepareAndroidRuntimeSchemaAsset", Exec)'
@@ -1053,13 +1061,52 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       "def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')"
     );
+    expect(appBuildGradle).toContain(
+      "def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')"
+    );
     expect(appBuildGradle).toContain("scripts/android-web-asset-inventory.mjs");
     expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
     expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
-    expect(frontendBuildScript).toContain(
+    expect(appBuildGradle).toContain(
+      "fallbackAndroidWebAssetInventory.absolutePath"
+    );
+    expect(frontendBuildScript).not.toContain(
       "scripts/generate-android-web-asset-inventory.mjs"
     );
-    expect(frontendBuildScript).toContain('"$FRONTEND_DIR/dist"');
+    expect(packageJson.scripts["native:inventory:web-assets"]).toBe(
+      "node ./scripts/generate-android-web-asset-inventory.mjs ./android/app/src/main/assets/public"
+    );
+    for (const scriptName of [
+      "cap:copy",
+      "cap:sync",
+      "cap:add:android",
+    ] as const) {
+      const script = packageJson.scripts[scriptName];
+      const capacitorCopyIndex = script.indexOf(
+        `npx cap ${scriptName === "cap:add:android" ? "add" : scriptName.slice(4)}`
+      );
+      const inventoryIndex = script.indexOf(
+        "npm run native:inventory:web-assets"
+      );
+      expect(capacitorCopyIndex).toBeGreaterThanOrEqual(0);
+      expect(inventoryIndex).toBeGreaterThan(capacitorCopyIndex);
+    }
+    expect(androidGitignore).not.toContain(
+      "!app/src/main/assets/public/secpal-web-assets.json"
+    );
+    expect(fallbackInventory.files.map(({ path }) => path)).toEqual([
+      "index.html",
+    ]);
+    expect(playStoreReleaseTests).toContain(
+      "writeAndroidWebAssetInventory(assetRoot);"
+    );
+    const zipFixtureSource = playStoreReleaseTests.match(
+      /function createZipFixture\([\s\S]*?\n}\n\nfunction buildAndroidRuntimeIndexHtml/
+    )?.[0];
+    expect(zipFixtureSource).toBeDefined();
+    expect(zipFixtureSource).not.toContain(
+      "generate-android-web-asset-inventory.mjs"
+    );
     expect(appBuildGradle).toContain(
       "def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()"
     );

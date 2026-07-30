@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { parse } from "parse5";
 import ts from "typescript";
 import {
   assertAndroidWebAssetArchive,
   assertAndroidWebAssetDirectory,
+  androidWebAssetInventoryName,
 } from "./android-web-asset-inventory.mjs";
 import {
   assertCompleteAndroidWebApplicationShell,
@@ -204,8 +205,21 @@ export function verifyAndroidRuntimeSchemaIndex(indexHtmlPath, stringsXmlPath) {
   );
 }
 
-export function verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath) {
-  assertAndroidWebAssetDirectory(assetRoot);
+export function verifyAndroidRuntimeSchemaDirectory(
+  assetRoot,
+  stringsXmlPath,
+  fallbackInventoryPath
+) {
+  const generatedInventoryPath = join(assetRoot, androidWebAssetInventoryName);
+  const inventoryPath = existsSync(generatedInventoryPath)
+    ? generatedInventoryPath
+    : fallbackInventoryPath;
+  if (!inventoryPath) {
+    throw new Error(
+      `${assetRoot} must contain ${androidWebAssetInventoryName} or provide a fallback inventory.`
+    );
+  }
+  assertAndroidWebAssetDirectory(assetRoot, inventoryPath);
   verifyAndroidRuntimeSchemaIndex(
     join(assetRoot, "index.html"),
     stringsXmlPath
@@ -244,10 +258,10 @@ export function verifyAndroidRuntimeSchemaArtifact(
 
 if (isDirectNodeExecution(import.meta.url)) {
   try {
-    const [, , inputPath, stringsXmlPath] = process.argv;
+    const [, , inputPath, stringsXmlPath, fallbackInventoryPath] = process.argv;
     if (!inputPath || !stringsXmlPath) {
       throw new Error(
-        "Usage: node scripts/verify-android-runtime-schema.mjs <apk-aab-index-or-web-assets> <strings-xml>"
+        "Usage: node scripts/verify-android-runtime-schema.mjs <apk-aab-index-or-web-assets> <strings-xml> [fallback-inventory]"
       );
     }
     const resolvedInputPath = resolve(inputPath);
@@ -255,7 +269,8 @@ if (isDirectNodeExecution(import.meta.url)) {
     if (statSync(resolvedInputPath).isDirectory()) {
       verifyAndroidRuntimeSchemaDirectory(
         resolvedInputPath,
-        resolvedStringsXmlPath
+        resolvedStringsXmlPath,
+        fallbackInventoryPath ? resolve(fallbackInventoryPath) : undefined
       );
       console.log("ANDROID_RUNTIME_SCHEMA_DIRECTORY_OK");
     } else if (extname(resolvedInputPath).toLowerCase() === ".html") {

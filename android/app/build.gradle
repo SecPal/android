@@ -34,6 +34,7 @@ def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
 def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
+def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
 def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()
 def configuredFrontendRepositoryFile = configuredFrontendRepositoryPath
@@ -203,7 +204,12 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
     description = "Fails when generated Android web assets drift from their inventory or canonical schema-4 bridge."
     dependsOn("prepareAndroidRuntimeSchemaAsset")
-    inputs.files(runtimeSchemaVerifier, runtimeAssetInventory, androidStringsXml)
+    inputs.files(
+        runtimeSchemaVerifier,
+        runtimeAssetInventory,
+        fallbackAndroidWebAssetInventory,
+        androidStringsXml
+    )
     inputs.dir(generatedAndroidWebAssets)
     onlyIf("generated Android web asset directory is present") {
         generatedAndroidWebAssets.isDirectory()
@@ -212,7 +218,8 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         "node",
         runtimeSchemaVerifier.absolutePath,
         generatedAndroidWebAssets.absolutePath,
-        androidStringsXml.absolutePath
+        androidStringsXml.absolutePath,
+        fallbackAndroidWebAssetInventory.absolutePath
     )
 }
 

@@ -33,7 +33,6 @@ pnpm-lock.yaml
 # Generated Android WebView asset
 
 android/app/src/main/assets/public/index\.html$
-android/app/src/main/assets/public/secpal-web-assets\.json$
 
 # License files (boilerplate)
 

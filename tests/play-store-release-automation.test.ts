@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,6 +19,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
+import { writeAndroidWebAssetInventory } from "../scripts/android-web-asset-inventory.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const locales = ["en-US", "de-DE"] as const;
@@ -43,7 +46,8 @@ async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
   ) => void;
   verifyAndroidRuntimeSchemaDirectory: (
     assetRoot: string,
-    stringsXmlPath: string
+    stringsXmlPath: string,
+    fallbackInventoryPath?: string
   ) => void;
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
@@ -89,20 +93,7 @@ function createZipFixture(
       writeFile(join(assetRoot, ...assetPath.split("/")), content);
     }
   }
-  const inventoryResult = spawnSync(
-    process.execPath,
-    [
-      join(repoRoot, "scripts", "generate-android-web-asset-inventory.mjs"),
-      assetRoot,
-    ],
-    { encoding: "utf8" }
-  );
-  expect(
-    inventoryResult.status,
-    inventoryResult.error?.message ||
-      inventoryResult.stderr ||
-      inventoryResult.stdout
-  ).toBe(0);
+  writeAndroidWebAssetInventory(assetRoot);
   for (const assetPath of inventoryMutation.remove ?? []) {
     rmSync(join(assetRoot, ...assetPath.split("/")), { force: true });
   }
@@ -1302,6 +1293,8 @@ system("sh", "-eu", "-c", script, exception: true)
         )
       );
       writeFile(join(assetRoot, "assets", "index.js"), "complete");
+      writeFile(join(assetRoot, "cordova.js"), "generated");
+      writeFile(join(assetRoot, "cordova_plugins.js"), "generated");
       const inventoryResult = spawnSync(
         process.execPath,
         [
@@ -1314,6 +1307,12 @@ system("sh", "-eu", "-c", script, exception: true)
         inventoryResult.status,
         inventoryResult.error?.message || inventoryResult.stderr
       ).toBe(0);
+      const inventory = JSON.parse(
+        readFileSync(join(assetRoot, "secpal-web-assets.json"), "utf8")
+      ) as { files: Array<{ path: string }> };
+      expect(inventory.files.map(({ path }) => path)).toEqual(
+        expect.arrayContaining(["cordova.js", "cordova_plugins.js"])
+      );
 
       expect(() =>
         verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
@@ -1323,6 +1322,47 @@ system("sh", "-eu", "-c", script, exception: true)
       expect(() =>
         verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
       ).toThrow(/does not match its Android web asset inventory/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an immutable fallback inventory for standalone Android verification", async () => {
+    const { verifyAndroidRuntimeSchemaDirectory } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-fallback-"));
+    const assetRoot = join(tempRoot, "public");
+    const fallbackInventoryPath = join(tempRoot, "fallback.json");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        join(assetRoot, "index.html"),
+        buildAndroidRuntimeIndexHtml(
+          buildNativeAuthBridgeBootstrapScript(apiBaseUrl)
+        )
+      );
+      writeAndroidWebAssetInventory(assetRoot);
+      renameSync(
+        join(assetRoot, "secpal-web-assets.json"),
+        fallbackInventoryPath
+      );
+
+      expect(existsSync(join(assetRoot, "secpal-web-assets.json"))).toBe(false);
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(
+          assetRoot,
+          stringsXmlPath,
+          fallbackInventoryPath
+        )
+      ).not.toThrow();
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

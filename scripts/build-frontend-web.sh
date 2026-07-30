@@ -55,8 +55,4 @@ node "$ROOT_DIR/scripts/inject-native-auth-bridge.mjs" \
   "$FRONTEND_INDEX_HTML" \
   "$ANDROID_STRINGS_XML"
 
-echo "→ Recording the complete Android WebView asset inventory"
-node "$ROOT_DIR/scripts/generate-android-web-asset-inventory.mjs" \
-  "$FRONTEND_DIR/dist"
-
 echo "✅ frontend dist ready: $FRONTEND_DIR/dist"
