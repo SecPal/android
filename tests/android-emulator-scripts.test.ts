@@ -218,11 +218,13 @@ printf '%s\n' "$*" > "${emulatorLogPath}"
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
     const fakeBinRoot = join(tempRoot, "bin");
     const adbLogPath = join(tempRoot, "adb.log");
+    const monotonicClockPath = join(tempRoot, "monotonic-clock");
     const sleepLogPath = join(tempRoot, "sleep.log");
     const bashEnvPath = join(tempRoot, "bash-env");
 
     try {
       mkdirSync(fakeBinRoot, { recursive: true });
+      writeFileSync(monotonicClockPath, "1000000\n");
       writeExecutable(
         join(fakeBinRoot, "adb"),
         `#!/usr/bin/env bash
@@ -230,14 +232,22 @@ printf '%s\n' "$*" >> "${adbLogPath}"
 exit 1
 `
       );
+      writeExecutable(
+        join(fakeBinRoot, "node"),
+        `#!/usr/bin/env bash
+if [[ "$*" != *"process.hrtime.bigint()"* ]]; then
+  exit 1
+fi
+cat "${monotonicClockPath}"
+`
+      );
       writeFileSync(
         bashEnvPath,
         `unset EPOCHREALTIME
-EPOCHREALTIME=1000.000000
-trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then EPOCHREALTIME=1001.000000; fi' DEBUG
+trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then printf "1001000\\n" > "${monotonicClockPath}"; fi' DEBUG
 sleep() {
   printf '%s\n' "$1" >> "${sleepLogPath}"
-  EPOCHREALTIME=1001.000000
+  printf "1001000\\n" > "${monotonicClockPath}"
 }
 `
       );
@@ -267,21 +277,28 @@ sleep() {
       expect(
         existsSync(adbLogPath) ? readFileSync(adbLogPath, "utf8") : ""
       ).toContain("-s emulator-5570 get-state");
+      expect(
+        readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
+      ).toHaveLength(1);
       expect(existsSync(sleepLogPath)).toBe(false);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("limits retry sleep to the fractional remaining time and does not probe after the readiness deadline", () => {
+  it("uses monotonic time to limit retry sleep and stop probes at the readiness deadline", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
     const fakeBinRoot = join(tempRoot, "bin");
     const adbLogPath = join(tempRoot, "adb.log");
+    const monotonicClockPath = join(tempRoot, "monotonic-clock");
     const sleepLogPath = join(tempRoot, "sleep.log");
+    const wallClockPath = join(tempRoot, "wall-clock");
     const bashEnvPath = join(tempRoot, "bash-env");
 
     try {
       mkdirSync(fakeBinRoot, { recursive: true });
+      writeFileSync(monotonicClockPath, "1000000\n");
+      writeFileSync(wallClockPath, "1000000\n");
       writeExecutable(
         join(fakeBinRoot, "adb"),
         `#!/usr/bin/env bash
@@ -289,14 +306,35 @@ printf '%s\n' "$*" >> "${adbLogPath}"
 exit 1
 `
       );
+      writeExecutable(
+        join(fakeBinRoot, "node"),
+        `#!/usr/bin/env bash
+if [[ "$*" == *"process.hrtime.bigint()"* ]]; then
+  cat "${monotonicClockPath}"
+  exit 0
+fi
+if [[ "$*" == *"Date.now()"* ]]; then
+  cat "${wallClockPath}"
+  exit 0
+fi
+exit 1
+`
+      );
       writeFileSync(
         bashEnvPath,
         `unset EPOCHREALTIME
-EPOCHREALTIME=1000.000000
-trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then EPOCHREALTIME=1000.400000; fi' DEBUG
+first_probe_clock_update=true
+trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* && "$first_probe_clock_update" == true ]]; then first_probe_clock_update=false; printf "1000400\\n" > "${monotonicClockPath}"; printf "1000400\\n" > "${wallClockPath}"; fi' DEBUG
+sleep_calls=0
 sleep() {
   printf '%s\n' "$1" >> "${sleepLogPath}"
-  EPOCHREALTIME=1001.000000
+  sleep_calls=$((sleep_calls + 1))
+  printf "1001000\\n" > "${monotonicClockPath}"
+  if (( sleep_calls == 1 )); then
+    printf "998000\\n" > "${wallClockPath}"
+  else
+    printf "1001000\\n" > "${wallClockPath}"
+  fi
 }
 `
       );
@@ -326,6 +364,67 @@ sleep() {
       expect(
         existsSync(sleepLogPath) ? readFileSync(sleepLogPath, "utf8") : ""
       ).toBe("0.600\n");
+      expect(
+        readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
+      ).toHaveLength(1);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to monotonic Bash seconds when the Node clock is unavailable", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
+    const fakeBinRoot = join(tempRoot, "bin");
+    const adbLogPath = join(tempRoot, "adb.log");
+    const sleepLogPath = join(tempRoot, "sleep.log");
+    const bashEnvPath = join(tempRoot, "bash-env");
+
+    try {
+      mkdirSync(fakeBinRoot, { recursive: true });
+      writeExecutable(
+        join(fakeBinRoot, "adb"),
+        `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${adbLogPath}"
+exit 1
+`
+      );
+      writeExecutable(
+        join(fakeBinRoot, "node"),
+        "#!/usr/bin/env bash\nexit 1\n"
+      );
+      writeFileSync(
+        bashEnvPath,
+        `unset EPOCHREALTIME
+sleep() {
+  printf '%s\n' "$1" >> "${sleepLogPath}"
+  SECONDS=$((SECONDS + 1))
+}
+`
+      );
+
+      const result = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          "emulator-5570",
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            BASH_ENV: bashEnvPath,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(readFileSync(sleepLogPath, "utf8")).toBe("1.000\n");
       expect(
         readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
       ).toHaveLength(1);

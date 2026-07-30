@@ -21,30 +21,34 @@ run_adb() {
     bash ./scripts/with-android-env.sh adb "$@"
 }
 
-read_current_time_milliseconds() {
-    local epoch_fraction
-    local epoch_realtime="${EPOCHREALTIME:-}"
-    local epoch_seconds
+read_node_monotonic_time_milliseconds() {
+    local node_time
 
-    if [[ "$epoch_realtime" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-        epoch_seconds="${BASH_REMATCH[1]}"
-        epoch_fraction="${BASH_REMATCH[2]}000"
-        current_time_milliseconds=$((10#$epoch_seconds * 1000 + 10#${epoch_fraction:0:3}))
+    if ! node_time="$(node -e 'process.stdout.write(String(process.hrtime.bigint() / 1000000n))')" \
+        || ! [[ "$node_time" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    current_time_milliseconds="$node_time"
+}
+
+read_current_time_milliseconds() {
+    if [[ "$clock_source" == "node" ]]; then
+        if ! read_node_monotonic_time_milliseconds; then
+            echo "Unable to read the monotonic Node.js clock." >&2
+            exit 69
+        fi
         return
     fi
 
-    if ! command -v node >/dev/null 2>&1; then
-        echo "A high-resolution clock requires Bash 5 or Node.js." >&2
-        exit 69
-    fi
-    if ! current_time_milliseconds="$(node -e 'process.stdout.write(String(Date.now()))')" \
-        || ! [[ "$current_time_milliseconds" =~ ^[0-9]+$ ]]; then
-        echo "Unable to read a high-resolution clock." >&2
-        exit 69
-    fi
+    current_time_milliseconds=$((SECONDS * 1000))
 }
 
-read_current_time_milliseconds
+SECONDS=0
+clock_source="seconds"
+current_time_milliseconds=0
+if command -v node >/dev/null 2>&1 && read_node_monotonic_time_milliseconds; then
+    clock_source="node"
+fi
 deadline_milliseconds=$((current_time_milliseconds + timeout_seconds * 1000))
 retry_interval_milliseconds=2000
 
