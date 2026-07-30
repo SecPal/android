@@ -41,6 +41,10 @@ async function loadAndroidRuntimeSchemaVerifierModule(): Promise<{
     indexHtmlPath: string,
     stringsXmlPath: string
   ) => void;
+  verifyAndroidRuntimeSchemaDirectory: (
+    assetRoot: string,
+    stringsXmlPath: string
+  ) => void;
 }> {
   // @ts-expect-error The helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/verify-android-runtime-schema.mjs");
@@ -68,17 +72,44 @@ function createZipFixture(
   entryRoot: string,
   indexSegments: readonly string[],
   indexHtml: string,
-  assets: string[] | Record<string, string> | false = ["assets/index.js"]
+  assets: string[] | Record<string, string> | false = ["assets/index.js"],
+  inventoryMutation: {
+    remove?: readonly string[];
+    write?: Readonly<Record<string, string>>;
+  } = {}
 ) {
   const artifactPath = join(root, archiveName);
-  writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
+  const assetRoot = join(root, ...indexSegments);
+  writeFile(join(assetRoot, "index.html"), indexHtml);
   if (assets !== false) {
     const assetEntries = Array.isArray(assets)
       ? assets.map((assetPath) => [assetPath, ""] as const)
       : Object.entries(assets);
     for (const [assetPath, content] of assetEntries) {
-      writeFile(join(root, ...indexSegments, ...assetPath.split("/")), content);
+      writeFile(join(assetRoot, ...assetPath.split("/")), content);
     }
+  }
+  const inventoryResult = spawnSync(
+    process.execPath,
+    [
+      join(repoRoot, "scripts", "generate-android-web-asset-inventory.mjs"),
+      assetRoot,
+    ],
+    { encoding: "utf8" }
+  );
+  expect(
+    inventoryResult.status,
+    inventoryResult.error?.message ||
+      inventoryResult.stderr ||
+      inventoryResult.stdout
+  ).toBe(0);
+  for (const assetPath of inventoryMutation.remove ?? []) {
+    rmSync(join(assetRoot, ...assetPath.split("/")), { force: true });
+  }
+  for (const [assetPath, content] of Object.entries(
+    inventoryMutation.write ?? {}
+  )) {
+    writeFile(join(assetRoot, ...assetPath.split("/")), content);
   }
   const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
     cwd: root,
@@ -982,12 +1013,13 @@ system("sh", "-eu", "-c", script, exception: true)
         "assets",
         ["assets", "public"],
         canonicalIndexHtml,
-        false
+        ["assets/index.js"],
+        { remove: ["assets/index.js"] }
       );
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(incompleteApkPath, stringsXmlPath)
       ).toThrow(
-        /missing Android web assets referenced by .*assets\/index\.js/i
+        /missing Android web assets declared by its inventory: assets\/index\.js/i
       );
 
       const ambiguousAabRoot = join(tempRoot, "ambiguous-aab");
@@ -1115,86 +1147,42 @@ system("sh", "-eu", "-c", script, exception: true)
     }
   });
 
-  it("validates direct and transitive packaged WebView dependencies", async () => {
+  it("requires packaged WebView files to match the generated inventory", async () => {
     const { verifyAndroidRuntimeSchemaArtifact } =
       await loadAndroidRuntimeSchemaVerifierModule();
     const { buildNativeAuthBridgeBootstrapScript } =
       await loadNativeAuthBridgeInjectorModule();
-    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-srcset-"));
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-inventory-"));
     const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
     const stringsXmlPath = join(tempRoot, "strings.xml");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-    const responsiveIndexHtml = buildAndroidRuntimeIndexHtml(
+    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
       canonicalRuntimeBridge
-    )
-      .replace("<head>", '<head><base href="/app/"><base href="/x/">')
-      .replace('src="/assets/index.js"', 'src="index.js"')
-      .replace(
-        "</head>",
-        '<script type="module">import("inline.js")</script><script type="text/javascript; charset=UTF-8">new Worker("w.js")</script><script src="scripts/worker-loader.js"></script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
-      )
-      .replace(
-        '<div id="root"></div>',
-        '<!-- import("./commented.js") --><pre>import("./example.js")</pre><picture><source srcset="/assets/narrow.png 480w, /assets/wide.png 960w"><img src="/assets/fallback.png" srcset="/assets/compact.png 1x, /assets/expanded.png 2x"></picture><div id="root"></div>'
-      );
-    const workerAssetPaths = ["app/w.js", "app/s.js", "app/i.js", "sw.js"];
-    const completeAssets = Object.fromEntries(
-      [
-        "app/lazy.js",
-        "app/template-lazy.js",
-        "app/inline.js",
-        "app/icons/app.png",
-        "app/logo.png",
-        "app/nested.js",
-        "app/precache-notice.md",
-        "app/document-worker.js",
-        "app/scripts/worker-loader.js",
-        "app/sw.js",
-        "app/workers/nested.js",
-        "app/workers/parent.js",
-        "fonts/app.woff2",
-        "assets/fallback.png",
-        "assets/compact.png",
-        "assets/expanded.png",
-        "assets/narrow.png",
-        "assets/preload-compact.png",
-        "assets/preload-expanded.png",
-        "assets/wide.png",
-        ...workerAssetPaths,
-      ].map((assetPath) => [assetPath, ""])
+    ).replace(
+      "</head>",
+      '<script type="importmap">{"imports":{"app":"/assets/mapped.js"}}</script><style>.hero{background:url("/assets/inline.png")}</style></head>'
     );
-    Object.assign(completeAssets, {
-      "app/index.js":
-        'import("./lazy.js");import(`./template-lazy.js`);const logo={src:"./logo.png"};new SharedWorker("s.js");new Worker("./workers/parent.js");new Workbox("./sw.js");navigator.serviceWorker.register("/sw.js");importScripts("./i.js");',
-      "app/sw.js":
-        'precacheAndRoute([{revision:"1",url:"precache-notice.md"}]);',
-      "app/scripts/worker-loader.js": 'new Worker("./document-worker.js");',
-      "app/workers/parent.js": 'new Worker("./nested.js");',
-      "app/styles/app.css":
-        '/* url("../../missing-comment.png") */@font-face{src:url("../../fonts/app.woff2")}',
-      "app/app.webmanifest": String.raw`{"icons":[{"src":"icons\/app.png"},{"src":"\u0069cons/app.png"}]}`,
-    });
+    const completeAssets = {
+      "assets/index.js":
+        'import "app"; fetch("./config.json"); console.warn("./optional-worker.js");',
+      "assets/mapped.js": "",
+      "assets/config.json": "{}",
+      "assets/inline.png": "",
+      "frame.html":
+        '<!doctype html><html><head><link rel="stylesheet" href="/assets/frame.css"></head><body></body></html>',
+      "assets/frame.css":
+        '.frame{background:url("/assets/frame-background.png")}',
+      "assets/frame-background.png": "",
+    };
     const missingAssets = [
-      "app/lazy.js",
-      "app/template-lazy.js",
-      "app/inline.js",
-      "app/icons/app.png",
-      "app/logo.png",
-      "app/precache-notice.md",
-      "app/document-worker.js",
-      "app/workers/nested.js",
-      "fonts/app.woff2",
-      "assets/expanded.png",
-      "assets/preload-expanded.png",
-      "assets/wide.png",
-      ...workerAssetPaths,
+      "assets/mapped.js",
+      "assets/config.json",
+      "assets/inline.png",
+      "frame.html",
+      "assets/frame.css",
+      "assets/frame-background.png",
     ];
-    const incompleteAssets = Object.fromEntries(
-      Object.entries(completeAssets).filter(
-        ([assetPath]) => !missingAssets.includes(assetPath)
-      )
-    );
 
     try {
       writeFile(
@@ -1206,8 +1194,9 @@ system("sh", "-eu", "-c", script, exception: true)
         "incomplete.apk",
         "assets",
         ["assets", "public"],
-        responsiveIndexHtml,
-        incompleteAssets
+        canonicalIndexHtml,
+        completeAssets,
+        { remove: missingAssets }
       );
       let incompleteArtifactError: unknown;
       try {
@@ -1224,19 +1213,116 @@ system("sh", "-eu", "-c", script, exception: true)
           missingAsset
         );
       }
-      expect((incompleteArtifactError as Error).message).not.toMatch(/privacy/);
 
       const completeArtifactPath = createZipFixture(
         join(tempRoot, "complete"),
         "complete.apk",
         "assets",
         ["assets", "public"],
-        responsiveIndexHtml,
+        canonicalIndexHtml,
         completeAssets
       );
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(completeArtifactPath, stringsXmlPath)
       ).not.toThrow();
+
+      const tamperedArtifactPath = createZipFixture(
+        join(tempRoot, "tampered"),
+        "tampered.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        { write: { "assets/index.js": "tampered" } }
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(tamperedArtifactPath, stringsXmlPath)
+      ).toThrow(/does not match its Android web asset inventory/i);
+
+      const unexpectedArtifactPath = createZipFixture(
+        join(tempRoot, "unexpected"),
+        "unexpected.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        { write: { "assets/unexpected.js": "" } }
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(
+          unexpectedArtifactPath,
+          stringsXmlPath
+        )
+      ).toThrow(/not declared by its Android web asset inventory/i);
+
+      const unsafeInventoryArtifactPath = createZipFixture(
+        join(tempRoot, "unsafe-inventory"),
+        "unsafe-inventory.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        completeAssets,
+        {
+          write: {
+            "secpal-web-assets.json":
+              '{"schema_version":1,"files":[{"path":"../index.html","sha256":"ba099ae6a7e21a2b1d42e354d87ac48561720436495ebbf1955fa8b0a257f6c2"}]}',
+          },
+        }
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(
+          unsafeInventoryArtifactPath,
+          stringsXmlPath
+        )
+      ).toThrow(/contains an invalid asset entry/i);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("validates the generated WebView directory before Android builds", async () => {
+    const { verifyAndroidRuntimeSchemaDirectory } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-directory-"));
+    const assetRoot = join(tempRoot, "public");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      writeFile(
+        join(assetRoot, "index.html"),
+        buildAndroidRuntimeIndexHtml(
+          buildNativeAuthBridgeBootstrapScript(apiBaseUrl)
+        )
+      );
+      writeFile(join(assetRoot, "assets", "index.js"), "complete");
+      const inventoryResult = spawnSync(
+        process.execPath,
+        [
+          join(repoRoot, "scripts", "generate-android-web-asset-inventory.mjs"),
+          assetRoot,
+        ],
+        { encoding: "utf8" }
+      );
+      expect(
+        inventoryResult.status,
+        inventoryResult.error?.message || inventoryResult.stderr
+      ).toBe(0);
+
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
+      ).not.toThrow();
+
+      writeFile(join(assetRoot, "assets", "index.js"), "tampered");
+      expect(() =>
+        verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)
+      ).toThrow(/does not match its Android web asset inventory/i);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

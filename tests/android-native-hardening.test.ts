@@ -1035,6 +1035,10 @@ describe("Android native hardening", () => {
       scripts: Record<string, string>;
     };
     const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
+    const frontendBuildScript = readRepoFile(
+      "scripts",
+      "build-frontend-web.sh"
+    );
 
     expect(appBuildGradle).toContain(
       'tasks.register("prepareAndroidRuntimeSchemaAsset", Exec)'
@@ -1049,9 +1053,13 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       "def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')"
     );
-    expect(appBuildGradle).toContain(
-      "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
+    expect(appBuildGradle).toContain("scripts/android-web-asset-inventory.mjs");
+    expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
+    expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
+    expect(frontendBuildScript).toContain(
+      "scripts/generate-android-web-asset-inventory.mjs"
     );
+    expect(frontendBuildScript).toContain('"$FRONTEND_DIR/dist"');
     expect(appBuildGradle).toContain(
       "def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()"
     );

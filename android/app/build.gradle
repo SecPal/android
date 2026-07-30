@@ -32,8 +32,8 @@ def samsungAppKeySosData = (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DA
 def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
 def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
+def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
-def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
 def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()
 def configuredFrontendRepositoryFile = configuredFrontendRepositoryPath
@@ -201,16 +201,17 @@ androidComponents.onVariants(androidComponents.selector().all()) { variant ->
 
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Fails when a present generated Android web asset drifts from the canonical schema-4 bridge."
+    description = "Fails when generated Android web assets drift from their inventory or canonical schema-4 bridge."
     dependsOn("prepareAndroidRuntimeSchemaAsset")
-    inputs.files(runtimeSchemaVerifier, generatedAndroidWebIndex, androidStringsXml)
+    inputs.files(runtimeSchemaVerifier, runtimeAssetInventory, androidStringsXml)
+    inputs.dir(generatedAndroidWebAssets)
     onlyIf("generated Android web asset directory is present") {
         generatedAndroidWebAssets.isDirectory()
     }
     commandLine(
         "node",
         runtimeSchemaVerifier.absolutePath,
-        generatedAndroidWebIndex.absolutePath,
+        generatedAndroidWebAssets.absolutePath,
         androidStringsXml.absolutePath
     )
 }

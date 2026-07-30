@@ -1,0 +1,10 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution",
+  "schema_version": 1,
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "ba099ae6a7e21a2b1d42e354d87ac48561720436495ebbf1955fa8b0a257f6c2"
+    }
+  ]
+}
