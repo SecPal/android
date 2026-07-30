@@ -28,7 +28,6 @@ const localAssetAttributesByTag = new Map([
   ["img", ["src"]],
   ["image", ["href", "xlink:href"]],
   ["input", ["src"]],
-  ["link", ["href"]],
   ["object", ["data"]],
   ["script", ["src"]],
   ["source", ["src"]],
@@ -41,6 +40,13 @@ const localSrcsetAttributesByTag = new Map([
   ["link", ["imagesrcset"]],
   ["source", ["srcset"]],
 ]);
+const fetchedLinkRelationPattern =
+  /^(?:apple-touch-icon|apple-touch-startup-image|icon|manifest|mask-icon|modulepreload|prefetch|preload|stylesheet)$/;
+const newUrlDependencyPattern =
+  /\bnew\s+URL\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*import\.meta\.url\s*\)/g;
+const cssDependencyPattern =
+  /(?:url\(\s*|@import\s+(?:url\(\s*)?)["']?([^"')\s;]+)/g;
+const manifestDependencyPattern = /"src"\s*:\s*"([^"]+)"/g;
 const androidWebApplicationOrigin = "https://app.secpal.dev";
 const asciiWhitespacePattern = /[\t\n\f\r ]/;
 
@@ -181,48 +187,94 @@ function parseSrcsetCandidateUrls(srcset) {
   return candidateUrls;
 }
 
-function addLocalAndroidWebAssetPath(value, localAssetPaths) {
+function addLocalAssetPath(value, paths, baseUrl) {
   if (value.length === 0) {
     return;
   }
 
   try {
-    const assetUrl = new URL(value, androidWebApplicationOrigin);
+    const assetUrl = new URL(value, baseUrl);
     if (assetUrl.origin !== androidWebApplicationOrigin) {
       return;
     }
 
     const assetPath = decodeURIComponent(assetUrl.pathname).replace(/^\/+/, "");
     if (assetPath.length > 0 && assetPath !== "index.html") {
-      localAssetPaths.add(assetPath);
+      paths.add(assetPath);
     }
   } catch {
     // Invalid local references are rejected as missing packaged assets.
-    localAssetPaths.add(value);
+    paths.add(value);
   }
 }
 
-function collectLocalAndroidWebAssetPaths(indexHtml) {
+function collectJavaScriptAssetPaths(source, localAssetPaths, baseUrl) {
+  for (const { fileName } of ts.preProcessFile(source, true, true)
+    .importedFiles) {
+    addLocalAssetPath(fileName, localAssetPaths, baseUrl);
+  }
+  for (const match of source.matchAll(newUrlDependencyPattern)) {
+    addLocalAssetPath(match[1], localAssetPaths, baseUrl);
+  }
+}
+
+function collectLocalAndroidWebAssetPaths(indexHtml, documentUrl) {
   const localAssetPaths = new Set();
   const pending = [parse(indexHtml)];
+  const nodes = [];
 
   while (pending.length > 0) {
     const node = pending.pop();
+    nodes.push(node);
+    pending.push(...(node.childNodes ?? []).toReversed());
+  }
+  let baseUrl = documentUrl;
+  for (const node of nodes.filter(
+    (candidate) => candidate.tagName === "base"
+  )) {
+    const href = node.attrs?.find(({ name }) => name === "href")?.value;
+    if (href === undefined) {
+      continue;
+    }
+    try {
+      baseUrl = new URL(href, documentUrl);
+      break;
+    } catch {
+      // The first valid base URL controls document-relative references.
+    }
+  }
+
+  for (const node of nodes) {
+    if (node.tagName === "link") {
+      const relations = (
+        node.attrs?.find(({ name }) => name === "rel")?.value ?? ""
+      )
+        .split(asciiWhitespacePattern)
+        .map((relation) => relation.toLowerCase());
+      if (
+        !relations.some((relation) => fetchedLinkRelationPattern.test(relation))
+      ) {
+        continue;
+      }
+      const href = node.attrs?.find(({ name }) => name === "href")?.value;
+      if (href !== undefined) {
+        addLocalAssetPath(href, localAssetPaths, baseUrl);
+      }
+    }
     const assetAttributeNames = localAssetAttributesByTag.get(node.tagName);
     const srcsetAttributeNames = localSrcsetAttributesByTag.get(node.tagName);
 
     for (const { name, value } of node.attrs ?? []) {
       if (assetAttributeNames?.includes(name)) {
-        addLocalAndroidWebAssetPath(value, localAssetPaths);
+        addLocalAssetPath(value, localAssetPaths, baseUrl);
       } else if (srcsetAttributeNames?.includes(name)) {
         for (const candidateUrl of parseSrcsetCandidateUrls(value)) {
-          addLocalAndroidWebAssetPath(candidateUrl, localAssetPaths);
+          addLocalAssetPath(candidateUrl, localAssetPaths, baseUrl);
         }
       }
     }
-
-    pending.push(...(node.childNodes ?? []));
   }
+  collectJavaScriptAssetPaths(indexHtml, localAssetPaths, baseUrl);
 
   return [...localAssetPaths].sort();
 }
@@ -235,7 +287,43 @@ function assertPackagedAndroidWebAssets(
 ) {
   const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
   const archiveEntrySet = new Set(archiveEntries);
-  const missingAssetEntries = collectLocalAndroidWebAssetPaths(indexHtml)
+  const referencedAssetPaths = new Set(
+    collectLocalAndroidWebAssetPaths(indexHtml, androidWebApplicationOrigin)
+  );
+  for (const entry of archiveEntries) {
+    const assetPath = entry.slice(runtimeAssetRoot.length);
+    const extension = extname(assetPath).toLowerCase();
+    if (
+      entry.startsWith(runtimeAssetRoot) &&
+      (extension === ".js" || extension === ".mjs")
+    ) {
+      collectJavaScriptAssetPaths(
+        readUnzipOutput(artifactPath, ["-p", artifactPath, entry]),
+        referencedAssetPaths,
+        new URL(`/${assetPath}`, androidWebApplicationOrigin)
+      );
+      continue;
+    }
+    const dependencyPattern =
+      extension === ".css"
+        ? cssDependencyPattern
+        : extension === ".webmanifest" ||
+            /manifest[^/]*\.json$/i.test(assetPath)
+          ? manifestDependencyPattern
+          : undefined;
+    if (!entry.startsWith(runtimeAssetRoot) || !dependencyPattern) {
+      continue;
+    }
+    const source = readUnzipOutput(artifactPath, ["-p", artifactPath, entry]);
+    for (const match of source.matchAll(dependencyPattern)) {
+      addLocalAssetPath(
+        match[1],
+        referencedAssetPaths,
+        new URL(`/${assetPath}`, androidWebApplicationOrigin)
+      );
+    }
+  }
+  const missingAssetEntries = [...referencedAssetPaths]
     .map((assetPath) => `${runtimeAssetRoot}${assetPath}`)
     .filter((assetEntry) => !archiveEntrySet.has(assetEntry));
 

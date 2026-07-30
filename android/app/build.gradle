@@ -183,8 +183,14 @@ androidComponents.onVariants(androidComponents.selector().all()) { variant ->
     // ctRegression packages only native CI instrumentation and is never published.
     if (variant.name != "ctRegression") {
         def variantTaskSuffix = variant.name.capitalize()
-        ["assemble", "bundle", "install", "package"].each { taskPrefix ->
-            def packagingTaskName = "${taskPrefix}${variantTaskSuffix}"
+        def packagingTaskNames = ["assemble", "bundle", "install", "package"].collect {
+            "${it}${variantTaskSuffix}"
+        } + [
+            "package${variantTaskSuffix}Bundle",
+            "package${variantTaskSuffix}UniversalApk",
+            "sign${variantTaskSuffix}Bundle",
+        ]
+        packagingTaskNames.each { packagingTaskName ->
             androidPackagingTaskPaths.add("${project.path}:${packagingTaskName}")
             tasks.matching { it.name == packagingTaskName }.configureEach {
                 dependsOn(frontendPackagingGuard)

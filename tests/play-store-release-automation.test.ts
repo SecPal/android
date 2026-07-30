@@ -68,13 +68,16 @@ function createZipFixture(
   entryRoot: string,
   indexSegments: readonly string[],
   indexHtml: string,
-  referencedAssetPaths: readonly string[] | false = ["assets/index.js"]
+  assets: string[] | Record<string, string> | false = ["assets/index.js"]
 ) {
   const artifactPath = join(root, archiveName);
   writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
-  if (referencedAssetPaths !== false) {
-    for (const assetPath of referencedAssetPaths) {
-      writeFile(join(root, ...indexSegments, ...assetPath.split("/")), "");
+  if (assets !== false) {
+    const assetEntries = Array.isArray(assets)
+      ? assets.map((assetPath) => [assetPath, ""] as const)
+      : Object.entries(assets);
+    for (const [assetPath, content] of assetEntries) {
+      writeFile(join(root, ...indexSegments, ...assetPath.split("/")), content);
     }
   }
   const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
@@ -1112,7 +1115,7 @@ system("sh", "-eu", "-c", script, exception: true)
     }
   });
 
-  it("validates every responsive image candidate in packaged artifacts", async () => {
+  it("validates direct and transitive packaged WebView dependencies", async () => {
     const { verifyAndroidRuntimeSchemaArtifact } =
       await loadAndroidRuntimeSchemaVerifierModule();
     const { buildNativeAuthBridgeBootstrapScript } =
@@ -1125,14 +1128,50 @@ system("sh", "-eu", "-c", script, exception: true)
     const responsiveIndexHtml = buildAndroidRuntimeIndexHtml(
       canonicalRuntimeBridge
     )
+      .replace("<head>", '<head><base href="/app/"><base href="/x/">')
+      .replace('src="/assets/index.js"', 'src="index.js"')
       .replace(
         "</head>",
-        '<link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
+        '<script type="module">import("inline.js")</script><link rel="stylesheet" href="styles/app.css"><link rel="manifest" href="app.webmanifest"><link rel="canonical" href="/privacy"><link rel="alternate" href="/de/privacy"><link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
       )
       .replace(
         '<div id="root"></div>',
         '<picture><source srcset="/assets/narrow.png 480w, /assets/wide.png 960w"><img src="/assets/fallback.png" srcset="/assets/compact.png 1x, /assets/expanded.png 2x"></picture><div id="root"></div>'
       );
+    const completeAssets = Object.fromEntries(
+      [
+        "app/lazy.js",
+        "app/inline.js",
+        "app/icons/app.png",
+        "fonts/app.woff2",
+        "assets/fallback.png",
+        "assets/compact.png",
+        "assets/expanded.png",
+        "assets/narrow.png",
+        "assets/preload-compact.png",
+        "assets/preload-expanded.png",
+        "assets/wide.png",
+      ].map((assetPath) => [assetPath, ""])
+    );
+    Object.assign(completeAssets, {
+      "app/index.js": 'import("./lazy.js");',
+      "app/styles/app.css": '@font-face{src:url("../../fonts/app.woff2")}',
+      "app/app.webmanifest": '{"icons":[{"src":"icons/app.png"}]}',
+    });
+    const missingAssets = [
+      "app/lazy.js",
+      "app/inline.js",
+      "app/icons/app.png",
+      "fonts/app.woff2",
+      "assets/expanded.png",
+      "assets/preload-expanded.png",
+      "assets/wide.png",
+    ];
+    const incompleteAssets = Object.fromEntries(
+      Object.entries(completeAssets).filter(
+        ([assetPath]) => !missingAssets.includes(assetPath)
+      )
+    );
 
     try {
       writeFile(
@@ -1145,13 +1184,7 @@ system("sh", "-eu", "-c", script, exception: true)
         "assets",
         ["assets", "public"],
         responsiveIndexHtml,
-        [
-          "assets/index.js",
-          "assets/fallback.png",
-          "assets/compact.png",
-          "assets/narrow.png",
-          "assets/preload-compact.png",
-        ]
+        incompleteAssets
       );
       let incompleteArtifactError: unknown;
       try {
@@ -1163,15 +1196,12 @@ system("sh", "-eu", "-c", script, exception: true)
         incompleteArtifactError = error;
       }
       expect(incompleteArtifactError).toBeInstanceOf(Error);
-      expect((incompleteArtifactError as Error).message).toMatch(
-        /assets\/expanded\.png/
-      );
-      expect((incompleteArtifactError as Error).message).toMatch(
-        /assets\/preload-expanded\.png/
-      );
-      expect((incompleteArtifactError as Error).message).toMatch(
-        /assets\/wide\.png/
-      );
+      for (const missingAsset of missingAssets) {
+        expect((incompleteArtifactError as Error).message).toContain(
+          missingAsset
+        );
+      }
+      expect((incompleteArtifactError as Error).message).not.toMatch(/privacy/);
 
       const completeArtifactPath = createZipFixture(
         join(tempRoot, "complete"),
@@ -1179,16 +1209,7 @@ system("sh", "-eu", "-c", script, exception: true)
         "assets",
         ["assets", "public"],
         responsiveIndexHtml,
-        [
-          "assets/index.js",
-          "assets/fallback.png",
-          "assets/compact.png",
-          "assets/expanded.png",
-          "assets/narrow.png",
-          "assets/preload-compact.png",
-          "assets/preload-expanded.png",
-          "assets/wide.png",
-        ]
+        completeAssets
       );
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(completeArtifactPath, stringsXmlPath)

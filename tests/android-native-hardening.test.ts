@@ -1071,8 +1071,9 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain('if (variant.name != "ctRegression")');
     expect(appBuildGradle).not.toContain("android.applicationVariants");
     expect(appBuildGradle).toContain(
-      '["assemble", "bundle", "install", "package"].each { taskPrefix ->'
+      '"package${variantTaskSuffix}UniversalApk"'
     );
+    expect(appBuildGradle).toContain('"sign${variantTaskSuffix}Bundle"');
     expect(appBuildGradle).toContain(
       "tasks.matching { it.name == packagingTaskName }"
     );
@@ -1113,6 +1114,9 @@ describe("Android native hardening", () => {
     );
 
     expect(packagingGuardScript).toContain(":app:assembleCtRegression");
+    expect(packagingGuardScript).toMatch(
+      /:app:assembleRelease[\s\S]*:app:bundleRelease[\s\S]*:app:packageReleaseBundle[\s\S]*:app:packageReleaseUniversalApk[\s\S]*:app:signReleaseBundle/
+    );
     expect(packagingGuardScript).not.toContain("app-ctRegression.apk");
     expect(packagingGuardScript).not.toContain(
       "verify-android-runtime-schema.mjs"

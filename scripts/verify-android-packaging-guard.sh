@@ -28,16 +28,22 @@ run_gradle \
     :app:verifyAndroidRuntimeSchemaAsset \
     :app:assembleCtRegression
 
-if run_gradle :app:assembleRelease >"$release_log" 2>&1; then
-    echo "Release packaging unexpectedly succeeded without frontend source." >&2
-    exit 1
-fi
-
 expected_error="Android packaging requires the SecPal frontend source at ${missing_frontend}."
-if ! grep -Fq "$expected_error" "$release_log"; then
-    echo "Release packaging did not fail through the frontend-source guard." >&2
-    sed -n '1,200p' "$release_log" >&2
-    exit 1
-fi
+for release_task in \
+    :app:assembleRelease \
+    :app:bundleRelease \
+    :app:packageReleaseBundle \
+    :app:packageReleaseUniversalApk \
+    :app:signReleaseBundle; do
+    if run_gradle "$release_task" >"$release_log" 2>&1; then
+        echo "${release_task} unexpectedly succeeded without frontend source." >&2
+        exit 1
+    fi
+    if ! grep -Fq "$expected_error" "$release_log"; then
+        echo "${release_task} did not fail through the frontend-source guard." >&2
+        sed -n '1,200p' "$release_log" >&2
+        exit 1
+    fi
+done
 
 echo "ANDROID_PACKAGING_GUARD_OK"
