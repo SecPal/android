@@ -24,15 +24,25 @@ const runtimeIndexEntries = [...runtimeIndexEntryByExtension.values()];
 const localAssetAttributesByTag = new Map([
   ["audio", ["src"]],
   ["embed", ["src"]],
+  ["iframe", ["src"]],
   ["img", ["src"]],
+  ["image", ["href", "xlink:href"]],
+  ["input", ["src"]],
   ["link", ["href"]],
   ["object", ["data"]],
   ["script", ["src"]],
   ["source", ["src"]],
   ["track", ["src"]],
+  ["use", ["href", "xlink:href"]],
   ["video", ["poster", "src"]],
 ]);
+const localSrcsetAttributesByTag = new Map([
+  ["img", ["srcset"]],
+  ["link", ["imagesrcset"]],
+  ["source", ["srcset"]],
+]);
 const androidWebApplicationOrigin = "https://app.secpal.dev";
+const asciiWhitespacePattern = /[\t\n\f\r ]/;
 
 function readUnzipOutput(artifactPath, argumentsList) {
   const result = spawnSync("unzip", argumentsList, {
@@ -117,6 +127,81 @@ function selectRuntimeIndexEntry(artifactPath, archiveEntries) {
   return expectedEntry;
 }
 
+function parseSrcsetCandidateUrls(srcset) {
+  const candidateUrls = [];
+  let position = 0;
+
+  while (position < srcset.length) {
+    while (
+      position < srcset.length &&
+      (asciiWhitespacePattern.test(srcset[position]) ||
+        srcset[position] === ",")
+    ) {
+      position += 1;
+    }
+    if (position >= srcset.length) {
+      break;
+    }
+
+    const urlStart = position;
+    while (
+      position < srcset.length &&
+      !asciiWhitespacePattern.test(srcset[position])
+    ) {
+      position += 1;
+    }
+
+    let candidateUrl = srcset.slice(urlStart, position);
+    let separatedByTrailingComma = false;
+    while (candidateUrl.endsWith(",")) {
+      candidateUrl = candidateUrl.slice(0, -1);
+      separatedByTrailingComma = true;
+    }
+    if (candidateUrl.length > 0) {
+      candidateUrls.push(candidateUrl);
+    }
+    if (separatedByTrailingComma) {
+      continue;
+    }
+
+    let parenthesesDepth = 0;
+    while (position < srcset.length) {
+      const character = srcset[position];
+      position += 1;
+      if (character === "(") {
+        parenthesesDepth += 1;
+      } else if (character === ")" && parenthesesDepth > 0) {
+        parenthesesDepth -= 1;
+      } else if (character === "," && parenthesesDepth === 0) {
+        break;
+      }
+    }
+  }
+
+  return candidateUrls;
+}
+
+function addLocalAndroidWebAssetPath(value, localAssetPaths) {
+  if (value.length === 0) {
+    return;
+  }
+
+  try {
+    const assetUrl = new URL(value, androidWebApplicationOrigin);
+    if (assetUrl.origin !== androidWebApplicationOrigin) {
+      return;
+    }
+
+    const assetPath = decodeURIComponent(assetUrl.pathname).replace(/^\/+/, "");
+    if (assetPath.length > 0 && assetPath !== "index.html") {
+      localAssetPaths.add(assetPath);
+    }
+  } catch {
+    // Invalid local references are rejected as missing packaged assets.
+    localAssetPaths.add(value);
+  }
+}
+
 function collectLocalAndroidWebAssetPaths(indexHtml) {
   const localAssetPaths = new Set();
   const pending = [parse(indexHtml)];
@@ -124,29 +209,14 @@ function collectLocalAndroidWebAssetPaths(indexHtml) {
   while (pending.length > 0) {
     const node = pending.pop();
     const assetAttributeNames = localAssetAttributesByTag.get(node.tagName);
+    const srcsetAttributeNames = localSrcsetAttributesByTag.get(node.tagName);
 
-    if (assetAttributeNames) {
-      for (const { name, value } of node.attrs ?? []) {
-        if (!assetAttributeNames.includes(name) || value.length === 0) {
-          continue;
-        }
-
-        try {
-          const assetUrl = new URL(value, androidWebApplicationOrigin);
-          if (assetUrl.origin !== androidWebApplicationOrigin) {
-            continue;
-          }
-
-          const assetPath = decodeURIComponent(assetUrl.pathname).replace(
-            /^\/+/,
-            ""
-          );
-          if (assetPath.length > 0 && assetPath !== "index.html") {
-            localAssetPaths.add(assetPath);
-          }
-        } catch {
-          // Invalid local references are rejected as missing packaged assets.
-          localAssetPaths.add(value);
+    for (const { name, value } of node.attrs ?? []) {
+      if (assetAttributeNames?.includes(name)) {
+        addLocalAndroidWebAssetPath(value, localAssetPaths);
+      } else if (srcsetAttributeNames?.includes(name)) {
+        for (const candidateUrl of parseSrcsetCandidateUrls(value)) {
+          addLocalAndroidWebAssetPath(candidateUrl, localAssetPaths);
         }
       }
     }

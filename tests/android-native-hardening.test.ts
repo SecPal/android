@@ -1031,6 +1031,10 @@ describe("Android native hardening", () => {
 
   it("requires frontend source for packaging while allowing standalone verification", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
+    const packageJson = JSON.parse(readRepoFile("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
 
     expect(appBuildGradle).toContain(
       'tasks.register("prepareAndroidRuntimeSchemaAsset", Exec)'
@@ -1049,7 +1053,10 @@ describe("Android native hardening", () => {
       "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
     );
     expect(appBuildGradle).toContain(
-      "def configuredFrontendRepositoryRoot = System.getenv('SECPAL_ANDROID_FRONTEND_DIR')"
+      "def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()"
+    );
+    expect(appBuildGradle).toContain(
+      "new File(androidRepositoryRoot, configuredFrontendRepositoryPath).canonicalFile"
     );
     expect(appBuildGradle).toContain(
       ": new File(androidRepositoryRoot.parentFile, 'frontend')"
@@ -1086,10 +1093,16 @@ describe("Android native hardening", () => {
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
-      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("frontend source is configured or present"\)\s*\{\s*configuredFrontendRepositoryRoot\s*\|\|\s*frontendRepositoryRoot\.isDirectory\(\)\s*\}/
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("frontend source is present"\)\s*\{\s*frontendRepositoryRoot\.isDirectory\(\)\s*\}/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\(frontendPackagingGuard\)/
+    );
+    expect(packageJson.scripts["native:verify:packaging-guard"]).toBe(
+      "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-packaging-guard.sh"
+    );
+    expect(qualityWorkflow).toContain(
+      "run: npm run native:verify:packaging-guard"
     );
   });
 

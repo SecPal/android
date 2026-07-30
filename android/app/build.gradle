@@ -35,10 +35,17 @@ def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-andr
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
-def configuredFrontendRepositoryRoot = System.getenv('SECPAL_ANDROID_FRONTEND_DIR')
+def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()
+def configuredFrontendRepositoryFile = configuredFrontendRepositoryPath
+    ? new File(configuredFrontendRepositoryPath)
+    : null
+def configuredFrontendRepositoryRoot = configuredFrontendRepositoryFile == null
+    ? null
+    : (configuredFrontendRepositoryFile.isAbsolute()
+        ? configuredFrontendRepositoryFile.canonicalFile
+        : new File(androidRepositoryRoot, configuredFrontendRepositoryPath).canonicalFile)
 def frontendRepositoryRoot = configuredFrontendRepositoryRoot
-    ? new File(configuredFrontendRepositoryRoot)
-    : new File(androidRepositoryRoot.parentFile, 'frontend')
+    ?: new File(androidRepositoryRoot.parentFile, 'frontend').canonicalFile
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
 def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
@@ -144,10 +151,9 @@ tasks.register("generateReleaseNetworkSecurityVerificationInputs") {
 
 tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Rebuilds and copies the complete frontend when frontend source is configured or present."
-    onlyIf("frontend source is configured or present") {
-        configuredFrontendRepositoryRoot ||
-            frontendRepositoryRoot.isDirectory()
+    description = "Rebuilds and copies the complete frontend when frontend source is present."
+    onlyIf("frontend source is present") {
+        frontendRepositoryRoot.isDirectory()
     }
     workingDir androidRepositoryRoot
     commandLine("npm", "run", "cap:copy")

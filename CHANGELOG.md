@@ -38,12 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sibling checkout; distributable packaging now fails without frontend source,
   the native-only `ctRegression` CI variant remains independently buildable, and
   signed artifact verification rejects indexes whose referenced web assets are
-  absent (issues #487, #491, and #493).
-- Retried the connected-test Gradle invocation once after a Maven Central HTTP
-  403 during dependency resolution without retrying other repository responses
-  or Android test failures.
-- Guaranteed an immediate Android device readiness probe even when a short
-  timeout crosses Bash's integer-second boundary before polling begins.
+  absent, including every responsive image candidate, and relative frontend
+  overrides are resolved consistently from the Android repository root
+  (issues #487, #491, and #493).
 - Removed unused Capacitor template layout, launcher vectors, legacy splash
   bitmaps and their brand-sync regeneration path, and string overrides while
   retaining the name-resolved Cordova configuration through an exact resource

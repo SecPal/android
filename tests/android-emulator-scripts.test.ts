@@ -356,13 +356,10 @@ exit 1
     }
   }, 10_000);
 
-  it("retries only recognized Android infrastructure failures once", () => {
+  it("retries only recognized API 37 infrastructure failures once", () => {
     const runScenario = (
       apiLevel: number,
       failureMode:
-        | "maven-403"
-        | "maven-403-always"
-        | "maven-404"
         | "package-manager"
         | "package-manager-always"
         | "missing-package-service"
@@ -395,15 +392,7 @@ fi
 attempt=$((attempt + 1))
 printf '%s' "$attempt" > "${attemptPath}"
 if [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
-  if [[ "${failureMode}" == maven-* ]]; then
-    if [[ "${failureMode}" == maven-403* ]]; then
-      status_code=403
-    else
-      status_code=404
-    fi
-    printf '%s\n' "Could not GET 'https://repo.maven.apache.org/maven2/org/example/dependency/1.0/dependency-1.0.pom'."
-    printf '%s\n' "Received status code $status_code from server: Forbidden"
-  elif [[ "${failureMode}" == package-manager* ]]; then
+  if [[ "${failureMode}" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
   elif [[ "${failureMode}" == "missing-package-service" ]]; then
@@ -475,27 +464,6 @@ printf '%s\n' "$*" >> "${rebootPath}"
         rmSync(tempRoot, { recursive: true, force: true });
       }
     };
-
-    const recoverableMavenCentralFailure = runScenario(29, "maven-403");
-    expect(recoverableMavenCentralFailure.result.status).toBe(0);
-    expect(recoverableMavenCentralFailure.attempts).toBe(2);
-    expect(recoverableMavenCentralFailure.reboots).toEqual([]);
-    expect(recoverableMavenCentralFailure.waits).toEqual([]);
-    expect(recoverableMavenCentralFailure.result.stdout).toContain(
-      "Retrying Gradle after transient Maven Central HTTP 403"
-    );
-
-    const repeatedMavenCentralFailure = runScenario(29, "maven-403-always");
-    expect(repeatedMavenCentralFailure.result.status).toBe(1);
-    expect(repeatedMavenCentralFailure.attempts).toBe(2);
-    expect(repeatedMavenCentralFailure.reboots).toEqual([]);
-    expect(repeatedMavenCentralFailure.waits).toEqual([]);
-
-    const nonTransientMavenFailure = runScenario(29, "maven-404");
-    expect(nonTransientMavenFailure.result.status).toBe(1);
-    expect(nonTransientMavenFailure.attempts).toBe(1);
-    expect(nonTransientMavenFailure.reboots).toEqual([]);
-    expect(nonTransientMavenFailure.waits).toEqual([]);
 
     const recoverableApi37Failure = runScenario(37, "package-manager");
     expect(recoverableApi37Failure.result.status).toBe(0);

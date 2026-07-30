@@ -94,6 +94,9 @@ jobs:
       - name: Verify effective Android release network policy
         run: npm run native:verify:network-security
 
+      - name: Verify Android packaging frontend guard
+        run: npm run native:verify:packaging-guard
+
   vitest:
     name: Vitest Tests
     needs: dependency-audit

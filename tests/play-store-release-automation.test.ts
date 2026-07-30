@@ -68,12 +68,14 @@ function createZipFixture(
   entryRoot: string,
   indexSegments: readonly string[],
   indexHtml: string,
-  includeReferencedAssets = true
+  referencedAssetPaths: readonly string[] | false = ["assets/index.js"]
 ) {
   const artifactPath = join(root, archiveName);
   writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
-  if (includeReferencedAssets) {
-    writeFile(join(root, ...indexSegments, "assets", "index.js"), "");
+  if (referencedAssetPaths !== false) {
+    for (const assetPath of referencedAssetPaths) {
+      writeFile(join(root, ...indexSegments, ...assetPath.split("/")), "");
+    }
   }
   const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
     cwd: root,
@@ -1105,6 +1107,92 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /exactly one injected Android runtime bridge/i
       );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("validates every responsive image candidate in packaged artifacts", async () => {
+    const { verifyAndroidRuntimeSchemaArtifact } =
+      await loadAndroidRuntimeSchemaVerifierModule();
+    const { buildNativeAuthBridgeBootstrapScript } =
+      await loadNativeAuthBridgeInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-srcset-"));
+    const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const canonicalRuntimeBridge =
+      buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+    const responsiveIndexHtml = buildAndroidRuntimeIndexHtml(
+      canonicalRuntimeBridge
+    )
+      .replace(
+        "</head>",
+        '<link rel="preload" as="image" imagesrcset="/assets/preload-compact.png 1x, /assets/preload-expanded.png 2x"></head>'
+      )
+      .replace(
+        '<div id="root"></div>',
+        '<picture><source srcset="/assets/narrow.png 480w, /assets/wide.png 960w"><img src="/assets/fallback.png" srcset="/assets/compact.png 1x, /assets/expanded.png 2x"></picture><div id="root"></div>'
+      );
+
+    try {
+      writeFile(
+        stringsXmlPath,
+        `<resources><string name="api_base_url">${apiBaseUrl}</string></resources>`
+      );
+      const incompleteArtifactPath = createZipFixture(
+        join(tempRoot, "incomplete"),
+        "incomplete.apk",
+        "assets",
+        ["assets", "public"],
+        responsiveIndexHtml,
+        [
+          "assets/index.js",
+          "assets/fallback.png",
+          "assets/compact.png",
+          "assets/narrow.png",
+          "assets/preload-compact.png",
+        ]
+      );
+      let incompleteArtifactError: unknown;
+      try {
+        verifyAndroidRuntimeSchemaArtifact(
+          incompleteArtifactPath,
+          stringsXmlPath
+        );
+      } catch (error) {
+        incompleteArtifactError = error;
+      }
+      expect(incompleteArtifactError).toBeInstanceOf(Error);
+      expect((incompleteArtifactError as Error).message).toMatch(
+        /assets\/expanded\.png/
+      );
+      expect((incompleteArtifactError as Error).message).toMatch(
+        /assets\/preload-expanded\.png/
+      );
+      expect((incompleteArtifactError as Error).message).toMatch(
+        /assets\/wide\.png/
+      );
+
+      const completeArtifactPath = createZipFixture(
+        join(tempRoot, "complete"),
+        "complete.apk",
+        "assets",
+        ["assets", "public"],
+        responsiveIndexHtml,
+        [
+          "assets/index.js",
+          "assets/fallback.png",
+          "assets/compact.png",
+          "assets/expanded.png",
+          "assets/narrow.png",
+          "assets/preload-compact.png",
+          "assets/preload-expanded.png",
+          "assets/wide.png",
+        ]
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(completeArtifactPath, stringsXmlPath)
+      ).not.toThrow();
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
