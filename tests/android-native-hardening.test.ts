@@ -1029,7 +1029,7 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
-  it("prepares and verifies a present generated Android web asset before native packaging", () => {
+  it("refreshes a present generated Android web asset only when the frontend source is available", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
 
     expect(appBuildGradle).toContain(
@@ -1049,10 +1049,10 @@ describe("Android native hardening", () => {
       "def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')"
     );
     expect(appBuildGradle).toContain(
-      "def releaseNetworkSecurityInputsTaskPath = ':app:generateReleaseNetworkSecurityVerificationInputs'"
+      "def configuredFrontendRepositoryRoot = System.getenv('SECPAL_ANDROID_FRONTEND_DIR')"
     );
     expect(appBuildGradle).toContain(
-      "gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]"
+      ": new File(androidRepositoryRoot.parentFile, 'frontend')"
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
@@ -1064,7 +1064,10 @@ describe("Android native hardening", () => {
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
-      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("[^"]*generated Android web asset directory[^"]*"\)\s*\{\s*!isReleaseNetworkSecurityInputGeneration\(\)\s*&&\s*generatedAndroidWebAssets\.isDirectory\(\)\s*\}/
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("[^"]*generated Android web asset directory and frontend source[^"]*"\)\s*\{\s*generatedAndroidWebAssets\.isDirectory\(\)\s*&&\s*\(\s*configuredFrontendRepositoryRoot\s*\|\|\s*frontendRepositoryRoot\.isDirectory\(\)\s*\)\s*\}/
+    );
+    expect(appBuildGradle).not.toContain(
+      "gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]"
     );
   });
 

@@ -35,10 +35,10 @@ def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-andr
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def generatedAndroidWebIndex = new File(generatedAndroidWebAssets, 'index.html')
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
-def releaseNetworkSecurityInputsTaskPath = ':app:generateReleaseNetworkSecurityVerificationInputs'
-def isReleaseNetworkSecurityInputGeneration = {
-    gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]
-}
+def configuredFrontendRepositoryRoot = System.getenv('SECPAL_ANDROID_FRONTEND_DIR')
+def frontendRepositoryRoot = configuredFrontendRepositoryRoot
+    ? new File(configuredFrontendRepositoryRoot)
+    : new File(androidRepositoryRoot.parentFile, 'frontend')
 // graphics-path is a pre-stripped transitive dependency of the OSS licenses v2 runtime.
 // Keep its shipped binaries intact instead of asking AGP to strip absent debug symbols.
 def preStrippedAndroidxGraphicsPath = '**/libandroidx.graphics.path.so'
@@ -144,10 +144,13 @@ tasks.register("generateReleaseNetworkSecurityVerificationInputs") {
 
 tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Rebuilds and copies the complete frontend when generated Android web assets are present."
-    onlyIf("generated Android web asset directory is present outside release network-security input generation") {
-        !isReleaseNetworkSecurityInputGeneration() &&
-            generatedAndroidWebAssets.isDirectory()
+    description = "Rebuilds and copies the complete frontend when generated Android web assets and frontend source are present."
+    onlyIf("generated Android web asset directory and frontend source are present") {
+        generatedAndroidWebAssets.isDirectory() &&
+            (
+                configuredFrontendRepositoryRoot ||
+                    frontendRepositoryRoot.isDirectory()
+            )
     }
     workingDir androidRepositoryRoot
     commandLine("npm", "run", "cap:copy")
