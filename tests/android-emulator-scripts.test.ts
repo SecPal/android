@@ -232,11 +232,12 @@ exit 1
       );
       writeFileSync(
         bashEnvPath,
-        `first_deadline_check=true
-trap 'if [[ "$BASH_COMMAND" == "(( SECONDS < deadline ))" && "$first_deadline_check" == true ]]; then first_deadline_check=false; SECONDS=$deadline; elif [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then SECONDS=$deadline; fi' DEBUG
+        `unset EPOCHREALTIME
+EPOCHREALTIME=1000.000000
+trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then EPOCHREALTIME=1001.000000; fi' DEBUG
 sleep() {
   printf '%s\n' "$1" >> "${sleepLogPath}"
-  SECONDS=$((SECONDS + $1))
+  EPOCHREALTIME=1001.000000
 }
 `
       );
@@ -272,7 +273,7 @@ sleep() {
     }
   });
 
-  it("limits retry sleep and does not probe after the readiness deadline", () => {
+  it("limits retry sleep to the fractional remaining time and does not probe after the readiness deadline", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "secpal-device-wait-"));
     const fakeBinRoot = join(tempRoot, "bin");
     const adbLogPath = join(tempRoot, "adb.log");
@@ -290,9 +291,12 @@ exit 1
       );
       writeFileSync(
         bashEnvPath,
-        `sleep() {
+        `unset EPOCHREALTIME
+EPOCHREALTIME=1000.000000
+trap 'if [[ "$BASH_COMMAND" == "run_adb start-server"* ]]; then EPOCHREALTIME=1000.400000; fi' DEBUG
+sleep() {
   printf '%s\n' "$1" >> "${sleepLogPath}"
-  SECONDS=$((SECONDS + $1))
+  EPOCHREALTIME=1001.000000
 }
 `
       );
@@ -321,7 +325,7 @@ exit 1
       expect(result.status).toBe(1);
       expect(
         existsSync(sleepLogPath) ? readFileSync(sleepLogPath, "utf8") : ""
-      ).toBe("1\n");
+      ).toBe("0.600\n");
       expect(
         readFileSync(adbLogPath, "utf8").match(/^-s emulator-5570 get-state$/gm)
       ).toHaveLength(1);

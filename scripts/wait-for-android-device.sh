@@ -21,26 +21,59 @@ run_adb() {
     bash ./scripts/with-android-env.sh adb "$@"
 }
 
-SECONDS=0
-deadline="$timeout_seconds"
-retry_interval_seconds=2
+read_current_time_milliseconds() {
+    local epoch_fraction
+    local epoch_realtime="${EPOCHREALTIME:-}"
+    local epoch_seconds
+
+    if [[ "$epoch_realtime" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+        epoch_seconds="${BASH_REMATCH[1]}"
+        epoch_fraction="${BASH_REMATCH[2]}000"
+        current_time_milliseconds=$((10#$epoch_seconds * 1000 + 10#${epoch_fraction:0:3}))
+        return
+    fi
+
+    if ! command -v node >/dev/null 2>&1; then
+        echo "A high-resolution clock requires Bash 5 or Node.js." >&2
+        exit 69
+    fi
+    if ! current_time_milliseconds="$(node -e 'process.stdout.write(String(Date.now()))')" \
+        || ! [[ "$current_time_milliseconds" =~ ^[0-9]+$ ]]; then
+        echo "Unable to read a high-resolution clock." >&2
+        exit 69
+    fi
+}
+
+read_current_time_milliseconds
+deadline_milliseconds=$((current_time_milliseconds + timeout_seconds * 1000))
+retry_interval_milliseconds=2000
 
 sleep_before_retry() {
-    local remaining_seconds=$((deadline - SECONDS))
-    local sleep_seconds="$retry_interval_seconds"
+    local remaining_milliseconds
+    local sleep_milliseconds
+    local sleep_seconds
 
-    if (( remaining_seconds <= 0 )); then
+    read_current_time_milliseconds
+    remaining_milliseconds=$((deadline_milliseconds - current_time_milliseconds))
+    if (( remaining_milliseconds <= 0 )); then
         return 1
     fi
-    if (( remaining_seconds < sleep_seconds )); then
-        sleep_seconds="$remaining_seconds"
+    sleep_milliseconds="$retry_interval_milliseconds"
+    if (( remaining_milliseconds < sleep_milliseconds )); then
+        sleep_milliseconds="$remaining_milliseconds"
     fi
 
+    printf -v sleep_seconds '%d.%03d' \
+        "$((sleep_milliseconds / 1000))" \
+        "$((sleep_milliseconds % 1000))"
     sleep "$sleep_seconds"
 }
 
 first_probe=true
-while [[ "$first_probe" == true ]] || (( SECONDS < deadline )); do
+while [[ "$first_probe" == true ]] || {
+    read_current_time_milliseconds
+    (( current_time_milliseconds < deadline_milliseconds ))
+}; do
     first_probe=false
     run_adb start-server >/dev/null 2>&1 || true
     state="$(run_adb -s "$serial" get-state 2>/dev/null || true)"
