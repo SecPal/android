@@ -1029,7 +1029,7 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
-  it("refreshes a present generated Android web asset only when the frontend source is available", () => {
+  it("requires frontend source for packaging while allowing standalone verification", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
 
     expect(appBuildGradle).toContain(
@@ -1054,6 +1054,28 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       ": new File(androidRepositoryRoot.parentFile, 'frontend')"
     );
+    expect(appBuildGradle).not.toContain("gradle.startParameter.taskNames");
+    expect(appBuildGradle).toContain(
+      'tasks.register("requireFrontendSourceForAndroidPackaging")'
+    );
+    expect(appBuildGradle).toContain(
+      "androidComponents.onVariants(androidComponents.selector().all()) { variant ->"
+    );
+    expect(appBuildGradle).toContain('if (variant.name != "ctRegression")');
+    expect(appBuildGradle).not.toContain("android.applicationVariants");
+    expect(appBuildGradle).toContain(
+      '["assemble", "bundle", "install", "package"].each { taskPrefix ->'
+    );
+    expect(appBuildGradle).toContain(
+      "tasks.matching { it.name == packagingTaskName }"
+    );
+    expect(appBuildGradle).toContain("gradle.taskGraph.hasTask(taskPath)");
+    expect(appBuildGradle).toContain(
+      'onlyIf("packaging is scheduled without frontend source")'
+    );
+    expect(appBuildGradle).toContain(
+      "Android packaging requires the SecPal frontend source"
+    );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
     );
@@ -1064,10 +1086,10 @@ describe("Android native hardening", () => {
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
-      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("[^"]*generated Android web asset directory and frontend source[^"]*"\)\s*\{\s*generatedAndroidWebAssets\.isDirectory\(\)\s*&&\s*\(\s*configuredFrontendRepositoryRoot\s*\|\|\s*frontendRepositoryRoot\.isDirectory\(\)\s*\)\s*\}/
+      /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("frontend source is configured or present"\)\s*\{\s*configuredFrontendRepositoryRoot\s*\|\|\s*frontendRepositoryRoot\.isDirectory\(\)\s*\}/
     );
-    expect(appBuildGradle).not.toContain(
-      "gradle.startParameter.taskNames == [releaseNetworkSecurityInputsTaskPath]"
+    expect(appBuildGradle).toMatch(
+      /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\(frontendPackagingGuard\)/
     );
   });
 

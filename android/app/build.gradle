@@ -144,16 +144,47 @@ tasks.register("generateReleaseNetworkSecurityVerificationInputs") {
 
 tasks.register("prepareAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Rebuilds and copies the complete frontend when generated Android web assets and frontend source are present."
-    onlyIf("generated Android web asset directory and frontend source are present") {
-        generatedAndroidWebAssets.isDirectory() &&
-            (
-                configuredFrontendRepositoryRoot ||
-                    frontendRepositoryRoot.isDirectory()
-            )
+    description = "Rebuilds and copies the complete frontend when frontend source is configured or present."
+    onlyIf("frontend source is configured or present") {
+        configuredFrontendRepositoryRoot ||
+            frontendRepositoryRoot.isDirectory()
     }
     workingDir androidRepositoryRoot
     commandLine("npm", "run", "cap:copy")
+}
+
+def androidPackagingTaskPaths = [] as Set
+def isAndroidPackagingScheduled = {
+    androidPackagingTaskPaths.any { taskPath ->
+        gradle.taskGraph.hasTask(taskPath)
+    }
+}
+def frontendPackagingGuard = tasks.register("requireFrontendSourceForAndroidPackaging") {
+    group = "verification"
+    description = "Fails distributable packaging when the complete frontend cannot be regenerated."
+    onlyIf("packaging is scheduled without frontend source") {
+        isAndroidPackagingScheduled() && !frontendRepositoryRoot.isDirectory()
+    }
+    doLast {
+        throw new GradleException(
+            "Android packaging requires the SecPal frontend source at ${frontendRepositoryRoot}. " +
+                "Set SECPAL_ANDROID_FRONTEND_DIR to a valid frontend checkout."
+        )
+    }
+}
+
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    // ctRegression packages only native CI instrumentation and is never published.
+    if (variant.name != "ctRegression") {
+        def variantTaskSuffix = variant.name.capitalize()
+        ["assemble", "bundle", "install", "package"].each { taskPrefix ->
+            def packagingTaskName = "${taskPrefix}${variantTaskSuffix}"
+            androidPackagingTaskPaths.add("${project.path}:${packagingTaskName}")
+            tasks.matching { it.name == packagingTaskName }.configureEach {
+                dependsOn(frontendPackagingGuard)
+            }
+        }
+    }
 }
 
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
@@ -216,6 +247,7 @@ tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.config
 }
 
 tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(frontendPackagingGuard)
     dependsOn("verifyAndroidRuntimeSchemaAsset")
 }
 

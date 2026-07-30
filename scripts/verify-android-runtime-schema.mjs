@@ -21,6 +21,18 @@ const runtimeIndexEntryByExtension = new Map([
   [".aab", "base/assets/public/index.html"],
 ]);
 const runtimeIndexEntries = [...runtimeIndexEntryByExtension.values()];
+const localAssetAttributesByTag = new Map([
+  ["audio", ["src"]],
+  ["embed", ["src"]],
+  ["img", ["src"]],
+  ["link", ["href"]],
+  ["object", ["data"]],
+  ["script", ["src"]],
+  ["source", ["src"]],
+  ["track", ["src"]],
+  ["video", ["poster", "src"]],
+]);
+const androidWebApplicationOrigin = "https://app.secpal.dev";
 
 function readUnzipOutput(artifactPath, argumentsList) {
   const result = spawnSync("unzip", argumentsList, {
@@ -103,6 +115,65 @@ function selectRuntimeIndexEntry(artifactPath, archiveEntries) {
   }
 
   return expectedEntry;
+}
+
+function collectLocalAndroidWebAssetPaths(indexHtml) {
+  const localAssetPaths = new Set();
+  const pending = [parse(indexHtml)];
+
+  while (pending.length > 0) {
+    const node = pending.pop();
+    const assetAttributeNames = localAssetAttributesByTag.get(node.tagName);
+
+    if (assetAttributeNames) {
+      for (const { name, value } of node.attrs ?? []) {
+        if (!assetAttributeNames.includes(name) || value.length === 0) {
+          continue;
+        }
+
+        try {
+          const assetUrl = new URL(value, androidWebApplicationOrigin);
+          if (assetUrl.origin !== androidWebApplicationOrigin) {
+            continue;
+          }
+
+          const assetPath = decodeURIComponent(assetUrl.pathname).replace(
+            /^\/+/,
+            ""
+          );
+          if (assetPath.length > 0 && assetPath !== "index.html") {
+            localAssetPaths.add(assetPath);
+          }
+        } catch {
+          // Invalid local references are rejected as missing packaged assets.
+          localAssetPaths.add(value);
+        }
+      }
+    }
+
+    pending.push(...(node.childNodes ?? []));
+  }
+
+  return [...localAssetPaths].sort();
+}
+
+function assertPackagedAndroidWebAssets(
+  artifactPath,
+  archiveEntries,
+  runtimeIndexEntry,
+  indexHtml
+) {
+  const runtimeAssetRoot = runtimeIndexEntry.slice(0, -"index.html".length);
+  const archiveEntrySet = new Set(archiveEntries);
+  const missingAssetEntries = collectLocalAndroidWebAssetPaths(indexHtml)
+    .map((assetPath) => `${runtimeAssetRoot}${assetPath}`)
+    .filter((assetEntry) => !archiveEntrySet.has(assetEntry));
+
+  if (missingAssetEntries.length > 0) {
+    throw new Error(
+      `${artifactPath} is missing Android web assets referenced by ${runtimeIndexEntry}: ${missingAssetEntries.join(", ")}`
+    );
+  }
 }
 
 function assertCanonicalSchema4Registration(runtimeBridge, sourceLabel) {
@@ -202,11 +273,18 @@ export function verifyAndroidRuntimeSchemaArtifact(
   );
 
   const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
-  assertCanonicalAndroidRuntimeIndex(
-    readUnzipOutput(artifactPath, ["-p", artifactPath, runtimeIndexEntry]),
-    sourceLabel,
-    expectedBridge
+  const indexHtml = readUnzipOutput(artifactPath, [
+    "-p",
+    artifactPath,
+    runtimeIndexEntry,
+  ]);
+  assertPackagedAndroidWebAssets(
+    artifactPath,
+    archiveEntries,
+    runtimeIndexEntry,
+    indexHtml
   );
+  assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel, expectedBridge);
 }
 
 if (isDirectNodeExecution(import.meta.url)) {

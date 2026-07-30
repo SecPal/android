@@ -35,7 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot silently produce broken apps or block Android resource and lint
   validation, while standalone Android verification builds reuse the canonical
   tracked index when frontend source is unavailable instead of requiring a
-  sibling checkout (issues #487, #491, and #493).
+  sibling checkout; distributable packaging now fails without frontend source,
+  the native-only `ctRegression` CI variant remains independently buildable, and
+  signed artifact verification rejects indexes whose referenced web assets are
+  absent (issues #487, #491, and #493).
 - Retried the connected-test Gradle invocation once after a Maven Central HTTP
   403 during dependency resolution without retrying other repository responses
   or Android test failures.

@@ -67,10 +67,14 @@ function createZipFixture(
   archiveName: string,
   entryRoot: string,
   indexSegments: readonly string[],
-  indexHtml: string
+  indexHtml: string,
+  includeReferencedAssets = true
 ) {
   const artifactPath = join(root, archiveName);
   writeFile(join(root, ...indexSegments, "index.html"), indexHtml);
+  if (includeReferencedAssets) {
+    writeFile(join(root, ...indexSegments, "assets", "index.js"), "");
+  }
   const zipResult = spawnSync("zip", ["-q", "-r", artifactPath, entryRoot], {
     cwd: root,
     encoding: "utf8",
@@ -966,6 +970,20 @@ system("sh", "-eu", "-c", script, exception: true)
       expect(() =>
         verifyAndroidRuntimeSchemaArtifact(aabPath, stringsXmlPath)
       ).not.toThrow();
+
+      const incompleteApkPath = createZipFixture(
+        join(tempRoot, "incomplete-apk"),
+        "incomplete.apk",
+        "assets",
+        ["assets", "public"],
+        canonicalIndexHtml,
+        false
+      );
+      expect(() =>
+        verifyAndroidRuntimeSchemaArtifact(incompleteApkPath, stringsXmlPath)
+      ).toThrow(
+        /missing Android web assets referenced by .*assets\/index\.js/i
+      );
 
       const ambiguousAabRoot = join(tempRoot, "ambiguous-aab");
       const ambiguousAabPath = createZipFixture(
