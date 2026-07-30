@@ -1295,6 +1295,17 @@ system("sh", "-eu", "-c", script, exception: true)
       writeFile(join(assetRoot, "assets", "index.js"), "complete");
       writeFile(join(assetRoot, "cordova.js"), "generated");
       writeFile(join(assetRoot, "cordova_plugins.js"), "generated");
+      const aaptExcludedAssets = [
+        "assets/source.SCC",
+        "CVS/Entries",
+        "assets/Thumbs.db",
+        "assets/PICASA.INI",
+        "assets/index.js~",
+        ".hidden/metadata.json",
+      ];
+      for (const assetPath of aaptExcludedAssets) {
+        writeFile(join(assetRoot, ...assetPath.split("/")), "excluded");
+      }
       const inventoryResult = spawnSync(
         process.execPath,
         [
@@ -1313,6 +1324,11 @@ system("sh", "-eu", "-c", script, exception: true)
       expect(inventory.files.map(({ path }) => path)).toEqual(
         expect.arrayContaining(["cordova.js", "cordova_plugins.js"])
       );
+      for (const assetPath of aaptExcludedAssets) {
+        expect(inventory.files.map(({ path }) => path)).not.toContain(
+          assetPath
+        );
+      }
 
       expect(() =>
         verifyAndroidRuntimeSchemaDirectory(assetRoot, stringsXmlPath)

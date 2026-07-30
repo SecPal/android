@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, posix, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const androidWebAssetInventoryName = "secpal-web-assets.json";
 
@@ -11,15 +12,78 @@ const inventorySchemaVersion = 1;
 const inventorySpdx =
   "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution";
 const sha256Pattern = /^[0-9a-f]{64}$/;
+const androidAssetIgnorePolicyPath = fileURLToPath(
+  new URL("../android/app/aapt-ignore-assets.json", import.meta.url)
+);
+
+function parseAndroidAssetIgnorePatterns(source, sourceLabel) {
+  let policy;
+  try {
+    policy = JSON.parse(source);
+  } catch (error) {
+    throw new Error(
+      `${sourceLabel} is not valid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  const pattern = policy?.ignore_assets_pattern;
+  if (typeof pattern !== "string" || pattern.length === 0) {
+    throw new Error(
+      `${sourceLabel} must define a non-empty ignore_assets_pattern.`
+    );
+  }
+
+  return pattern.split(":").map((configuredPattern) => {
+    const entryPattern = configuredPattern.startsWith("!")
+      ? configuredPattern.slice(1)
+      : configuredPattern;
+    const match = /^(\*)?([^*]+)(\*)?$/.exec(entryPattern);
+    if (
+      !match ||
+      (match[1] && match[3]) ||
+      /^<(?:dir|file)>/i.test(entryPattern)
+    ) {
+      throw new Error(
+        `${sourceLabel} contains unsupported AAPT ignore pattern ${configuredPattern}.`
+      );
+    }
+
+    const [, leadingWildcard, value, trailingWildcard] = match;
+    const matchType = leadingWildcard
+      ? "suffix"
+      : trailingWildcard
+        ? "prefix"
+        : "exact";
+    return { matchType, value: value.toLowerCase() };
+  });
+}
+
+const androidAssetIgnorePatterns = parseAndroidAssetIgnorePatterns(
+  readFileSync(androidAssetIgnorePolicyPath, "utf8"),
+  androidAssetIgnorePolicyPath
+);
 
 function toPortablePath(path) {
   return path.split(sep).join("/");
 }
 
+function isIgnoredAndroidAssetName(name) {
+  if (name === "." || name === "..") return true;
+  const normalizedName = name.toLowerCase();
+  return androidAssetIgnorePatterns.some(({ matchType, value }) => {
+    if (matchType === "prefix") return normalizedName.startsWith(value);
+    if (matchType === "suffix") return normalizedName.endsWith(value);
+    return normalizedName === value;
+  });
+}
+
 function isPackageableAssetPath(path) {
+  const segments = path.split("/");
   return (
     path !== androidWebAssetInventoryName &&
-    path.split("/").every((segment) => segment && !segment.startsWith("."))
+    segments.every((segment) => segment && !isIgnoredAndroidAssetName(segment))
   );
 }
 

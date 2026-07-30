@@ -35,6 +35,17 @@ def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-andr
 def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
+def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')
+def androidAssetIgnorePolicy
+try {
+    androidAssetIgnorePolicy = new groovy.json.JsonSlurper().parse(androidAssetIgnorePolicyFile)
+} catch (Exception e) {
+    throw new GradleException("Invalid Android asset ignore policy: ${androidAssetIgnorePolicyFile}", e)
+}
+def androidAssetIgnorePattern = androidAssetIgnorePolicy.ignore_assets_pattern
+if (!(androidAssetIgnorePattern instanceof String) || !androidAssetIgnorePattern.trim()) {
+    throw new GradleException("Android asset ignore policy must define a non-empty ignore_assets_pattern: ${androidAssetIgnorePolicyFile}")
+}
 def androidStringsXml = new File(projectDir, 'src/main/res/values/strings.xml')
 def configuredFrontendRepositoryPath = (System.getenv('SECPAL_ANDROID_FRONTEND_DIR') ?: '').trim()
 def configuredFrontendRepositoryFile = configuredFrontendRepositoryPath
@@ -75,7 +86,7 @@ android {
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+            ignoreAssetsPattern androidAssetIgnorePattern
         }
     }
     signingConfigs {
@@ -208,6 +219,7 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         runtimeSchemaVerifier,
         runtimeAssetInventory,
         fallbackAndroidWebAssetInventory,
+        androidAssetIgnorePolicyFile,
         androidStringsXml
     )
     inputs.dir(generatedAndroidWebAssets)
