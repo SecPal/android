@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Encoded the intentional Android Credential Manager provider exclusion at the
+  application declaration so lint remains clean while passkeys stay gated to
+  Android 14+ and the vulnerable Play services FIDO path remains forbidden
+  (issue #465).
 - Updated Android device readiness polling to perform one immediate probe, cap
   retry sleeps to the remaining timeout, and stop polling when the deadline is
   exhausted (issue #497).
