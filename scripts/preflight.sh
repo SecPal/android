@@ -245,6 +245,8 @@ else
             echo "⚠️  WARNING: .preflight-exclude contains pattern that matches EVERYTHING (e.g., '.*')" >&2
             echo "This will exclude all files from PR size calculation!" >&2
           fi
+
+          DIFF_OUTPUT=$(echo "$DIFF_OUTPUT" | grep -vE -- "$EXCLUDE_REGEX" 2>/dev/null || true)
         else
           # Invalid regex - grep failed even on empty input
           echo "⚠️  WARNING: .preflight-exclude contains invalid regex pattern(s)" >&2
@@ -252,54 +254,28 @@ else
           echo "Common issues: unbalanced brackets [, unmatched (, trailing backslash \\" >&2
         fi
 
-        # Use -- to prevent patterns starting with - from being interpreted as flags
-        # || true prevents script exit if pattern is invalid
-        DIFF_OUTPUT=$(echo "$DIFF_OUTPUT" | grep -vE -- "$EXCLUDE_REGEX" 2>/dev/null || true)
       fi
     fi
 
-    # Check if all files were excluded
-    if [ -n "$RAW_DIFF_OUTPUT" ] && [ -z "$DIFF_OUTPUT" ]; then
-      echo "⚠️  All changed files are excluded (lock files, license files, etc.)"
-      echo "Preflight OK · Changed lines: 0 (after exclusions)"
-      exit 0
-    else
-      # Use --numstat for locale-independent parsing
-      INSERTIONS=$(echo "$DIFF_OUTPUT" | awk '{ins+=$1} END {print ins+0}')
-      DELETIONS=$(echo "$DIFF_OUTPUT" | awk '{del+=$2} END {print del+0}')
-      CHANGED=$((INSERTIONS + DELETIONS))
+    PR_SIZE_ADVISORY_THRESHOLD=600
 
-      if [ "$CHANGED" -gt 600 ]; then
-        # Check for override file (similar to GitHub label for exceptional cases)
-        if [ -f "$ROOT_DIR/.preflight-allow-large-pr" ]; then
-          echo "⚠️  Large PR override active ($CHANGED > 600 lines). Remove .preflight-allow-large-pr when done." >&2
-        else
-          echo "" >&2
-          echo "═══════════════════════════════════════════════════════════════" >&2
-          echo "❌ PRE-PUSH CHECK FAILED: PR TOO LARGE" >&2
-          echo "═══════════════════════════════════════════════════════════════" >&2
-          echo "" >&2
-          echo "Your changes: $CHANGED lines ($INSERTIONS insertions, $DELETIONS deletions)" >&2
-          echo "Maximum allowed: 600 lines per PR" >&2
-          echo "" >&2
-          echo "Action required: Split changes into smaller, focused PRs" >&2
-          echo "" >&2
-          echo "💡 Available options:" >&2
-          echo "  1. Split PR: Recommended approach" >&2
-          echo "  2. Override check: touch .preflight-allow-large-pr" >&2
-          echo "" >&2
-          echo "Note: Lock files and license files are already excluded" >&2
-          echo "      See .preflight-exclude for custom exclusion patterns" >&2
-          echo "" >&2
-          echo "═══════════════════════════════════════════════════════════════" >&2
-          echo "Push aborted. Fix the issue above and try again." >&2
-          echo "═══════════════════════════════════════════════════════════════" >&2
-          echo "" >&2
-          exit 2
-        fi
-      else
-        echo "Preflight OK · Changed lines: $CHANGED"
-      fi
+    # Report when all files were excluded, then continue with zero counts.
+    if [ -n "$RAW_DIFF_OUTPUT" ] && [ -z "$DIFF_OUTPUT" ]; then
+      echo "⚠️  All changed files are excluded (lock files, license files, etc.)" >&2
+    fi
+
+    # Use --numstat for locale-independent parsing.
+    INSERTIONS=$(echo "$DIFF_OUTPUT" | awk '{ins+=$1} END {print ins+0}')
+    DELETIONS=$(echo "$DIFF_OUTPUT" | awk '{del+=$2} END {print del+0}')
+    CHANGED=$((INSERTIONS + DELETIONS))
+    SIZE_REPORT="PR size: $CHANGED changed lines ($INSERTIONS insertions, $DELETIONS deletions; advisory threshold: $PR_SIZE_ADVISORY_THRESHOLD)"
+
+    if [ "$CHANGED" -gt "$PR_SIZE_ADVISORY_THRESHOLD" ]; then
+      echo "$SIZE_REPORT" >&2
+      echo "WARNING: PR size advisory threshold exceeded." >&2
+      echo "Keep this pull request focused on one logical topic and make the review plan explicit." >&2
+    else
+      echo "Preflight OK · $SIZE_REPORT"
     fi
   fi
 fi

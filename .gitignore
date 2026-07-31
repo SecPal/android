@@ -63,4 +63,3 @@ fastlane/README.md
 .context/
 
 # Preflight overrides (local only)
-.preflight-allow-large-pr
