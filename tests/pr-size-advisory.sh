@@ -79,12 +79,19 @@ if ! grep -Fq "PR size: 603 changed lines (602 insertions, 1 deletions; advisory
 fi
 grep -Fq "WARNING: PR size advisory threshold exceeded." "$output/invalid-stderr"
 
-if grep -Fq ".preflight-allow-large-pr" "$repo_root/scripts/preflight.sh" ||
-  grep -Fq "Maximum allowed: 600" "$repo_root/scripts/preflight.sh" ||
-  grep -Fq "PR TOO LARGE" "$repo_root/scripts/preflight.sh"; then
-  echo "Obsolete hard-size policy remains active" >&2
-  exit 1
-fi
+policy_files=(
+  "$repo_root/CHANGELOG.md"
+  "$repo_root/CONTRIBUTING.md"
+  "$repo_root/scripts/preflight.sh"
+)
+for policy_file in "${policy_files[@]}"; do
+  if grep -Fq ".preflight-allow-large-pr" "$policy_file" ||
+    grep -Fq "Maximum allowed: 600" "$policy_file" ||
+    grep -Fq "PR TOO LARGE" "$policy_file"; then
+    echo "Obsolete hard-size policy remains in ${policy_file#"$repo_root/"}" >&2
+    exit 1
+  fi
+done
 
 if ! assert_pr_size_workflow_pin "$repo_root/.github/workflows/pr-size.yml"; then
   echo "Hosted PR-size workflow must use the reviewed SecPal/.github#596 revision" >&2
