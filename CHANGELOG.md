@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added bounded Android lint coverage for every supported app variant to the
+  repository quality workflow, with generated reports retained on task failure;
+  independent variants continue after a lint failure, and Gradle preserves the
+  Java environment selected by the repository helper (issue #466).
 - Added canonical Android `0.1.0` versioning, a fail-closed Ruby UTC build-code allocator, shared Play/Direct publication source checks, and a VPS publishing process lock (issue #424).
 - Added the `SECPAL_ANDROID_FRONTEND_DIR` override for frontend builds so
   linked workspaces can use a frontend checkout outside the conventional
