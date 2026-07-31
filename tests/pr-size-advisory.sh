@@ -8,6 +8,13 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/android-pr-size-advisory.XXXXXX")"
 output="$(mktemp -d "${TMPDIR:-/tmp}/android-pr-size-advisory-output.XXXXXX")"
 trap 'rm -rf -- "$fixture" "$output"' EXIT
+fixture_path="$fixture/bin:$PATH"
+
+assert_pr_size_workflow_pin() {
+  grep -Eq \
+    '^[[:space:]]*uses:[[:space:]]*SecPal/\.github/\.github/workflows/reusable-pr-size\.yml@190904b9870fb4cb8e6034938337debd454fb2c6[[:space:]]*(#.*)?$' \
+    "$1"
+}
 
 mkdir -p "$fixture/scripts" "$fixture/bin"
 cp "$repo_root/scripts/preflight.sh" "$fixture/scripts/preflight.sh"
@@ -36,7 +43,7 @@ done
 )
 
 set +e
-(cd "$fixture" && PATH="$fixture/bin:/usr/bin:/bin" bash scripts/preflight.sh) \
+(cd "$fixture" && PATH="$fixture_path" bash scripts/preflight.sh) \
   >"$output/stdout" 2>"$output/stderr"
 status=$?
 set -e
@@ -59,7 +66,7 @@ printf '[\n' >"$fixture/.preflight-exclude"
   git commit --quiet -m "test: add invalid exclusion"
 )
 set +e
-(cd "$fixture" && PATH="$fixture/bin:/usr/bin:/bin" bash scripts/preflight.sh) \
+(cd "$fixture" && PATH="$fixture_path" bash scripts/preflight.sh) \
   >"$output/invalid-stdout" 2>"$output/invalid-stderr"
 invalid_status=$?
 set -e
@@ -79,10 +86,19 @@ if grep -Fq ".preflight-allow-large-pr" "$repo_root/scripts/preflight.sh" ||
   exit 1
 fi
 
-if ! grep -Fqx \
-  '    uses: SecPal/.github/.github/workflows/reusable-pr-size.yml@190904b9870fb4cb8e6034938337debd454fb2c6' \
-  "$repo_root/.github/workflows/pr-size.yml"; then
+if ! assert_pr_size_workflow_pin "$repo_root/.github/workflows/pr-size.yml"; then
   echo "Hosted PR-size workflow must use the reviewed SecPal/.github#596 revision" >&2
+  exit 1
+fi
+
+workflow_pin_fixture="$output/pr-size-formatted.yml"
+printf '%s\n' \
+  'jobs:' \
+  '  pr-size:' \
+  '      uses: SecPal/.github/.github/workflows/reusable-pr-size.yml@190904b9870fb4cb8e6034938337debd454fb2c6   # reviewed governance pin' \
+  >"$workflow_pin_fixture"
+if ! assert_pr_size_workflow_pin "$workflow_pin_fixture"; then
+  echo "Workflow-pin validation must tolerate harmless YAML whitespace and comments" >&2
   exit 1
 fi
 
