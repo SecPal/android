@@ -71,7 +71,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:lint"]).toBe(
-      "bash ./scripts/with-android-env.sh bash -lc 'cd android && ./gradlew --no-daemon :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing'"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing"
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
