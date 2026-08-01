@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure after a system-crash reboot, while repeated failures still stop.
 - Isolated the Chromium strict-CSP smoke from parallel coverage workers so
   loaded CI runners cannot starve its bounded browser process while the smoke
-  remains a required part of the coverage gate.
+  remains a required, fail-closed part of the coverage gate with explicit
+  Chromium-compatible executable discovery.
 - Made the Android publishing-lock permission regression fixture independent
   of the runner's process umask, so a security-hardened `0077` environment
   still proves that an actual `0755` lock directory is rejected.

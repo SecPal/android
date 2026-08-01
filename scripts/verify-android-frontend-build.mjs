@@ -49,6 +49,46 @@ function isStaticallyTrue(node) {
   );
 }
 
+const appSurfaceValues = new Set([
+  "web",
+  "android-mock",
+  "android-native",
+  "ios-mock",
+  "ios-native",
+]);
+
+function isKnownSurfaceResolver(declaration, sourceFile) {
+  if (declaration.parameters.length < 2) return false;
+  const source = declaration.getText(sourceFile);
+  return (
+    source.includes("Invalid VITE_APP_SURFACE value") &&
+    source.includes(
+      "is not allowed in production builds. Use a native or web surface."
+    )
+  );
+}
+
+function isTopLevelSurfaceFlagInitializer(callExpression, sourceFile) {
+  const comparison = callExpression.parent;
+  if (
+    !ts.isBinaryExpression(comparison) ||
+    comparison.left !== callExpression ||
+    comparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+    !ts.isStringLiteralLike(comparison.right) ||
+    !appSurfaceValues.has(comparison.right.text)
+  ) {
+    return false;
+  }
+  const declaration = comparison.parent;
+  return (
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer === comparison &&
+    ts.isVariableDeclarationList(declaration.parent) &&
+    ts.isVariableStatement(declaration.parent.parent) &&
+    declaration.parent.parent.parent === sourceFile
+  );
+}
+
 function assertAndroidNativeModule(moduleSource, sourceLabel) {
   const sourceFile = ts.createSourceFile(
     sourceLabel,
@@ -57,22 +97,36 @@ function assertAndroidNativeModule(moduleSource, sourceLabel) {
     true,
     ts.ScriptKind.JS
   );
-  let hasAndroidNativeSurfaceCall = false;
+  const functionDeclarations = new Map();
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      functionDeclarations.set(statement.name.text, statement);
+    }
+  }
+  let hasAndroidNativeSurfaceSelection = false;
   const visit = (node) => {
     if (
       ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
       node.arguments.length >= 2 &&
       ts.isStringLiteralLike(node.arguments[0]) &&
       node.arguments[0].text === "android-native" &&
-      isStaticallyTrue(node.arguments[1])
+      isStaticallyTrue(node.arguments[1]) &&
+      isTopLevelSurfaceFlagInitializer(node, sourceFile)
     ) {
-      hasAndroidNativeSurfaceCall = true;
+      const resolver = functionDeclarations.get(node.expression.text);
+      if (resolver && isKnownSurfaceResolver(resolver, sourceFile)) {
+        hasAndroidNativeSurfaceSelection = true;
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
 
-  if (sourceFile.parseDiagnostics.length > 0 || !hasAndroidNativeSurfaceCall) {
+  if (
+    sourceFile.parseDiagnostics.length > 0 ||
+    !hasAndroidNativeSurfaceSelection
+  ) {
     throw new Error(
       `${sourceLabel} does not prove the production android-native frontend surface.`
     );

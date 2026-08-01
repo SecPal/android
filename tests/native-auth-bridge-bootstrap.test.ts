@@ -383,7 +383,7 @@ describe("native auth bridge bootstrap injection", () => {
       const injectedHtml = readFileSync(indexHtmlPath, "utf8");
       const bridgeContent = readFileSync(firstResult.bridgeAssetPath, "utf8");
       const digest = createHash("sha256").update(bridgeContent).digest("hex");
-      const firstIndexMtime = readFileSync(indexHtmlPath);
+      const firstIndexContents = readFileSync(indexHtmlPath);
 
       expect(firstResult.bridgeFileName).toBe(
         `secpal-native-auth-bridge.${digest}.js`
@@ -415,7 +415,7 @@ describe("native auth bridge bootstrap injection", () => {
         stringsXmlPath
       );
       expect(secondResult).toEqual(firstResult);
-      expect(readFileSync(indexHtmlPath)).toEqual(firstIndexMtime);
+      expect(readFileSync(indexHtmlPath)).toEqual(firstIndexContents);
       expect(
         readdirSync(tempRoot).filter((name) =>
           /^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/u.test(name)

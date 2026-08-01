@@ -43,7 +43,7 @@ describe("Android quality workflow", () => {
       "vitest run --coverage --exclude tests/android-runtime-browser-smoke.test.ts"
     );
     expect(packageJson.scripts["test:runtime-browser-smoke"]).toBe(
-      "vitest run tests/android-runtime-browser-smoke.test.ts"
+      "bash ./scripts/run-android-runtime-browser-smoke.sh"
     );
   });
 

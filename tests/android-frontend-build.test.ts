@@ -27,7 +27,20 @@ function createAsset(path: string, content: string): void {
 
 function createFrontendFixture({
   csp = "script-src 'self'",
-  moduleSource = 'resolveAppSurface("android-native", true);',
+  moduleSource = `
+function resolveAppSurface(configuredSurface, isProduction) {
+  const surface = configuredSurface || "web";
+  if (surface === "invalid") {
+    throw new Error("Invalid VITE_APP_SURFACE value");
+  }
+  if (isProduction && surface === "android-mock") {
+    throw new Error("is not allowed in production builds. Use a native or web surface.");
+  }
+  return surface;
+}
+const isAndroidMockSurface =
+  resolveAppSurface("android-native", true) === "android-mock";
+`,
 }: {
   csp?: string;
   moduleSource?: string;
@@ -69,6 +82,20 @@ describe("Android frontend build verification", () => {
   it("rejects output that does not prove the android-native surface", () => {
     const indexHtmlPath = createFrontendFixture({
       moduleSource: 'resolveAppSurface("web", true);',
+    });
+    expect(() => verifyAndroidFrontendBuild(indexHtmlPath)).toThrow(
+      /does not prove the production android-native frontend surface/iu
+    );
+  });
+
+  it("rejects an unrelated call that only repeats the surface arguments", () => {
+    const indexHtmlPath = createFrontendFixture({
+      moduleSource: `
+function marker(surface, production) {
+  return surface === "android-native" && production;
+}
+marker("android-native", true);
+`,
     });
     expect(() => verifyAndroidFrontendBuild(indexHtmlPath)).toThrow(
       /does not prove the production android-native frontend surface/iu
@@ -127,9 +154,7 @@ describe("Android frontend build verification", () => {
       expect(source).toMatch(/^\//u);
       createAsset(
         join(root, source!.slice(1)),
-        script.attributes.get("type") === "module"
-          ? 'resolveAppSurface("android-native", true);'
-          : "// packaged external script\n"
+        readFileSync(join(dirname(sourceIndexPath), source!.slice(1)), "utf8")
       );
     }
 
