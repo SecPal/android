@@ -50,7 +50,7 @@ const secpalNetworkReferencePattern = new RegExp(
   "giu"
 );
 const approvedSecPalDomainPattern =
-  /(?<![A-Za-z0-9.-])(?:(?:changelog|apk)\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
+  /(?<![A-Za-z0-9.-])(?:apk\.secpal\.app|secpal\.app|(?:\*\.|\.)?(?:[A-Za-z0-9-]+\.)*secpal\.dev)(?=$|[^A-Za-z0-9._-]|\.[^A-Za-z0-9_-]|\.$)/g;
 const sourceExtensionPattern = /^\.(?:[cm]?[jt]sx?)$/;
 const htmlExtensionPattern = /^\.html?$/;
 const syntheticHtmlScopes = new Map();
