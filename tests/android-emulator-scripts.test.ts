@@ -600,6 +600,7 @@ exit 1
         | "instrumentation-crash"
         | "instrumentation-crash-always"
         | "instrumentation-crash-then-install-write"
+        | "instrumentation-crash-then-missing-service-then-package-manager"
         | "command-error"
         | "command-error-always"
         | "command-error-with-tests"
@@ -640,6 +641,14 @@ elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
     attempt_failure_mode="instrumentation-crash"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="install-write"
+  fi
+elif [[ "${failureMode}" == "instrumentation-crash-then-missing-service-then-package-manager" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="instrumentation-crash"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
+  elif [[ "$attempt" == "3" ]]; then
+    attempt_failure_mode="package-manager"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -934,6 +943,35 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
       "attempt:3",
+    ]);
+
+    const recoverableCiFailureSequence = runScenario(
+      37,
+      "instrumentation-crash-then-missing-service-then-package-manager"
+    );
+    expect(recoverableCiFailureSequence.result.status).toBe(0);
+    expect(recoverableCiFailureSequence.attempts).toBe(4);
+    expect(recoverableCiFailureSequence.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableCiFailureSequence.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(recoverableCiFailureSequence.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:4",
     ]);
 
     const repeatedInstrumentationCrash = runScenario(

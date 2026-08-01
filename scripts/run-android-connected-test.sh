@@ -105,40 +105,49 @@ if (( api_level != 37 )); then
     exit "$attempt_status"
 fi
 
-recovered_reasons="|"
+recovered_keys="|"
 while (( attempt_status != 0 )); do
+    retry_key=""
     retry_reason=""
     reboot_before_retry=false
-    if {
+    if
         grep -Fq "Failed to commit install session" "$attempt_log" &&
             grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
-    } || {
+    then
+        retry_key="package-install-commit-broken-pipe"
+        retry_reason="PackageManager connection failure"
+        reboot_before_retry=true
+    elif
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
             grep -Fq "Can't find service: package" "$attempt_log"
-    }; then
+    then
+        retry_key="package-service-unavailable"
         retry_reason="PackageManager connection failure"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then
+        retry_key="package-install-write-failure"
         retry_reason="PackageManager install-write failure"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
+        retry_key="pre-test-system-crash"
         retry_reason="pre-test system crash"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq \
             "Test run failed to complete. No test results. onError: commandError=true message=null" \
             "$attempt_log"; then
+        retry_key="zero-test-command-error"
         retry_reason="zero-test command error"
     fi
 
-    if [[ -z "$retry_reason" ]] ||
-        [[ "$recovered_reasons" == *"|${retry_reason}|"* ]]; then
+    if [[ -z "$retry_key" ]] ||
+        [[ "$recovered_keys" == *"|${retry_key}|"* ]]; then
         exit "$attempt_status"
     fi
-    recovered_reasons+="${retry_reason}|"
+    recovered_keys+="${retry_key}|"
 
     echo "Retrying API 37 instrumentation after ${retry_reason}"
     if [[ "$reboot_before_retry" == "true" ]]; then
