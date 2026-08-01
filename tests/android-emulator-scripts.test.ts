@@ -595,8 +595,11 @@ exit 1
         | "package-manager"
         | "package-manager-always"
         | "missing-package-service"
+        | "install-write"
+        | "install-write-always"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
+        | "instrumentation-crash-then-install-write"
         | "command-error"
         | "command-error-always"
         | "command-error-with-tests"
@@ -631,6 +634,12 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
     attempt_failure_mode="maven-403"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
+  fi
+elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="instrumentation-crash"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="install-write"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -673,6 +682,10 @@ if [[ -n "$attempt_failure_mode" ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
     printf '%s\n' "Unknown failure: cmd: Can't find service: package"
+  elif [[ "$attempt_failure_mode" == install-write* ]]; then
+    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
+    printf '%s\n' 'Failed to install-write all apks'
   elif [[ "$attempt_failure_mode" == instrumentation-crash* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Test run failed to complete. No test results.'
@@ -852,6 +865,25 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
 
+    const recoverableInstallWriteFailure = runScenario(37, "install-write");
+    expect(recoverableInstallWriteFailure.result.status).toBe(0);
+    expect(recoverableInstallWriteFailure.attempts).toBe(2);
+    expect(recoverableInstallWriteFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
+    expect(recoverableInstallWriteFailure.result.stdout).toContain(
+      "Retrying API 37 instrumentation after PackageManager install-write failure"
+    );
+
+    const repeatedInstallWriteFailure = runScenario(37, "install-write-always");
+    expect(repeatedInstallWriteFailure.result.status).toBe(1);
+    expect(repeatedInstallWriteFailure.attempts).toBe(2);
+    expect(repeatedInstallWriteFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(repeatedInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
+
     const repeatedApi37Failure = runScenario(37, "package-manager-always");
     expect(repeatedApi37Failure.result.status).toBe(1);
     expect(repeatedApi37Failure.attempts).toBe(2);
@@ -879,6 +911,30 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableInstrumentationCrash.result.stdout).toContain(
       "Retrying API 37 instrumentation after pre-test system crash"
     );
+
+    const recoverableChainedInfrastructureFailures = runScenario(
+      37,
+      "instrumentation-crash-then-install-write"
+    );
+    expect(recoverableChainedInfrastructureFailures.result.status).toBe(0);
+    expect(recoverableChainedInfrastructureFailures.attempts).toBe(3);
+    expect(recoverableChainedInfrastructureFailures.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableChainedInfrastructureFailures.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(recoverableChainedInfrastructureFailures.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
 
     const repeatedInstrumentationCrash = runScenario(
       37,

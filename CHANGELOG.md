@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed the API 37 connected-test wrapper to recover once from each distinct
+  pre-test emulator or PackageManager failure, including an install-write
+  failure after a system-crash reboot, while repeated failures still stop.
 - Isolated the Chromium strict-CSP smoke from parallel coverage workers so
   loaded CI runners cannot starve its bounded browser process while the smoke
   remains a required part of the coverage gate.
