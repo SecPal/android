@@ -31,6 +31,22 @@ type Workflow = {
 };
 
 describe("Android quality workflow", () => {
+  it("runs the Chromium smoke outside the parallel coverage worker pool", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+
+    expect(packageJson.scripts["test:coverage"]).toContain(
+      "npm run test:coverage:unit && npm run test:runtime-browser-smoke"
+    );
+    expect(packageJson.scripts["test:coverage:unit"]).toBe(
+      "vitest run --coverage --exclude tests/android-runtime-browser-smoke.test.ts"
+    );
+    expect(packageJson.scripts["test:runtime-browser-smoke"]).toBe(
+      "vitest run tests/android-runtime-browser-smoke.test.ts"
+    );
+  });
+
   it("runs bounded lint for every supported app variant and uploads failure reports", () => {
     const workflow = load(
       readFileSync(resolve(repoRoot, ".github/workflows/quality.yml"), "utf8")
