@@ -80,6 +80,36 @@ describe("Android frontend build verification", () => {
     ).not.toThrow();
   });
 
+  it("rejects a CSP meta element that follows an executable script", () => {
+    const indexHtmlPath = createFrontendFixture();
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="script-src 'self'">`;
+    const html = readFileSync(indexHtmlPath, "utf8");
+    writeFileSync(
+      indexHtmlPath,
+      html
+        .replace(cspMeta, "")
+        .replace("</script ><script type=", `</script >${cspMeta}<script type=`)
+    );
+
+    expect(() => verifyAndroidFrontendBuild(indexHtmlPath)).toThrow(
+      /CSP meta element must be in head and precede every script/iu
+    );
+  });
+
+  it("rejects a CSP meta element outside the document head", () => {
+    const indexHtmlPath = createFrontendFixture();
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="script-src 'self'">`;
+    const html = readFileSync(indexHtmlPath, "utf8");
+    writeFileSync(
+      indexHtmlPath,
+      html.replace(cspMeta, "").replace("<body>", `<body>${cspMeta}`)
+    );
+
+    expect(() => verifyAndroidFrontendBuild(indexHtmlPath)).toThrow(
+      /CSP meta element must be in head and precede every script/iu
+    );
+  });
+
   it("rejects output that does not prove the android-native surface", () => {
     const indexHtmlPath = createFrontendFixture({
       moduleSource: 'resolveAppSurface("web", true);',

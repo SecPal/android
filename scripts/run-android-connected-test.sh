@@ -105,7 +105,9 @@ if (( api_level != 37 )); then
     exit "$attempt_status"
 fi
 
-recovered_keys="|"
+last_recovered_key=""
+recovery_count=0
+max_recoveries=3
 while (( attempt_status != 0 )); do
     retry_key=""
     retry_reason=""
@@ -144,10 +146,12 @@ while (( attempt_status != 0 )); do
     fi
 
     if [[ -z "$retry_key" ]] ||
-        [[ "$recovered_keys" == *"|${retry_key}|"* ]]; then
+        [[ "$retry_key" == "$last_recovered_key" ]] ||
+        (( recovery_count >= max_recoveries )); then
         exit "$attempt_status"
     fi
-    recovered_keys+="${retry_key}|"
+    last_recovered_key="$retry_key"
+    recovery_count=$((recovery_count + 1))
 
     echo "Retrying API 37 instrumentation after ${retry_reason}"
     if [[ "$reboot_before_retry" == "true" ]]; then

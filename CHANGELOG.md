@@ -26,10 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Allowed the API 37 connected-test wrapper to recover once from each distinct
-  pre-test emulator or PackageManager failure, distinguishing an unavailable
-  package service from an install-commit broken pipe and an install-write
-  failure, while repeated identical failures still stop.
+- Allowed the API 37 connected-test wrapper to recover from up to three
+  recognized pre-test emulator or PackageManager failures when the same pattern
+  does not repeat consecutively, distinguishing an unavailable package service
+  from an install-commit broken pipe and an install-write failure.
 - Isolated the Chromium strict-CSP smoke from parallel coverage workers so
   loaded CI runners cannot starve its bounded browser process while the smoke
   remains a required, fail-closed part of the coverage gate with explicit
@@ -45,9 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   schema-4 AST, bridge-before-module ordering, complete web-asset inventory,
   and APK/AAB asset path before distribution. The frontend build additionally
   proves the compiled `android-native` production surface and effective strict
-  external-script CSP contract, including `script-src-elem` and
-  `script-src-attr` overrides, while debug and CT-regression packages receive
-  an exact inventory for their controlled bridge-isolation asset.
+  external-script CSP contract, including a CSP meta element inside `head`
+  before every script plus `script-src-elem` and `script-src-attr` overrides,
+  while debug and CT-regression packages receive an exact inventory for their
+  controlled bridge-isolation asset.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden

@@ -166,27 +166,46 @@ export function verifyAndroidFrontendBuild(indexHtmlPath) {
   const html = readFileSync(resolvedIndexHtmlPath, "utf8");
   const pending = [parse(html, { sourceCodeLocationInfo: true })];
   const scripts = [];
-  const cspPolicies = [];
+  const cspElements = [];
+  let headElement;
 
   while (pending.length > 0) {
     const node = pending.pop();
+    if (node.tagName === "head") headElement = node;
     if (
       node.tagName === "meta" &&
       getAttribute(node, "http-equiv")?.toLowerCase() ===
         "content-security-policy"
     ) {
-      cspPolicies.push(getAttribute(node, "content") ?? "");
+      cspElements.push(node);
     }
     if (node.tagName === "script") scripts.push(node);
     pending.push(...(node.childNodes ?? []));
   }
 
-  if (cspPolicies.length !== 1) {
+  if (cspElements.length !== 1) {
     throw new Error(
       `${resolvedIndexHtmlPath} must contain exactly one Content Security Policy.`
     );
   }
-  const csp = cspPolicies[0];
+  const cspElement = cspElements[0];
+  const cspLocation = cspElement.sourceCodeLocation;
+  if (
+    !headElement ||
+    cspElement.parentNode !== headElement ||
+    !cspLocation ||
+    scripts.some((script) => {
+      const scriptLocation = script.sourceCodeLocation;
+      return (
+        !scriptLocation || scriptLocation.startOffset < cspLocation.endOffset
+      );
+    })
+  ) {
+    throw new Error(
+      `${resolvedIndexHtmlPath} CSP meta element must be in head and precede every script.`
+    );
+  }
+  const csp = getAttribute(cspElement, "content") ?? "";
   const scriptSourceDirectives = getCspDirectives(csp, "script-src");
   const scriptElementDirectives = getCspDirectives(csp, "script-src-elem");
   const scriptAttributeDirectives = getCspDirectives(csp, "script-src-attr");
