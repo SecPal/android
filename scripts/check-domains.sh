@@ -19,10 +19,9 @@ deprecated_api_host="api.${domain_root}.app"
 forbidden_hosts="${domain_root}.com, ${domain_root}.org, ${domain_root}.net, ${domain_root}.io, ${domain_root}.example"
 
 echo -e "${BLUE}=== Domain Policy Check ===${NC}"
-echo "Allowed: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev"
+echo "Allowed: secpal.app, apk.secpal.app, secpal.dev"
 echo "Active web hosts: api.secpal.dev, app.secpal.dev"
 echo "Android artifact host: apk.secpal.app"
-echo "Changelog site: changelog.secpal.app"
 echo "Identifier-only: app.secpal and positively identified Android test derivatives"
 echo "Deprecated web hosts: ${deprecated_api_host}"
 echo "Forbidden: ${forbidden_hosts}, ANY other"
@@ -44,7 +43,7 @@ fi
 # The parser emits one candidate per SecPal reference so an approved value
 # cannot hide a forbidden value elsewhere on the same source line.
 # Flag any isolated candidate not matching an approved pattern.
-# Approved: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts and the deprecated API host for documentation only.
+# Approved: secpal.app, apk.secpal.app, secpal.dev, api.secpal.dev, app.secpal.dev, plus app.secpal identifier contexts and the deprecated API host for documentation only.
 # app.secpal allowlist patterns are narrowed to:
 #   - standalone app.secpal (as Android app ID),
 #   - app.secpal.ClassName (Java class imports, starting with uppercase), and
@@ -61,7 +60,6 @@ regex_host_prefix="(${regex_candidate_prefix}|[/:@])"
 regex_host_suffix='($|[/:@\\]|\.[/:@\\]|\.$)'
 
 allow_secpal_app="${regex_host_prefix}secpal\\.app${regex_host_suffix}"
-allow_changelog_secpal_app="${regex_host_prefix}changelog\\.secpal\\.app${regex_host_suffix}"
 allow_apk_secpal_app="${regex_host_prefix}apk\\.secpal\\.app${regex_host_suffix}"
 allow_secpal_dev="${regex_host_prefix}(\\*\\.|\\.)?([A-Za-z0-9-]+\\.)*secpal\\.dev${regex_host_suffix}"
 allow_api_secpal_app="${regex_host_prefix}api\\.secpal\\.app${regex_host_suffix}"
@@ -69,7 +67,7 @@ allow_app_secpal_identifier="${regex_candidate_prefix}app\\.secpal$"
 allow_app_secpal_class="${regex_candidate_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*$"
 allow_app_secpal_action="${regex_candidate_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*$"
 
-allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
+allowlist_pattern="${allow_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
 
 violations=$(printf '%s\n' "$matches" | \
     grep -Ev "$allowlist_pattern" | \
@@ -99,7 +97,6 @@ else
     fi
     echo -e "${YELLOW}Policy:${NC}"
     echo "  - secpal.app: public homepage and real email addresses"
-    echo "  - changelog.secpal.app: public changelog site"
     echo "  - apk.secpal.app: canonical Android artifact and metadata host"
     echo "  - api.secpal.dev: live API host"
     echo "  - app.secpal.dev: live PWA/frontend host"

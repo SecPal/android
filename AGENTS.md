@@ -42,7 +42,7 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
   pull requests, issues, changelogs, documentation, code comments, UI copy, or release notes unless the task
   explicitly requires documenting AI tooling behavior.
 - Keep `SPDX-FileCopyrightText` years current in edited files or companion `.license` sidecars.
-- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `changelog.secpal.app` for the public changelog site, `apk.secpal.app` for the
+- Domain policy is strict: `secpal.app` for the public homepage and real email addresses, `apk.secpal.app` for the
   canonical Android artifact and metadata host, `api.secpal.dev` for the API, `app.secpal.dev` for the PWA/frontend,
   `secpal.dev` for dev, staging, testing, and examples, and `app.secpal` only as the Android application identifier;
   `api.secpal.app` remains deprecated and must not be used as a deployable host.
