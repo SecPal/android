@@ -56,6 +56,16 @@ describe("Android frontend build verification", () => {
     ).not.toThrow();
   });
 
+  it("accepts equivalent strict script element and attribute directives", () => {
+    expect(() =>
+      verifyAndroidFrontendBuild(
+        createFrontendFixture({
+          csp: "script-src 'self'; script-src-elem 'self'; script-src-attr 'none'",
+        })
+      )
+    ).not.toThrow();
+  });
+
   it("rejects output that does not prove the android-native surface", () => {
     const indexHtmlPath = createFrontendFixture({
       moduleSource: 'resolveAppSurface("web", true);',
@@ -70,6 +80,18 @@ describe("Android frontend build verification", () => {
     ["unsafe eval CSP", "script-src 'self' 'unsafe-eval'"],
     ["a remote script origin", "script-src 'self' https://scripts.invalid"],
     ["duplicate script directives", "script-src 'self'; script-src https:"],
+    [
+      "a remote script element override",
+      "script-src 'self'; script-src-elem https:",
+    ],
+    [
+      "duplicate script element overrides",
+      "script-src 'self'; script-src-elem 'self'; script-src-elem https:",
+    ],
+    [
+      "an inline script attribute override",
+      "script-src 'self'; script-src-attr 'unsafe-inline'",
+    ],
   ])("rejects %s", (_name, csp) => {
     expect(() =>
       verifyAndroidFrontendBuild(createFrontendFixture({ csp }))

@@ -55,18 +55,24 @@ function bridgeTag(sourcePath: string, content = ""): string {
   return `<script id="secpal-native-auth-bridge-bootstrap" src="${sourcePath}">${content}</script>`;
 }
 
-function applicationHtml(tag: string): string {
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src 'self'"><script src="/runtime-config.js"></script >${tag}<script type="module" src="/assets/index.js"></script ></head><body><div id="root"></div></body></html>`;
+function applicationHtml(tag: string, bridgeAfterModule = false): string {
+  const moduleEntry = '<script type="module" src="/assets/index.js"></script >';
+  const applicationScripts = bridgeAfterModule
+    ? `${moduleEntry}${tag}`
+    : `${tag}${moduleEntry}`;
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src 'self'"><script src="/runtime-config.js"></script >${applicationScripts}</head><body><div id="root"></div></body></html>`;
 }
 
 function createBridgeFixture({
   bridgeContent,
   bridgeFileName,
+  bridgeAfterModule = false,
   tag,
   writeInventory = true,
 }: {
   bridgeContent?: string;
   bridgeFileName?: string;
+  bridgeAfterModule?: boolean;
   tag?: string;
   writeInventory?: boolean;
 } = {}): BridgeFixture {
@@ -79,7 +85,7 @@ function createBridgeFixture({
   const indexHtmlPath = join(assetRoot, "index.html");
   const stringsXmlPath = join(root, "strings.xml");
 
-  writeFile(indexHtmlPath, applicationHtml(effectiveTag));
+  writeFile(indexHtmlPath, applicationHtml(effectiveTag, bridgeAfterModule));
   writeFile(join(assetRoot, "assets/index.js"), "export {};\n");
   writeFile(join(assetRoot, "runtime-config.js"), "// runtime config\n");
   writeFile(join(assetRoot, effectiveFileName), effectiveContent);
@@ -164,6 +170,35 @@ describe("external native auth runtime verification", () => {
       await expect(
         verifyAndroidRuntimeSchemaArtifact(artifactPath, fixture.stringsXmlPath)
       ).resolves.toBeUndefined();
+    }
+  );
+
+  it("rejects an index and directory whose module entry precedes the bridge", () => {
+    const fixture = createBridgeFixture({ bridgeAfterModule: true });
+
+    expect(() =>
+      verifyAndroidRuntimeSchemaIndex(
+        fixture.indexHtmlPath,
+        fixture.stringsXmlPath
+      )
+    ).toThrow(/native auth bridge must precede the module entry/iu);
+    expect(() =>
+      verifyAndroidRuntimeSchemaDirectory(
+        fixture.assetRoot,
+        fixture.stringsXmlPath
+      )
+    ).toThrow(/native auth bridge must precede the module entry/iu);
+  });
+
+  it.each(["apk", "aab"] as const)(
+    "rejects a %s whose module entry precedes the bridge",
+    async (extension) => {
+      const fixture = createBridgeFixture({ bridgeAfterModule: true });
+      const artifactPath = packageFixture(fixture, extension);
+
+      await expect(
+        verifyAndroidRuntimeSchemaArtifact(artifactPath, fixture.stringsXmlPath)
+      ).rejects.toThrow(/native auth bridge must precede the module entry/iu);
     }
   );
 

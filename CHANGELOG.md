@@ -26,15 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made the Android publishing-lock permission regression fixture independent
+  of the runner's process umask, so a security-hardened `0077` environment
+  still proves that an actual `0755` lock directory is rejected.
 - Restored native authentication bootstrap installation under the frontend's
   strict `script-src 'self'` policy by packaging the canonical bridge as a
   same-origin, SHA-256-named JavaScript asset instead of executable inline
   content; Android packaging now verifies the tag, file name, content hash,
-  schema-4 AST, complete web-asset inventory, and APK/AAB asset path before
-  distribution. The frontend build additionally proves the compiled
-  `android-native` production surface and strict external-script CSP contract,
-  while debug and CT-regression packages receive an exact inventory for their
-  controlled bridge-isolation asset.
+  schema-4 AST, bridge-before-module ordering, complete web-asset inventory,
+  and APK/AAB asset path before distribution. The frontend build additionally
+  proves the compiled `android-native` production surface and effective strict
+  external-script CSP contract, including `script-src-elem` and
+  `script-src-attr` overrides, while debug and CT-regression packages receive
+  an exact inventory for their controlled bridge-isolation asset.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden

@@ -16,6 +16,26 @@ function getAttribute(node, name) {
   return node.attrs?.find((attribute) => attribute.name === name)?.value;
 }
 
+function getCspDirectives(csp, directiveName) {
+  return csp
+    .split(";")
+    .map((directive) => directive.trim().split(/\s+/u))
+    .filter(
+      ([name]) =>
+        name.length > 0 && name.toLowerCase() === directiveName.toLowerCase()
+    );
+}
+
+function isExactCspDirective(directives, expectedSources) {
+  return (
+    directives.length === 1 &&
+    directives[0].length === expectedSources.length + 1 &&
+    expectedSources.every(
+      (expectedSource, index) => directives[0][index + 1] === expectedSource
+    )
+  );
+}
+
 function isStaticallyTrue(node) {
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (ts.isParenthesizedExpression(node)) {
@@ -113,14 +133,15 @@ export function verifyAndroidFrontendBuild(indexHtmlPath) {
     );
   }
   const csp = cspPolicies[0];
-  const scriptSourceDirectives = csp
-    .split(";")
-    .map((directive) => directive.trim().split(/\s+/u))
-    .filter(([name]) => name.toLowerCase() === "script-src");
+  const scriptSourceDirectives = getCspDirectives(csp, "script-src");
+  const scriptElementDirectives = getCspDirectives(csp, "script-src-elem");
+  const scriptAttributeDirectives = getCspDirectives(csp, "script-src-attr");
   if (
-    scriptSourceDirectives.length !== 1 ||
-    scriptSourceDirectives[0].length !== 2 ||
-    scriptSourceDirectives[0][1] !== "'self'" ||
+    !isExactCspDirective(scriptSourceDirectives, ["'self'"]) ||
+    (scriptElementDirectives.length > 0 &&
+      !isExactCspDirective(scriptElementDirectives, ["'self'"])) ||
+    (scriptAttributeDirectives.length > 0 &&
+      !isExactCspDirective(scriptAttributeDirectives, ["'none'"])) ||
     /(?:'unsafe-inline'|'unsafe-eval')/iu.test(csp)
   ) {
     throw new Error(

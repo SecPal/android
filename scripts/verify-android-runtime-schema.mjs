@@ -112,7 +112,23 @@ function extractAndroidRuntimeBridgeReference(indexHtml, sourceLabel) {
   return {
     expectedHash: sourceMatch[1],
     fileName,
+    startOffset: location.startTag.startOffset,
   };
+}
+
+function assertBridgePrecedesModuleEntry(
+  bridgeReference,
+  moduleEntryStartOffset,
+  sourceLabel
+) {
+  if (
+    moduleEntryStartOffset === null ||
+    bridgeReference.startOffset >= moduleEntryStartOffset
+  ) {
+    throw new Error(
+      `${sourceLabel} native auth bridge must precede the module entry.`
+    );
+  }
 }
 
 function selectRuntimeIndexEntry(artifactPath, archiveEntries) {
@@ -243,9 +259,17 @@ function verifyAndroidRuntimeSchemaIndexInternal({
   indexHtml,
   sourceLabel,
 }) {
-  assertCompleteAndroidWebApplicationShell(indexHtml, sourceLabel);
+  const shell = assertCompleteAndroidWebApplicationShell(
+    indexHtml,
+    sourceLabel
+  );
   const bridgeReference = extractAndroidRuntimeBridgeReference(
     indexHtml,
+    sourceLabel
+  );
+  assertBridgePrecedesModuleEntry(
+    bridgeReference,
+    shell.moduleEntryStartOffset,
     sourceLabel
   );
   const bridgeAssetPath = join(assetRoot, bridgeReference.fileName);
@@ -338,9 +362,17 @@ export async function verifyAndroidRuntimeSchemaArtifact(
     const indexHtml = (await archive.readEntry(runtimeIndexEntry)).toString(
       "utf8"
     );
-    assertCompleteAndroidWebApplicationShell(indexHtml, indexSourceLabel);
+    const shell = assertCompleteAndroidWebApplicationShell(
+      indexHtml,
+      indexSourceLabel
+    );
     const bridgeReference = extractAndroidRuntimeBridgeReference(
       indexHtml,
+      indexSourceLabel
+    );
+    assertBridgePrecedesModuleEntry(
+      bridgeReference,
+      shell.moduleEntryStartOffset,
       indexSourceLabel
     );
     const bridgeEntry = `${runtimeAssetRoot}${bridgeReference.fileName}`;

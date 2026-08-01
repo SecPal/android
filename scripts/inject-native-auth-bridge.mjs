@@ -122,6 +122,8 @@ export function assertCompleteAndroidWebApplicationShell(
       `${sourceLabel} must contain a complete Android web application shell with an HTML doctype, explicit html/head/body elements, and a module entry script.`
     );
   }
+
+  return shell;
 }
 
 function serializeInlineScriptString(value) {
