@@ -6,7 +6,18 @@
 /// <reference types="node" />
 /// <reference lib="dom" />
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -211,7 +222,16 @@ async function loadInjectorModule({
   attributionTermsUrl?: string;
 } = {}): Promise<{
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
-  injectNativeAuthBridgeBootstrap: (html: string, apiBaseUrl: string) => string;
+  buildNativeAuthBridgeAsset: (apiBaseUrl: string) => {
+    content: string;
+    fileName: string;
+    sourcePath: string;
+  };
+  injectNativeAuthBridgeBootstrap: (html: string, sourcePath: string) => string;
+  injectNativeAuthBridgeIntoFile: (
+    indexHtmlPath: string,
+    stringsXmlPath: string
+  ) => { bridgeAssetPath: string; bridgeFileName: string };
   readApiBaseUrlFromStringsXml: (stringsXml: string) => string;
 }> {
   const previousAttributionTermsUrl = process.env.SECPAL_ATTRIBUTION_TERMS_URL;
@@ -330,30 +350,81 @@ describe("native auth bridge bootstrap injection", () => {
     ).resolves.toBe(runtimeBootstrapPlaceholderOrigin);
   });
 
-  it("injects the bootstrap script before the first module script and stays idempotent", async () => {
-    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+  it("generates one deterministic external bridge asset and stays idempotent", async () => {
+    const { injectNativeAuthBridgeIntoFile } = await loadInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "native-auth-bridge-"));
+    const indexHtmlPath = join(tempRoot, "index.html");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
     const html = [
       "<!doctype html>",
       "<html>",
       "<head>",
+      '<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">',
       '<script type="module" src="/assets/index.js"></script>',
       "</head>",
       "<body></body>",
       "</html>",
     ].join("\n");
 
-    const injectedHtml = injectNativeAuthBridgeBootstrap(
-      html,
-      "https://api.secpal.dev"
-    );
+    try {
+      writeFileSync(indexHtmlPath, html);
+      mkdirSync(join(tempRoot, "assets"));
+      writeFileSync(join(tempRoot, "assets/index.js"), "export {};\n");
+      writeFileSync(
+        stringsXmlPath,
+        '<resources><string name="api_base_url">https://api.secpal.dev</string></resources>'
+      );
 
-    expect(injectedHtml).toContain('id="secpal-native-auth-bridge-bootstrap"');
-    expect(
-      injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
-    ).toBeLessThan(injectedHtml.indexOf('<script type="module"'));
-    expect(
-      injectNativeAuthBridgeBootstrap(injectedHtml, "https://api.secpal.dev")
-    ).toBe(injectedHtml);
+      const firstResult = injectNativeAuthBridgeIntoFile(
+        indexHtmlPath,
+        stringsXmlPath
+      );
+      const injectedHtml = readFileSync(indexHtmlPath, "utf8");
+      const bridgeContent = readFileSync(firstResult.bridgeAssetPath, "utf8");
+      const digest = createHash("sha256").update(bridgeContent).digest("hex");
+      const firstIndexMtime = readFileSync(indexHtmlPath);
+
+      expect(firstResult.bridgeFileName).toBe(
+        `secpal-native-auth-bridge.${digest}.js`
+      );
+      expect(firstResult.bridgeAssetPath).toBe(
+        join(tempRoot, firstResult.bridgeFileName)
+      );
+      expect(injectedHtml).toContain(
+        `<script id="secpal-native-auth-bridge-bootstrap" src="/${firstResult.bridgeFileName}"></script>`
+      );
+      expect(
+        injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
+      ).toBeLessThan(injectedHtml.indexOf('<script type="module"'));
+      expect(injectedHtml).toContain("script-src 'self'");
+      expect(injectedHtml).not.toContain("unsafe-inline");
+      expect(injectedHtml).not.toContain("unsafe-eval");
+      expect(injectedHtml).not.toContain("https://api.secpal.dev");
+      const executableScripts = [
+        ...injectedHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu),
+      ];
+      expect(executableScripts).toHaveLength(2);
+      for (const [, attributes, inlineContent] of executableScripts) {
+        const source = /\bsrc="([^"]+)"/iu.exec(attributes)?.[1];
+        expect(source).toMatch(/^\//u);
+        expect(inlineContent).toBe("");
+        expect(existsSync(join(tempRoot, source!.slice(1)))).toBe(true);
+      }
+
+      const secondResult = injectNativeAuthBridgeIntoFile(
+        indexHtmlPath,
+        stringsXmlPath
+      );
+      expect(secondResult).toEqual(firstResult);
+      expect(readFileSync(indexHtmlPath)).toEqual(firstIndexMtime);
+      expect(
+        readdirSync(tempRoot).filter((name) =>
+          /^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/u.test(name)
+        )
+      ).toEqual([firstResult.bridgeFileName]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("injects before a case-insensitive module entry without moving the doctype", async () => {
@@ -370,7 +441,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     const injectedHtml = injectNativeAuthBridgeBootstrap(
       html,
-      "https://api.secpal.dev"
+      "/secpal-native-auth-bridge.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js"
     );
 
     expect(injectedHtml.startsWith("<!DOCTYPE HTML>")).toBe(true);
@@ -382,13 +453,15 @@ describe("native auth bridge bootstrap injection", () => {
     ).toBeLessThan(injectedHtml.indexOf('<SCRIPT TYPE="MODULE"'));
   });
 
-  it("replaces an existing bootstrap script when reinjecting updated content", async () => {
+  it("replaces old inline and external tags without touching unrelated scripts", async () => {
     const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
     const html = [
       "<!doctype html>",
       "<html>",
       "<head>",
       '<script id="secpal-native-auth-bridge-bootstrap">window.__staleBootstrap = true;</script>',
+      '<script data-old="true" src="/secpal-native-auth-bridge.old.js" id="secpal-native-auth-bridge-bootstrap"></script>',
+      '<script src="/keep-me.js"></script>',
       '<script type="module" src="/assets/index.js"></script>',
       "</head>",
       "<body></body>",
@@ -397,16 +470,109 @@ describe("native auth bridge bootstrap injection", () => {
 
     const reinjectedHtml = injectNativeAuthBridgeBootstrap(
       html,
-      "https://api.secpal.dev"
+      "/secpal-native-auth-bridge.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.js"
     );
 
     expect(reinjectedHtml).toContain(
       'id="secpal-native-auth-bridge-bootstrap"'
     );
     expect(reinjectedHtml).not.toContain("window.__staleBootstrap = true;");
+    expect(reinjectedHtml).not.toContain("data-old");
+    expect(reinjectedHtml).toContain('src="/keep-me.js"');
     expect(
       reinjectedHtml.match(/id="secpal-native-auth-bridge-bootstrap"/g)
     ).toHaveLength(1);
+    expect(reinjectedHtml).toContain(
+      '<script id="secpal-native-auth-bridge-bootstrap" src="/secpal-native-auth-bridge.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.js"></script>'
+    );
+  });
+
+  it("removes only controlled stale bridge assets and keeps unrelated JavaScript", async () => {
+    const { injectNativeAuthBridgeIntoFile } = await loadInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "native-auth-stale-"));
+    const indexHtmlPath = join(tempRoot, "index.html");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+    const staleName = `secpal-native-auth-bridge.${"a".repeat(64)}.js`;
+
+    try {
+      writeFileSync(
+        indexHtmlPath,
+        '<!doctype html><html><head><script type="module" src="/assets/index.js"></script></head><body></body></html>'
+      );
+      writeFileSync(
+        stringsXmlPath,
+        '<resources><string name="api_base_url">https://api.secpal.dev</string></resources>'
+      );
+      writeFileSync(join(tempRoot, staleName), "stale");
+      writeFileSync(join(tempRoot, "application.js"), "keep");
+      writeFileSync(join(tempRoot, "secpal-native-auth-bridge.old.js"), "keep");
+
+      const { bridgeFileName } = injectNativeAuthBridgeIntoFile(
+        indexHtmlPath,
+        stringsXmlPath
+      );
+
+      expect(bridgeFileName).not.toBe(staleName);
+      expect(existsSync(join(tempRoot, staleName))).toBe(false);
+      expect(existsSync(join(tempRoot, "application.js"))).toBe(true);
+      expect(
+        existsSync(join(tempRoot, "secpal-native-auth-bridge.old.js"))
+      ).toBe(true);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps hostile API text and script terminators outside index.html", async () => {
+    const { buildNativeAuthBridgeAsset, injectNativeAuthBridgeBootstrap } =
+      await loadInjectorModule();
+    const hostileApiBaseUrl =
+      'https://api.secpal.dev/"</script><script id="attacker">';
+    const asset = buildNativeAuthBridgeAsset(hostileApiBaseUrl);
+    const html =
+      '<!doctype html><html><head><script type="module" src="/assets/index.js"></script></head><body></body></html>';
+    const injectedHtml = injectNativeAuthBridgeBootstrap(
+      html,
+      asset.sourcePath
+    );
+
+    expect(asset.content).toContain("<\\/script");
+    expect(injectedHtml).not.toContain(hostileApiBaseUrl);
+    expect(injectedHtml).not.toContain("attacker");
+    expect(injectedHtml.match(/<script/gu)).toHaveLength(2);
+  });
+
+  it("fails closed for missing API configuration and incomplete HTML", async () => {
+    const { injectNativeAuthBridgeIntoFile } = await loadInjectorModule();
+    const tempRoot = mkdtempSync(join(tmpdir(), "native-auth-invalid-"));
+    const indexHtmlPath = join(tempRoot, "index.html");
+    const stringsXmlPath = join(tempRoot, "strings.xml");
+
+    try {
+      writeFileSync(
+        indexHtmlPath,
+        '<!doctype html><html><head><script type="module" src="/assets/index.js"></script></head><body></body></html>'
+      );
+      writeFileSync(stringsXmlPath, "<resources></resources>");
+      expect(() =>
+        injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath)
+      ).toThrow(/api_base_url/iu);
+      writeFileSync(indexHtmlPath, "<html><head></head>");
+      writeFileSync(
+        stringsXmlPath,
+        '<resources><string name="api_base_url">https://api.secpal.dev</string></resources>'
+      );
+      expect(() =>
+        injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath)
+      ).toThrow(/complete Android web application shell/iu);
+      expect(readdirSync(tempRoot)).not.toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^secpal-native-auth-bridge\./u),
+        ])
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("does not inject WebView presentation owned by the shared frontend", async () => {

@@ -4,6 +4,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -24,6 +25,7 @@ import { writeAndroidWebAssetInventory } from "../scripts/android-web-asset-inve
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const locales = ["en-US", "de-DE"] as const;
+const runtimeBridgeContentByFileName = new Map<string, string>();
 
 async function loadPlayStoreSyncModule(): Promise<{
   syncPlayStoreAssets: (options?: {
@@ -68,6 +70,16 @@ async function loadNativeAuthBridgeInjectorModule(): Promise<{
 function writeFile(path: string, content: string | Uint8Array) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+  if (typeof content === "string" && /\.html$/u.test(path)) {
+    const bridgeReference =
+      /src="\/(secpal-native-auth-bridge\.[0-9a-f]{64}\.js)"/u.exec(content);
+    const bridgeContent = bridgeReference
+      ? runtimeBridgeContentByFileName.get(bridgeReference[1])
+      : undefined;
+    if (bridgeReference && bridgeContent !== undefined) {
+      writeFileSync(join(dirname(path), bridgeReference[1]), bridgeContent);
+    }
+  }
 }
 
 function createZipFixture(
@@ -118,7 +130,12 @@ function createZipFixture(
 
 function buildAndroidRuntimeIndexHtml(runtimeBridge?: string) {
   const runtimeScript = runtimeBridge
-    ? `<script id="secpal-native-auth-bridge-bootstrap">${runtimeBridge}</script>`
+    ? (() => {
+        const digest = createHash("sha256").update(runtimeBridge).digest("hex");
+        const fileName = `secpal-native-auth-bridge.${digest}.js`;
+        runtimeBridgeContentByFileName.set(fileName, runtimeBridge);
+        return `<script id="secpal-native-auth-bridge-bootstrap" src="/${fileName}"></script>`;
+      })()
     : "";
 
   return `<!doctype html><html><head>${runtimeScript}<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`;
@@ -972,7 +989,6 @@ system("sh", "-eu", "-c", script, exception: true)
     const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
       canonicalRuntimeBridge
     );
-
     try {
       writeFile(
         stringsXmlPath,
@@ -1089,25 +1105,31 @@ system("sh", "-eu", "-c", script, exception: true)
       };
       await expectInvalidArtifact(
         "obsolete",
-        canonicalIndexHtml.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
+        buildAndroidRuntimeIndexHtml(
+          canonicalRuntimeBridge.replace(
+            "currentBootstrapSchemaVersion = 4",
+            "currentBootstrapSchemaVersion = 3"
+          )
         ),
         /must declare schema 4 independently/i
       );
       await expectInvalidArtifact(
         "hardcoded-schema",
-        canonicalIndexHtml.replace(
-          "schema_version: currentBootstrapSchemaVersion",
-          "schema_version: 4"
+        buildAndroidRuntimeIndexHtml(
+          canonicalRuntimeBridge.replace(
+            "schema_version: currentBootstrapSchemaVersion",
+            "schema_version: 4"
+          )
         ),
         /must declare schema 4 independently/i
       );
       await expectInvalidArtifact(
         "mutated-bridge",
-        canonicalIndexHtml.replace(
-          apiBaseUrl,
-          "https://unexpected-runtime.secpal.dev"
+        buildAndroidRuntimeIndexHtml(
+          canonicalRuntimeBridge.replace(
+            apiBaseUrl,
+            "https://unexpected-runtime.secpal.dev"
+          )
         ),
         /does not contain the canonical schema 4 runtime bridge/i
       );
@@ -1117,23 +1139,28 @@ system("sh", "-eu", "-c", script, exception: true)
           "</head>",
           '<script data-copy id="secpal-native-auth-bridge-bootstrap"></script></head>'
         ),
-        /exactly one injected Android runtime bridge/i
+        /exactly one native auth bridge script/i
       );
       await expectInvalidArtifact(
         "non-canonical-tag",
         canonicalIndexHtml.replace(
-          '<script id="secpal-native-auth-bridge-bootstrap">',
-          '<script data-runtime id="secpal-native-auth-bridge-bootstrap">'
+          '<script id="secpal-native-auth-bridge-bootstrap" src=',
+          '<script data-runtime id="secpal-native-auth-bridge-bootstrap" src='
         ),
-        /non-canonical Android runtime bridge tag/i
+        /non-canonical native auth bridge tag/i
       );
       await expectInvalidArtifact(
         "commented-bridge",
-        canonicalIndexHtml.replace(
-          `<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>`,
-          `<!--<script id="secpal-native-auth-bridge-bootstrap">${canonicalRuntimeBridge}</script>-->`
-        ),
-        /exactly one injected Android runtime bridge/i
+        canonicalIndexHtml
+          .replace(
+            '<script id="secpal-native-auth-bridge-bootstrap"',
+            '<!--<script id="secpal-native-auth-bridge-bootstrap"'
+          )
+          .replace(
+            '</script><script type="module"',
+            '</script>--><script type="module"'
+          ),
+        /exactly one native auth bridge script/i
       );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
@@ -1433,8 +1460,8 @@ system("sh", "-eu", "-c", script, exception: true)
     const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-schema-"));
     const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
     const stringsXmlPath = join(tempRoot, "strings.xml");
-    const canonicalIndexPath = join(tempRoot, "canonical-index.html");
-    const staleIndexPath = join(tempRoot, "stale-index.html");
+    const canonicalIndexPath = join(tempRoot, "canonical", "index.html");
+    const staleIndexPath = join(tempRoot, "stale", "index.html");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
     const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
@@ -1449,9 +1476,11 @@ system("sh", "-eu", "-c", script, exception: true)
       writeFile(canonicalIndexPath, canonicalIndexHtml);
       writeFile(
         staleIndexPath,
-        canonicalIndexHtml.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
+        buildAndroidRuntimeIndexHtml(
+          canonicalRuntimeBridge.replace(
+            "currentBootstrapSchemaVersion = 4",
+            "currentBootstrapSchemaVersion = 3"
+          )
         )
       );
 
@@ -1479,9 +1508,6 @@ system("sh", "-eu", "-c", script, exception: true)
     const staleIndexPath = join(tempRoot, "index.html");
     const canonicalRuntimeBridge =
       buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-    const canonicalIndexHtml = buildAndroidRuntimeIndexHtml(
-      canonicalRuntimeBridge
-    );
 
     try {
       writeFile(
@@ -1490,9 +1516,11 @@ system("sh", "-eu", "-c", script, exception: true)
       );
       writeFile(
         staleIndexPath,
-        canonicalIndexHtml.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
+        buildAndroidRuntimeIndexHtml(
+          canonicalRuntimeBridge.replace(
+            "currentBootstrapSchemaVersion = 4",
+            "currentBootstrapSchemaVersion = 3"
+          )
         )
       );
 
@@ -1502,7 +1530,11 @@ system("sh", "-eu", "-c", script, exception: true)
 
       injectNativeAuthBridgeIntoFile(staleIndexPath, stringsXmlPath);
 
-      expect(readFileSync(staleIndexPath, "utf8")).toBe(canonicalIndexHtml);
+      expect(
+        readFileSync(staleIndexPath, "utf8").match(
+          /id="secpal-native-auth-bridge-bootstrap"/gu
+        )
+      ).toHaveLength(1);
       expect(() =>
         verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
       ).not.toThrow();

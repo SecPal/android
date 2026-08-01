@@ -2,8 +2,15 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { parse } from "parse5";
 import ts from "typescript";
 import {
@@ -23,14 +30,17 @@ import {
 } from "./literal-zip-archive.mjs";
 
 const runtimeScriptId = "secpal-native-auth-bridge-bootstrap";
-const runtimeScriptStart = '<script id="secpal-native-auth-bridge-bootstrap">';
+const runtimeBridgeLikeFilePattern =
+  /^secpal-native-auth-bridge(?:\.[^/]*)?\.js$/u;
+const runtimeBridgeSourcePattern =
+  /^\/secpal-native-auth-bridge\.([0-9a-f]{64})\.js$/u;
 const runtimeIndexEntryByExtension = new Map([
   [".apk", "assets/public/index.html"],
   [".aab", "base/assets/public/index.html"],
 ]);
 const runtimeIndexEntries = [...runtimeIndexEntryByExtension.values()];
 
-function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
+function extractAndroidRuntimeBridgeReference(indexHtml, sourceLabel) {
   const runtimeScripts = [];
   const pending = [parse(indexHtml, { sourceCodeLocationInfo: true })];
   while (pending.length > 0) {
@@ -48,28 +58,61 @@ function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
 
   if (runtimeScripts.length !== 1) {
     throw new Error(
-      `${sourceLabel} must contain exactly one injected Android runtime bridge.`
+      `${sourceLabel} must contain exactly one native auth bridge script with the canonical ID.`
     );
   }
 
   const [runtimeScript] = runtimeScripts;
   const location = runtimeScript.sourceCodeLocation;
-  const startTag = location?.startTag;
-  if (
-    !startTag ||
-    indexHtml.slice(startTag.startOffset, startTag.endOffset) !==
-      runtimeScriptStart
-  ) {
+  if (!location?.startTag || !location.endTag) {
     throw new Error(
-      `${sourceLabel} contains a non-canonical Android runtime bridge tag.`
+      `${sourceLabel} contains an unterminated native auth bridge tag.`
     );
   }
 
-  if (!location.endTag) {
-    throw new Error(`${sourceLabel} contains an unterminated runtime bridge.`);
+  const inlineContent = indexHtml.slice(
+    location.startTag.endOffset,
+    location.endTag.startOffset
+  );
+  if (inlineContent.length > 0) {
+    throw new Error(
+      `${sourceLabel} native auth bridge script must not contain inline content.`
+    );
   }
 
-  return indexHtml.slice(startTag.endOffset, location.endTag.startOffset);
+  const sourceAttributes = runtimeScript.attrs.filter(
+    ({ name }) => name === "src"
+  );
+  if (sourceAttributes.length !== 1 || sourceAttributes[0].value.length === 0) {
+    throw new Error(
+      `${sourceLabel} native auth bridge script must define src exactly once.`
+    );
+  }
+
+  const sourcePath = sourceAttributes[0].value;
+  const sourceMatch = runtimeBridgeSourcePattern.exec(sourcePath);
+  if (!sourceMatch) {
+    throw new Error(
+      `${sourceLabel} native auth bridge src must use the controlled root-relative SHA-256 asset path.`
+    );
+  }
+
+  const fileName = sourcePath.slice(1);
+  const expectedStartTag = `<script id="${runtimeScriptId}" src="${sourcePath}">`;
+  const actualStartTag = indexHtml.slice(
+    location.startTag.startOffset,
+    location.startTag.endOffset
+  );
+  if (runtimeScript.attrs.length !== 2 || actualStartTag !== expectedStartTag) {
+    throw new Error(
+      `${sourceLabel} contains a non-canonical native auth bridge tag.`
+    );
+  }
+
+  return {
+    expectedHash: sourceMatch[1],
+    fileName,
+  };
 }
 
 function selectRuntimeIndexEntry(artifactPath, archiveEntries) {
@@ -147,35 +190,99 @@ function assertCanonicalSchema4Registration(runtimeBridge, sourceLabel) {
   }
 }
 
-function assertCanonicalAndroidRuntimeIndex(
-  indexHtml,
-  sourceLabel,
-  expectedBridge
-) {
-  assertCompleteAndroidWebApplicationShell(indexHtml, sourceLabel);
-  const actualBridge = extractAndroidRuntimeBridge(indexHtml, sourceLabel);
-
-  assertCanonicalSchema4Registration(actualBridge, sourceLabel);
-
-  if (actualBridge !== expectedBridge) {
-    throw new Error(
-      `${sourceLabel} does not contain the canonical schema 4 runtime bridge.`
-    );
-  }
-}
-
 function buildExpectedBridge(stringsXmlPath) {
   return buildNativeAuthBridgeBootstrapScript(
     readApiBaseUrlFromStringsXml(readFileSync(stringsXmlPath, "utf8"))
   );
 }
 
-export function verifyAndroidRuntimeSchemaIndex(indexHtmlPath, stringsXmlPath) {
-  assertCanonicalAndroidRuntimeIndex(
-    readFileSync(indexHtmlPath, "utf8"),
-    indexHtmlPath,
-    buildExpectedBridge(stringsXmlPath)
+function assertCanonicalBridgeContent({
+  bridgeContent,
+  expectedBridge,
+  expectedHash,
+  sourceLabel,
+}) {
+  const actualHash = createHash("sha256")
+    .update(bridgeContent, "utf8")
+    .digest("hex");
+  if (actualHash !== expectedHash) {
+    throw new Error(
+      `${sourceLabel} native auth bridge SHA-256 does not match its file name.`
+    );
+  }
+
+  assertCanonicalSchema4Registration(bridgeContent, sourceLabel);
+  if (bridgeContent !== expectedBridge) {
+    throw new Error(
+      `${sourceLabel} does not contain the canonical schema 4 runtime bridge.`
+    );
+  }
+}
+
+function assertExactlyOneBridgeAsset(
+  assetNames,
+  expectedFileName,
+  sourceLabel
+) {
+  const bridgeAssetNames = assetNames.filter((name) =>
+    runtimeBridgeLikeFilePattern.test(name)
   );
+  if (
+    bridgeAssetNames.length !== 1 ||
+    bridgeAssetNames[0] !== expectedFileName
+  ) {
+    throw new Error(
+      `${sourceLabel} must contain exactly one packaged native auth bridge asset matching its index reference.`
+    );
+  }
+}
+
+function verifyAndroidRuntimeSchemaIndexInternal({
+  assetRoot,
+  expectedBridge,
+  indexHtml,
+  sourceLabel,
+}) {
+  assertCompleteAndroidWebApplicationShell(indexHtml, sourceLabel);
+  const bridgeReference = extractAndroidRuntimeBridgeReference(
+    indexHtml,
+    sourceLabel
+  );
+  const bridgeAssetPath = join(assetRoot, bridgeReference.fileName);
+  if (!existsSync(bridgeAssetPath) || !lstatSync(bridgeAssetPath).isFile()) {
+    throw new Error(
+      `${sourceLabel} referenced native auth bridge asset is missing.`
+    );
+  }
+
+  assertExactlyOneBridgeAsset(
+    readdirSync(assetRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name),
+    bridgeReference.fileName,
+    sourceLabel
+  );
+  assertCanonicalBridgeContent({
+    bridgeContent: readFileSync(bridgeAssetPath, "utf8"),
+    expectedBridge,
+    expectedHash: bridgeReference.expectedHash,
+    sourceLabel: bridgeAssetPath,
+  });
+}
+
+export function verifyAndroidRuntimeSchemaIndex(indexHtmlPath, stringsXmlPath) {
+  const resolvedIndexHtmlPath = resolve(indexHtmlPath);
+  const assetRoot = dirname(resolvedIndexHtmlPath);
+  const generatedInventoryPath = join(assetRoot, androidWebAssetInventoryName);
+  verifyAndroidRuntimeSchemaIndexInternal({
+    assetRoot,
+    expectedBridge: buildExpectedBridge(stringsXmlPath),
+    indexHtml: readFileSync(resolvedIndexHtmlPath, "utf8"),
+    sourceLabel: resolvedIndexHtmlPath,
+  });
+  if (existsSync(generatedInventoryPath)) {
+    assertAndroidWebAssetDirectory(assetRoot, generatedInventoryPath);
+  }
 }
 
 export function verifyAndroidRuntimeSchemaDirectory(
@@ -183,20 +290,27 @@ export function verifyAndroidRuntimeSchemaDirectory(
   stringsXmlPath,
   fallbackInventoryPath
 ) {
-  const generatedInventoryPath = join(assetRoot, androidWebAssetInventoryName);
+  const resolvedAssetRoot = resolve(assetRoot);
+  const generatedInventoryPath = join(
+    resolvedAssetRoot,
+    androidWebAssetInventoryName
+  );
   const inventoryPath = existsSync(generatedInventoryPath)
     ? generatedInventoryPath
     : fallbackInventoryPath;
   if (!inventoryPath) {
     throw new Error(
-      `${assetRoot} must contain ${androidWebAssetInventoryName} or provide a fallback inventory.`
+      `${resolvedAssetRoot} must contain ${androidWebAssetInventoryName} or provide a fallback inventory.`
     );
   }
-  assertAndroidWebAssetDirectory(assetRoot, inventoryPath);
-  verifyAndroidRuntimeSchemaIndex(
-    join(assetRoot, "index.html"),
-    stringsXmlPath
-  );
+  assertAndroidWebAssetDirectory(resolvedAssetRoot, inventoryPath);
+  const indexHtmlPath = join(resolvedAssetRoot, "index.html");
+  verifyAndroidRuntimeSchemaIndexInternal({
+    assetRoot: resolvedAssetRoot,
+    expectedBridge: buildExpectedBridge(stringsXmlPath),
+    indexHtml: readFileSync(indexHtmlPath, "utf8"),
+    sourceLabel: indexHtmlPath,
+  });
 }
 
 export async function verifyAndroidRuntimeSchemaArtifact(
@@ -220,11 +334,37 @@ export async function verifyAndroidRuntimeSchemaArtifact(
       sourceLabel: artifactPath,
     });
 
-    const sourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
+    const indexSourceLabel = `${artifactPath}:${runtimeIndexEntry}`;
     const indexHtml = (await archive.readEntry(runtimeIndexEntry)).toString(
       "utf8"
     );
-    assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel, expectedBridge);
+    assertCompleteAndroidWebApplicationShell(indexHtml, indexSourceLabel);
+    const bridgeReference = extractAndroidRuntimeBridgeReference(
+      indexHtml,
+      indexSourceLabel
+    );
+    const bridgeEntry = `${runtimeAssetRoot}${bridgeReference.fileName}`;
+    if (!archive.entries.includes(bridgeEntry)) {
+      throw new Error(
+        `${indexSourceLabel} referenced native auth bridge asset is missing.`
+      );
+    }
+
+    const rootAssetNames = archive.entries
+      .filter((entry) => entry.startsWith(runtimeAssetRoot))
+      .map((entry) => entry.slice(runtimeAssetRoot.length))
+      .filter((entry) => entry.length > 0 && !entry.includes("/"));
+    assertExactlyOneBridgeAsset(
+      rootAssetNames,
+      bridgeReference.fileName,
+      artifactPath
+    );
+    assertCanonicalBridgeContent({
+      bridgeContent: (await archive.readEntry(bridgeEntry)).toString("utf8"),
+      expectedBridge,
+      expectedHash: bridgeReference.expectedHash,
+      sourceLabel: `${artifactPath}:${bridgeEntry}`,
+    });
   } catch (error) {
     if (error instanceof ZipArchiveReadError) {
       throw new Error(`Unable to inspect ${artifactPath}: ${error.message}`);

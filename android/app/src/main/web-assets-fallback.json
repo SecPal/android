@@ -4,7 +4,11 @@
   "files": [
     {
       "path": "index.html",
-      "sha256": "ba099ae6a7e21a2b1d42e354d87ac48561720436495ebbf1955fa8b0a257f6c2"
+      "sha256": "577902eb97695e5801c59bcd8dfb5924a8ddab188be2f452c6c12da11d0d4358"
+    },
+    {
+      "path": "secpal-native-auth-bridge.4feb08502c545d41d936ee6196c573aecdf8461a88c2b945d45387d331c84a9d.js",
+      "sha256": "4feb08502c545d41d936ee6196c573aecdf8461a88c2b945d45387d331c84a9d"
     }
   ]
 }

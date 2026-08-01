@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored native authentication bootstrap installation under the frontend's
+  strict `script-src 'self'` policy by packaging the canonical bridge as a
+  same-origin, SHA-256-named JavaScript asset instead of executable inline
+  content; Android packaging now verifies the tag, file name, content hash,
+  schema-4 AST, complete web-asset inventory, and APK/AAB asset path before
+  distribution.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden
