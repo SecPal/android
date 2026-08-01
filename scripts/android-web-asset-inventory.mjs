@@ -206,18 +206,31 @@ function assertNoMismatchedPaths(mismatchedPaths, sourceLabel) {
   }
 }
 
-export function writeAndroidWebAssetInventory(assetRoot) {
+export function writeAndroidWebAssetInventory(
+  assetRoot,
+  { inventoryPath, overlayRoots = [] } = {}
+) {
+  const sourceByAssetPath = new Map();
+  for (const sourceRoot of [assetRoot, ...overlayRoots]) {
+    for (const path of collectPackageableFiles(sourceRoot)) {
+      sourceByAssetPath.set(path, join(sourceRoot, ...path.split("/")));
+    }
+  }
   const inventory = {
     $comment: inventorySpdx,
     schema_version: inventorySchemaVersion,
-    files: collectPackageableFiles(assetRoot).map((path) => ({
-      path,
-      sha256: hash(readFileSync(join(assetRoot, ...path.split("/")))),
-    })),
+    files: [...sourceByAssetPath.keys()].sort().map((path) => {
+      const sourcePath = sourceByAssetPath.get(path);
+      return {
+        path,
+        sha256: hash(readFileSync(sourcePath)),
+      };
+    }),
   };
-  const inventoryPath = join(assetRoot, androidWebAssetInventoryName);
-  writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`);
-  return inventoryPath;
+  const outputPath =
+    inventoryPath ?? join(assetRoot, androidWebAssetInventoryName);
+  writeFileSync(outputPath, `${JSON.stringify(inventory, null, 2)}\n`);
+  return outputPath;
 }
 
 export function assertAndroidWebAssetDirectory(assetRoot, inventoryPath) {

@@ -21,6 +21,7 @@ import { writeAndroidWebAssetInventory } from "../scripts/android-web-asset-inve
 import { buildNativeAuthBridgeAsset } from "../scripts/inject-native-auth-bridge.mjs";
 // @ts-expect-error Node-executable project helper.
 import * as runtimeSchemaVerifier from "../scripts/verify-android-runtime-schema.mjs";
+import { inspectHtmlScripts } from "./html-script-test-helper";
 
 const {
   verifyAndroidRuntimeSchemaArtifact,
@@ -55,7 +56,7 @@ function bridgeTag(sourcePath: string, content = ""): string {
 }
 
 function applicationHtml(tag: string): string {
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src 'self'"><script src="/runtime-config.js"></script>${tag}<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`;
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src 'self'"><script src="/runtime-config.js"></script >${tag}<script type="module" src="/assets/index.js"></script ></head><body><div id="root"></div></body></html>`;
 }
 
 function createBridgeFixture({
@@ -344,6 +345,32 @@ describe("external native auth runtime verification", () => {
     ).toThrow(/exactly one packaged native auth bridge asset/iu);
   });
 
+  it("generates an exact inventory for merged variant assets", () => {
+    const fixture = createBridgeFixture({ writeInventory: false });
+    const overlayRoot = join(createRoot("android-debug-overlay-"), "public");
+    const overlayInventoryPath = join(overlayRoot, "secpal-web-assets.json");
+    writeFile(
+      join(overlayRoot, "bridge-isolation-test.html"),
+      "<!doctype html><title>debug bridge isolation</title>\n"
+    );
+
+    writeAndroidWebAssetInventory(fixture.assetRoot, {
+      inventoryPath: overlayInventoryPath,
+      overlayRoots: [overlayRoot],
+    });
+    const inventory = JSON.parse(
+      readFileSync(overlayInventoryPath, "utf8")
+    ) as { files: Array<{ path: string; sha256: string }> };
+
+    expect(inventory.files.map(({ path }) => path)).toContain(
+      "bridge-isolation-test.html"
+    );
+    expect(
+      inventory.files.find(({ path }) => path === fixture.bridgeFileName)
+        ?.sha256
+    ).toBe(createHash("sha256").update(fixture.bridgeContent).digest("hex"));
+  });
+
   it.each([
     ["apk", "base/assets/public", /assets\/public\/index\.html/iu],
     ["aab", "assets/public", /base\/assets\/public\/index\.html/iu],
@@ -362,16 +389,14 @@ describe("external native auth runtime verification", () => {
   it("keeps the generated Android HTML compatible with the strict CSP contract", () => {
     const fixture = createBridgeFixture();
     const html = readFileSync(fixture.indexHtmlPath, "utf8");
-    const scriptTags = [
-      ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu),
-    ];
+    const scriptTags = inspectHtmlScripts(html);
 
     expect(html).toContain("script-src 'self'");
     expect(html).not.toMatch(/unsafe-inline|unsafe-eval/iu);
     expect(scriptTags).toHaveLength(3);
     for (const scriptTag of scriptTags) {
-      expect(scriptTag[1]).toMatch(/\bsrc=/iu);
-      expect(scriptTag[2]).toBe("");
+      expect(scriptTag.attributes.get("src")).toMatch(/^\//u);
+      expect(scriptTag.inlineContent).toBe("");
     }
     expect(html.indexOf(fixture.bridgeFileName)).toBeLessThan(
       html.indexOf('type="module"')

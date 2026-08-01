@@ -24,6 +24,7 @@ type BuildFixtureOptions = {
   createIndex?: boolean;
   createProvidedFrontend?: boolean;
   createSiblingFrontend?: boolean;
+  frontendVerificationFailure?: boolean;
 };
 
 function writeExecutable(path: string, source: string): void {
@@ -36,6 +37,7 @@ function runBuildScript({
   createIndex = true,
   createProvidedFrontend = false,
   createSiblingFrontend = false,
+  frontendVerificationFailure = false,
 }: BuildFixtureOptions = {}) {
   const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-web-"));
   const isolatedRepositoryRoot = join(tempRoot, "android");
@@ -74,9 +76,10 @@ function runBuildScript({
       "#!/usr/bin/env bash",
       "set -euo pipefail",
       'printf \'npm|%s|%s|%s\\n\' "$PWD" "$*" "${VITE_API_URL:-}" >>"$SECPAL_TEST_COMMAND_LOG"',
-      'mkdir -p "$PWD/dist"',
+      'mkdir -p "$PWD/dist/assets"',
       'if [ "${SECPAL_TEST_CREATE_INDEX:-1}" = "1" ]; then',
-      '  printf \'%s\\n\' \'<!doctype html><html><head><script type="module" src="/assets/index.js"></script></head><body></body></html>\' >"$PWD/dist/index.html"',
+      '  printf \'%s\\n\' \'<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src &apos;self&apos;"><script type="module" src="/assets/index.js"></script></head><body></body></html>\' >"$PWD/dist/index.html"',
+      "  printf '%s\\n' 'resolveAppSurface(\"android-native\", true);' >\"$PWD/dist/assets/index.js\"",
       "fi",
     ].join("\n")
   );
@@ -90,6 +93,10 @@ function runBuildScript({
       '  echo "bridge generation failed" >&2',
       "  exit 23",
       "fi",
+      'if [[ "$*" == *verify-android-frontend-build.mjs* ]] && [ "${SECPAL_TEST_FRONTEND_VERIFICATION_FAILURE:-0}" = "1" ]; then',
+      '  echo "frontend contract verification failed" >&2',
+      "  exit 24",
+      "fi",
     ].join("\n")
   );
 
@@ -100,6 +107,9 @@ function runBuildScript({
       SECPAL_TEST_BRIDGE_FAILURE: bridgeFailure ? "1" : "0",
       SECPAL_TEST_COMMAND_LOG: commandLog,
       SECPAL_TEST_CREATE_INDEX: createIndex ? "1" : "0",
+      SECPAL_TEST_FRONTEND_VERIFICATION_FAILURE: frontendVerificationFailure
+        ? "1"
+        : "0",
       SECPAL_TEST_REPOSITORY_ROOT: isolatedRepositoryRoot,
     };
 
@@ -160,6 +170,9 @@ describe("build frontend web script", () => {
     expect(commands[1]).toMatch(
       /^node\|.*inject-native-auth-bridge\.mjs .*\/frontend\/dist\/index\.html .*\/strings\.xml$/u
     );
+    expect(commands[2]).toMatch(
+      /^node\|.*verify-android-frontend-build\.mjs .*\/frontend\/dist\/index\.html$/u
+    );
   });
 
   it("fails before bridge generation when dist/index.html is missing", () => {
@@ -181,6 +194,17 @@ describe("build frontend web script", () => {
 
     expect(result.status).toBe(23);
     expect(result.stderr).toContain("bridge generation failed");
+    expect(result.stdout).not.toContain("frontend dist ready");
+  });
+
+  it("propagates post-build frontend contract failures", () => {
+    const { result } = runBuildScript({
+      createSiblingFrontend: true,
+      frontendVerificationFailure: true,
+    });
+
+    expect(result.status).toBe(24);
+    expect(result.stderr).toContain("frontend contract verification failed");
     expect(result.stdout).not.toContain("frontend dist ready");
   });
 });

@@ -60,4 +60,7 @@ node "$ROOT_DIR/scripts/inject-native-auth-bridge.mjs" \
   "$FRONTEND_INDEX_HTML" \
   "$ANDROID_STRINGS_XML"
 
+node "$ROOT_DIR/scripts/verify-android-frontend-build.mjs" \
+  "$FRONTEND_INDEX_HTML"
+
 echo "✅ frontend dist ready: $FRONTEND_DIR/dist"

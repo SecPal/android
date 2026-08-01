@@ -50,6 +50,14 @@ frontend's static `script-src 'self'` Content Security Policy stays unchanged.
 Executable inline script, `unsafe-inline`, `unsafe-eval`, remote script sources,
 and WebView JavaScript evaluation are not part of this bootstrap path.
 
+Immediately after bridge generation, the Android build parses the actual
+frontend output and requires exactly one strict CSP, only empty external script
+elements backed by regular packaged files, the bridge before the module entry,
+and an AST-level production `android-native` surface marker in the compiled
+module. Debug and CT-regression source-set assets are overlaid into their own
+generated inventory before Gradle merges them, so their complete APK asset tree
+remains byte-for-byte verifiable without weakening release inventory checks.
+
 The Android runtime verifier binds `index.html` to exactly one packaged bridge
 asset. It checks the canonical tag and root-relative file name, recomputes the
 SHA-256 content hash, compares the complete file with the generated bootstrap,

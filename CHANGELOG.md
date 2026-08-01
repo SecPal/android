@@ -31,7 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same-origin, SHA-256-named JavaScript asset instead of executable inline
   content; Android packaging now verifies the tag, file name, content hash,
   schema-4 AST, complete web-asset inventory, and APK/AAB asset path before
-  distribution.
+  distribution. The frontend build additionally proves the compiled
+  `android-native` production surface and strict external-script CSP contract,
+  while debug and CT-regression packages receive an exact inventory for their
+  controlled bridge-isolation asset.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden

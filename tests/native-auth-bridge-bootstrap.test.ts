@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import { inspectHtmlScripts } from "./html-script-test-helper";
 
 const CANONICAL_API_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -360,7 +361,7 @@ describe("native auth bridge bootstrap injection", () => {
       "<html>",
       "<head>",
       '<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">',
-      '<script type="module" src="/assets/index.js"></script>',
+      '<script type="module" src="/assets/index.js"></script >',
       "</head>",
       "<body></body>",
       "</html>",
@@ -400,12 +401,10 @@ describe("native auth bridge bootstrap injection", () => {
       expect(injectedHtml).not.toContain("unsafe-inline");
       expect(injectedHtml).not.toContain("unsafe-eval");
       expect(injectedHtml).not.toContain("https://api.secpal.dev");
-      const executableScripts = [
-        ...injectedHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu),
-      ];
+      const executableScripts = inspectHtmlScripts(injectedHtml);
       expect(executableScripts).toHaveLength(2);
-      for (const [, attributes, inlineContent] of executableScripts) {
-        const source = /\bsrc="([^"]+)"/iu.exec(attributes)?.[1];
+      for (const { attributes, inlineContent } of executableScripts) {
+        const source = attributes.get("src");
         expect(source).toMatch(/^\//u);
         expect(inlineContent).toBe("");
         expect(existsSync(join(tempRoot, source!.slice(1)))).toBe(true);

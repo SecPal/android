@@ -1072,6 +1072,18 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       'tasks.register("verifyAndroidRuntimeSchemaAsset", Exec)'
     );
+    expect(appBuildGradle).toContain(
+      'tasks.register("generateDebugAndroidWebAssetInventory", Exec)'
+    );
+    expect(appBuildGradle).toContain(
+      '"--overlay", debugAndroidWebAssets.absolutePath'
+    );
+    expect(appBuildGradle).toContain(
+      '"--output", debugAndroidWebAssetInventory.absolutePath'
+    );
+    expect(appBuildGradle).toMatch(
+      /normalizedTaskName\.contains\("debug"\)[\s\S]*normalizedTaskName\.contains\("ctregression"\)[\s\S]*normalizedTaskName\.contains\("asset"\)[\s\S]*normalizedTaskName\.contains\("lint"\)[\s\S]*dependsOn\(debugAndroidWebAssetInventoryTask\)/
+    );
     expect(appBuildGradle).not.toContain("def runtimeSchemaInjector");
     expect(appBuildGradle).toContain(
       "scripts/verify-android-runtime-schema.mjs"
@@ -1133,6 +1145,9 @@ describe("Android native hardening", () => {
     );
     expect(androidGitignore).toContain(
       "!app/src/main/assets/public/secpal-native-auth-bridge.*.js"
+    );
+    expect(androidGitignore).toContain(
+      "app/src/debug/assets/public/secpal-web-assets.json"
     );
     expect(fallbackInventory.files.map(({ path }) => path)).toEqual([
       "index.html",
