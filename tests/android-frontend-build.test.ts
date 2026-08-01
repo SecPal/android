@@ -19,15 +19,7 @@ import { inspectHtmlScripts } from "./html-script-test-helper";
 
 const temporaryRoots: string[] = [];
 const repositoryRoot = resolve(import.meta.dirname, "..");
-
-function createAsset(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content);
-}
-
-function createFrontendFixture({
-  csp = "script-src 'self'",
-  moduleSource = `
+const validAndroidNativeModuleSource = `
 function resolveAppSurface(configuredSurface, isProduction) {
   const surface = configuredSurface || "web";
   if (surface === "invalid") {
@@ -40,7 +32,16 @@ function resolveAppSurface(configuredSurface, isProduction) {
 }
 const isAndroidMockSurface =
   resolveAppSurface("android-native", true) === "android-mock";
-`,
+`;
+
+function createAsset(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+function createFrontendFixture({
+  csp = "script-src 'self'",
+  moduleSource = validAndroidNativeModuleSource,
 }: {
   csp?: string;
   moduleSource?: string;
@@ -140,7 +141,7 @@ marker("android-native", true);
     );
   });
 
-  it("validates the tracked packaged Android HTML through the production contract", () => {
+  it("validates tracked Android HTML without generated checkout artifacts", () => {
     const sourceIndexPath = join(
       repositoryRoot,
       "android/app/src/main/assets/public/index.html"
@@ -152,10 +153,16 @@ marker("android-native", true);
     for (const script of inspectHtmlScripts(html)) {
       const source = script.attributes.get("src");
       expect(source).toMatch(/^\//u);
-      createAsset(
-        join(root, source!.slice(1)),
-        readFileSync(join(dirname(sourceIndexPath), source!.slice(1)), "utf8")
-      );
+      const content =
+        script.attributes.get("id") === "secpal-native-auth-bridge-bootstrap"
+          ? readFileSync(
+              join(dirname(sourceIndexPath), source!.slice(1)),
+              "utf8"
+            )
+          : script.attributes.get("type") === "module"
+            ? validAndroidNativeModuleSource
+            : "// representative packaged external script\n";
+      createAsset(join(root, source!.slice(1)), content);
     }
 
     expect(() =>
