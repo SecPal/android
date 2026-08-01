@@ -593,10 +593,12 @@ exit 1
         | "other-repository-403"
         | "other-repository-403-resource"
         | "package-manager"
+        | "package-manager-create"
         | "package-manager-always"
         | "missing-package-service"
         | "missing-package-service-always"
         | "missing-service-then-install-write-then-missing-service"
+        | "commit-then-missing-service-then-create"
         | "install-write"
         | "install-write-always"
         | "instrumentation-crash"
@@ -659,6 +661,14 @@ elif [[ "${failureMode}" == "missing-service-then-install-write-then-missing-ser
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="install-write"
   fi
+elif [[ "${failureMode}" == "commit-then-missing-service-then-create" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="package-manager"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
+  elif [[ "$attempt" == "3" ]]; then
+    attempt_failure_mode="package-manager-create"
+  fi
 elif [[ "${failureMode}" == "four-distinct-infrastructure-failures" ]]; then
   if [[ "$attempt" == "1" ]]; then
     attempt_failure_mode="instrumentation-crash"
@@ -703,6 +713,10 @@ if [[ -n "$attempt_failure_mode" ]]; then
     fi
     printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code $status_code from server: $status_text"
+  elif [[ "$attempt_failure_mode" == "package-manager-create" ]]; then
+    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
+    printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t --user 0 -S 3593885' returns error 'Unknown failure: cmd: Failure calling service package: Broken pipe (32)'"
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
@@ -1016,6 +1030,23 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(recoverableCurrentCiFailureSequence.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
+    const recoverableLatestCiFailureSequence = runScenario(
+      37,
+      "commit-then-missing-service-then-create"
+    );
+    expect(recoverableLatestCiFailureSequence.result.status).toBe(0);
+    expect(recoverableLatestCiFailureSequence.attempts).toBe(4);
+    expect(recoverableLatestCiFailureSequence.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableLatestCiFailureSequence.waits).toEqual([
       "emulator-5570 60",
       "emulator-5570 60",
       "emulator-5570 60",
