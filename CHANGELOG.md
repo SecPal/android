@@ -150,6 +150,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Raised the transitive `brace-expansion` override floor to the patched
+  `^5.0.9` release line, resolving the denial-of-service advisory
+  `GHSA-rgw5-rvv9-x895` (issue #515).
 - Restricted debug enterprise-policy broadcasts to callers holding the
   privileged `android.permission.DUMP` permission held by the Android shell;
   Samsung hard-key broadcasts now require the platform-signature-protected
