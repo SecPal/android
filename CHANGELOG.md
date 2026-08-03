@@ -153,8 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Raised the transitive `brace-expansion` override floor to `^5.0.9`,
-  resolving the high-severity denial-of-service advisory
+- Raised the existing transitive `brace-expansion` override floor from
+  `^5.0.8` to `^5.0.9`, resolving the high-severity denial-of-service advisory
   `GHSA-rgw5-rvv9-x895` in the ESLint dependency path (issue #515).
 - Restricted debug enterprise-policy broadcasts to callers holding the
   privileged `android.permission.DUMP` permission held by the Android shell;
