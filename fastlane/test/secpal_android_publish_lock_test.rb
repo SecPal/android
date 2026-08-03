@@ -147,6 +147,7 @@ class SecPalAndroidPublishLockTest < Minitest::Test
     Dir.mktmpdir do |directory|
       lock_directory = File.join(directory, "release")
       Dir.mkdir(lock_directory, 0o755)
+      File.chmod(0o755, lock_directory)
       lock_path = File.join(lock_directory, "android-publish.lock")
 
       error = assert_raises(SecPalAndroidPublishLock::LockDirectoryError) do
