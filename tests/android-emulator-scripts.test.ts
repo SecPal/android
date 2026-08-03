@@ -597,6 +597,7 @@ exit 1
         | "missing-package-service"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
+        | "instrumentation-crash-then-missing-package-service"
         | "command-error"
         | "command-error-always"
         | "command-error-with-tests"
@@ -631,6 +632,12 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
     attempt_failure_mode="maven-403"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
+  fi
+elif [[ "${failureMode}" == "instrumentation-crash-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="instrumentation-crash"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -879,6 +886,34 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableInstrumentationCrash.result.stdout).toContain(
       "Retrying API 37 instrumentation after pre-test system crash"
     );
+
+    const packageServiceFailureAfterInstrumentationCrash = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.result.status).toBe(
+      0
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.attempts).toBe(3);
+    expect(packageServiceFailureAfterInstrumentationCrash.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterInstrumentationCrash.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(
+      packageServiceFailureAfterInstrumentationCrash.recoveryEvents
+    ).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
 
     const repeatedInstrumentationCrash = runScenario(
       37,
