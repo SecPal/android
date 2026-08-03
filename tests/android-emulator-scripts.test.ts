@@ -598,6 +598,7 @@ exit 1
         | "instrumentation-crash"
         | "instrumentation-crash-always"
         | "instrumentation-crash-then-missing-package-service"
+        | "instrumentation-crash-then-missing-package-service-then-test"
         | "command-error"
         | "command-error-always"
         | "command-error-with-tests"
@@ -633,11 +634,13 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
   fi
-elif [[ "${failureMode}" == "instrumentation-crash-then-missing-package-service" ]]; then
+elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* ]]; then
   if [[ "$attempt" == "1" ]]; then
     attempt_failure_mode="instrumentation-crash"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="missing-package-service"
+  elif [[ "${failureMode}" == *-then-test && "$attempt" == "3" ]]; then
+    attempt_failure_mode="test"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -906,6 +909,30 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(
       packageServiceFailureAfterInstrumentationCrash.recoveryEvents
     ).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
+
+    const testFailureAfterInfrastructureRecovery = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service-then-test"
+    );
+    expect(testFailureAfterInfrastructureRecovery.result.status).toBe(1);
+    expect(testFailureAfterInfrastructureRecovery.attempts).toBe(3);
+    expect(testFailureAfterInfrastructureRecovery.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(testFailureAfterInfrastructureRecovery.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(testFailureAfterInfrastructureRecovery.recoveryEvents).toEqual([
       "attempt:1",
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
