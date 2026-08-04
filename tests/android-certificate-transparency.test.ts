@@ -195,6 +195,12 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain(
       "IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}"
     );
+    expect(workflow).toContain(
+      "timeout-minutes: ${{ matrix.api-level >= 37 && 35 || 15 }}"
+    );
+    expect(workflow).toContain(
+      "timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh"
+    );
     expect(workflow).toContain("SDK_CHANNEL: 0");
     expect(workflow).toContain(
       'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
