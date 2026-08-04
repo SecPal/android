@@ -106,26 +106,39 @@ if (( api_level != 37 )); then
 fi
 
 classify_api37_failure() {
+    retry_key=""
     retry_reason=""
     reboot_before_retry=false
 
-    if {
+    if grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq "Failed to install-write all apks" "$attempt_log"; then
+        retry_key="package-manager-install-write"
+        retry_reason="PackageManager install-write failure"
+        reboot_before_retry=true
+    elif {
         grep -Fq "Failed to commit install session" "$attempt_log" &&
             grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
-    } || {
+    }; then
+        retry_key="package-manager-broken-pipe"
+        retry_reason="PackageManager connection failure"
+        reboot_before_retry=true
+    elif {
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
             grep -Fq "Can't find service: package" "$attempt_log"
     }; then
+        retry_key="package-manager-service-unavailable"
         retry_reason="PackageManager connection failure"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
+        retry_key="pre-test-system-crash"
         retry_reason="pre-test system crash"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq \
             "Test run failed to complete. No test results. onError: commandError=true message=" \
             "$attempt_log"; then
+        retry_key="zero-test-command-error"
         retry_reason="zero-test command error"
         reboot_before_retry=true
     fi
@@ -142,23 +155,23 @@ recover_api37_failure() {
         "$serial" "$readiness_timeout"
 }
 
-classify_api37_failure
+recovered_api37_failures=()
 
-if [[ -z "$retry_reason" ]]; then
-    exit "$attempt_status"
-fi
+while (( attempt_status != 0 )); do
+    classify_api37_failure
+    if [[ -z "$retry_key" ]]; then
+        exit "$attempt_status"
+    fi
 
-recover_api37_failure
-capture_connected_test
-if (( attempt_status == 0 )); then
-    exit 0
-fi
+    for recovered_failure in "${recovered_api37_failures[@]}"; do
+        if [[ "$recovered_failure" == "$retry_key" ]]; then
+            exit "$attempt_status"
+        fi
+    done
 
-classify_api37_failure
-if [[ "$retry_reason" == "PackageManager connection failure" ]]; then
+    recovered_api37_failures+=("$retry_key")
     recover_api37_failure
-    run_connected_test
-    exit 0
-fi
+    capture_connected_test
+done
 
-exit "$attempt_status"
+exit 0
