@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stabilized API 37 connected tests by recognizing zero-test PackageManager
+  install-write failures and allowing one emulator recovery per distinct
+  infrastructure failure while failing closed on identical repeats (issue
+  #509).
 - Allowed one final bounded API 37 instrumentation retry when the Android
   package service remains unavailable after the first emulator recovery.
 - Overrode the `uuid` transitive dependency used by the Capacitor CLI so the
