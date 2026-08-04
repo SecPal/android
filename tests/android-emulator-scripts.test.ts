@@ -929,9 +929,7 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableInstallWriteFailure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
     ]);
-    expect(recoverableInstallWriteFailure.waits).toEqual([
-      "emulator-5570 60",
-    ]);
+    expect(recoverableInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableInstallWriteFailure.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager install-write failure"
     );
@@ -945,9 +943,7 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(persistentInstallWriteFailure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
     ]);
-    expect(persistentInstallWriteFailure.waits).toEqual([
-      "emulator-5570 60",
-    ]);
+    expect(persistentInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
 
     const installWriteAfterTestStart = runScenario(
       37,
@@ -992,15 +988,17 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "emulator-5570 60",
       "emulator-5570 60",
     ]);
-    expect(installWriteFailureAfterInstrumentationCrash.recoveryEvents).toEqual([
-      "attempt:1",
-      "reboot:adb -s emulator-5570 reboot",
-      "wait:emulator-5570 60",
-      "attempt:2",
-      "reboot:adb -s emulator-5570 reboot",
-      "wait:emulator-5570 60",
-      "attempt:3",
-    ]);
+    expect(installWriteFailureAfterInstrumentationCrash.recoveryEvents).toEqual(
+      [
+        "attempt:1",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:2",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:3",
+      ]
+    );
 
     const packageServiceFailureAfterInstrumentationCrash = runScenario(
       37,
