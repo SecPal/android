@@ -601,6 +601,7 @@ exit 1
         | "instrumentation-crash-then-missing-package-service-then-test"
         | "command-error"
         | "command-error-always"
+        | "command-error-then-missing-package-service"
         | "command-error-with-diagnostic"
         | "command-error-with-tests"
         | "test"
@@ -642,6 +643,12 @@ elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* 
     attempt_failure_mode="missing-package-service"
   elif [[ "${failureMode}" == *-then-test && "$attempt" == "3" ]]; then
     attempt_failure_mode="test"
+  fi
+elif [[ "${failureMode}" == "command-error-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="command-error"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -968,6 +975,21 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableCommandError.result.stdout).toContain(
       "Retrying API 37 instrumentation after zero-test command error"
     );
+
+    const packageServiceFailureAfterCommandError = runScenario(
+      37,
+      "command-error-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterCommandError.result.status).toBe(0);
+    expect(packageServiceFailureAfterCommandError.attempts).toBe(3);
+    expect(packageServiceFailureAfterCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterCommandError.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
 
     const recoverableCommandErrorWithDiagnostic = runScenario(
       37,

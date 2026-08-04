@@ -155,7 +155,8 @@ if (( attempt_status == 0 )); then
     exit 0
 fi
 
-if [[ "$first_retry_reason" == "pre-test system crash" ]]; then
+if [[ "$first_retry_reason" == "pre-test system crash" ||
+    "$first_retry_reason" == "zero-test command error" ]]; then
     classify_api37_failure
     if [[ "$retry_reason" == "PackageManager connection failure" ]]; then
         recover_api37_failure

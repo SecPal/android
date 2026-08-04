@@ -33,8 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recognized API 37 zero-test instrumentation command errors with diagnostic
   messages and rebooted the emulator before the bounded retry.
 - Allowed the API 37 instrumentation harness one final rebooted attempt when a
-  retry after a pre-test system crash loses the Android package service, while
-  retaining the existing retry caps for repeated crashes and test failures.
+  retry after a pre-test system crash or zero-test command error loses the
+  Android package service, while retaining the existing retry caps for repeated
+  crashes and test failures.
 - Made the publish-lock permission rejection test deterministic across process
   umasks by explicitly applying the overly permissive directory mode it is
   intended to exercise (issue #513).
