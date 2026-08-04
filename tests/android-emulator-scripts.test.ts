@@ -883,11 +883,24 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
 
     const repeatedApi37Failure = runScenario(37, "package-manager-always");
     expect(repeatedApi37Failure.result.status).toBe(1);
-    expect(repeatedApi37Failure.attempts).toBe(2);
+    expect(repeatedApi37Failure.attempts).toBe(3);
     expect(repeatedApi37Failure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
     ]);
-    expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+    expect(repeatedApi37Failure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(repeatedApi37Failure.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
 
     const missingPackageServiceAfterPackageManagerFailure = runScenario(
       37,

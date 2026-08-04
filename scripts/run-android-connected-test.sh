@@ -154,22 +154,18 @@ if [[ -z "$retry_reason" ]]; then
     exit "$attempt_status"
 fi
 
-first_retry_kind="$retry_kind"
 recover_api37_failure
 capture_connected_test
 if (( attempt_status == 0 )); then
     exit 0
 fi
 
-if [[ "$first_retry_kind" == "pre-test-system-crash" ||
-    "$first_retry_kind" == "zero-test-command-error" ||
-    "$first_retry_kind" == "package-manager-broken-pipe" ]]; then
-    classify_api37_failure
-    if [[ "$retry_kind" == "missing-package-service" ]]; then
-        recover_api37_failure
-        run_connected_test
-        exit 0
-    fi
+classify_api37_failure
+if [[ "$retry_kind" == "package-manager-broken-pipe" ||
+    "$retry_kind" == "missing-package-service" ]]; then
+    recover_api37_failure
+    run_connected_test
+    exit 0
 fi
 
 exit "$attempt_status"
