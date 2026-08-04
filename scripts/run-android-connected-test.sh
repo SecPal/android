@@ -107,32 +107,26 @@ fi
 
 classify_api37_failure() {
     retry_reason=""
-    retry_kind=""
     reboot_before_retry=false
 
-    if grep -Fq "Failed to commit install session" "$attempt_log" &&
-        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
-        retry_reason="PackageManager connection failure"
-        retry_kind="package-manager-broken-pipe"
-        reboot_before_retry=true
-    elif {
+    if {
+        grep -Fq "Failed to commit install session" "$attempt_log" &&
+            grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
+    } || {
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
             grep -Fq "Can't find service: package" "$attempt_log"
     }; then
         retry_reason="PackageManager connection failure"
-        retry_kind="missing-package-service"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
         retry_reason="pre-test system crash"
-        retry_kind="pre-test-system-crash"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq \
             "Test run failed to complete. No test results. onError: commandError=true message=" \
             "$attempt_log"; then
         retry_reason="zero-test command error"
-        retry_kind="zero-test-command-error"
         reboot_before_retry=true
     fi
 }
@@ -154,18 +148,21 @@ if [[ -z "$retry_reason" ]]; then
     exit "$attempt_status"
 fi
 
+first_retry_reason="$retry_reason"
 recover_api37_failure
 capture_connected_test
 if (( attempt_status == 0 )); then
     exit 0
 fi
 
-classify_api37_failure
-if [[ "$retry_kind" == "package-manager-broken-pipe" ||
-    "$retry_kind" == "missing-package-service" ]]; then
-    recover_api37_failure
-    run_connected_test
-    exit 0
+if [[ "$first_retry_reason" == "pre-test system crash" ||
+    "$first_retry_reason" == "zero-test command error" ]]; then
+    classify_api37_failure
+    if [[ "$retry_reason" == "PackageManager connection failure" ]]; then
+        recover_api37_failure
+        run_connected_test
+        exit 0
+    fi
 fi
 
 exit "$attempt_status"
