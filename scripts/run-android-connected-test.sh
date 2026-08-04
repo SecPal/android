@@ -105,38 +105,64 @@ if (( api_level != 37 )); then
     exit "$attempt_status"
 fi
 
-retry_reason=""
-reboot_before_retry=false
-if {
-    grep -Fq "Failed to commit install session" "$attempt_log" &&
-        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
-} || {
-    grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
-        grep -Fq "Can't find service: package" "$attempt_log"
-}; then
-    retry_reason="PackageManager connection failure"
-    reboot_before_retry=true
-elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
-    grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
-    retry_reason="pre-test system crash"
-    reboot_before_retry=true
-elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
-    grep -Fq \
-        "Test run failed to complete. No test results. onError: commandError=true message=null" \
-        "$attempt_log"; then
-    retry_reason="zero-test command error"
-fi
+classify_api37_failure() {
+    retry_reason=""
+    reboot_before_retry=false
+
+    if {
+        grep -Fq "Failed to commit install session" "$attempt_log" &&
+            grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
+    } || {
+        grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
+            grep -Fq "Can't find service: package" "$attempt_log"
+    }; then
+        retry_reason="PackageManager connection failure"
+        reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq "INSTRUMENTATION_ABORTED: System has crashed." "$attempt_log"; then
+        retry_reason="pre-test system crash"
+        reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq \
+            "Test run failed to complete. No test results. onError: commandError=true message=" \
+            "$attempt_log"; then
+        retry_reason="zero-test command error"
+        reboot_before_retry=true
+    fi
+}
+
+recover_api37_failure() {
+    echo "Retrying API 37 instrumentation after ${retry_reason}"
+    if [[ "$reboot_before_retry" == "true" ]]; then
+        echo "Rebooting API 37 emulator before retrying (${retry_reason})"
+        bash "${repo_root}/scripts/with-android-env.sh" \
+            adb -s "$serial" reboot
+    fi
+    bash "${repo_root}/scripts/wait-for-android-device.sh" \
+        "$serial" "$readiness_timeout"
+}
+
+classify_api37_failure
 
 if [[ -z "$retry_reason" ]]; then
     exit "$attempt_status"
 fi
 
-echo "Retrying API 37 instrumentation after ${retry_reason}"
-if [[ "$reboot_before_retry" == "true" ]]; then
-    echo "Rebooting API 37 emulator before retrying (${retry_reason})"
-    bash "${repo_root}/scripts/with-android-env.sh" \
-        adb -s "$serial" reboot
+first_retry_reason="$retry_reason"
+recover_api37_failure
+capture_connected_test
+if (( attempt_status == 0 )); then
+    exit 0
 fi
-bash "${repo_root}/scripts/wait-for-android-device.sh" \
-    "$serial" "$readiness_timeout"
-run_connected_test
+
+if [[ "$first_retry_reason" == "pre-test system crash" ||
+    "$first_retry_reason" == "zero-test command error" ]]; then
+    classify_api37_failure
+    if [[ "$retry_reason" == "PackageManager connection failure" ]]; then
+        recover_api37_failure
+        run_connected_test
+        exit 0
+    fi
+fi
+
+exit "$attempt_status"

@@ -597,8 +597,12 @@ exit 1
         | "missing-package-service"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
+        | "instrumentation-crash-then-missing-package-service"
+        | "instrumentation-crash-then-missing-package-service-then-test"
         | "command-error"
         | "command-error-always"
+        | "command-error-then-missing-package-service"
+        | "command-error-with-diagnostic"
         | "command-error-with-tests"
         | "test"
     ) => {
@@ -631,6 +635,20 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
     attempt_failure_mode="maven-403"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
+  fi
+elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="instrumentation-crash"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
+  elif [[ "${failureMode}" == *-then-test && "$attempt" == "3" ]]; then
+    attempt_failure_mode="test"
+  fi
+elif [[ "${failureMode}" == "command-error-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="command-error"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -683,7 +701,11 @@ if [[ -n "$attempt_failure_mode" ]]; then
     else
       printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     fi
-    printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
+    if [[ "$attempt_failure_mode" == "command-error-with-diagnostic" ]]; then
+      printf '%s\n' "Test run failed to complete. No test results. onError: commandError=true message=Attempt to invoke interface method 'boolean android.app.IActivityManager.startInstrumentation(...)' on a null object reference"
+    else
+      printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
+    fi
   else
     printf '%s\n' 'There were failing tests'
   fi
@@ -880,6 +902,58 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after pre-test system crash"
     );
 
+    const packageServiceFailureAfterInstrumentationCrash = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.result.status).toBe(
+      0
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.attempts).toBe(3);
+    expect(packageServiceFailureAfterInstrumentationCrash.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterInstrumentationCrash.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(
+      packageServiceFailureAfterInstrumentationCrash.recoveryEvents
+    ).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
+
+    const testFailureAfterInfrastructureRecovery = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service-then-test"
+    );
+    expect(testFailureAfterInfrastructureRecovery.result.status).toBe(1);
+    expect(testFailureAfterInfrastructureRecovery.attempts).toBe(3);
+    expect(testFailureAfterInfrastructureRecovery.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(testFailureAfterInfrastructureRecovery.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(testFailureAfterInfrastructureRecovery.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
+
     const repeatedInstrumentationCrash = runScenario(
       37,
       "instrumentation-crash-always"
@@ -894,15 +968,48 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     const recoverableCommandError = runScenario(37, "command-error");
     expect(recoverableCommandError.result.status).toBe(0);
     expect(recoverableCommandError.attempts).toBe(2);
-    expect(recoverableCommandError.reboots).toEqual([]);
+    expect(recoverableCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(recoverableCommandError.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableCommandError.result.stdout).toContain(
       "Retrying API 37 instrumentation after zero-test command error"
     );
 
+    const packageServiceFailureAfterCommandError = runScenario(
+      37,
+      "command-error-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterCommandError.result.status).toBe(0);
+    expect(packageServiceFailureAfterCommandError.attempts).toBe(3);
+    expect(packageServiceFailureAfterCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterCommandError.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
+    const recoverableCommandErrorWithDiagnostic = runScenario(
+      37,
+      "command-error-with-diagnostic"
+    );
+    expect(recoverableCommandErrorWithDiagnostic.result.status).toBe(0);
+    expect(recoverableCommandErrorWithDiagnostic.attempts).toBe(2);
+    expect(recoverableCommandErrorWithDiagnostic.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableCommandErrorWithDiagnostic.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+
     const repeatedCommandError = runScenario(37, "command-error-always");
     expect(repeatedCommandError.result.status).toBe(1);
     expect(repeatedCommandError.attempts).toBe(2);
+    expect(repeatedCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(repeatedCommandError.waits).toEqual(["emulator-5570 60"]);
 
     const api36Failure = runScenario(36, "package-manager");

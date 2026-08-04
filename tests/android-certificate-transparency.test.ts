@@ -193,7 +193,16 @@ describe("Android Certificate Transparency regression contract", () => {
       "BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}"
     );
     expect(workflow).toContain(
+      "RECOVERY_TIMEOUT: ${{ matrix.api-level >= 37 && 240 || 180 }}"
+    );
+    expect(workflow).toContain(
       "IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}"
+    );
+    expect(workflow).toMatch(
+      /timeout-minutes: >-\s+\${{\s+matrix\.api-level >= 37\s+&& 35\s+\|\| \(github\.event_name == 'schedule'\s+\|\| github\.event_name == 'workflow_dispatch'\)\s+&& 25\s+\|\| 15\s+}}/
+    );
+    expect(workflow).toContain(
+      "timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh"
     );
     expect(workflow).toContain("SDK_CHANNEL: 0");
     expect(workflow).toContain(
@@ -212,6 +221,9 @@ describe("Android Certificate Transparency regression contract", () => {
       workflow.indexOf(":app:assembleCtRegressionAndroidTest")
     ).toBeLessThan(workflow.indexOf("npm run android:emulator:start"));
     expect(workflow).toContain("bash ./scripts/run-android-connected-test.sh");
+    expect(
+      workflow.match(/emulator-5570 "\$API_LEVEL" "\$RECOVERY_TIMEOUT"/g)
+    ).toHaveLength(2);
     expect(workflow).toContain('cat "$emulator_log"');
     expect(workflow).toContain("connectedCtRegressionAndroidTest");
     expect(workflow).not.toContain("connectedDebugAndroidTest");

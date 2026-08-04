@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounded certificate-transparency matrix jobs to 15 minutes for regular jobs
+  below API 37, 25 minutes for API 36 live probes, and 35 minutes on API 37;
+  limited post-reboot readiness waits to four minutes and capped emulator
+  cleanup at 30 seconds.
+- Recognized API 37 zero-test instrumentation command errors with diagnostic
+  messages and rebooted the emulator before the bounded retry.
+- Allowed the API 37 instrumentation harness one final rebooted attempt when a
+  retry after a pre-test system crash or zero-test command error loses the
+  Android package service, while retaining the existing retry caps for repeated
+  crashes and test failures.
+- Made the publish-lock permission rejection test deterministic across process
+  umasks by explicitly applying the overly permissive directory mode it is
+  intended to exercise (issue #513).
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden
@@ -150,6 +163,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Raised the existing transitive `brace-expansion` override floor from
+  `^5.0.8` to `^5.0.9`, resolving the high-severity denial-of-service advisory
+  `GHSA-rgw5-rvv9-x895` in the ESLint dependency path (issue #515).
 - Restricted debug enterprise-policy broadcasts to callers holding the
   privileged `android.permission.DUMP` permission held by the Android shell;
   Samsung hard-key broadcasts now require the platform-signature-protected
