@@ -98,6 +98,7 @@ jobs:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
           BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}
+          RECOVERY_TIMEOUT: ${{ matrix.api-level >= 37 && 240 || 180 }}
           IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}
           LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
           SDK_CHANNEL: 0
@@ -167,14 +168,14 @@ jobs:
               ([.operators[].logs[]] | length > 0)' \
               <<<"$log_list" >/dev/null
             bash ./scripts/run-android-connected-test.sh \
-              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              emulator-5570 "$API_LEVEL" "$RECOVERY_TIMEOUT" \
               :app:connectedCtRegressionAndroidTest \
               "-Pandroid.testInstrumentationRunnerArguments.class=${live_method}" \
               -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
               "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=${SECPAL_LIVE_CT_PROBE_URL}"
           else
             bash ./scripts/run-android-connected-test.sh \
-              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              emulator-5570 "$API_LEVEL" "$RECOVERY_TIMEOUT" \
               :app:connectedCtRegressionAndroidTest \
               "-Pandroid.testInstrumentationRunnerArguments.class=${test_class}"
           fi
