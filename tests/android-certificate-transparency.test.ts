@@ -4,15 +4,213 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const readRepoFile = (...segments: string[]) =>
   readFileSync(resolve(repoRoot, ...segments), "utf8");
 
+type WorkflowStep = {
+  env?: Record<string, string>;
+  id?: string;
+  run?: string;
+  uses?: string;
+  with?: Record<string, string>;
+};
+
+type WorkflowJob = {
+  if?: string;
+  name?: string;
+  needs?: string | string[];
+  outputs?: Record<string, string>;
+  permissions?: Record<string, string>;
+  steps?: WorkflowStep[];
+  "timeout-minutes"?: number;
+};
+
+type Workflow = {
+  jobs?: Record<string, WorkflowJob>;
+  on?: {
+    pull_request?: { branches?: string[]; paths?: string[] };
+    push?: { branches?: string[]; paths?: string[] };
+  };
+  permissions?: Record<string, string>;
+};
+
 describe("Android Certificate Transparency regression contract", () => {
+  it("always reports a fail-closed aggregate required check", async () => {
+    const workflow = load(
+      readRepoFile(
+        ".github",
+        "workflows",
+        "android-certificate-transparency.yml"
+      )
+    ) as Workflow;
+
+    expect(workflow.on?.pull_request).toEqual({ branches: ["main"] });
+    expect(workflow.on?.push?.paths).toContain(
+      ".github/workflows/android-certificate-transparency.yml"
+    );
+    expect(workflow.permissions).toEqual({ contents: "read" });
+
+    const detectionJob = workflow.jobs?.["detect-relevant-changes"];
+    expect(detectionJob?.permissions).toEqual({ "pull-requests": "read" });
+    expect(detectionJob?.["timeout-minutes"]).toBe(5);
+    expect(detectionJob?.outputs).toEqual({
+      relevant: "${{ steps.detect.outputs.result }}",
+    });
+    const detectionStep = detectionJob?.steps?.find(
+      (step) => step.id === "detect"
+    );
+    expect(detectionStep?.uses).toBe("actions/github-script@v8");
+    expect(detectionStep?.with?.script).toContain(
+      "github.paginate(github.rest.pulls.listFiles"
+    );
+    expect(detectionStep?.with?.script).toContain(
+      'return context.eventName !== "pull_request" || relevant ? "true" : "false";'
+    );
+    const detectionScript = detectionStep?.with?.script;
+    expect(detectionScript).toBeTypeOf("string");
+    const executeDetection = new Function(
+      "context",
+      "github",
+      "core",
+      `return (async () => {${detectionScript}})();`
+    ) as (
+      context: Record<string, unknown>,
+      github: Record<string, unknown>,
+      core: Record<string, unknown>
+    ) => Promise<string>;
+    const detect = (
+      eventName: string,
+      files: Array<string | { filename: string; previous_filename?: string }>,
+      changedFiles: number
+    ) =>
+      executeDetection(
+        {
+          eventName,
+          issue: { number: 612 },
+          payload: { pull_request: { changed_files: changedFiles } },
+          repo: { owner: "SecPal", repo: "android" },
+        },
+        {
+          paginate: async () =>
+            files.map((file) =>
+              typeof file === "string" ? { filename: file } : file
+            ),
+          rest: { pulls: { listFiles: () => undefined } },
+        },
+        { warning: () => undefined }
+      );
+    await expect(detect("push", [], 0)).resolves.toBe("true");
+    await expect(detect("pull_request", ["docs/README.md"], 1)).resolves.toBe(
+      "false"
+    );
+    await expect(
+      detect("pull_request", ["package-lock.json"], 1)
+    ).resolves.toBe("true");
+    await expect(
+      detect(
+        "pull_request",
+        ["android/app/src/main/res/xml-v36/network_security_config.xml"],
+        1
+      )
+    ).resolves.toBe("true");
+    await expect(
+      detect(
+        "pull_request",
+        [
+          {
+            filename: "docs/network-security.md",
+            previous_filename:
+              "android/app/src/main/res/xml/network_security_config.xml",
+          },
+        ],
+        1
+      )
+    ).resolves.toBe("true");
+    await expect(detect("pull_request", ["docs/README.md"], 2)).resolves.toBe(
+      "true"
+    );
+    for (const filteredPath of workflow.on?.push?.paths ?? []) {
+      const representativePath = filteredPath.replace(
+        "xml*/network_security_config.xml",
+        "xml-v36/network_security_config.xml"
+      );
+      await expect(
+        detect("pull_request", [representativePath], 1)
+      ).resolves.toBe("true");
+    }
+
+    const matrixJob = workflow.jobs?.["platform-policy"];
+    expect(matrixJob?.needs).toBe("detect-relevant-changes");
+    expect(matrixJob?.if).toBe(
+      "${{ needs.detect-relevant-changes.outputs.relevant == 'true' }}"
+    );
+
+    const aggregateJob = workflow.jobs?.["certificate-transparency"];
+    expect(aggregateJob?.name).toBe("Certificate transparency");
+    expect(aggregateJob?.permissions).toEqual({});
+    expect(aggregateJob?.needs).toEqual([
+      "detect-relevant-changes",
+      "platform-policy",
+    ]);
+    expect(aggregateJob?.if).toBe("${{ always() }}");
+    expect(aggregateJob?.["timeout-minutes"]).toBe(5);
+    const aggregateStep = aggregateJob?.steps?.[0];
+    expect(aggregateStep?.env).toEqual({
+      DETECTION_RESULT: "${{ needs.detect-relevant-changes.result }}",
+      PLATFORM_POLICY_RESULT: "${{ needs.platform-policy.result }}",
+      RELEVANT: "${{ needs.detect-relevant-changes.outputs.relevant }}",
+    });
+
+    const aggregateScript = aggregateStep?.run;
+    expect(aggregateScript).toBeTypeOf("string");
+    const runAggregate = (env: Record<string, string>) =>
+      spawnSync("bash", ["-eu", "-o", "pipefail", "-c", aggregateScript!], {
+        encoding: "utf8",
+        env: { ...process.env, ...env },
+      });
+
+    expect(
+      runAggregate({
+        DETECTION_RESULT: "success",
+        PLATFORM_POLICY_RESULT: "skipped",
+        RELEVANT: "false",
+      }).status
+    ).toBe(0);
+    expect(
+      runAggregate({
+        DETECTION_RESULT: "success",
+        PLATFORM_POLICY_RESULT: "success",
+        RELEVANT: "true",
+      }).status
+    ).toBe(0);
+    for (const failingCase of [
+      {
+        DETECTION_RESULT: "failure",
+        PLATFORM_POLICY_RESULT: "skipped",
+        RELEVANT: "false",
+      },
+      {
+        DETECTION_RESULT: "success",
+        PLATFORM_POLICY_RESULT: "failure",
+        RELEVANT: "true",
+      },
+      {
+        DETECTION_RESULT: "success",
+        PLATFORM_POLICY_RESULT: "skipped",
+        RELEVANT: "unknown",
+      },
+    ]) {
+      expect(runAggregate(failingCase).status).not.toBe(0);
+    }
+  });
+
   it("locks the SDK, device, monitoring, and recovery contract", () => {
     const variablesGradle = readRepoFile("android", "variables.gradle");
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
@@ -171,7 +369,8 @@ describe("Android Certificate Transparency regression contract", () => {
       "scripts/with-android-env.sh",
       "android/app/src/ctRegression/AndroidManifest.xml",
     ]) {
-      expect(workflow.split(`- "${harnessDependency}"`)).toHaveLength(3);
+      expect(workflow.split(`- "${harnessDependency}"`)).toHaveLength(2);
+      expect(workflow).toContain(`"${harnessDependency}",`);
     }
     expect(workflow).toMatch(
       /sdkmanager --channel="\$SDK_CHANNEL" \\\s+"platform-tools" "emulator" "\$image"/

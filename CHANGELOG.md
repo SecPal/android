@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Added an always-reported certificate-transparency aggregate check that runs
+  the emulator matrix only for relevant pull-request changes and fails closed
+  when change detection or any matrix job fails (issue #521).
 - Bounded certificate-transparency matrix jobs to 15 minutes for regular jobs
   below API 37, 25 minutes for API 36 live probes, and 35 minutes on API 37;
   limited post-reboot readiness waits to four minutes and capped emulator
