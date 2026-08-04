@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aligned the local Prettier pre-commit hook with `format:check`, including
+  TypeScript, JavaScript, MJS, CSS, and HTML, and added a regression guard for
+  future scope drift (issue #525).
 - Stabilized API 37 connected tests by recognizing zero-test PackageManager
   install-write failures and allowing one emulator recovery per distinct
   infrastructure failure while failing closed on identical repeats (issue
