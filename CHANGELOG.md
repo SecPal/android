@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made the PR-size workflow guard accept routine Dependabot updates while still
+  requiring the expected reusable workflow, least-privilege permissions, and a
+  full immutable commit SHA.
 - Added an always-reported certificate-transparency aggregate check that runs
   the emulator matrix only for relevant pull-request changes and fails closed
   when change detection or any matrix job fails (issue #521).
