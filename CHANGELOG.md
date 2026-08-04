@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Overrode the `uuid` transitive dependency used by the Capacitor CLI so the
+  vulnerable pre-11.1.1 releases are not installed.
 - Made the PR-size workflow guard accept routine Dependabot updates while still
   requiring the expected reusable workflow, least-privilege permissions, and a
   full immutable commit SHA.
