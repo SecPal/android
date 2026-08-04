@@ -198,8 +198,8 @@ describe("Android Certificate Transparency regression contract", () => {
     expect(workflow).toContain(
       "IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}"
     );
-    expect(workflow).toContain(
-      "timeout-minutes: ${{ matrix.api-level >= 37 && 35 || 15 }}"
+    expect(workflow).toMatch(
+      /timeout-minutes: >-\s+\${{\s+matrix\.api-level >= 37\s+&& 35\s+\|\| \(github\.event_name == 'schedule'\s+\|\| github\.event_name == 'workflow_dispatch'\)\s+&& 25\s+\|\| 15\s+}}/
     );
     expect(workflow).toContain(
       "timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh"

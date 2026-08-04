@@ -60,7 +60,15 @@ jobs:
   platform-policy:
     name: Platform policy (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.api-level >= 37 && 35 || 15 }}
+    timeout-minutes: >-
+      ${{
+        matrix.api-level >= 37
+        && 35
+        || (github.event_name == 'schedule'
+            || github.event_name == 'workflow_dispatch')
+          && 25
+        || 15
+      }}
     strategy:
       fail-fast: false
       matrix:

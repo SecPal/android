@@ -26,9 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Bounded certificate-transparency matrix jobs to 15 minutes below API 37 and
-  35 minutes on API 37, limited post-reboot readiness waits to four minutes,
-  and capped emulator cleanup at 30 seconds.
+- Bounded certificate-transparency matrix jobs to 15 minutes for regular jobs
+  below API 37, 25 minutes for API 36 live probes, and 35 minutes on API 37;
+  limited post-reboot readiness waits to four minutes and capped emulator
+  cleanup at 30 seconds.
 - Recognized API 37 zero-test instrumentation command errors with diagnostic
   messages and rebooted the emulator before the bounded retry.
 - Allowed the API 37 instrumentation harness one final rebooted attempt when a
