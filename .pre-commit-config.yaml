@@ -21,7 +21,12 @@ repos:
         name: prettier
         entry: ./scripts/run-lockfile-tool.sh prettier --write
         language: system
-        types_or: [markdown, yaml, json]
+        # Keep this scope aligned with package.json's format:check script.
+        # The javascript tag covers both .js and .mjs; files prevents it from
+        # also matching .cjs. TypeScript JSX, JavaScript JSX, Sass, and XML
+        # are intentionally outside the repository's current Prettier scope.
+        types_or: [markdown, yaml, json, ts, javascript, css, html]
+        files: \.(?:md|yml|yaml|json|ts|js|mjs|css|html)$
         exclude: 'package-lock\.json|composer\.lock|yarn\.lock|pnpm-lock\.yaml'
 
   # Markdown linting
