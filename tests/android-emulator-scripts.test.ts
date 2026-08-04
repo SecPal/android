@@ -594,6 +594,7 @@ exit 1
         | "other-repository-403-resource"
         | "package-manager"
         | "package-manager-always"
+        | "package-manager-then-missing-package-service"
         | "missing-package-service"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
@@ -635,6 +636,12 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
     attempt_failure_mode="maven-403"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
+  fi
+elif [[ "${failureMode}" == "package-manager-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="package-manager"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
   fi
 elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -881,6 +888,34 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    const missingPackageServiceAfterPackageManagerFailure = runScenario(
+      37,
+      "package-manager-then-missing-package-service"
+    );
+    expect(missingPackageServiceAfterPackageManagerFailure.result.status).toBe(
+      0
+    );
+    expect(missingPackageServiceAfterPackageManagerFailure.attempts).toBe(3);
+    expect(missingPackageServiceAfterPackageManagerFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(missingPackageServiceAfterPackageManagerFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(
+      missingPackageServiceAfterPackageManagerFailure.recoveryEvents
+    ).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+    ]);
 
     const recoverableInstrumentationCrash = runScenario(
       37,
