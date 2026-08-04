@@ -124,9 +124,10 @@ classify_api37_failure() {
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq \
-            "Test run failed to complete. No test results. onError: commandError=true message=null" \
+            "Test run failed to complete. No test results. onError: commandError=true message=" \
             "$attempt_log"; then
         retry_reason="zero-test command error"
+        reboot_before_retry=true
     fi
 }
 
