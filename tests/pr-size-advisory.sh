@@ -10,11 +10,7 @@ output="$(mktemp -d "${TMPDIR:-/tmp}/android-pr-size-advisory-output.XXXXXX")"
 trap 'rm -rf -- "$fixture" "$output"' EXIT
 fixture_path="$fixture/bin:$PATH"
 
-assert_pr_size_workflow_pin() {
-  grep -Eq \
-    '^[[:space:]]*uses:[[:space:]]*SecPal/\.github/\.github/workflows/reusable-pr-size\.yml@190904b9870fb4cb8e6034938337debd454fb2c6[[:space:]]*(#.*)?$' \
-    "$1"
-}
+node --test "$repo_root/scripts/check-pr-size-workflow.test.mjs"
 
 mkdir -p "$fixture/scripts" "$fixture/bin"
 cp "$repo_root/scripts/preflight.sh" "$fixture/scripts/preflight.sh"
@@ -92,22 +88,6 @@ for policy_file in "${policy_files[@]}"; do
     exit 1
   fi
 done
-
-if ! assert_pr_size_workflow_pin "$repo_root/.github/workflows/pr-size.yml"; then
-  echo "Hosted PR-size workflow must use the reviewed SecPal/.github#596 revision" >&2
-  exit 1
-fi
-
-workflow_pin_fixture="$output/pr-size-formatted.yml"
-printf '%s\n' \
-  'jobs:' \
-  '  pr-size:' \
-  '      uses: SecPal/.github/.github/workflows/reusable-pr-size.yml@190904b9870fb4cb8e6034938337debd454fb2c6   # reviewed governance pin' \
-  >"$workflow_pin_fixture"
-if ! assert_pr_size_workflow_pin "$workflow_pin_fixture"; then
-  echo "Workflow-pin validation must tolerate harmless YAML whitespace and comments" >&2
-  exit 1
-fi
 
 node - "$repo_root/package.json" <<'NODE'
 const { readFileSync } = require("node:fs");
