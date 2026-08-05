@@ -180,6 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Pinned every external GitHub Action and reusable workflow to a verified full
+  commit SHA with retained version documentation, backed by a regression guard
+  and the existing GitHub Actions Dependabot updates (issue #529).
 - Raised the existing transitive `brace-expansion` override floor from
   `^5.0.8` to `^5.0.9`, resolving the high-severity denial-of-service advisory
   `GHSA-rgw5-rvv9-x895` in the ESLint dependency path (issue #515).

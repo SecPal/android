@@ -12,8 +12,27 @@ Applies when editing GitHub Actions workflows and Dependabot configuration in th
 
 - Always set `timeout-minutes` on jobs that define their own `runs-on` and `steps`. Reusable workflow caller jobs that use `jobs.<id>.uses` cannot declare `timeout-minutes` at this level.
 - Set explicit `permissions` on every workflow and start with the least privilege needed.
-- Pin third-party actions to immutable versions. GitHub-maintained `actions/*` may use supported major tags in this org.
+- Pin every external action and reusable workflow to a full, lowercase
+  40-character commit SHA. Retain the corresponding tag or branch as an inline
+  comment on the same line so Dependabot can update both the SHA and its version
+  documentation.
 - Use reusable workflows from the organization templates when they fit the task.
 - Use `continue-on-error: true` only for intentional polling or wait steps, never for build or test steps.
 - Reference secrets via `${{ secrets.NAME }}` and vars via `${{ vars.NAME }}`. Never hardcode or echo secrets.
 - Run `yamllint` on workflow changes before finalizing.
+
+## Full-SHA Enforcement
+
+The repository workflows are compatible with GitHub's **Require actions to be
+pinned to a full-length commit SHA** policy. As of 2026-08-05, the policy is not
+enabled in either the `SecPal/android` repository or the `SecPal` organization.
+Enabling it requires a repository or organization administrator, and an
+enterprise policy can override the available organization and repository
+settings.
+
+GitHub's policy applies to actions, including GitHub-authored and
+organization-owned actions, but permits reusable workflows to use mutable tags.
+This repository deliberately has no reusable-workflow exception: the local
+workflow pinning regression requires full SHAs for those references as well.
+Keep the root `github-actions` Dependabot entry in `.github/dependabot.yml`
+enabled so pinned revisions and their same-line version comments remain current.

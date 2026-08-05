@@ -66,7 +66,9 @@ describe("Android Certificate Transparency regression contract", () => {
     const detectionStep = detectionJob?.steps?.find(
       (step) => step.id === "detect"
     );
-    expect(detectionStep?.uses).toBe("actions/github-script@v9");
+    expect(detectionStep?.uses).toMatch(
+      /^actions\/github-script@[0-9a-f]{40}$/
+    );
     expect(detectionStep?.with?.script).toContain(
       "github.paginate(github.rest.pulls.listFiles"
     );
