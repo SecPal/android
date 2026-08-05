@@ -16,6 +16,8 @@ Applies when editing GitHub Actions workflows and Dependabot configuration in th
   40-character commit SHA. Retain the corresponding tag or branch as an inline
   comment on the same line so Dependabot can update both the SHA and its version
   documentation.
+- Before finalizing a pin change, verify in the source repository that each SHA
+  resolves to the tag or branch documented beside it.
 - Use reusable workflows from the organization templates when they fit the task.
 - Use `continue-on-error: true` only for intentional polling or wait steps, never for build or test steps.
 - Reference secrets via `${{ secrets.NAME }}` and vars via `${{ vars.NAME }}`. Never hardcode or echo secrets.

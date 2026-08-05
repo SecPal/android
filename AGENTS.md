@@ -147,6 +147,30 @@ This file auto-applies to all files in this repo so strict SecPal governance sta
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.
 - Apply the SecPal domain policy and immediate warning and issue triage rules from the repo baseline.
 
+## Additional Rules: github-workflows.instructions.md
+
+- Always set `timeout-minutes` on jobs that define their own `runs-on` and
+  `steps`. Reusable workflow caller jobs that use `jobs.<id>.uses` cannot
+  declare `timeout-minutes` at this level.
+- Set explicit `permissions` on every workflow and start with the least
+  privilege needed.
+- Pin every external action and reusable workflow to a full, lowercase
+  40-character commit SHA. Retain the corresponding tag or branch as an inline
+  comment on the same line so Dependabot can update both the SHA and its version
+  documentation.
+- Before finalizing a pin change, verify in the source repository that each SHA
+  resolves to the tag or branch documented beside it.
+- Use reusable workflows from the organization templates when they fit the
+  task.
+- Use `continue-on-error: true` only for intentional polling or wait steps,
+  never for build or test steps.
+- Reference secrets via `${{ secrets.NAME }}` and vars via `${{ vars.NAME }}`.
+  Never hardcode or echo secrets.
+- Keep the root `github-actions` Dependabot entry in `.github/dependabot.yml`
+  enabled so pinned revisions and their same-line version comments remain
+  current.
+- Run `yamllint` on workflow changes before finalizing.
+
 ## Additional Rules: react-capacitor.instructions.md
 
 - Keep UI and domain logic in React/TypeScript. Keep Android enterprise implementation details behind explicit bridge boundaries.
