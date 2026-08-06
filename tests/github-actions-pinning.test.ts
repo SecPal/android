@@ -28,10 +28,12 @@ interface MappingFrame {
   kind: "mapping";
   expectsKey: boolean;
   key?: string;
+  path: string[];
 }
 
 interface SequenceFrame {
   kind: "sequence";
+  path: string[];
 }
 
 type ContainerFrame = MappingFrame | SequenceFrame;
@@ -110,6 +112,24 @@ function usesReferences(source: string): UsesReference[] {
   const anchors = new Map<string, string>();
   const references: UsesReference[] = [];
 
+  function isActionReferencePath(path: string[]): boolean {
+    return (
+      (path.length === 2 && path[0] === "jobs") ||
+      (path.length === 3 && path[0] === "jobs" && path[2] === "steps")
+    );
+  }
+
+  function nestedContainerPath(): string[] {
+    const frame = frames.at(-1);
+    if (frame === undefined || frame.kind === "sequence") {
+      return frame?.path ?? [];
+    }
+
+    return frame.expectsKey || frame.key === undefined
+      ? frame.path
+      : [...frame.path, frame.key];
+  }
+
   function consumeMappingValue(reference: string | null, position: number) {
     const frame = frames.at(-1);
     if (frame?.kind !== "mapping" || frame.expectsKey) {
@@ -120,7 +140,7 @@ function usesReferences(source: string): UsesReference[] {
     frame.expectsKey = true;
     delete frame.key;
 
-    if (key === "uses") {
+    if (key === "uses" && isActionReferencePath(frame.path)) {
       references.push({
         reference,
         sourceLine: sourceLineAt(source, position),
@@ -131,11 +151,12 @@ function usesReferences(source: string): UsesReference[] {
 
   for (const event of parseEvents(source, {})) {
     if (event.type === EVENT_MAPPING || event.type === EVENT_SEQUENCE) {
+      const path = nestedContainerPath();
       consumeMappingValue(null, event.start);
       frames.push(
         event.type === EVENT_MAPPING
-          ? { kind: "mapping", expectsKey: true }
-          : { kind: "sequence" }
+          ? { kind: "mapping", expectsKey: true, path }
+          : { kind: "sequence", path }
       );
     } else if (event.type === EVENT_SCALAR) {
       const value = getScalarValue(source, event);
@@ -152,7 +173,14 @@ function usesReferences(source: string): UsesReference[] {
       }
     } else if (event.type === EVENT_ALIAS) {
       const anchor = source.slice(event.anchorStart, event.anchorEnd);
-      consumeMappingValue(anchors.get(anchor) ?? null, event.anchorEnd);
+      const value = anchors.get(anchor);
+      const frame = frames.at(-1);
+      if (frame?.kind === "mapping" && frame.expectsKey) {
+        frame.key = value;
+        frame.expectsKey = false;
+      } else {
+        consumeMappingValue(value ?? null, event.anchorEnd);
+      }
     } else if (event.type === EVENT_POP) {
       frames.pop();
     }
@@ -180,20 +208,44 @@ function unpinnedExternalUses(source: string): string[] {
     .map(({ sourceLine }) => sourceLine);
 }
 
+function workflowWithStep(reference: string): string {
+  const step = reference.trimStart().startsWith("-")
+    ? reference
+    : `- ${reference}`;
+
+  return `
+jobs:
+  test:
+    steps:
+      ${step}
+`;
+}
+
 function hasEnabledGitHubActionsDependabot(source: string): boolean {
   const dependabot = load(source) as {
     updates?: Array<Record<string, unknown>>;
   };
 
   return (
-    dependabot.updates?.some(
-      (update) =>
+    dependabot.updates?.some((update) => {
+      const schedule = update.schedule;
+      const interval =
+        typeof schedule === "object" &&
+        schedule !== null &&
+        !Array.isArray(schedule)
+          ? (schedule as Record<string, unknown>).interval
+          : undefined;
+
+      return (
         update["package-ecosystem"] === "github-actions" &&
         update.directory === "/" &&
         update["open-pull-requests-limit"] !== 0 &&
         (update["target-branch"] === undefined ||
-          update["target-branch"] === "main")
-    ) ?? false
+          update["target-branch"] === "main") &&
+        typeof interval === "string" &&
+        interval.trim().length > 0
+      );
+    }) ?? false
   );
 }
 
@@ -210,6 +262,9 @@ describe("GitHub Actions dependency pinning", () => {
     );
     expect(instructions).toMatch(
       /Before finalizing a pin change, verify in the source repository that each SHA\s+resolves to the tag or branch documented beside it\./
+    );
+    expect(instructions).toMatch(
+      /Before pinning a cross-repository reusable workflow, verify that its selected\s+commit also pins every nested external action to a full commit SHA\./
     );
     expect(instructions).toMatch(
       /Keep the root `github-actions` Dependabot entry in `.github\/dependabot\.yml`\s+enabled/
@@ -234,7 +289,7 @@ describe("GitHub Actions dependency pinning", () => {
     "uses: actions/checkout@abcdef0 # v7",
     "uses: SecPal/.github/.github/workflows/reusable-reuse.yml@main # main",
   ])("rejects mutable or abbreviated reference %s", (reference) => {
-    expect(unpinnedExternalUses(reference)).toEqual([reference]);
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
   });
 
   it.each([
@@ -248,14 +303,14 @@ describe("GitHub Actions dependency pinning", () => {
       syntax: "a flow mapping",
     },
   ])("rejects a mutable reference written with $syntax", ({ reference }) => {
-    expect(unpinnedExternalUses(reference)).toEqual([reference]);
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
   });
 
   it("rejects a full SHA without inline version documentation", () => {
     const reference =
       "uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-    expect(unpinnedExternalUses(reference)).toEqual([reference]);
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
   });
 
   it.each(["latest", "version-one", "v", "v1.2.3.4"])(
@@ -263,7 +318,7 @@ describe("GitHub Actions dependency pinning", () => {
     (versionComment) => {
       const reference = `uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # ${versionComment}`;
 
-      expect(unpinnedExternalUses(reference)).toEqual([reference]);
+      expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
     }
   );
 
@@ -271,14 +326,16 @@ describe("GitHub Actions dependency pinning", () => {
     const reference =
       '- { uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, name: "# not version documentation" }';
 
-    expect(unpinnedExternalUses(reference)).toEqual([reference]);
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
   });
 
   it("resolves scalar aliases instead of skipping indirect mutable references", () => {
     const source = `
-steps:
-  - uses: &checkout actions/checkout@v7 # v7
-  - uses: *checkout # v7
+jobs:
+  test:
+    steps:
+      - uses: &checkout actions/checkout@v7 # v7
+      - uses: *checkout # v7
 `;
 
     expect(unpinnedExternalUses(source)).toEqual([
@@ -287,14 +344,62 @@ steps:
     ]);
   });
 
+  it("resolves mapping-key aliases before inspecting action references", () => {
+    const source = `
+shared-key: &uses-key uses
+jobs:
+  test:
+    steps:
+      - ? *uses-key
+        : actions/checkout@v7 # v7
+`;
+
+    expect(unpinnedExternalUses(source)).toEqual([
+      ": actions/checkout@v7 # v7",
+    ]);
+  });
+
+  it("ignores action inputs named uses", () => {
+    const source = `
+jobs:
+  test:
+    steps:
+      - uses: actions/example@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v1
+        with:
+          uses: application-defined-input
+`;
+
+    expect(unpinnedExternalUses(source)).toEqual([]);
+  });
+
+  it("checks caller jobs without treating their inputs as references", () => {
+    const mutableCaller = `
+jobs:
+  caller:
+    uses: SecPal/.github/.github/workflows/example.yml@main # main
+`;
+    const pinnedCaller = `
+jobs:
+  caller:
+    uses: SecPal/.github/.github/workflows/example.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # main
+    with:
+      uses: application-defined-input
+`;
+
+    expect(unpinnedExternalUses(mutableCaller)).toHaveLength(1);
+    expect(unpinnedExternalUses(pinnedCaller)).toEqual([]);
+  });
+
   it("accepts documented full SHAs and local actions", () => {
     expect(
       unpinnedExternalUses(`
-steps:
-  - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7
-  - uses: actions/example@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v1.2.3
-  - uses: SecPal/.github/.github/workflows/example.yml@cccccccccccccccccccccccccccccccccccccccc # main
-  - uses: ./.github/actions/setup
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7
+      - uses: actions/example@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v1.2.3
+      - uses: SecPal/.github/.github/workflows/example.yml@cccccccccccccccccccccccccccccccccccccccc # main
+      - uses: ./.github/actions/setup
 `)
     ).toEqual([]);
   });
@@ -304,7 +409,7 @@ steps:
     "- uses : actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7",
     "- { uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa } # v7",
   ])("accepts a documented full SHA in valid YAML form %s", (reference) => {
-    expect(unpinnedExternalUses(reference)).toEqual([]);
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toEqual([]);
   });
 
   it("keeps Dependabot enabled for GitHub Actions at the repository root", () => {
@@ -338,4 +443,19 @@ updates:
 `)
     ).toBe(false);
   });
+
+  it.each(["", "    schedule: {}", "    schedule:\n      time: 04:00"])(
+    "requires a scheduled GitHub Actions update entry: %s",
+    (schedule) => {
+      expect(
+        hasEnabledGitHubActionsDependabot(`
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+${schedule}
+`)
+      ).toBe(false);
+    }
+  );
 });
