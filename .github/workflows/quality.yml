@@ -17,34 +17,34 @@ permissions:
 jobs:
   reuse:
     name: Check REUSE Compliance
-    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
 
   license-compatibility:
     name: Check License Compatibility
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
 
   prettier:
     name: Formatting Check
-    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
 
   markdown-lint:
     name: Markdown Lint
-    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
 
   ai-instructions:
     name: AI Instructions
-    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
 
   eslint:
     name: ESLint
-    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
     with:
       node-version: "22"
 
   typecheck:
     name: TypeScript Check
-    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@c2956851d9158722cae9639d9482d4addd763ace # main
+    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
     with:
       node-version: "22"
       build-command: "npm run typecheck"
@@ -174,7 +174,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ env.CODECOV_TOKEN }}
           files: ./coverage/lcov.info,./coverage/clover.xml

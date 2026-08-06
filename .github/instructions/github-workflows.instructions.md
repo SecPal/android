@@ -18,6 +18,9 @@ Applies when editing GitHub Actions workflows and Dependabot configuration in th
   documentation.
 - Before finalizing a pin change, verify in the source repository that each SHA
   resolves to the tag or branch documented beside it.
+- Before pinning a cross-repository reusable workflow, verify that its selected
+  commit also pins every nested external action to a full commit SHA. A caller's
+  full-SHA pin does not make mutable tags inside the reusable workflow immutable.
 - Use reusable workflows from the organization templates when they fit the task.
 - Use `continue-on-error: true` only for intentional polling or wait steps, never for build or test steps.
 - Reference secrets via `${{ secrets.NAME }}` and vars via `${{ vars.NAME }}`. Never hardcode or echo secrets.

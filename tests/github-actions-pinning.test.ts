@@ -21,6 +21,8 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(import.meta.dirname, "..");
 const workflowDirectory = resolve(repoRoot, ".github/workflows");
 const fullCommitSha = /^[0-9a-f]{40}$/;
+const documentedVersion =
+  /^(?:main|v\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.-]+)?)$/;
 
 interface MappingFrame {
   kind: "mapping";
@@ -171,7 +173,9 @@ function unpinnedExternalUses(source: string): string[] {
           ? ""
           : reference.slice(separator + 1);
 
-      return !fullCommitSha.test(revision) || versionComment.length === 0;
+      return (
+        !fullCommitSha.test(revision) || !documentedVersion.test(versionComment)
+      );
     })
     .map(({ sourceLine }) => sourceLine);
 }
@@ -254,6 +258,15 @@ describe("GitHub Actions dependency pinning", () => {
     expect(unpinnedExternalUses(reference)).toEqual([reference]);
   });
 
+  it.each(["latest", "version-one", "v", "v1.2.3.4"])(
+    "rejects invalid inline version documentation %s",
+    (versionComment) => {
+      const reference = `uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # ${versionComment}`;
+
+      expect(unpinnedExternalUses(reference)).toEqual([reference]);
+    }
+  );
+
   it("does not mistake a hash inside another flow value for documentation", () => {
     const reference =
       '- { uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, name: "# not version documentation" }';
@@ -279,6 +292,8 @@ steps:
       unpinnedExternalUses(`
 steps:
   - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7
+  - uses: actions/example@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v1.2.3
+  - uses: SecPal/.github/.github/workflows/example.yml@cccccccccccccccccccccccccccccccccccccccc # main
   - uses: ./.github/actions/setup
 `)
     ).toEqual([]);
