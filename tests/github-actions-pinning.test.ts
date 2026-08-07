@@ -12,22 +12,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { relative, resolve, sep } from "node:path";
-import {
-  EVENT_ALIAS,
-  EVENT_MAPPING,
-  EVENT_POP,
-  EVENT_SCALAR,
-  EVENT_SEQUENCE,
-  SCALAR_STYLE_DOUBLE_QUOTED,
-  SCALAR_STYLE_FOLDED_BLOCK,
-  SCALAR_STYLE_LITERAL_BLOCK,
-  SCALAR_STYLE_SINGLE_QUOTED,
-  getScalarValue,
-  load,
-  parseEvents,
-  type ScalarEvent,
-} from "js-yaml";
 import { describe, expect, it } from "vitest";
+import {
+  isAlias,
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  parse,
+  parseDocument,
+  type Document,
+  type Node,
+  type Pair,
+  type YAMLMap,
+} from "yaml";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const fullCommitSha = /^[0-9a-f]{40}$/;
@@ -50,30 +48,11 @@ const enabledGitHubActionsUpdater = {
   "target-branch": "main",
 };
 
-interface MappingFrame {
-  kind: "mapping";
-  expectsKey: boolean;
-  key?: string;
-  path: string[];
-  anchor?: string;
-}
-
-interface SequenceFrame {
-  kind: "sequence";
-  path: string[];
-  anchor?: string;
-}
-
-type ContainerFrame = MappingFrame | SequenceFrame;
-
 interface UsesReference {
   reference: string | null;
   sourceLine: string;
   versionComment: string;
-}
-
-interface AnchoredUsesReference extends UsesReference {
-  relativePath: string[];
+  occupiesOnePhysicalLine: boolean;
 }
 
 function sourceLineAt(source: string, position: number): string {
@@ -84,67 +63,30 @@ function sourceLineAt(source: string, position: number): string {
   return source.slice(start, end).trim();
 }
 
-function inlineCommentAfter(source: string, position: number): string {
-  const newline = source.indexOf("\n", position);
-  const end = newline === -1 ? source.length : newline;
-  let singleQuoted = false;
-  let doubleQuoted = false;
+interface SourceToken {
+  type: string;
+  offset: number;
+  source: string;
+}
 
-  for (let index = position; index < end; index += 1) {
-    const character = source[index];
-
-    if (singleQuoted) {
-      if (character === "'" && source[index + 1] === "'") {
-        index += 1;
-      } else if (character === "'") {
-        singleQuoted = false;
-      }
-      continue;
-    }
-
-    if (doubleQuoted) {
-      if (character === "\\") {
-        index += 1;
-      } else if (character === '"') {
-        doubleQuoted = false;
-      }
-      continue;
-    }
-
-    if (character === "'") {
-      singleQuoted = true;
-    } else if (character === '"') {
-      doubleQuoted = true;
-    } else if (
-      character === "#" &&
-      (index === position || /\s/.test(source[index - 1] ?? ""))
-    ) {
-      return source.slice(index + 1, end).trim();
+function inlineVersionComment(
+  source: string,
+  scalarEnd: number,
+  ...tokenGroups: Array<readonly SourceToken[] | undefined>
+): string {
+  for (const tokens of tokenGroups) {
+    const comment = tokens?.find(
+      (token) =>
+        token.type === "comment" &&
+        !source.slice(scalarEnd, token.offset).includes("\n") &&
+        !source.slice(scalarEnd, token.offset).includes("\r")
+    );
+    if (comment !== undefined) {
+      return comment.source.slice(1).trim();
     }
   }
 
   return "";
-}
-
-function scalarCommentPosition(source: string, event: ScalarEvent): number {
-  if (
-    event.style === SCALAR_STYLE_FOLDED_BLOCK ||
-    event.style === SCALAR_STYLE_LITERAL_BLOCK
-  ) {
-    const indicatorLineEnd = source.lastIndexOf("\n", event.valueStart - 1);
-    return source.lastIndexOf("\n", indicatorLineEnd - 1) + 1;
-  }
-
-  if (
-    (event.style === SCALAR_STYLE_SINGLE_QUOTED &&
-      source[event.valueEnd] === "'") ||
-    (event.style === SCALAR_STYLE_DOUBLE_QUOTED &&
-      source[event.valueEnd] === '"')
-  ) {
-    return event.valueEnd + 1;
-  }
-
-  return event.valueEnd;
 }
 
 function isDocumentedGitRef(value: string): boolean {
@@ -173,138 +115,157 @@ function isDocumentedGitRef(value: string): boolean {
   );
 }
 
+function resolvedNode(value: unknown, document: Document): Node | null {
+  if (!isNode(value)) {
+    return null;
+  }
+
+  let node = value;
+  const visitedAliases = new Set<Node>();
+  while (isAlias(node)) {
+    if (visitedAliases.has(node)) {
+      return null;
+    }
+    visitedAliases.add(node);
+    const resolved = node.resolve(document);
+    if (resolved === undefined) {
+      return null;
+    }
+    node = resolved;
+  }
+
+  return node;
+}
+
+function scalarValue(value: unknown, document: Document): string | null {
+  const node = resolvedNode(value, document);
+
+  return isScalar(node) && typeof node.value === "string" ? node.value : null;
+}
+
+function mappingPair(
+  mapping: YAMLMap,
+  key: string,
+  document: Document
+): Pair | undefined {
+  return mapping.items.find(
+    (candidate) => scalarValue(candidate.key, document) === key
+  );
+}
+
+function nodeStart(value: unknown): number | undefined {
+  return isNode(value) ? (value.range?.[0] ?? undefined) : undefined;
+}
+
+function usesReference(
+  pair: Pair,
+  mapping: YAMLMap,
+  source: string,
+  document: Document
+): UsesReference {
+  const valueNode = resolvedNode(pair.value, document);
+  const displayPosition = nodeStart(pair.value) ?? nodeStart(pair.key) ?? 0;
+
+  if (!isScalar(valueNode) || typeof valueNode.value !== "string") {
+    return {
+      reference: null,
+      sourceLine: sourceLineAt(source, displayPosition),
+      versionComment: "",
+      occupiesOnePhysicalLine: false,
+    };
+  }
+
+  const token = valueNode.srcToken;
+  const scalarEnd =
+    token !== undefined && "source" in token
+      ? token.offset + token.source.length
+      : (valueNode.range?.[1] ?? 0);
+  const occupiesOnePhysicalLine =
+    valueNode.type !== "BLOCK_FOLDED" &&
+    valueNode.type !== "BLOCK_LITERAL" &&
+    token !== undefined &&
+    "source" in token &&
+    !token.source.includes("\n") &&
+    !token.source.includes("\r");
+  const scalarEndTokens =
+    token !== undefined && "end" in token ? token.end : undefined;
+  const mappingToken = mapping.srcToken;
+  const mappingEndTokens =
+    !isAlias(pair.value) && mappingToken !== undefined && "end" in mappingToken
+      ? mappingToken.end
+      : undefined;
+
+  return {
+    reference: valueNode.value,
+    sourceLine: sourceLineAt(source, displayPosition),
+    versionComment: inlineVersionComment(
+      source,
+      scalarEnd,
+      scalarEndTokens,
+      mappingEndTokens
+    ),
+    occupiesOnePhysicalLine,
+  };
+}
+
 function usesReferences(source: string): UsesReference[] {
-  const frames: ContainerFrame[] = [];
-  const scalarAnchors = new Map<
-    string,
-    { value: string; versionComment: string }
-  >();
-  const containerAnchors = new Map<string, AnchoredUsesReference[]>();
+  const document = parseDocument(source, { keepSourceTokens: true });
+  if (document.errors.length > 0) {
+    throw document.errors[0];
+  }
+
+  const root = resolvedNode(document.contents, document);
+  if (!isMap(root)) {
+    return [];
+  }
+
   const references: UsesReference[] = [];
 
-  function isActionReferencePath(path: string[]): boolean {
-    return (
-      (path.length === 2 && path[0] === "jobs") ||
-      (path.length === 3 && path[0] === "jobs" && path[2] === "steps") ||
-      (path.length === 2 && path[0] === "runs" && path[1] === "steps")
-    );
-  }
-
-  function nestedContainerPath(): string[] {
-    const frame = frames.at(-1);
-    if (frame === undefined || frame.kind === "sequence") {
-      return frame?.path ?? [];
-    }
-
-    return frame.expectsKey || frame.key === undefined
-      ? frame.path
-      : [...frame.path, frame.key];
-  }
-
-  function recordUsesReference(reference: UsesReference, path: string[]): void {
-    if (isActionReferencePath(path)) {
-      references.push(reference);
-    }
-
-    for (const frame of frames) {
-      if (
-        frame.anchor === undefined ||
-        frame.path.length > path.length ||
-        !frame.path.every((part, index) => path[index] === part)
-      ) {
-        continue;
-      }
-
-      containerAnchors.get(frame.anchor)?.push({
-        ...reference,
-        relativePath: path.slice(frame.path.length),
-      });
+  function recordUses(mapping: YAMLMap): void {
+    const pair = mappingPair(mapping, "uses", document);
+    if (pair !== undefined) {
+      references.push(usesReference(pair, mapping, source, document));
     }
   }
 
-  function consumeMappingValue(
-    reference: string | null,
-    position: number,
-    versionComment = inlineCommentAfter(source, position)
-  ) {
-    const frame = frames.at(-1);
-    if (frame?.kind !== "mapping" || frame.expectsKey) {
+  function recordSteps(value: unknown, ancestors = new Set<Node>()): void {
+    const node = resolvedNode(value, document);
+    if (node === null || ancestors.has(node)) {
       return;
     }
 
-    const key = frame.key;
-    frame.expectsKey = true;
-    delete frame.key;
-
-    if (key === "uses") {
-      recordUsesReference(
-        {
-          reference,
-          sourceLine: sourceLineAt(source, position),
-          versionComment,
-        },
-        frame.path
-      );
+    const nextAncestors = new Set(ancestors).add(node);
+    if (isSeq(node)) {
+      for (const item of node.items) {
+        recordSteps(item, nextAncestors);
+      }
+    } else if (isMap(node)) {
+      recordUses(node);
     }
   }
 
-  for (const event of parseEvents(source, {})) {
-    if (event.type === EVENT_MAPPING || event.type === EVENT_SEQUENCE) {
-      const path = nestedContainerPath();
-      const anchor =
-        event.anchorStart >= 0
-          ? source.slice(event.anchorStart, event.anchorEnd)
-          : undefined;
-      consumeMappingValue(null, event.start);
-      if (anchor !== undefined) {
-        containerAnchors.set(anchor, []);
-      }
-      frames.push(
-        event.type === EVENT_MAPPING
-          ? { kind: "mapping", expectsKey: true, path, anchor }
-          : { kind: "sequence", path, anchor }
-      );
-    } else if (event.type === EVENT_SCALAR) {
-      const value = getScalarValue(source, event);
-      if (event.anchorStart >= 0) {
-        const position = scalarCommentPosition(source, event);
-        scalarAnchors.set(source.slice(event.anchorStart, event.anchorEnd), {
-          value,
-          versionComment: inlineCommentAfter(source, position),
-        });
+  const jobs = resolvedNode(
+    mappingPair(root, "jobs", document)?.value,
+    document
+  );
+  if (isMap(jobs)) {
+    for (const job of jobs.items) {
+      const jobDefinition = resolvedNode(job.value, document);
+      if (!isMap(jobDefinition)) {
+        continue;
       }
 
-      const frame = frames.at(-1);
-      if (frame?.kind === "mapping" && frame.expectsKey) {
-        frame.key = value;
-        frame.expectsKey = false;
-      } else {
-        consumeMappingValue(value, scalarCommentPosition(source, event));
-      }
-    } else if (event.type === EVENT_ALIAS) {
-      const anchor = source.slice(event.anchorStart, event.anchorEnd);
-      const scalarAnchor = scalarAnchors.get(anchor);
-      const frame = frames.at(-1);
-      if (frame?.kind === "mapping" && frame.expectsKey) {
-        frame.key = scalarAnchor?.value;
-        frame.expectsKey = false;
-      } else {
-        const targetPath = nestedContainerPath();
-        for (const anchoredReference of [
-          ...(containerAnchors.get(anchor) ?? []),
-        ]) {
-          const { relativePath, ...reference } = anchoredReference;
-          recordUsesReference(reference, [...targetPath, ...relativePath]);
-        }
-        consumeMappingValue(
-          scalarAnchor?.value ?? null,
-          event.anchorEnd,
-          scalarAnchor?.versionComment ?? ""
-        );
-      }
-    } else if (event.type === EVENT_POP) {
-      frames.pop();
+      recordUses(jobDefinition);
+      recordSteps(mappingPair(jobDefinition, "steps", document)?.value);
     }
+  }
+
+  const runs = resolvedNode(
+    mappingPair(root, "runs", document)?.value,
+    document
+  );
+  if (isMap(runs)) {
+    recordSteps(mappingPair(runs, "steps", document)?.value);
   }
 
   return references;
@@ -315,7 +276,7 @@ function unpinnedExternalUses(source: string): string[] {
     .filter(
       ({ reference }) => reference === null || !reference.startsWith("./")
     )
-    .filter(({ reference, versionComment }) => {
+    .filter(({ reference, versionComment, occupiesOnePhysicalLine }) => {
       const separator = reference?.lastIndexOf("@") ?? -1;
       const revision =
         separator === -1 || reference === null
@@ -323,7 +284,9 @@ function unpinnedExternalUses(source: string): string[] {
           : reference.slice(separator + 1);
 
       return (
-        !fullCommitSha.test(revision) || !isDocumentedGitRef(versionComment)
+        !occupiesOnePhysicalLine ||
+        !fullCommitSha.test(revision) ||
+        !isDocumentedGitRef(versionComment)
       );
     })
     .map(({ sourceLine }) => sourceLine);
@@ -472,7 +435,7 @@ describe("GitHub Actions dependency pinning", () => {
       ),
       "utf8"
     );
-    const frontmatter = load(instructions.split("---")[1]) as {
+    const frontmatter = parse(instructions.split("---")[1]) as {
       applyTo?: string;
     };
     const patterns = frontmatter.applyTo?.split(",") ?? [];
@@ -581,6 +544,30 @@ describe("GitHub Actions dependency pinning", () => {
       "uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
+  });
+
+  it("rejects version documentation on the following line", () => {
+    const source = `
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        # v7
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
+  });
+
+  it("rejects an action reference split across physical lines", () => {
+    const source = `
+jobs:
+  test:
+    steps:
+      - uses: "actions/checkout@aaaaaaaaaaaaaaaaaaaa\\
+          aaaaaaaaaaaaaaaaaaaa" # v7
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
   });
 
   it.each([
@@ -790,7 +777,7 @@ jobs:
   });
 
   it.each([">-", "|-"])(
-    "accepts a documented full SHA in a %s block scalar",
+    "rejects an action reference in a %s block scalar",
     (indicator) => {
       const source = `
 jobs:
@@ -800,7 +787,7 @@ jobs:
           actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 `;
 
-      expect(unpinnedExternalUses(source)).toEqual([]);
+      expect(unpinnedExternalUses(source)).toHaveLength(1);
     }
   );
 
@@ -887,7 +874,7 @@ jobs:
   });
 
   it("keeps Dependabot enabled for GitHub Actions at the repository root", () => {
-    const dependabot = load(
+    const dependabot = parse(
       readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8")
     ) as {
       version?: unknown;

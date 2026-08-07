@@ -182,9 +182,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pinned every external GitHub Action and reusable workflow to a verified full
   commit SHA with validated version documentation, including immutable nested
-  actions in shared workflows, backed by a regression guard that understands
-  container aliases, anchor-bound version documentation, block scalars,
-  workflow and recursively referenced composite-action paths, and general Git
+  actions in shared workflows, backed by an AST-based regression guard that
+  resolves YAML aliases without maintaining a custom event parser, requires
+  each reference and its version documentation on one physical line, covers
+  workflow and recursively referenced composite-action paths and general Git
   tag and branch names, plus a direct semantic guard for both valid
   root-directory forms of the enabled, unfiltered GitHub Actions Dependabot
   updater and documentation of the active organization and repository
