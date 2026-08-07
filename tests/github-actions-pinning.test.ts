@@ -23,17 +23,28 @@ const workflowDirectory = resolve(repoRoot, ".github/workflows");
 const fullCommitSha = /^[0-9a-f]{40}$/;
 const documentedVersion =
   /^(?:main|v\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.-]+)?)$/;
+const dependabotScheduleIntervals = new Set([
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "semiannually",
+  "yearly",
+  "cron",
+]);
 
 interface MappingFrame {
   kind: "mapping";
   expectsKey: boolean;
   key?: string;
   path: string[];
+  anchor?: string;
 }
 
 interface SequenceFrame {
   kind: "sequence";
   path: string[];
+  anchor?: string;
 }
 
 type ContainerFrame = MappingFrame | SequenceFrame;
@@ -42,6 +53,10 @@ interface UsesReference {
   reference: string | null;
   sourceLine: string;
   versionComment: string;
+}
+
+interface AnchoredUsesReference extends UsesReference {
+  relativePath: string[];
 }
 
 function sourceLineAt(source: string, position: number): string {
@@ -109,7 +124,8 @@ function scalarEnd(source: string, event: ScalarEvent): number {
 
 function usesReferences(source: string): UsesReference[] {
   const frames: ContainerFrame[] = [];
-  const anchors = new Map<string, string>();
+  const scalarAnchors = new Map<string, string>();
+  const containerAnchors = new Map<string, AnchoredUsesReference[]>();
   const references: UsesReference[] = [];
 
   function isActionReferencePath(path: string[]): boolean {
@@ -130,6 +146,27 @@ function usesReferences(source: string): UsesReference[] {
       : [...frame.path, frame.key];
   }
 
+  function recordUsesReference(reference: UsesReference, path: string[]): void {
+    if (isActionReferencePath(path)) {
+      references.push(reference);
+    }
+
+    for (const frame of frames) {
+      if (
+        frame.anchor === undefined ||
+        frame.path.length > path.length ||
+        !frame.path.every((part, index) => path[index] === part)
+      ) {
+        continue;
+      }
+
+      containerAnchors.get(frame.anchor)?.push({
+        ...reference,
+        relativePath: path.slice(frame.path.length),
+      });
+    }
+  }
+
   function consumeMappingValue(reference: string | null, position: number) {
     const frame = frames.at(-1);
     if (frame?.kind !== "mapping" || frame.expectsKey) {
@@ -140,28 +177,41 @@ function usesReferences(source: string): UsesReference[] {
     frame.expectsKey = true;
     delete frame.key;
 
-    if (key === "uses" && isActionReferencePath(frame.path)) {
-      references.push({
-        reference,
-        sourceLine: sourceLineAt(source, position),
-        versionComment: inlineCommentAfter(source, position),
-      });
+    if (key === "uses") {
+      recordUsesReference(
+        {
+          reference,
+          sourceLine: sourceLineAt(source, position),
+          versionComment: inlineCommentAfter(source, position),
+        },
+        frame.path
+      );
     }
   }
 
   for (const event of parseEvents(source, {})) {
     if (event.type === EVENT_MAPPING || event.type === EVENT_SEQUENCE) {
       const path = nestedContainerPath();
+      const anchor =
+        event.anchorStart >= 0
+          ? source.slice(event.anchorStart, event.anchorEnd)
+          : undefined;
       consumeMappingValue(null, event.start);
+      if (anchor !== undefined) {
+        containerAnchors.set(anchor, []);
+      }
       frames.push(
         event.type === EVENT_MAPPING
-          ? { kind: "mapping", expectsKey: true, path }
-          : { kind: "sequence", path }
+          ? { kind: "mapping", expectsKey: true, path, anchor }
+          : { kind: "sequence", path, anchor }
       );
     } else if (event.type === EVENT_SCALAR) {
       const value = getScalarValue(source, event);
       if (event.anchorStart >= 0) {
-        anchors.set(source.slice(event.anchorStart, event.anchorEnd), value);
+        scalarAnchors.set(
+          source.slice(event.anchorStart, event.anchorEnd),
+          value
+        );
       }
 
       const frame = frames.at(-1);
@@ -173,12 +223,19 @@ function usesReferences(source: string): UsesReference[] {
       }
     } else if (event.type === EVENT_ALIAS) {
       const anchor = source.slice(event.anchorStart, event.anchorEnd);
-      const value = anchors.get(anchor);
+      const value = scalarAnchors.get(anchor);
       const frame = frames.at(-1);
       if (frame?.kind === "mapping" && frame.expectsKey) {
         frame.key = value;
         frame.expectsKey = false;
       } else {
+        const targetPath = nestedContainerPath();
+        for (const anchoredReference of [
+          ...(containerAnchors.get(anchor) ?? []),
+        ]) {
+          const { relativePath, ...reference } = anchoredReference;
+          recordUsesReference(reference, [...targetPath, ...relativePath]);
+        }
         consumeMappingValue(value ?? null, event.anchorEnd);
       }
     } else if (event.type === EVENT_POP) {
@@ -229,13 +286,14 @@ function hasEnabledGitHubActionsDependabot(source: string): boolean {
   return (
     dependabot.updates?.some((update) => {
       const schedule = update.schedule;
-      const interval =
+      const scheduleConfiguration =
         typeof schedule === "object" &&
         schedule !== null &&
         !Array.isArray(schedule)
-          ? (schedule as Record<string, unknown>).interval
+          ? (schedule as Record<string, unknown>)
           : undefined;
-
+      const interval = scheduleConfiguration?.interval;
+      const cronjob = scheduleConfiguration?.cronjob;
       return (
         update["package-ecosystem"] === "github-actions" &&
         update.directory === "/" &&
@@ -243,7 +301,9 @@ function hasEnabledGitHubActionsDependabot(source: string): boolean {
         (update["target-branch"] === undefined ||
           update["target-branch"] === "main") &&
         typeof interval === "string" &&
-        interval.trim().length > 0
+        dependabotScheduleIntervals.has(interval) &&
+        (interval !== "cron" ||
+          (typeof cronjob === "string" && cronjob.trim().length > 0))
       );
     }) ?? false
   );
@@ -342,6 +402,53 @@ jobs:
       "- uses: &checkout actions/checkout@v7 # v7",
       "- uses: *checkout # v7",
     ]);
+  });
+
+  it("resolves mapping aliases used as complete action steps", () => {
+    const source = `
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          - step: &checkout-step
+              uses: actions/checkout@v7 # v7
+    steps:
+      - *checkout-step
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
+  });
+
+  it("replays anchored caller jobs and action-step lists", () => {
+    const source = `
+jobs:
+  reusable-template: &reusable-job
+    uses: SecPal/.github/.github/workflows/example.yml@main # main
+  reusable-copy: *reusable-job
+  build:
+    steps: &build-steps
+      - uses: actions/checkout@v7 # v7
+  build-copy:
+    steps: *build-steps
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(4);
+  });
+
+  it("ignores nested uses inputs when an anchored step is reused", () => {
+    const source = `
+jobs:
+  test:
+    steps:
+      - &example-step
+        uses: actions/example@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v1
+        with:
+          uses: application-defined-input
+      - *example-step
+`;
+
+    expect(unpinnedExternalUses(source)).toEqual([]);
   });
 
   it("resolves mapping-key aliases before inspecting action references", () => {
@@ -458,4 +565,62 @@ ${schedule}
       ).toBe(false);
     }
   );
+
+  it("rejects unsupported Dependabot schedule intervals", () => {
+    expect(
+      hasEnabledGitHubActionsDependabot(`
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: never
+`)
+    ).toBe(false);
+  });
+
+  it.each([
+    "daily",
+    "weekly",
+    "monthly",
+    "quarterly",
+    "semiannually",
+    "yearly",
+  ])("accepts the supported Dependabot schedule interval %s", (interval) => {
+    expect(
+      hasEnabledGitHubActionsDependabot(`
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: ${interval}
+`)
+    ).toBe(true);
+  });
+
+  it("requires a cronjob for the cron Dependabot schedule interval", () => {
+    expect(
+      hasEnabledGitHubActionsDependabot(`
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: cron
+`)
+    ).toBe(false);
+
+    expect(
+      hasEnabledGitHubActionsDependabot(`
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: 0 5 * * 1
+`)
+    ).toBe(true);
+  });
 });
