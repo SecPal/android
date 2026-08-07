@@ -175,7 +175,10 @@ function isDocumentedGitRef(value: string): boolean {
 
 function usesReferences(source: string): UsesReference[] {
   const frames: ContainerFrame[] = [];
-  const scalarAnchors = new Map<string, string>();
+  const scalarAnchors = new Map<
+    string,
+    { value: string; versionComment: string }
+  >();
   const containerAnchors = new Map<string, AnchoredUsesReference[]>();
   const references: UsesReference[] = [];
 
@@ -219,7 +222,11 @@ function usesReferences(source: string): UsesReference[] {
     }
   }
 
-  function consumeMappingValue(reference: string | null, position: number) {
+  function consumeMappingValue(
+    reference: string | null,
+    position: number,
+    versionComment = inlineCommentAfter(source, position)
+  ) {
     const frame = frames.at(-1);
     if (frame?.kind !== "mapping" || frame.expectsKey) {
       return;
@@ -234,7 +241,7 @@ function usesReferences(source: string): UsesReference[] {
         {
           reference,
           sourceLine: sourceLineAt(source, position),
-          versionComment: inlineCommentAfter(source, position),
+          versionComment,
         },
         frame.path
       );
@@ -260,10 +267,11 @@ function usesReferences(source: string): UsesReference[] {
     } else if (event.type === EVENT_SCALAR) {
       const value = getScalarValue(source, event);
       if (event.anchorStart >= 0) {
-        scalarAnchors.set(
-          source.slice(event.anchorStart, event.anchorEnd),
-          value
-        );
+        const position = scalarCommentPosition(source, event);
+        scalarAnchors.set(source.slice(event.anchorStart, event.anchorEnd), {
+          value,
+          versionComment: inlineCommentAfter(source, position),
+        });
       }
 
       const frame = frames.at(-1);
@@ -275,10 +283,10 @@ function usesReferences(source: string): UsesReference[] {
       }
     } else if (event.type === EVENT_ALIAS) {
       const anchor = source.slice(event.anchorStart, event.anchorEnd);
-      const value = scalarAnchors.get(anchor);
+      const scalarAnchor = scalarAnchors.get(anchor);
       const frame = frames.at(-1);
       if (frame?.kind === "mapping" && frame.expectsKey) {
-        frame.key = value;
+        frame.key = scalarAnchor?.value;
         frame.expectsKey = false;
       } else {
         const targetPath = nestedContainerPath();
@@ -288,7 +296,11 @@ function usesReferences(source: string): UsesReference[] {
           const { relativePath, ...reference } = anchoredReference;
           recordUsesReference(reference, [...targetPath, ...relativePath]);
         }
-        consumeMappingValue(value ?? null, event.anchorEnd);
+        consumeMappingValue(
+          scalarAnchor?.value ?? null,
+          event.anchorEnd,
+          scalarAnchor?.versionComment ?? ""
+        );
       }
     } else if (event.type === EVENT_POP) {
       frames.pop();
@@ -623,6 +635,32 @@ jobs:
       "- uses: &checkout actions/checkout@v7 # v7",
       "- uses: *checkout # v7",
     ]);
+  });
+
+  it("requires alias version documentation beside the anchored SHA", () => {
+    const source = `
+shared:
+  ref: &checkout actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+jobs:
+  test:
+    steps:
+      - uses: *checkout # v7
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
+  });
+
+  it("accepts alias version documentation beside the anchored SHA", () => {
+    const source = `
+shared:
+  ref: &checkout actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7
+jobs:
+  test:
+    steps:
+      - uses: *checkout
+`;
+
+    expect(unpinnedExternalUses(source)).toEqual([]);
   });
 
   it("resolves mapping aliases used as complete action steps", () => {
