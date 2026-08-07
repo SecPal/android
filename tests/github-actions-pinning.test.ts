@@ -22,15 +22,6 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const workflowDirectory = resolve(repoRoot, ".github/workflows");
 const fullCommitSha = /^[0-9a-f]{40}$/;
 const invalidGitRefCharacters = new Set(["~", "^", ":", "?", "*", "[", "\\"]);
-const dependabotScheduleIntervals = new Set([
-  "daily",
-  "weekly",
-  "monthly",
-  "quarterly",
-  "semiannually",
-  "yearly",
-  "cron",
-]);
 
 interface MappingFrame {
   kind: "mapping";
@@ -303,63 +294,6 @@ jobs:
 `;
 }
 
-function hasEnabledGitHubActionsDependabot(source: string): boolean {
-  const parsed = load(source);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return false;
-  }
-
-  const dependabot = parsed as Record<string, unknown>;
-  if (dependabot.version !== 2 || !Array.isArray(dependabot.updates)) {
-    return false;
-  }
-
-  return dependabot.updates.some((candidate) => {
-    if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    ) {
-      return false;
-    }
-
-    const update = candidate as Record<string, unknown>;
-    const schedule = update.schedule;
-    const scheduleConfiguration =
-      typeof schedule === "object" &&
-      schedule !== null &&
-      !Array.isArray(schedule)
-        ? (schedule as Record<string, unknown>)
-        : undefined;
-    const interval = scheduleConfiguration?.interval;
-    const cronjob = scheduleConfiguration?.cronjob;
-    const pullRequestLimit = update["open-pull-requests-limit"];
-    const permitsPullRequests =
-      pullRequestLimit === undefined ||
-      (Number.isInteger(pullRequestLimit) &&
-        typeof pullRequestLimit === "number" &&
-        pullRequestLimit > 0);
-    const usesDirectory = update.directory !== undefined;
-    const usesDirectories = update.directories !== undefined;
-    const hasRootDirectory =
-      usesDirectory !== usesDirectories &&
-      (update.directory === "/" ||
-        (Array.isArray(update.directories) &&
-          update.directories.includes("/")));
-    return (
-      update["package-ecosystem"] === "github-actions" &&
-      hasRootDirectory &&
-      permitsPullRequests &&
-      (update["target-branch"] === undefined ||
-        update["target-branch"] === "main") &&
-      typeof interval === "string" &&
-      dependabotScheduleIntervals.has(interval) &&
-      (interval !== "cron" ||
-        (typeof cronjob === "string" && cronjob.trim().length > 0))
-    );
-  });
-}
-
 describe("GitHub Actions dependency pinning", () => {
   it.each([
     "AGENTS.md",
@@ -594,169 +528,37 @@ jobs:
   });
 
   it("keeps Dependabot enabled for GitHub Actions at the repository root", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(
-        readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8")
-      )
-    ).toBe(true);
-  });
+    const dependabot = load(
+      readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8")
+    ) as {
+      version?: unknown;
+      updates?: Array<Record<string, unknown>>;
+    };
+    const updaters = dependabot.updates?.filter(
+      (candidate) => candidate["package-ecosystem"] === "github-actions"
+    );
+    const updater = updaters?.[0];
 
-  it.each(["", "version: 1", 'version: "2"'])(
-    "requires Dependabot schema version 2: %s",
-    (version) => {
-      expect(
-        hasEnabledGitHubActionsDependabot(`
-${version}
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: daily
-`)
-      ).toBe(false);
-    }
-  );
-
-  it("accepts the supported directories form for the repository root", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directories:
-      - /
-    schedule:
-      interval: daily
-`)
-    ).toBe(true);
-  });
-
-  it("rejects conflicting Dependabot directory forms", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    directories:
-      - /
-    schedule:
-      interval: daily
-`)
-    ).toBe(false);
-  });
-
-  it("treats a zero GitHub Actions pull-request limit as disabled", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    open-pull-requests-limit: 0
-`)
-    ).toBe(false);
-  });
-
-  it.each(["-1", "1.5", '"5"', "null"])(
-    "rejects invalid GitHub Actions pull-request limit %s",
-    (limit) => {
-      expect(
-        hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    open-pull-requests-limit: ${limit}
-    schedule:
-      interval: daily
-`)
-      ).toBe(false);
-    }
-  );
-
-  it("does not accept GitHub Actions updates targeting another branch", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    target-branch: maintenance
-`)
-    ).toBe(false);
-  });
-
-  it.each(["", "    schedule: {}", "    schedule:\n      time: 04:00"])(
-    "requires a scheduled GitHub Actions update entry: %s",
-    (schedule) => {
-      expect(
-        hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-${schedule}
-`)
-      ).toBe(false);
-    }
-  );
-
-  it("rejects unsupported Dependabot schedule intervals", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: never
-`)
-    ).toBe(false);
-  });
-
-  it.each([
-    "daily",
-    "weekly",
-    "monthly",
-    "quarterly",
-    "semiannually",
-    "yearly",
-  ])("accepts the supported Dependabot schedule interval %s", (interval) => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: ${interval}
-`)
-    ).toBe(true);
-  });
-
-  it("requires a cronjob for the cron Dependabot schedule interval", () => {
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: cron
-`)
-    ).toBe(false);
-
-    expect(
-      hasEnabledGitHubActionsDependabot(`
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: cron
-      cronjob: 0 5 * * 1
-`)
-    ).toBe(true);
+    expect(dependabot.version).toBe(2);
+    expect(updaters).toHaveLength(1);
+    expect(updater).toMatchObject({
+      directory: "/",
+      schedule: { interval: "daily" },
+      "open-pull-requests-limit": 10,
+      "target-branch": "main",
+    });
+    expect(Object.keys(updater ?? {}).sort()).toEqual(
+      [
+        "commit-message",
+        "directory",
+        "labels",
+        "open-pull-requests-limit",
+        "package-ecosystem",
+        "pull-request-branch-name",
+        "rebase-strategy",
+        "schedule",
+        "target-branch",
+      ].sort()
+    );
   });
 });
