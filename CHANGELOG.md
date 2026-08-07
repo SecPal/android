@@ -182,9 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pinned every external GitHub Action and reusable workflow to a verified full
   commit SHA with validated version documentation, including immutable nested
-  actions in shared workflows, backed by a container-alias- and path-aware
-  regression guard and validated GitHub Actions Dependabot schedules (issue
-  #529).
+  actions in shared workflows, backed by a regression guard that understands
+  container aliases, action paths, and general Git tag and branch names, plus
+  validated GitHub Actions Dependabot schedules (issue #529).
 - Raised the existing transitive `brace-expansion` override floor from
   `^5.0.8` to `^5.0.9`, resolving the high-severity denial-of-service advisory
   `GHSA-rgw5-rvv9-x895` in the ESLint dependency path (issue #515).

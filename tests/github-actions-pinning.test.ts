@@ -21,8 +21,7 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(import.meta.dirname, "..");
 const workflowDirectory = resolve(repoRoot, ".github/workflows");
 const fullCommitSha = /^[0-9a-f]{40}$/;
-const documentedVersion =
-  /^(?:main|v\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.-]+)?)$/;
+const invalidGitRefCharacters = new Set(["~", "^", ":", "?", "*", "[", "\\"]);
 const dependabotScheduleIntervals = new Set([
   "daily",
   "weekly",
@@ -120,6 +119,32 @@ function scalarEnd(source: string, event: ScalarEvent): number {
   }
 
   return event.valueEnd;
+}
+
+function isDocumentedGitRef(value: string): boolean {
+  const components = value.split("/");
+
+  return (
+    value.length > 0 &&
+    value !== "@" &&
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !value.endsWith(".") &&
+    ![...value].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return (
+        codePoint <= 0x20 ||
+        codePoint === 0x7f ||
+        invalidGitRefCharacters.has(character)
+      );
+    }) &&
+    components.every(
+      (component) =>
+        component.length > 0 &&
+        !component.startsWith(".") &&
+        !component.endsWith(".lock")
+    )
+  );
 }
 
 function usesReferences(source: string): UsesReference[] {
@@ -259,7 +284,7 @@ function unpinnedExternalUses(source: string): string[] {
           : reference.slice(separator + 1);
 
       return (
-        !fullCommitSha.test(revision) || !documentedVersion.test(versionComment)
+        !fullCommitSha.test(revision) || !isDocumentedGitRef(versionComment)
       );
     })
     .map(({ sourceLine }) => sourceLine);
@@ -373,14 +398,37 @@ describe("GitHub Actions dependency pinning", () => {
     expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
   });
 
-  it.each(["latest", "version-one", "v", "v1.2.3.4"])(
-    "rejects invalid inline version documentation %s",
-    (versionComment) => {
-      const reference = `uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # ${versionComment}`;
+  it.each([
+    "",
+    "release candidate",
+    "feature..branch",
+    "/main",
+    "main/",
+    "feature/.hidden",
+    "release.",
+    "release.lock",
+    "release@{1}",
+    "@",
+    "release~1",
+    "release:1",
+    "release\\1",
+  ])("rejects invalid inline version documentation %s", (versionComment) => {
+    const reference = `uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # ${versionComment}`;
 
-      expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
-    }
-  );
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toHaveLength(1);
+  });
+
+  it.each([
+    "main",
+    "release-1.x",
+    "stable",
+    "feature/security-fixes",
+    "v1.2.3.4",
+  ])("accepts the documented Git tag or branch %s", (versionComment) => {
+    const reference = `uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # ${versionComment}`;
+
+    expect(unpinnedExternalUses(workflowWithStep(reference))).toEqual([]);
+  });
 
   it("does not mistake a hash inside another flow value for documentation", () => {
     const reference =
