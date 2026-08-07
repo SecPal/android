@@ -19,6 +19,8 @@ import {
   EVENT_SCALAR,
   EVENT_SEQUENCE,
   SCALAR_STYLE_DOUBLE_QUOTED,
+  SCALAR_STYLE_FOLDED_BLOCK,
+  SCALAR_STYLE_LITERAL_BLOCK,
   SCALAR_STYLE_SINGLE_QUOTED,
   getScalarValue,
   load,
@@ -124,7 +126,15 @@ function inlineCommentAfter(source: string, position: number): string {
   return "";
 }
 
-function scalarEnd(source: string, event: ScalarEvent): number {
+function scalarCommentPosition(source: string, event: ScalarEvent): number {
+  if (
+    event.style === SCALAR_STYLE_FOLDED_BLOCK ||
+    event.style === SCALAR_STYLE_LITERAL_BLOCK
+  ) {
+    const indicatorLineEnd = source.lastIndexOf("\n", event.valueStart - 1);
+    return source.lastIndexOf("\n", indicatorLineEnd - 1) + 1;
+  }
+
   if (
     (event.style === SCALAR_STYLE_SINGLE_QUOTED &&
       source[event.valueEnd] === "'") ||
@@ -261,7 +271,7 @@ function usesReferences(source: string): UsesReference[] {
         frame.key = value;
         frame.expectsKey = false;
       } else {
-        consumeMappingValue(value, scalarEnd(source, event));
+        consumeMappingValue(value, scalarCommentPosition(source, event));
       }
     } else if (event.type === EVENT_ALIAS) {
       const anchor = source.slice(event.anchorStart, event.anchorEnd);
@@ -392,10 +402,20 @@ function isEnabledUnfilteredGitHubActionsUpdater(
   const interval = scheduleRecord?.interval;
   const pullRequestLimit = updater["open-pull-requests-limit"];
   const targetBranch = updater["target-branch"];
+  const hasDirectory = Object.hasOwn(updater, "directory");
+  const hasDirectories = Object.hasOwn(updater, "directories");
+  const directories = updater.directories;
+  const coversRepositoryRoot =
+    hasDirectory !== hasDirectories &&
+    ((hasDirectory && updater.directory === "/") ||
+      (hasDirectories &&
+        Array.isArray(directories) &&
+        directories.length === 1 &&
+        directories[0] === "/"));
 
   return (
     updater["package-ecosystem"] === "github-actions" &&
-    updater.directory === "/" &&
+    coversRepositoryRoot &&
     typeof interval === "string" &&
     dependabotScheduleIntervals.has(interval) &&
     (interval !== "cron" ||
@@ -731,6 +751,33 @@ jobs:
     expect(unpinnedExternalUses(workflowWithStep(reference))).toEqual([]);
   });
 
+  it.each([">-", "|-"])(
+    "accepts a documented full SHA in a %s block scalar",
+    (indicator) => {
+      const source = `
+jobs:
+  test:
+    steps:
+      - uses: ${indicator} # v7
+          actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+`;
+
+      expect(unpinnedExternalUses(source)).toEqual([]);
+    }
+  );
+
+  it("rejects a block-scalar full SHA without version documentation", () => {
+    const source = `
+jobs:
+  test:
+    steps:
+      - uses: >-
+          actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
+  });
+
   it("allows optional non-filtering Dependabot updater fields", () => {
     expect(
       isEnabledUnfilteredGitHubActionsUpdater({
@@ -741,6 +788,39 @@ jobs:
         assignees: ["dependency-maintainer"],
       })
     ).toBe(true);
+  });
+
+  it("accepts the plural root-directory Dependabot updater form", () => {
+    const updater: Record<string, unknown> = {
+      ...enabledGitHubActionsUpdater,
+    };
+    delete updater.directory;
+
+    expect(
+      isEnabledUnfilteredGitHubActionsUpdater({
+        ...updater,
+        directories: ["/"],
+      })
+    ).toBe(true);
+  });
+
+  it("rejects mutually exclusive Dependabot directory forms used together", () => {
+    expect(
+      isEnabledUnfilteredGitHubActionsUpdater({
+        ...enabledGitHubActionsUpdater,
+        directories: ["/"],
+      })
+    ).toBe(false);
+  });
+
+  it("rejects a plural Dependabot form that is not exactly the root", () => {
+    const updater: Record<string, unknown> = {
+      ...enabledGitHubActionsUpdater,
+      directories: ["/", "/nested"],
+    };
+    delete updater.directory;
+
+    expect(isEnabledUnfilteredGitHubActionsUpdater(updater)).toBe(false);
   });
 
   it.each(dependabotFilterFields)(
