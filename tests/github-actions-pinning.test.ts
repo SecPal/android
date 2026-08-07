@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import {
   EVENT_ALIAS,
   EVENT_MAPPING,
@@ -20,8 +20,26 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const workflowDirectory = resolve(repoRoot, ".github/workflows");
+const localActionDirectory = resolve(repoRoot, ".github/actions");
 const fullCommitSha = /^[0-9a-f]{40}$/;
 const invalidGitRefCharacters = new Set(["~", "^", ":", "?", "*", "[", "\\"]);
+const dependabotFilterFields = ["allow", "ignore", "exclude-paths"] as const;
+const dependabotScheduleIntervals = new Set([
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "semiannually",
+  "yearly",
+  "cron",
+]);
+const enabledGitHubActionsUpdater = {
+  "package-ecosystem": "github-actions",
+  directory: "/",
+  schedule: { interval: "daily" },
+  "open-pull-requests-limit": 10,
+  "target-branch": "main",
+};
 
 interface MappingFrame {
   kind: "mapping";
@@ -147,7 +165,8 @@ function usesReferences(source: string): UsesReference[] {
   function isActionReferencePath(path: string[]): boolean {
     return (
       (path.length === 2 && path[0] === "jobs") ||
-      (path.length === 3 && path[0] === "jobs" && path[2] === "steps")
+      (path.length === 3 && path[0] === "jobs" && path[2] === "steps") ||
+      (path.length === 2 && path[0] === "runs" && path[1] === "steps")
     );
   }
 
@@ -294,6 +313,66 @@ jobs:
 `;
 }
 
+function actionManifestFiles(directory: string): string[] {
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      return actionManifestFiles(path);
+    }
+
+    return entry.isFile() && /^action\.ya?ml$/.test(entry.name) ? [path] : [];
+  });
+}
+
+function pinningSourceFiles(): string[] {
+  const workflowFiles = readdirSync(workflowDirectory)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .map((name) => resolve(workflowDirectory, name));
+  const rootActionManifests = ["action.yml", "action.yaml"]
+    .map((name) => resolve(repoRoot, name))
+    .filter(existsSync);
+
+  return [
+    ...workflowFiles,
+    ...rootActionManifests,
+    ...actionManifestFiles(localActionDirectory),
+  ];
+}
+
+function isEnabledUnfilteredGitHubActionsUpdater(
+  updater: Record<string, unknown>
+): boolean {
+  const schedule = updater.schedule;
+  const scheduleRecord =
+    typeof schedule === "object" && schedule !== null
+      ? (schedule as Record<string, unknown>)
+      : undefined;
+  const interval = scheduleRecord?.interval;
+  const pullRequestLimit = updater["open-pull-requests-limit"];
+  const targetBranch = updater["target-branch"];
+
+  return (
+    updater["package-ecosystem"] === "github-actions" &&
+    updater.directory === "/" &&
+    typeof interval === "string" &&
+    dependabotScheduleIntervals.has(interval) &&
+    (interval !== "cron" ||
+      (typeof scheduleRecord?.cronjob === "string" &&
+        scheduleRecord.cronjob.trim().length > 0)) &&
+    (pullRequestLimit === undefined ||
+      (typeof pullRequestLimit === "number" &&
+        Number.isInteger(pullRequestLimit) &&
+        pullRequestLimit > 0)) &&
+    (targetBranch === undefined || targetBranch === "main") &&
+    dependabotFilterFields.every((field) => !Object.hasOwn(updater, field))
+  );
+}
+
 describe("GitHub Actions dependency pinning", () => {
   it.each([
     "AGENTS.md",
@@ -317,14 +396,12 @@ describe("GitHub Actions dependency pinning", () => {
   });
 
   it("pins every external action and reusable workflow to a documented full SHA", () => {
-    const violations = readdirSync(workflowDirectory)
-      .filter((name) => /\.ya?ml$/.test(name))
-      .flatMap((name) => {
-        const source = readFileSync(resolve(workflowDirectory, name), "utf8");
-        return unpinnedExternalUses(source).map(
-          (reference) => `${name}: ${reference}`
-        );
-      });
+    const violations = pinningSourceFiles().flatMap((filename) => {
+      const source = readFileSync(filename, "utf8");
+      return unpinnedExternalUses(source).map(
+        (reference) => `${relative(repoRoot, filename)}: ${reference}`
+      );
+    });
 
     expect(violations).toEqual([]);
   });
@@ -487,6 +564,17 @@ jobs:
     expect(unpinnedExternalUses(source)).toEqual([]);
   });
 
+  it("rejects mutable references in composite action steps", () => {
+    const source = `
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7 # v7
+`;
+
+    expect(unpinnedExternalUses(source)).toHaveLength(1);
+  });
+
   it("checks caller jobs without treating their inputs as references", () => {
     const mutableCaller = `
 jobs:
@@ -527,6 +615,43 @@ jobs:
     expect(unpinnedExternalUses(workflowWithStep(reference))).toEqual([]);
   });
 
+  it("allows optional non-filtering Dependabot updater fields", () => {
+    expect(
+      isEnabledUnfilteredGitHubActionsUpdater({
+        ...enabledGitHubActionsUpdater,
+        schedule: { interval: "weekly" },
+        "open-pull-requests-limit": 5,
+        reviewers: ["security-reviewer"],
+        assignees: ["dependency-maintainer"],
+      })
+    ).toBe(true);
+  });
+
+  it.each(dependabotFilterFields)(
+    "rejects the Dependabot filtering field %s",
+    (field) => {
+      expect(
+        isEnabledUnfilteredGitHubActionsUpdater({
+          ...enabledGitHubActionsUpdater,
+          [field]: [],
+        })
+      ).toBe(false);
+    }
+  );
+
+  it.each([
+    { schedule: { interval: "never" } },
+    { schedule: { interval: "cron" } },
+    { "open-pull-requests-limit": 0 },
+  ])("rejects a disabled Dependabot updater %#", (override) => {
+    expect(
+      isEnabledUnfilteredGitHubActionsUpdater({
+        ...enabledGitHubActionsUpdater,
+        ...override,
+      })
+    ).toBe(false);
+  });
+
   it("keeps Dependabot enabled for GitHub Actions at the repository root", () => {
     const dependabot = load(
       readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8")
@@ -541,24 +666,6 @@ jobs:
 
     expect(dependabot.version).toBe(2);
     expect(updaters).toHaveLength(1);
-    expect(updater).toMatchObject({
-      directory: "/",
-      schedule: { interval: "daily" },
-      "open-pull-requests-limit": 10,
-      "target-branch": "main",
-    });
-    expect(Object.keys(updater ?? {}).sort()).toEqual(
-      [
-        "commit-message",
-        "directory",
-        "labels",
-        "open-pull-requests-limit",
-        "package-ecosystem",
-        "pull-request-branch-name",
-        "rebase-strategy",
-        "schedule",
-        "target-branch",
-      ].sort()
-    );
+    expect(isEnabledUnfilteredGitHubActionsUpdater(updater ?? {})).toBe(true);
   });
 });

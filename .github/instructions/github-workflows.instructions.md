@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 SecPal
 # SPDX-License-Identifier: AGPL-3.0-or-later
 name: GitHub Workflow Rules
-description: Applies workflow and Dependabot rules to GitHub automation files in this repo.
-applyTo: ".github/workflows/**/*.yml,.github/workflows/**/*.yaml,.github/dependabot.yml,.github/dependabot.yaml"
+description: Applies workflow, action metadata, and Dependabot rules to GitHub automation files in this repo.
+applyTo: ".github/workflows/**/*.yml,.github/workflows/**/*.yaml,.github/actions/**/action.yml,.github/actions/**/action.yaml,action.yml,action.yaml,.github/dependabot.yml,.github/dependabot.yaml"
 ---
 
 # GitHub Actions And Workflow Rules
@@ -29,11 +29,11 @@ Applies when editing GitHub Actions workflows and Dependabot configuration in th
 ## Full-SHA Enforcement
 
 The repository workflows are compatible with GitHub's **Require actions to be
-pinned to a full-length commit SHA** policy. As of 2026-08-05, the policy is not
-enabled in either the `SecPal/android` repository or the `SecPal` organization.
-Enabling it requires a repository or organization administrator, and an
-enterprise policy can override the available organization and repository
-settings.
+pinned to a full-length commit SHA** policy. As of 2026-08-07, GitHub reports
+`sha_pinning_required: true` for both the `SecPal` organization and the
+`SecPal/android` repository. Organization administrators own the shared policy;
+an enterprise policy can still override the available organization and
+repository settings. No repository exception is required for these workflows.
 
 GitHub's policy applies to actions, including GitHub-authored and
 organization-owned actions, but permits reusable workflows to use mutable tags.
