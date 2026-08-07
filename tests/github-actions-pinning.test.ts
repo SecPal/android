@@ -1,8 +1,17 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { relative, resolve, sep } from "node:path";
 import {
   EVENT_ALIAS,
   EVENT_MAPPING,
@@ -19,8 +28,6 @@ import {
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const workflowDirectory = resolve(repoRoot, ".github/workflows");
-const localActionDirectory = resolve(repoRoot, ".github/actions");
 const fullCommitSha = /^[0-9a-f]{40}$/;
 const invalidGitRefCharacters = new Set(["~", "^", ":", "?", "*", "[", "\\"]);
 const dependabotFilterFields = ["allow", "ignore", "exclude-paths"] as const;
@@ -329,19 +336,49 @@ function actionManifestFiles(directory: string): string[] {
   });
 }
 
-function pinningSourceFiles(): string[] {
+function pinningSourceFiles(root = repoRoot): string[] {
+  const workflowDirectory = resolve(root, ".github/workflows");
+  const localActionDirectory = resolve(root, ".github/actions");
   const workflowFiles = readdirSync(workflowDirectory)
     .filter((name) => /\.ya?ml$/.test(name))
     .map((name) => resolve(workflowDirectory, name));
   const rootActionManifests = ["action.yml", "action.yaml"]
-    .map((name) => resolve(repoRoot, name))
+    .map((name) => resolve(root, name))
     .filter(existsSync);
-
-  return [
+  const sourceFiles = [
     ...workflowFiles,
     ...rootActionManifests,
     ...actionManifestFiles(localActionDirectory),
   ];
+  const discoveredFiles = new Set(sourceFiles);
+
+  for (let index = 0; index < sourceFiles.length; index += 1) {
+    const source = readFileSync(sourceFiles[index], "utf8");
+    const localActionDirectories = usesReferences(source)
+      .map(({ reference }) => reference)
+      .filter(
+        (reference): reference is string => reference?.startsWith("./") ?? false
+      )
+      .map((reference) => resolve(root, reference));
+
+    for (const directory of localActionDirectories) {
+      const pathFromRoot = relative(root, directory);
+      if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`)) {
+        continue;
+      }
+
+      for (const filename of ["action.yml", "action.yaml"]
+        .map((name) => resolve(directory, name))
+        .filter(existsSync)) {
+        if (!discoveredFiles.has(filename)) {
+          discoveredFiles.add(filename);
+          sourceFiles.push(filename);
+        }
+      }
+    }
+  }
+
+  return sourceFiles;
 }
 
 function isEnabledUnfilteredGitHubActionsUpdater(
@@ -395,6 +432,24 @@ describe("GitHub Actions dependency pinning", () => {
     );
   });
 
+  it("applies the workflow rules to action manifests in any directory", () => {
+    const instructions = readFileSync(
+      resolve(
+        repoRoot,
+        ".github/instructions/github-workflows.instructions.md"
+      ),
+      "utf8"
+    );
+    const frontmatter = load(instructions.split("---")[1]) as {
+      applyTo?: string;
+    };
+    const patterns = frontmatter.applyTo?.split(",") ?? [];
+
+    expect(patterns).toEqual(
+      expect.arrayContaining(["**/action.yml", "**/action.yaml"])
+    );
+  });
+
   it("pins every external action and reusable workflow to a documented full SHA", () => {
     const violations = pinningSourceFiles().flatMap((filename) => {
       const source = readFileSync(filename, "utf8");
@@ -404,6 +459,67 @@ describe("GitHub Actions dependency pinning", () => {
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("checks referenced composite actions outside the conventional directory", () => {
+    const temporaryRoot = mkdtempSync(
+      resolve(tmpdir(), "secpal-action-pinning-")
+    );
+
+    try {
+      const workflowPath = resolve(
+        temporaryRoot,
+        ".github/workflows/quality.yml"
+      );
+      const actionPath = resolve(
+        temporaryRoot,
+        "tools/build-action/action.yml"
+      );
+      const nestedActionPath = resolve(
+        temporaryRoot,
+        "packages/setup-action/action.yaml"
+      );
+      mkdirSync(resolve(workflowPath, ".."), { recursive: true });
+      mkdirSync(resolve(actionPath, ".."), { recursive: true });
+      mkdirSync(resolve(nestedActionPath, ".."), { recursive: true });
+      writeFileSync(
+        workflowPath,
+        `jobs:
+  test:
+    steps:
+      - uses: ./tools/build-action
+`
+      );
+      writeFileSync(
+        actionPath,
+        `runs:
+  using: composite
+  steps:
+    - uses: ./packages/setup-action
+`
+      );
+      writeFileSync(
+        nestedActionPath,
+        `runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7 # v7
+`
+      );
+
+      const sourceFiles = pinningSourceFiles(temporaryRoot);
+      const violations = sourceFiles.flatMap((filename) =>
+        unpinnedExternalUses(readFileSync(filename, "utf8")).map(
+          (reference) => `${relative(temporaryRoot, filename)}: ${reference}`
+        )
+      );
+
+      expect(violations).toEqual([
+        "packages/setup-action/action.yaml: - uses: actions/checkout@v7 # v7",
+      ]);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it.each([
