@@ -61,17 +61,19 @@ describe("Android quality workflow", () => {
     expect(lintJob?.["timeout-minutes"]).toBeGreaterThan(0);
     expect(lintJob?.["timeout-minutes"]).toBeLessThanOrEqual(30);
     expect(steps).toContainEqual(
-      expect.objectContaining({ uses: "actions/checkout@v7" })
+      expect.objectContaining({
+        uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
+      })
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
-        uses: "actions/setup-node@v7",
+        uses: expect.stringMatching(/^actions\/setup-node@[0-9a-f]{40}$/),
         with: { "node-version": "22", cache: "npm" },
       })
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
-        uses: "actions/setup-java@v5",
+        uses: expect.stringMatching(/^actions\/setup-java@[0-9a-f]{40}$/),
         with: {
           distribution: "temurin",
           "java-version": "21",
@@ -92,7 +94,7 @@ describe("Android quality workflow", () => {
     expect(steps).toContainEqual(
       expect.objectContaining({
         if: "${{ failure() && steps.android_lint.outcome == 'failure' }}",
-        uses: "actions/upload-artifact@v7",
+        uses: expect.stringMatching(/^actions\/upload-artifact@[0-9a-f]{40}$/),
         with: {
           name: "android-lint-reports",
           path: "android/app/build/reports/lint-results-*",

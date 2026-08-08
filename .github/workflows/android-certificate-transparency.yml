@@ -26,23 +26,6 @@ on:
       - "android/variables.gradle"
   pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/android-certificate-transparency.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "scripts/start-android-emulator.sh"
-      - "scripts/wait-for-android-device.sh"
-      - "scripts/run-android-connected-test.sh"
-      - "scripts/with-android-env.sh"
-      - "android/build.gradle"
-      - "android/settings.gradle"
-      - "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java"
-      - "android/app/build.gradle"
-      - "android/app/ct-regression-proguard-rules.pro"
-      - "android/app/src/ctRegression/AndroidManifest.xml"
-      - "android/app/src/main/AndroidManifest.xml"
-      - "android/app/src/main/res/xml*/network_security_config.xml"
-      - "android/variables.gradle"
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
@@ -57,10 +40,76 @@ permissions:
   contents: read
 
 jobs:
+  detect-relevant-changes:
+    name: Detect relevant changes
+    permissions:
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.detect.outputs.result }}
+
+    steps:
+      - name: Detect certificate-transparency changes
+        id: detect
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          result-encoding: string
+          script: |
+            let relevant = context.eventName !== "pull_request";
+            if (!relevant) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                per_page: 100,
+              });
+              const changedFileCount = context.payload.pull_request?.changed_files;
+              if (!Number.isInteger(changedFileCount) || files.length !== changedFileCount) {
+                core.warning("Pull-request files could not be read completely; running the matrix fail-safe.");
+                return "true";
+              }
+              const exactPaths = new Set([
+                ".github/workflows/android-certificate-transparency.yml",
+                "package.json",
+                "package-lock.json",
+                "scripts/start-android-emulator.sh",
+                "scripts/wait-for-android-device.sh",
+                "scripts/run-android-connected-test.sh",
+                "scripts/with-android-env.sh",
+                "android/build.gradle",
+                "android/settings.gradle",
+                "android/app/src/androidTest/java/app/secpal/CertificateTransparencyInstrumentedTest.java",
+                "android/app/build.gradle",
+                "android/app/ct-regression-proguard-rules.pro",
+                "android/app/src/ctRegression/AndroidManifest.xml",
+                "android/app/src/main/AndroidManifest.xml",
+                "android/variables.gradle",
+              ]);
+              const isRelevantPath = (path) =>
+                exactPaths.has(path) ||
+                /^android\/app\/src\/main\/res\/xml[^/]*\/network_security_config\.xml$/.test(path);
+              relevant = files.some(({ filename, previous_filename: previousFilename }) =>
+                isRelevantPath(filename) ||
+                (previousFilename !== undefined && isRelevantPath(previousFilename))
+              );
+            }
+            return context.eventName !== "pull_request" || relevant ? "true" : "false";
+
   platform-policy:
     name: Platform policy (API ${{ matrix.api-level }})
+    needs: detect-relevant-changes
+    if: ${{ needs.detect-relevant-changes.outputs.relevant == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: >-
+      ${{
+        matrix.api-level >= 37
+        && 35
+        || (github.event_name == 'schedule'
+            || github.event_name == 'workflow_dispatch')
+          && 25
+        || 15
+      }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,16 +124,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: "temurin"
           java-version: "21"
@@ -98,6 +147,7 @@ jobs:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
           BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}
+          RECOVERY_TIMEOUT: ${{ matrix.api-level >= 37 && 240 || 180 }}
           IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}
           LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
           SDK_CHANNEL: 0
@@ -135,7 +185,8 @@ jobs:
             cat "$emulator_log" >&2 || true
             exit 1
           fi
-          trap 'bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true' EXIT
+          trap 'timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh \
+            adb -s emulator-5570 emu kill || true' EXIT
           test_class="app.secpal.CertificateTransparencyInstrumentedTest"
           live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
           if [[ "$LIVE_PROBE" == "true" ]]; then
@@ -167,14 +218,49 @@ jobs:
               ([.operators[].logs[]] | length > 0)' \
               <<<"$log_list" >/dev/null
             bash ./scripts/run-android-connected-test.sh \
-              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              emulator-5570 "$API_LEVEL" "$RECOVERY_TIMEOUT" \
               :app:connectedCtRegressionAndroidTest \
               "-Pandroid.testInstrumentationRunnerArguments.class=${live_method}" \
               -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
               "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=${SECPAL_LIVE_CT_PROBE_URL}"
           else
             bash ./scripts/run-android-connected-test.sh \
-              emulator-5570 "$API_LEVEL" "$BOOT_TIMEOUT" \
+              emulator-5570 "$API_LEVEL" "$RECOVERY_TIMEOUT" \
               :app:connectedCtRegressionAndroidTest \
               "-Pandroid.testInstrumentationRunnerArguments.class=${test_class}"
           fi
+
+  certificate-transparency:
+    name: Certificate transparency
+    permissions: {}
+    needs:
+      - detect-relevant-changes
+      - platform-policy
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify certificate-transparency result
+        env:
+          DETECTION_RESULT: ${{ needs.detect-relevant-changes.result }}
+          PLATFORM_POLICY_RESULT: ${{ needs.platform-policy.result }}
+          RELEVANT: ${{ needs.detect-relevant-changes.outputs.relevant }}
+        run: |
+          if [[ "$DETECTION_RESULT" != "success" ]]; then
+            echo "::error::Certificate-transparency change detection did not succeed."
+            exit 1
+          fi
+          if [[ "$RELEVANT" == "false" ]]; then
+            echo "No certificate-transparency files changed; the matrix is not required."
+            exit 0
+          fi
+          if [[ "$RELEVANT" != "true" ]]; then
+            echo "::error::Certificate-transparency change detection returned an invalid result."
+            exit 1
+          fi
+          if [[ "$PLATFORM_POLICY_RESULT" != "success" ]]; then
+            echo "::error::At least one certificate-transparency matrix job did not succeed."
+            exit 1
+          fi
+          echo "All certificate-transparency matrix jobs succeeded."

@@ -26,19 +26,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Allowed the API 37 connected-test wrapper to recover from up to three
-  recognized pre-test emulator or PackageManager failures when the same pattern
-  does not repeat consecutively, distinguishing an unavailable package service
-  from install-create and install-commit broken pipes plus an install-write
-  failure.
+- Aligned the local Prettier pre-commit hook with `format:check`, including
+  TypeScript, JavaScript, MJS, CSS, and HTML, and added a regression guard for
+  future scope drift (issue #525).
+- Stabilized API 37 connected tests by recognizing zero-test PackageManager
+  install-write failures plus install-create and install-commit broken pipes,
+  allowing one emulator recovery per distinct infrastructure failure while
+  failing closed on identical repeats (issue #509).
+- Allowed one final bounded API 37 instrumentation retry when the Android
+  package service remains unavailable after the first emulator recovery.
+- Overrode the `uuid` transitive dependency used by the Capacitor CLI so the
+  vulnerable pre-11.1.1 releases are not installed.
+- Made the PR-size workflow guard accept routine Dependabot updates while still
+  requiring the expected reusable workflow, least-privilege permissions, and a
+  full immutable commit SHA.
+- Added an always-reported certificate-transparency aggregate check that runs
+  the emulator matrix only for relevant pull-request changes and fails closed
+  when change detection or any matrix job fails (issue #521).
+- Bounded certificate-transparency matrix jobs to 15 minutes for regular jobs
+  below API 37, 25 minutes for API 36 live probes, and 35 minutes on API 37;
+  limited post-reboot readiness waits to four minutes and capped emulator
+  cleanup at 30 seconds.
+- Recognized API 37 zero-test instrumentation command errors with diagnostic
+  messages and rebooted the emulator before the bounded retry.
+- Allowed the API 37 instrumentation harness one final rebooted attempt when a
+  retry after a pre-test system crash or zero-test command error loses the
+  Android package service, while retaining the existing retry caps for repeated
+  crashes and test failures.
+- Made the publish-lock permission rejection test deterministic across process
+  umasks by explicitly applying the overly permissive directory mode it is
+  intended to exercise (issue #513).
 - Isolated the Chromium strict-CSP smoke from parallel coverage workers so
   loaded CI runners cannot starve its bounded browser process while the smoke
   remains a required, fail-closed part of the coverage gate with explicit
   Chromium-compatible executable discovery, and made the packaged-HTML
   contract test independent of ignored assets left by local Android builds.
-- Made the Android publishing-lock permission regression fixture independent
-  of the runner's process umask, so a security-hardened `0077` environment
-  still proves that an actual `0755` lock directory is rejected.
 - Restored native authentication bootstrap installation under the frontend's
   strict `script-src 'self'` policy by packaging the canonical bridge as a
   same-origin, SHA-256-named JavaScript asset instead of executable inline
@@ -174,6 +196,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Pinned every external GitHub Action and reusable workflow to a verified full
+  commit SHA with validated version documentation, including immutable nested
+  actions in shared workflows, backed by an AST-based regression guard that
+  resolves YAML aliases without maintaining a custom event parser, requires
+  each reference and its version documentation on one physical line, covers
+  workflow and recursively referenced composite-action paths and general Git
+  tag and branch names, plus a direct semantic guard for both valid
+  root-directory forms of the enabled, unfiltered GitHub Actions Dependabot
+  updater and documentation of the active organization and repository
+  SHA-pinning policies (issue #529).
+- Raised the existing transitive `brace-expansion` override floor from
+  `^5.0.8` to `^5.0.9`, resolving the high-severity denial-of-service advisory
+  `GHSA-rgw5-rvv9-x895` in the ESLint dependency path (issue #515).
 - Restricted debug enterprise-policy broadcasts to callers holding the
   privileged `android.permission.DUMP` permission held by the Android shell;
   Samsung hard-key broadcasts now require the platform-signature-protected

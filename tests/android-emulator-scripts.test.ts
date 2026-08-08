@@ -595,19 +595,22 @@ exit 1
         | "package-manager"
         | "package-manager-create"
         | "package-manager-always"
+        | "package-manager-then-missing-package-service"
         | "missing-package-service"
         | "missing-package-service-always"
-        | "missing-service-then-install-write-then-missing-service"
         | "commit-then-missing-service-then-create"
         | "install-write"
         | "install-write-always"
+        | "install-write-with-tests"
         | "instrumentation-crash"
         | "instrumentation-crash-always"
         | "instrumentation-crash-then-install-write"
-        | "instrumentation-crash-then-missing-service-then-package-manager"
-        | "four-distinct-infrastructure-failures"
+        | "instrumentation-crash-then-missing-package-service"
+        | "instrumentation-crash-then-missing-package-service-then-test"
         | "command-error"
         | "command-error-always"
+        | "command-error-then-missing-package-service"
+        | "command-error-with-diagnostic"
         | "command-error-with-tests"
         | "test"
     ) => {
@@ -641,25 +644,31 @@ if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="package-manager"
   fi
+elif [[ "${failureMode}" == "package-manager-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="package-manager"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="missing-package-service"
+  fi
 elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
   if [[ "$attempt" == "1" ]]; then
     attempt_failure_mode="instrumentation-crash"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="install-write"
   fi
-elif [[ "${failureMode}" == "instrumentation-crash-then-missing-service-then-package-manager" ]]; then
+elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* ]]; then
   if [[ "$attempt" == "1" ]]; then
     attempt_failure_mode="instrumentation-crash"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="missing-package-service"
-  elif [[ "$attempt" == "3" ]]; then
-    attempt_failure_mode="package-manager"
+  elif [[ "${failureMode}" == *-then-test && "$attempt" == "3" ]]; then
+    attempt_failure_mode="test"
   fi
-elif [[ "${failureMode}" == "missing-service-then-install-write-then-missing-service" ]]; then
-  if [[ "$attempt" == "1" || "$attempt" == "3" ]]; then
-    attempt_failure_mode="missing-package-service"
+elif [[ "${failureMode}" == "command-error-then-missing-package-service" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="command-error"
   elif [[ "$attempt" == "2" ]]; then
-    attempt_failure_mode="install-write"
+    attempt_failure_mode="missing-package-service"
   fi
 elif [[ "${failureMode}" == "commit-then-missing-service-then-create" ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -668,16 +677,6 @@ elif [[ "${failureMode}" == "commit-then-missing-service-then-create" ]]; then
     attempt_failure_mode="missing-package-service"
   elif [[ "$attempt" == "3" ]]; then
     attempt_failure_mode="package-manager-create"
-  fi
-elif [[ "${failureMode}" == "four-distinct-infrastructure-failures" ]]; then
-  if [[ "$attempt" == "1" ]]; then
-    attempt_failure_mode="instrumentation-crash"
-  elif [[ "$attempt" == "2" ]]; then
-    attempt_failure_mode="missing-package-service"
-  elif [[ "$attempt" == "3" ]]; then
-    attempt_failure_mode="install-write"
-  elif [[ "$attempt" == "4" ]]; then
-    attempt_failure_mode="package-manager"
   fi
 elif [[ "$attempt" == "1" || "${failureMode}" == *-always ]]; then
   attempt_failure_mode="${failureMode}"
@@ -725,8 +724,11 @@ if [[ -n "$attempt_failure_mode" ]]; then
     printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
     printf '%s\n' "Unknown failure: cmd: Can't find service: package"
   elif [[ "$attempt_failure_mode" == install-write* ]]; then
-    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
-    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
+    if [[ "$attempt_failure_mode" == "install-write-with-tests" ]]; then
+      printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
+    else
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
     printf '%s\n' 'Failed to install-write all apks'
   elif [[ "$attempt_failure_mode" == instrumentation-crash* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
@@ -738,7 +740,11 @@ if [[ -n "$attempt_failure_mode" ]]; then
     else
       printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     fi
-    printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
+    if [[ "$attempt_failure_mode" == "command-error-with-diagnostic" ]]; then
+      printf '%s\n' "Test run failed to complete. No test results. onError: commandError=true message=Attempt to invoke interface method 'boolean android.app.IActivityManager.startInstrumentation(...)' on a null object reference"
+    else
+      printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
+    fi
   else
     printf '%s\n' 'There were failing tests'
   fi
@@ -918,6 +924,31 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     ]);
     expect(repeatedMissingPackageService.waits).toEqual(["emulator-5570 60"]);
 
+    const repeatedApi37Failure = runScenario(37, "package-manager-always");
+    expect(repeatedApi37Failure.result.status).toBe(1);
+    expect(repeatedApi37Failure.attempts).toBe(2);
+    expect(repeatedApi37Failure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    const missingPackageServiceAfterPackageManagerFailure = runScenario(
+      37,
+      "package-manager-then-missing-package-service"
+    );
+    expect(missingPackageServiceAfterPackageManagerFailure.result.status).toBe(
+      0
+    );
+    expect(missingPackageServiceAfterPackageManagerFailure.attempts).toBe(3);
+    expect(missingPackageServiceAfterPackageManagerFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(missingPackageServiceAfterPackageManagerFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
     const recoverableInstallWriteFailure = runScenario(37, "install-write");
     expect(recoverableInstallWriteFailure.result.status).toBe(0);
     expect(recoverableInstallWriteFailure.attempts).toBe(2);
@@ -929,21 +960,25 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after PackageManager install-write failure"
     );
 
-    const repeatedInstallWriteFailure = runScenario(37, "install-write-always");
-    expect(repeatedInstallWriteFailure.result.status).toBe(1);
-    expect(repeatedInstallWriteFailure.attempts).toBe(2);
-    expect(repeatedInstallWriteFailure.reboots).toEqual([
+    const persistentInstallWriteFailure = runScenario(
+      37,
+      "install-write-always"
+    );
+    expect(persistentInstallWriteFailure.result.status).toBe(1);
+    expect(persistentInstallWriteFailure.attempts).toBe(2);
+    expect(persistentInstallWriteFailure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
     ]);
-    expect(repeatedInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
+    expect(persistentInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
 
-    const repeatedApi37Failure = runScenario(37, "package-manager-always");
-    expect(repeatedApi37Failure.result.status).toBe(1);
-    expect(repeatedApi37Failure.attempts).toBe(2);
-    expect(repeatedApi37Failure.reboots).toEqual([
-      "adb -s emulator-5570 reboot",
-    ]);
-    expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+    const installWriteAfterTestStart = runScenario(
+      37,
+      "install-write-with-tests"
+    );
+    expect(installWriteAfterTestStart.result.status).toBe(1);
+    expect(installWriteAfterTestStart.attempts).toBe(1);
+    expect(installWriteAfterTestStart.reboots).toEqual([]);
+    expect(installWriteAfterTestStart.waits).toEqual([]);
 
     const recoverableInstrumentationCrash = runScenario(
       37,
@@ -965,21 +1000,51 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after pre-test system crash"
     );
 
-    const recoverableChainedInfrastructureFailures = runScenario(
+    const installWriteFailureAfterInstrumentationCrash = runScenario(
       37,
       "instrumentation-crash-then-install-write"
     );
-    expect(recoverableChainedInfrastructureFailures.result.status).toBe(0);
-    expect(recoverableChainedInfrastructureFailures.attempts).toBe(3);
-    expect(recoverableChainedInfrastructureFailures.reboots).toEqual([
+    expect(installWriteFailureAfterInstrumentationCrash.result.status).toBe(0);
+    expect(installWriteFailureAfterInstrumentationCrash.attempts).toBe(3);
+    expect(installWriteFailureAfterInstrumentationCrash.reboots).toEqual([
       "adb -s emulator-5570 reboot",
       "adb -s emulator-5570 reboot",
     ]);
-    expect(recoverableChainedInfrastructureFailures.waits).toEqual([
+    expect(installWriteFailureAfterInstrumentationCrash.waits).toEqual([
       "emulator-5570 60",
       "emulator-5570 60",
     ]);
-    expect(recoverableChainedInfrastructureFailures.recoveryEvents).toEqual([
+    expect(installWriteFailureAfterInstrumentationCrash.recoveryEvents).toEqual(
+      [
+        "attempt:1",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:2",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:3",
+      ]
+    );
+
+    const packageServiceFailureAfterInstrumentationCrash = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.result.status).toBe(
+      0
+    );
+    expect(packageServiceFailureAfterInstrumentationCrash.attempts).toBe(3);
+    expect(packageServiceFailureAfterInstrumentationCrash.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterInstrumentationCrash.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(
+      packageServiceFailureAfterInstrumentationCrash.recoveryEvents
+    ).toEqual([
       "attempt:1",
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
@@ -989,23 +1054,21 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "attempt:3",
     ]);
 
-    const recoverableCiFailureSequence = runScenario(
+    const testFailureAfterInfrastructureRecovery = runScenario(
       37,
-      "instrumentation-crash-then-missing-service-then-package-manager"
+      "instrumentation-crash-then-missing-package-service-then-test"
     );
-    expect(recoverableCiFailureSequence.result.status).toBe(0);
-    expect(recoverableCiFailureSequence.attempts).toBe(4);
-    expect(recoverableCiFailureSequence.reboots).toEqual([
-      "adb -s emulator-5570 reboot",
+    expect(testFailureAfterInfrastructureRecovery.result.status).toBe(1);
+    expect(testFailureAfterInfrastructureRecovery.attempts).toBe(3);
+    expect(testFailureAfterInfrastructureRecovery.reboots).toEqual([
       "adb -s emulator-5570 reboot",
       "adb -s emulator-5570 reboot",
     ]);
-    expect(recoverableCiFailureSequence.waits).toEqual([
-      "emulator-5570 60",
+    expect(testFailureAfterInfrastructureRecovery.waits).toEqual([
       "emulator-5570 60",
       "emulator-5570 60",
     ]);
-    expect(recoverableCiFailureSequence.recoveryEvents).toEqual([
+    expect(testFailureAfterInfrastructureRecovery.recoveryEvents).toEqual([
       "attempt:1",
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
@@ -1013,26 +1076,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
       "attempt:3",
-      "reboot:adb -s emulator-5570 reboot",
-      "wait:emulator-5570 60",
-      "attempt:4",
-    ]);
-
-    const recoverableCurrentCiFailureSequence = runScenario(
-      37,
-      "missing-service-then-install-write-then-missing-service"
-    );
-    expect(recoverableCurrentCiFailureSequence.result.status).toBe(0);
-    expect(recoverableCurrentCiFailureSequence.attempts).toBe(4);
-    expect(recoverableCurrentCiFailureSequence.reboots).toEqual([
-      "adb -s emulator-5570 reboot",
-      "adb -s emulator-5570 reboot",
-      "adb -s emulator-5570 reboot",
-    ]);
-    expect(recoverableCurrentCiFailureSequence.waits).toEqual([
-      "emulator-5570 60",
-      "emulator-5570 60",
-      "emulator-5570 60",
     ]);
 
     const recoverableLatestCiFailureSequence = runScenario(
@@ -1052,23 +1095,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "emulator-5570 60",
     ]);
 
-    const boundedDistinctFailureSequence = runScenario(
-      37,
-      "four-distinct-infrastructure-failures"
-    );
-    expect(boundedDistinctFailureSequence.result.status).toBe(1);
-    expect(boundedDistinctFailureSequence.attempts).toBe(4);
-    expect(boundedDistinctFailureSequence.reboots).toEqual([
-      "adb -s emulator-5570 reboot",
-      "adb -s emulator-5570 reboot",
-      "adb -s emulator-5570 reboot",
-    ]);
-    expect(boundedDistinctFailureSequence.waits).toEqual([
-      "emulator-5570 60",
-      "emulator-5570 60",
-      "emulator-5570 60",
-    ]);
-
     const repeatedInstrumentationCrash = runScenario(
       37,
       "instrumentation-crash-always"
@@ -1083,15 +1109,48 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     const recoverableCommandError = runScenario(37, "command-error");
     expect(recoverableCommandError.result.status).toBe(0);
     expect(recoverableCommandError.attempts).toBe(2);
-    expect(recoverableCommandError.reboots).toEqual([]);
+    expect(recoverableCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(recoverableCommandError.waits).toEqual(["emulator-5570 60"]);
     expect(recoverableCommandError.result.stdout).toContain(
       "Retrying API 37 instrumentation after zero-test command error"
     );
 
+    const packageServiceFailureAfterCommandError = runScenario(
+      37,
+      "command-error-then-missing-package-service"
+    );
+    expect(packageServiceFailureAfterCommandError.result.status).toBe(0);
+    expect(packageServiceFailureAfterCommandError.attempts).toBe(3);
+    expect(packageServiceFailureAfterCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(packageServiceFailureAfterCommandError.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
+    const recoverableCommandErrorWithDiagnostic = runScenario(
+      37,
+      "command-error-with-diagnostic"
+    );
+    expect(recoverableCommandErrorWithDiagnostic.result.status).toBe(0);
+    expect(recoverableCommandErrorWithDiagnostic.attempts).toBe(2);
+    expect(recoverableCommandErrorWithDiagnostic.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableCommandErrorWithDiagnostic.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+
     const repeatedCommandError = runScenario(37, "command-error-always");
     expect(repeatedCommandError.result.status).toBe(1);
     expect(repeatedCommandError.attempts).toBe(2);
+    expect(repeatedCommandError.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
     expect(repeatedCommandError.waits).toEqual(["emulator-5570 60"]);
 
     const api36Failure = runScenario(36, "package-manager");
@@ -1109,6 +1168,12 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(api36CommandError.result.status).toBe(1);
     expect(api36CommandError.attempts).toBe(1);
     expect(api36CommandError.waits).toEqual([]);
+
+    const api36InstallWriteFailure = runScenario(36, "install-write");
+    expect(api36InstallWriteFailure.result.status).toBe(1);
+    expect(api36InstallWriteFailure.attempts).toBe(1);
+    expect(api36InstallWriteFailure.reboots).toEqual([]);
+    expect(api36InstallWriteFailure.waits).toEqual([]);
 
     const commandErrorAfterTestStart = runScenario(
       37,

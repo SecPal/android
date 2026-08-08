@@ -129,6 +129,33 @@ describe("preflight", () => {
     expect(config).not.toContain("npx");
   });
 
+  it("keeps the Prettier hook file scope aligned with format:check", () => {
+    const config = readFileSync(
+      resolve(repoRoot, ".pre-commit-config.yaml"),
+      "utf8"
+    );
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+    const formatCheckExtensions =
+      packageJson.scripts["format:check"].match(/\*\.\{([^}]+)\}/)?.[1];
+    const prettierHook = config.match(
+      /- id: prettier\n(?:(?: {8}).*\n)*? {8}exclude:.*\n/
+    )?.[0];
+
+    expect(formatCheckExtensions).toBeDefined();
+    expect(prettierHook).toBeDefined();
+    expect(prettierHook).toContain(
+      "types_or: [markdown, yaml, json, ts, javascript, css, html]"
+    );
+    expect(prettierHook).toContain(
+      `files: \\.(?:${formatCheckExtensions?.replaceAll(",", "|")})$`
+    );
+    expect(prettierHook).toContain(
+      "exclude: 'package-lock\\.json|composer\\.lock|yarn\\.lock|pnpm-lock\\.yaml'"
+    );
+  });
+
   it("installs locked Node dependencies before invoking local formatter binaries", () => {
     const script = readFileSync(
       resolve(repoRoot, "scripts", "preflight.sh"),
