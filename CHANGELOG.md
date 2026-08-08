@@ -33,11 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TypeScript, JavaScript, MJS, CSS, and HTML, and added a regression guard for
   future scope drift (issue #525).
 - Stabilized API 37 connected tests by recognizing zero-test PackageManager
-  install-write failures and allowing one emulator recovery per distinct
-  infrastructure failure while failing closed on identical repeats (issue
+  install-write failures plus install-create and install-commit broken pipes,
+  and allowing at most three emulator recoveries for recognized pre-test
+  infrastructure failures regardless of whether their signatures repeat or
+  change; unknown failures and test failures remain immediately fatal (issue
   #509).
-- Allowed one final bounded API 37 instrumentation retry when the Android
-  package service remains unavailable after the first emulator recovery.
 - Overrode the `uuid` transitive dependency used by the Capacitor CLI so the
   vulnerable pre-11.1.1 releases are not installed.
 - Made the PR-size workflow guard accept routine Dependabot updates while still
@@ -59,6 +59,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the publish-lock permission rejection test deterministic across process
   umasks by explicitly applying the overly permissive directory mode it is
   intended to exercise (issue #513).
+- Isolated the Chromium strict-CSP smoke from parallel coverage workers so
+  loaded CI runners cannot starve its bounded browser process while the smoke
+  remains a required, fail-closed part of the coverage gate with explicit
+  Chromium-compatible executable discovery, and made the packaged-HTML
+  contract test independent of ignored assets left by local Android builds.
+- Restored native authentication bootstrap installation under the frontend's
+  strict `script-src 'self'` policy by packaging the canonical bridge as a
+  same-origin, SHA-256-named JavaScript asset instead of executable inline
+  content; Android packaging now verifies the tag, file name, content hash,
+  schema-4 AST, bridge-before-module ordering, complete web-asset inventory,
+  and APK/AAB asset path before distribution. The frontend build additionally
+  proves the compiled `android-native` production surface and effective strict
+  external-script CSP contract, including a CSP meta element inside `head`
+  before every script plus `script-src-elem` and `script-src-attr` overrides,
+  while debug and CT-regression packages receive an exact inventory for their
+  controlled bridge-isolation asset.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden

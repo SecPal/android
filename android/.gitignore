@@ -89,8 +89,11 @@ lint/tmp/
 # Android Profiling
 *.hprof
 
-# Copied web assets
-app/src/main/assets/public
+# Copied web assets; retain only the immutable native-only verification fallback.
+app/src/main/assets/public/*
+!app/src/main/assets/public/index.html
+!app/src/main/assets/public/secpal-native-auth-bridge.*.js
+app/src/debug/assets/public/secpal-web-assets.json
 
 # Generated Config files
 app/src/main/assets/capacitor.config.json

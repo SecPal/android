@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
-FRONTEND_DIR="${SECPAL_ANDROID_FRONTEND_DIR:-${ROOT_DIR}/../frontend}"
+FRONTEND_DIR="${SECPAL_ANDROID_FRONTEND_DIR:-$(dirname "$ROOT_DIR")/frontend}"
 ANDROID_STRINGS_XML="${ROOT_DIR}/android/app/src/main/res/values/strings.xml"
 
 if [ ! -d "$FRONTEND_DIR" ]; then
@@ -16,6 +16,11 @@ fi
 
 if [ ! -f "$FRONTEND_DIR/package.json" ]; then
   echo "❌ frontend package.json missing at: $FRONTEND_DIR/package.json" >&2
+  exit 1
+fi
+
+if ! grep -Eq '"build:android"[[:space:]]*:[[:space:]]*"[^"]*VITE_APP_SURFACE=android-native' "$FRONTEND_DIR/package.json"; then
+  echo "❌ frontend build:android does not declare the android-native surface: $FRONTEND_DIR/package.json" >&2
   exit 1
 fi
 
@@ -31,11 +36,11 @@ if [ -z "$API_BASE_URL" ]; then
   exit 1
 fi
 
-echo "→ Building frontend from $FRONTEND_DIR"
+echo "→ Building Android-native frontend from $FRONTEND_DIR"
 echo "→ Using Android API base URL: $API_BASE_URL"
 (
   cd "$FRONTEND_DIR"
-  VITE_API_URL="$API_BASE_URL" npm run build
+  VITE_API_URL="$API_BASE_URL" npm run build:android
 )
 
 if [ ! -d "$FRONTEND_DIR/dist" ]; then
@@ -54,5 +59,8 @@ echo "→ Injecting Android native auth bootstrap into $FRONTEND_INDEX_HTML"
 node "$ROOT_DIR/scripts/inject-native-auth-bridge.mjs" \
   "$FRONTEND_INDEX_HTML" \
   "$ANDROID_STRINGS_XML"
+
+node "$ROOT_DIR/scripts/verify-android-frontend-build.mjs" \
+  "$FRONTEND_INDEX_HTML"
 
 echo "✅ frontend dist ready: $FRONTEND_DIR/dist"

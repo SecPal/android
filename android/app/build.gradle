@@ -33,8 +33,11 @@ def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releas
 def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
 def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
+def runtimeAssetInventoryGenerator = new File(androidRepositoryRoot, 'scripts/generate-android-web-asset-inventory.mjs')
 def runtimeArchiveReader = new File(androidRepositoryRoot, 'scripts/literal-zip-archive.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
+def debugAndroidWebAssets = new File(projectDir, 'src/debug/assets/public')
+def debugAndroidWebAssetInventory = new File(debugAndroidWebAssets, 'secpal-web-assets.json')
 def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
 def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')
 def androidAssetIgnorePolicy
@@ -235,6 +238,36 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         androidStringsXml.absolutePath,
         fallbackAndroidWebAssetInventory.absolutePath
     )
+}
+
+def debugAndroidWebAssetInventoryTask = tasks.register("generateDebugAndroidWebAssetInventory", Exec) {
+    group = "build"
+    description = "Generates an exact inventory for merged debug and CT regression WebView assets."
+    dependsOn("verifyAndroidRuntimeSchemaAsset")
+    inputs.dir(generatedAndroidWebAssets)
+    inputs.files(fileTree(debugAndroidWebAssets) {
+        exclude "secpal-web-assets.json"
+    })
+    inputs.file(runtimeAssetInventoryGenerator)
+    inputs.file(runtimeAssetInventory)
+    outputs.file(debugAndroidWebAssetInventory)
+    workingDir androidRepositoryRoot
+    commandLine(
+        "node",
+        runtimeAssetInventoryGenerator.absolutePath,
+        generatedAndroidWebAssets.absolutePath,
+        "--overlay", debugAndroidWebAssets.absolutePath,
+        "--output", debugAndroidWebAssetInventory.absolutePath
+    )
+}
+
+tasks.matching {
+    def normalizedTaskName = it.name.toLowerCase(java.util.Locale.ROOT)
+    it.name != "generateDebugAndroidWebAssetInventory" &&
+        (normalizedTaskName.contains("debug") || normalizedTaskName.contains("ctregression")) &&
+        (normalizedTaskName.contains("asset") || normalizedTaskName.contains("lint"))
+}.configureEach {
+    dependsOn(debugAndroidWebAssetInventoryTask)
 }
 
 tasks.register("verifyReleasePasskeyDependencies") {

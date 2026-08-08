@@ -40,7 +40,33 @@ Forbidden storage and exposure paths:
 
 The Android app continues to embed the shared web UI from `../frontend/dist` inside the Capacitor WebView.
 
-At packaging time, the Android wrapper injects a small bootstrap script into the built `index.html` so the shared UI sees the native auth facade from its first render. This keeps the React source tree browser-oriented while ensuring the Android WebView does not boot into the browser-session auth path.
+At packaging time, the Android wrapper generates the canonical bootstrap as a
+content-hashed `secpal-native-auth-bridge.<sha256>.js` asset and inserts one
+empty script element referencing it from the root of the WebView origin. The
+bridge element precedes the Vite module entry, so the shared UI sees the native
+auth facade from its first render. Capacitor serves both files from
+`https://app.secpal.dev`; the bridge therefore remains same-origin and the
+frontend's static `script-src 'self'` Content Security Policy stays unchanged.
+Executable inline script, `unsafe-inline`, `unsafe-eval`, remote script sources,
+and WebView JavaScript evaluation are not part of this bootstrap path.
+
+Immediately after bridge generation, the Android build parses the actual
+frontend output and requires exactly one strict CSP, only empty external script
+elements backed by regular packaged files, the bridge before the module entry,
+and an AST-level production `android-native` surface marker in the compiled
+module. Debug and CT-regression source-set assets are overlaid into their own
+generated inventory before Gradle merges them, so their complete APK asset tree
+remains byte-for-byte verifiable without weakening release inventory checks.
+
+The Android runtime verifier binds `index.html` to exactly one packaged bridge
+asset. It checks the canonical tag and root-relative file name, recomputes the
+SHA-256 content hash, compares the complete file with the generated bootstrap,
+retains the independent schema-4 AST invariant, and requires the asset in the
+complete web-asset inventory. APK and AAB verification additionally enforces
+their distinct internal asset roots. These static guarantees do not replace a
+local real-device check of WebView CSP enforcement, Capacitor plugin
+availability, password and passkey login, or upgrade behavior from an older
+installed APK.
 
 The shared UI is responsible for:
 
