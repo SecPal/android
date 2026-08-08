@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Overrode the vulnerable transitive `nanoid` dependency to 3.3.17, preventing
+  custom generators from looping indefinitely when invoked with a zero size
+  (issue #539).
 - Aligned the local Prettier pre-commit hook with `format:check`, including
   TypeScript, JavaScript, MJS, CSS, and HTML, and added a regression guard for
   future scope drift (issue #525).
