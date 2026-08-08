@@ -34,10 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   future scope drift (issue #525).
 - Stabilized API 37 connected tests by recognizing zero-test PackageManager
   install-write failures plus install-create and install-commit broken pipes,
-  allowing one emulator recovery per distinct infrastructure failure while
-  failing closed on identical repeats (issue #509).
-- Allowed one final bounded API 37 instrumentation retry when the Android
-  package service remains unavailable after the first emulator recovery.
+  and allowing at most three emulator recoveries for recognized pre-test
+  infrastructure failures regardless of whether their signatures repeat or
+  change; unknown failures and test failures remain immediately fatal (issue
+  #509).
 - Overrode the `uuid` transitive dependency used by the Capacitor CLI so the
   vulnerable pre-11.1.1 releases are not installed.
 - Made the PR-size workflow guard accept routine Dependabot updates while still

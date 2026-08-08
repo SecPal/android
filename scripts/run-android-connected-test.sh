@@ -163,7 +163,8 @@ recover_api37_failure() {
         "$serial" "$readiness_timeout"
 }
 
-recovered_api37_failures=()
+max_api37_recoveries=3
+api37_recovery_count=0
 
 while (( attempt_status != 0 )); do
     classify_api37_failure
@@ -171,13 +172,11 @@ while (( attempt_status != 0 )); do
         exit "$attempt_status"
     fi
 
-    for recovered_failure in "${recovered_api37_failures[@]}"; do
-        if [[ "$recovered_failure" == "$retry_key" ]]; then
-            exit "$attempt_status"
-        fi
-    done
+    if (( api37_recovery_count >= max_api37_recoveries )); then
+        exit "$attempt_status"
+    fi
 
-    recovered_api37_failures+=("$retry_key")
+    api37_recovery_count=$((api37_recovery_count + 1))
     recover_api37_failure
     capture_connected_test
 done
