@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored the checked-in Android fallback web-asset inventory hash after the
+  packaged frontend index changed, keeping standalone lint, network-security,
+  device-owner, and certificate-transparency verification fail-closed and
+  internally consistent.
 - Overrode the vulnerable transitive `nanoid` dependency to 3.3.17, preventing
   custom generators from looping indefinitely when invoked with a zero size
   (issue #539).
