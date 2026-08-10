@@ -59,7 +59,7 @@ jobs:
 
   draft-reminder:
     name: Draft PR Reminder
-    uses: SecPal/.github/.github/workflows/draft-pr-reminder.yml@480e66d1c9f287f9fbaa25a219c2cab8cadb6a83 # main
+    uses: SecPal/.github/.github/workflows/draft-pr-reminder.yml@fa88c750f53091e08d051df9c60a2a3c06d5ec03 # main
     permissions:
       issues: write
       pull-requests: write
