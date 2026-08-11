@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runChromiumBrowserSmoke } from "./android-runtime-browser-smoke-process";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const temporaryRoots: string[] = [];
@@ -31,6 +32,52 @@ afterEach(() => {
 });
 
 describe("Android runtime browser smoke runner", () => {
+  it("does not wait for browser descendants that retain output pipes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "android-browser-smoke-process-"));
+    temporaryRoots.push(root);
+    const chromiumPath = join(root, "chromium");
+    writeExecutable(
+      chromiumPath,
+      `#!/usr/bin/env bash
+printf '%s\n' '<html><body id="secpal-browser-smoke-result"></body></html>'
+(sleep 2) &
+exit 0
+`
+    );
+
+    const result = await runChromiumBrowserSmoke({
+      chromiumPath,
+      arguments: [],
+      timeoutMilliseconds: 500,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('id="secpal-browser-smoke-result"');
+  });
+
+  it("fails closed with browser diagnostics when Chromium times out", async () => {
+    const root = mkdtempSync(join(tmpdir(), "android-browser-smoke-process-"));
+    temporaryRoots.push(root);
+    const chromiumPath = join(root, "chromium");
+    writeExecutable(
+      chromiumPath,
+      `#!/usr/bin/env bash
+printf '%s\n' 'chromium startup stalled' >&2
+sleep 2
+`
+    );
+
+    await expect(
+      runChromiumBrowserSmoke({
+        chromiumPath,
+        arguments: [],
+        timeoutMilliseconds: 100,
+      })
+    ).rejects.toThrow(
+      /Chromium browser smoke timed out after 100 ms[\s\S]*chromium startup stalled/u
+    );
+  });
+
   it("fails closed when the required Chromium executable is unavailable", () => {
     const root = mkdtempSync(join(tmpdir(), "android-browser-smoke-runner-"));
     temporaryRoots.push(root);

@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error Node-executable project helper.
 import * as nativeAuthBridgeInjector from "../scripts/inject-native-auth-bridge.mjs";
+import { runChromiumBrowserSmoke } from "./android-runtime-browser-smoke-process";
 
 const { buildNativeAuthBridgeAsset, injectNativeAuthBridgeBootstrap } =
   nativeAuthBridgeInjector;
@@ -125,45 +125,19 @@ document.body.textContent = JSON.stringify({
       throw new Error("Unable to resolve local browser smoke server address.");
     }
 
-    const result = await new Promise<{
-      status: number | null;
-      stderr: string;
-      stdout: string;
-    }>((resolve, reject) => {
-      const browser = spawn(
-        chromiumPath!,
-        [
-          "--headless=new",
-          "--no-sandbox",
-          "--disable-background-networking",
-          "--disable-component-update",
-          "--disable-gpu",
-          "--disable-sync",
-          "--dump-dom",
-          `http://127.0.0.1:${address.port}/`,
-        ],
-        { stdio: ["ignore", "pipe", "pipe"] }
-      );
-      let stderr = "";
-      let stdout = "";
-      browser.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-        stdout += chunk;
-      });
-      browser.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-        stderr += chunk;
-      });
-      const timeout = setTimeout(() => {
-        browser.kill("SIGKILL");
-        reject(new Error("Chromium browser smoke timed out."));
-      }, 20_000);
-      browser.once("error", (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-      browser.once("close", (status) => {
-        clearTimeout(timeout);
-        resolve({ status, stderr, stdout });
-      });
+    const result = await runChromiumBrowserSmoke({
+      chromiumPath: chromiumPath!,
+      arguments: [
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-sync",
+        "--dump-dom",
+        `http://127.0.0.1:${address.port}/`,
+      ],
     });
 
     expect(result.status, result.stderr).toBe(0);
@@ -174,5 +148,5 @@ document.body.textContent = JSON.stringify({
     expect(result.stderr).not.toMatch(
       /Content Security Policy|Refused to (?:execute|load)/iu
     );
-  }, 30_000);
+  }, 70_000);
 });

@@ -66,10 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   umasks by explicitly applying the overly permissive directory mode it is
   intended to exercise (issue #513).
 - Isolated the Chromium strict-CSP smoke from parallel coverage workers so
-  loaded CI runners cannot starve its bounded browser process while the smoke
-  remains a required, fail-closed part of the coverage gate with explicit
-  Chromium-compatible executable discovery, and made the packaged-HTML
-  contract test independent of ignored assets left by local Android builds.
+  loaded CI runners cannot starve its bounded browser process, made completion
+  depend on the direct Chromium process instead of output pipes retained by
+  descendants, and disabled shared-memory use in CI containers; the smoke
+  remains a required, fail-closed part of the coverage gate with bounded
+  timeout diagnostics and explicit Chromium-compatible executable discovery.
+  The packaged-HTML contract test is also independent of ignored assets left
+  by local Android builds.
 - Restored native authentication bootstrap installation under the frontend's
   strict `script-src 'self'` policy by packaging the canonical bridge as a
   same-origin, SHA-256-named JavaScript asset instead of executable inline
