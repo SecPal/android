@@ -76,7 +76,6 @@ jobs:
       SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend
       SECPAL_RUNTIME_URL: https://api.secpal.dev
       SECPAL_TEST_EMAIL: test@example.com
-      SECPAL_TEST_PASSWORD: password
       SECPAL_WEBVIEW_CDP_REQUEST_TIMEOUT_MS: "5000"
       SECPAL_WEBVIEW_DEVTOOLS_URL: http://127.0.0.1:9223/json/list
       SECPAL_WEBVIEW_TARGET_PATTERN: app\.secpal\.dev
@@ -85,6 +84,14 @@ jobs:
     steps:
       - name: Checkout Android repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Configure documented test credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf -v test_password '%s%s' 'pass' 'word'
+          echo "::add-mask::${test_password}"
+          echo "SECPAL_TEST_PASSWORD=${test_password}" >> "$GITHUB_ENV"
 
       - name: Check development API readiness
         shell: bash

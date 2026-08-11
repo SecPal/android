@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
+import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +36,7 @@ function inspectAndroidWebApplicationShell(html) {
   let hasHtmlDoctype = false;
   let hasModuleEntry = false;
   let moduleEntryStartOffset = null;
+  const contentSecurityPolicies = [];
   const pending = [document];
 
   while (pending.length > 0) {
@@ -61,6 +63,26 @@ function inspectAndroidWebApplicationShell(html) {
       headEndTagStartOffset = location.endTag.startOffset;
     }
 
+    if (node.tagName === "meta" && location?.attrs?.content) {
+      const httpEquiv = node.attrs?.find(
+        ({ name }) => name.toLowerCase() === "http-equiv"
+      )?.value;
+      const content = node.attrs?.find(
+        ({ name }) => name.toLowerCase() === "content"
+      )?.value;
+
+      if (
+        httpEquiv?.trim().toLowerCase() === "content-security-policy" &&
+        typeof content === "string"
+      ) {
+        contentSecurityPolicies.push({
+          content,
+          endOffset: location.attrs.content.endOffset,
+          startOffset: location.attrs.content.startOffset,
+        });
+      }
+    }
+
     if (
       node.tagName === "script" &&
       location?.startTag &&
@@ -84,12 +106,113 @@ function inspectAndroidWebApplicationShell(html) {
   }
 
   return {
+    contentSecurityPolicies,
     hasHtmlDoctype,
     hasModuleEntry,
     headEndTagStartOffset,
     moduleEntryStartOffset,
     requiredElements,
   };
+}
+
+function escapeHtmlAttribute(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;");
+}
+
+function authorizeScriptHashInPolicy(policy, scriptHash, previousScriptHash) {
+  const directives = policy
+    .split(";")
+    .map((directive) => directive.trim())
+    .filter(Boolean);
+  const directiveNames = ["script-src-elem", "script-src"];
+  let scriptDirectiveIndex = -1;
+
+  for (const name of directiveNames) {
+    scriptDirectiveIndex = directives.findIndex(
+      (directive) =>
+        directive.toLowerCase() === name ||
+        directive.toLowerCase().startsWith(`${name} `)
+    );
+    if (scriptDirectiveIndex !== -1) {
+      break;
+    }
+  }
+
+  if (scriptDirectiveIndex === -1) {
+    const defaultDirective = directives.find((directive) =>
+      directive.toLowerCase().startsWith("default-src ")
+    );
+
+    if (!defaultDirective) {
+      return policy;
+    }
+
+    const inheritedSources = defaultDirective
+      .split(/\s+/)
+      .slice(1)
+      .filter((source) => source.toLowerCase() !== "'none'");
+    directives.push(
+      ["script-src", ...inheritedSources, `'${scriptHash}'`].join(" ")
+    );
+    scriptDirectiveIndex = directives.length - 1;
+  } else {
+    const [directiveName, ...sources] =
+      directives[scriptDirectiveIndex].split(/\s+/);
+    const previousHashSource = previousScriptHash
+      ? `'${previousScriptHash}'`
+      : null;
+    const nextSources = sources.filter(
+      (source) =>
+        source.toLowerCase() !== "'none'" && source !== previousHashSource
+    );
+
+    if (!nextSources.includes(`'${scriptHash}'`)) {
+      nextSources.push(`'${scriptHash}'`);
+    }
+
+    directives[scriptDirectiveIndex] = [directiveName, ...nextSources].join(
+      " "
+    );
+  }
+
+  return directives.join("; ");
+}
+
+function authorizeBootstrapInContentSecurityPolicy(
+  html,
+  bootstrapScript,
+  previousBootstrapScript
+) {
+  const shell = inspectAndroidWebApplicationShell(html);
+  const scriptHash = `sha256-${createHash("sha256")
+    .update(bootstrapScript, "utf8")
+    .digest("base64")}`;
+  const previousScriptHash = previousBootstrapScript
+    ? `sha256-${createHash("sha256")
+        .update(previousBootstrapScript, "utf8")
+        .digest("base64")}`
+    : null;
+  let authorizedHtml = html;
+
+  for (const policy of [...shell.contentSecurityPolicies].sort(
+    (left, right) => right.startOffset - left.startOffset
+  )) {
+    const authorizedPolicy = authorizeScriptHashInPolicy(
+      policy.content,
+      scriptHash,
+      previousScriptHash
+    );
+    const contentAttribute = `content="${escapeHtmlAttribute(authorizedPolicy)}"`;
+    authorizedHtml =
+      authorizedHtml.slice(0, policy.startOffset) +
+      contentAttribute +
+      authorizedHtml.slice(policy.endOffset);
+  }
+
+  return authorizedHtml;
 }
 
 export function assertCompleteAndroidWebApplicationShell(
@@ -2234,26 +2357,33 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 }
 
 export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
-  const scriptTag = `<script id="${BOOTSTRAP_SCRIPT_ID}">${buildNativeAuthBridgeBootstrapScript(apiBaseUrl)}</script>`;
+  const bootstrapScript = buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+  const scriptTag = `<script id="${BOOTSTRAP_SCRIPT_ID}">${bootstrapScript}</script>`;
   const existingScriptPattern = new RegExp(
-    `<script id="${BOOTSTRAP_SCRIPT_ID}">[\\s\\S]*?<\\/script>`
+    `<script id="${BOOTSTRAP_SCRIPT_ID}">([\\s\\S]*?)<\\/script>`
+  );
+  const existingScript = html.match(existingScriptPattern)?.[1] ?? null;
+  const authorizedHtml = authorizeBootstrapInContentSecurityPolicy(
+    html,
+    bootstrapScript,
+    existingScript
   );
 
-  if (existingScriptPattern.test(html)) {
-    return html.replace(existingScriptPattern, scriptTag);
+  if (existingScript !== null) {
+    return authorizedHtml.replace(existingScriptPattern, scriptTag);
   }
 
-  const shell = inspectAndroidWebApplicationShell(html);
+  const shell = inspectAndroidWebApplicationShell(authorizedHtml);
 
   if (shell.moduleEntryStartOffset !== null) {
-    return `${html.slice(0, shell.moduleEntryStartOffset)}${scriptTag}\n${html.slice(shell.moduleEntryStartOffset)}`;
+    return `${authorizedHtml.slice(0, shell.moduleEntryStartOffset)}${scriptTag}\n${authorizedHtml.slice(shell.moduleEntryStartOffset)}`;
   }
 
   if (shell.headEndTagStartOffset !== null) {
-    return `${html.slice(0, shell.headEndTagStartOffset)}${scriptTag}\n${html.slice(shell.headEndTagStartOffset)}`;
+    return `${authorizedHtml.slice(0, shell.headEndTagStartOffset)}${scriptTag}\n${authorizedHtml.slice(shell.headEndTagStartOffset)}`;
   }
 
-  return `${scriptTag}\n${html}`;
+  return `${scriptTag}\n${authorizedHtml}`;
 }
 
 export function injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath) {

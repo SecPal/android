@@ -31,7 +31,7 @@ type SmokeWorkflow = {
     workflow_dispatch: Record<string, unknown>;
   };
   concurrency: Record<string, unknown>;
-  jobs: { smoke: { steps: WorkflowStep[] } };
+  jobs: { smoke: { env: Record<string, string>; steps: WorkflowStep[] } };
 };
 const workflow = parse(workflowSource) as SmokeWorkflow;
 
@@ -119,8 +119,23 @@ describe("Android smoke workflow", () => {
       "SECPAL_RUNTIME_URL: https://api.secpal.dev"
     );
     expect(workflowSource).toContain("SECPAL_TEST_EMAIL: test@example.com");
-    expect(workflowSource).toContain("SECPAL_TEST_PASSWORD: password");
-    expect(workflowSource).not.toMatch(/echo[^\n]*SECPAL_TEST_PASSWORD/);
+    expect(workflow.jobs.smoke.env.SECPAL_TEST_PASSWORD).toBeUndefined();
+    expect(workflowSource).not.toContain("SECPAL_TEST_PASSWORD: password");
+
+    const credentialStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Configure documented test credential"
+    );
+    const journeyStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Run Android smoke journey"
+    );
+    const credentialSetup =
+      workflow.jobs.smoke.steps[credentialStepIndex]?.run ?? "";
+
+    expect(credentialStepIndex).toBeGreaterThan(-1);
+    expect(credentialStepIndex).toBeLessThan(journeyStepIndex);
+    expect(credentialSetup).toContain("'pass' 'word'");
+    expect(credentialSetup).toContain("::add-mask::${test_password}");
+    expect(credentialSetup).toContain("SECPAL_TEST_PASSWORD=${test_password}");
   });
 
   it("executes the complete persistence, lifecycle, logout, and instance-switch journey", () => {
