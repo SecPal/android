@@ -250,6 +250,7 @@ def debugAndroidWebAssetInventoryTask = tasks.register("generateDebugAndroidWebA
     })
     inputs.file(runtimeAssetInventoryGenerator)
     inputs.file(runtimeAssetInventory)
+    inputs.file(androidAssetIgnorePolicyFile)
     outputs.file(debugAndroidWebAssetInventory)
     workingDir androidRepositoryRoot
     commandLine(

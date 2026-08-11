@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Declared the AAPT asset-ignore policy as an input to debug and CT-regression
+  web-asset inventory generation so incremental builds regenerate the inventory
+  whenever packageable asset rules change.
 - Kept the CodeQL initialization and analysis actions on the same release to
   prevent configuration-version failures in the security workflow.
 - Restored the checked-in Android fallback web-asset inventory hash after the

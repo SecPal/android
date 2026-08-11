@@ -1075,6 +1075,19 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       'tasks.register("generateDebugAndroidWebAssetInventory", Exec)'
     );
+    const debugAndroidWebAssetInventoryTaskStart = appBuildGradle.indexOf(
+      'def debugAndroidWebAssetInventoryTask = tasks.register("generateDebugAndroidWebAssetInventory", Exec)'
+    );
+    const debugAndroidWebAssetInventoryTask = appBuildGradle.slice(
+      debugAndroidWebAssetInventoryTaskStart,
+      appBuildGradle.indexOf(
+        "tasks.matching",
+        debugAndroidWebAssetInventoryTaskStart
+      )
+    );
+    expect(debugAndroidWebAssetInventoryTask).toContain(
+      "inputs.file(androidAssetIgnorePolicyFile)"
+    );
     expect(appBuildGradle).toContain(
       '"--overlay", debugAndroidWebAssets.absolutePath'
     );
