@@ -143,10 +143,19 @@ jobs:
           set -euo pipefail
           android_sha="$(git rev-parse HEAD)"
           frontend_sha="$(git -C frontend rev-parse HEAD)"
+          android_build_date="$(date --utc +%Y%m%d)"
+          smoke_version_code="${android_build_date}99"
+          if [[ ! "$smoke_version_code" =~ ^[0-9]{10}$ ]] || \
+            (( 10#${smoke_version_code} > 2100000000 )); then
+            echo "::error::Android smoke version code is invalid: ${smoke_version_code}"
+            exit 1
+          fi
           echo "android-sha=${android_sha}" >> "$GITHUB_OUTPUT"
           echo "frontend-sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+          echo "SECPAL_ANDROID_VERSION_CODE=${smoke_version_code}" >> "$GITHUB_ENV"
           echo "Android SHA: ${android_sha}"
           echo "Frontend SHA: ${frontend_sha}"
+          echo "Android version code: ${smoke_version_code}"
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7

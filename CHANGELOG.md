@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Derived the Android smoke APK version code from the current UTC day using the
+  highest daily build sequence, so runtime discovery no longer presents the
+  debug-only Gradle default build `1` to the development API compatibility gate.
 - Removed a dead assignment from the Android smoke bridge CSP authorizer and
   added a focused lint regression guard.
 - Required review provenance findings to bind full commit SHAs to the reviewed

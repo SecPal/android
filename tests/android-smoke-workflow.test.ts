@@ -78,6 +78,28 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("Frontend SHA:");
   });
 
+  it("uses a deterministic current-day version code for the smoke APK", () => {
+    const revisionStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Record tested revisions"
+    );
+    const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Build debug APK from frontend main"
+    );
+    const revisionSetup =
+      workflow.jobs.smoke.steps[revisionStepIndex]?.run ?? "";
+
+    expect(revisionStepIndex).toBeGreaterThan(-1);
+    expect(revisionStepIndex).toBeLessThan(buildStepIndex);
+    expect(revisionSetup).toContain("date --utc +%Y%m%d");
+    expect(revisionSetup).toContain(
+      'smoke_version_code="${android_build_date}99"'
+    );
+    expect(revisionSetup).toContain(
+      "SECPAL_ANDROID_VERSION_CODE=${smoke_version_code}"
+    );
+    expect(revisionSetup).toContain("Android version code:");
+  });
+
   it("runs when any direct Capacitor packaging dependency changes", () => {
     const requiredPaths = [
       "capacitor.config.ts",
