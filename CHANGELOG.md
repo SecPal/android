@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed a dead assignment from the Android smoke bridge CSP authorizer and
+  added a focused lint regression guard.
 - Required review provenance findings to bind full commit SHAs to the reviewed
   pull request's commit set, resolve identity and signature metadata from the
   exact commit object, and deduplicate repeated evidence (issue #563).

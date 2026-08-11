@@ -157,7 +157,6 @@ function authorizeScriptHashInPolicy(policy, scriptHash, previousScriptHash) {
     directives.push(
       ["script-src", ...inheritedSources, `'${scriptHash}'`].join(" ")
     );
-    scriptDirectiveIndex = directives.length - 1;
   } else {
     const [directiveName, ...sources] =
       directives[scriptDirectiveIndex].split(/\s+/);

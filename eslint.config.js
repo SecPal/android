@@ -26,5 +26,11 @@ export default tseslint.config(
         ...globals.node,
       },
     },
+  },
+  {
+    files: ["scripts/inject-native-auth-bridge.mjs"],
+    rules: {
+      "no-useless-assignment": "error",
+    },
   }
 );
