@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept the CodeQL initialization and analysis actions on the same release to
+  prevent configuration-version failures in the security workflow.
 - Restored the checked-in Android fallback web-asset inventory hash after the
   packaged frontend index changed, keeping standalone lint, network-security,
   device-owner, and certificate-transparency verification fail-closed and

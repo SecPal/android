@@ -47,3 +47,8 @@ updates:
     target-branch: "main"
     pull-request-branch-name:
       separator: "-"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
