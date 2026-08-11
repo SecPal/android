@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opened the protected profile through the running frontend's user menu in the
+  Android smoke, preserving the native authenticated SPA state instead of
+  forcing a full WebView navigation.
+- Recognized API 37 zero-test split-APK install failures when the package
+  service disconnects with a broken pipe, allowing the existing bounded
+  emulator recovery to handle that infrastructure failure.
 - Derived the Android smoke APK version code from the current UTC day using the
   highest daily build sequence, so runtime discovery no longer presents the
   debug-only Gradle default build `1` to the development API compatibility gate.

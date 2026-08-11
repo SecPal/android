@@ -28,6 +28,9 @@ async function loadSmokeModule(): Promise<{
     state: Record<string, unknown>,
     expected: { email: string; runtimeOrigin: string }
   ) => void;
+  clickProfileMenuItem: (globalLike: Record<string, unknown>) => {
+    action: string;
+  };
   sanitizeDiagnosticText: (value: string, secrets?: string[]) => string;
   inspectTenantBrowserState: (globalLike: Record<string, unknown>) => Promise<{
     cleared: boolean;
@@ -65,6 +68,33 @@ function createFakeAndroidEnvironment(adbScript: string): {
 }
 
 describe("Android smoke helpers", () => {
+  it("opens the protected profile through the visible React menu item", async () => {
+    const { clickProfileMenuItem } = await loadSmokeModule();
+    const clicks: string[] = [];
+    const buildMenuItem = (href: string, visible: boolean) => ({
+      getAttribute: (name: string) => (name === "href" ? href : null),
+      getClientRects: () => ({ length: visible ? 1 : 0 }),
+      click: () => clicks.push(href),
+    });
+    const hiddenProfileItem = buildMenuItem("/profile", false);
+    const settingsItem = buildMenuItem("/settings", true);
+    const visibleProfileItem = buildMenuItem("/profile", true);
+
+    expect(
+      clickProfileMenuItem({
+        document: {
+          querySelectorAll: () => [
+            hiddenProfileItem,
+            settingsItem,
+            visibleProfileItem,
+          ],
+        },
+        getComputedStyle: () => ({ visibility: "visible" }),
+      })
+    ).toEqual({ action: "open-profile" });
+    expect(clicks).toEqual(["/profile"]);
+  });
+
   it("accepts the persisted login checkpoint without requiring push state", async () => {
     const { assertSmokeState } = await loadSmokeModule();
 
@@ -90,6 +120,34 @@ describe("Android smoke helpers", () => {
 
     expect(smokeSource).not.toContain("__SecPalAndroidPushSyncState");
     expect(smokeSource).not.toContain("getAndroidPushRegistrationState");
+  });
+
+  it("requires an authenticated application shell after native login", async () => {
+    const { assertSmokeState } = await loadSmokeModule();
+    const expected = {
+      email: "test@example.com",
+      runtimeOrigin: "https://api.secpal.dev",
+    };
+    const authenticatedState = {
+      runtimeConfigured: true,
+      runtimeApiOrigin: expected.runtimeOrigin,
+      nativeAuthActive: true,
+      protectedUserEmail: expected.email,
+      hasAuthenticatedShell: true,
+      loginError: "",
+      discoveryError: "",
+    };
+
+    expect(() =>
+      assertSmokeState("authenticated", authenticatedState, expected)
+    ).not.toThrow();
+    expect(() =>
+      assertSmokeState(
+        "authenticated",
+        { ...authenticatedState, hasAuthenticatedShell: false },
+        expected
+      )
+    ).toThrow("application view");
   });
 
   it("requires the protected profile view and authenticated test user", async () => {

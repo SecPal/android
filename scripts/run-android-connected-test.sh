@@ -115,9 +115,11 @@ classify_api37_failure() {
         retry_key="package-manager-install-write"
         retry_reason="PackageManager install-write failure"
         reboot_before_retry=true
-    elif {
-        grep -Fq "Failed to commit install session" "$attempt_log" &&
-            grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
+    elif grep -Fq "Failure calling service package: Broken pipe" "$attempt_log" && {
+        grep -Fq "Failed to commit install session" "$attempt_log" || {
+            grep -Fq "Starting 0 tests on" "$attempt_log" &&
+                grep -Fq "Failed to install split APK(s)" "$attempt_log"
+        }
     }; then
         retry_key="package-manager-broken-pipe"
         retry_reason="PackageManager connection failure"

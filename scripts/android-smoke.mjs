@@ -36,7 +36,9 @@ const smokeStateFields = [
   "protectedUserEmail",
   "hasLoginForm",
   "hasDiscovery",
+  "hasAuthenticatedShell",
   "hasUserMenu",
+  "hasProfileAction",
   "hasSignOutAction",
   "hasSwitchDialogAction",
   "profileHeadingVisible",
@@ -144,6 +146,24 @@ export async function inspectTenantBrowserState(globalLike) {
   }
 }
 
+export function clickProfileMenuItem(globalLike) {
+  const isVisible = (element) =>
+    Boolean(element) &&
+    element.getClientRects().length > 0 &&
+    globalLike.getComputedStyle(element).visibility !== "hidden";
+  const item = Array.from(
+    globalLike.document?.querySelectorAll?.('[role="menuitem"]') ?? []
+  ).find(
+    (element) =>
+      isVisible(element) && element.getAttribute?.("href") === "/profile"
+  );
+  if (!item) {
+    throw new Error("Missing profile menu item.");
+  }
+  item.click();
+  return { action: "open-profile" };
+}
+
 function requireCondition(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -231,6 +251,10 @@ export function assertSmokeState(checkpoint, rawState, expected) {
         state.protectedUserEmail === expected.email,
         "authenticated: protected user read returned an unexpected email."
       );
+      requireCondition(
+        state.hasAuthenticatedShell === true,
+        "authenticated: application view is not visible."
+      );
       break;
     case "protected-profile":
     case "lifecycle":
@@ -307,7 +331,9 @@ function buildInspectStateExpression(expectedEmail) {
       nativeAuthActive: globalThis.__SecPalNativeAuthState?.active === true,
       hasLoginForm: Boolean(globalThis.document?.getElementById?.('email')) && Boolean(globalThis.document?.getElementById?.('password')),
       hasDiscovery: Boolean(globalThis.document?.getElementById?.('secpal-instance-discovery-url')),
+      hasAuthenticatedShell: Boolean(globalThis.document?.querySelector?.('[data-slot="sidebar-trigger"]')) || Array.from(globalThis.document?.querySelectorAll?.('button[aria-label="User menu"], button[aria-label="Benutzermenü"]') ?? []).some(isVisible),
       hasUserMenu: Array.from(globalThis.document?.querySelectorAll?.('button[aria-label="User menu"], button[aria-label="Benutzermenü"]') ?? []).some(isVisible),
+      hasProfileAction: roleItems.some((element) => isVisible(element) && element?.getAttribute?.('href') === '/profile'),
       hasSignOutAction: roleItems.some((element) => isVisible(element) && textMatches(element, /^(Sign out|Abmelden)$/i)),
       hasSwitchDialogAction: dialogButtons.some((element) => isVisible(element) && textMatches(element, /^(Switch instance|Instanz wechseln)$/i)),
       profileHeadingVisible: Array.from(globalThis.document?.querySelectorAll?.('h1') ?? []).some((element) => isVisible(element) && textMatches(element, /^(My profile|Mein Profil)$/i)),
@@ -352,6 +378,8 @@ const clickUserMenuExpression = `(() => {
   userMenu.click();
   return { action: 'open-user-menu' };
 })()`;
+
+const clickProfileExpression = `(${clickProfileMenuItem.toString()})(globalThis)`;
 
 const clickSignOutExpression = `(() => {
   const isVisible = (element) => Boolean(element) && element.getClientRects().length > 0 && globalThis.getComputedStyle(element).visibility !== 'hidden';
@@ -491,6 +519,21 @@ async function configureRuntime(options, checkpoint = "configured") {
   return assertSmokeState(checkpoint, state, options.expected);
 }
 
+async function openAuthenticatedUserMenu(options) {
+  const navigationAction = await evaluateInWebView(
+    openUserMenuExpression,
+    options
+  );
+  if (navigationAction?.action === "open-sidebar") {
+    await waitForState(
+      "mobile user menu trigger",
+      (value) => value.hasUserMenu === true,
+      options
+    );
+    await evaluateInWebView(clickUserMenuExpression, options);
+  }
+}
+
 async function runAction(action, options) {
   let state;
 
@@ -531,8 +574,11 @@ async function runAction(action, options) {
         options
       );
       state = await waitForState(
-        "native authentication",
-        (value) => value.nativeAuthActive === true || Boolean(value.loginError),
+        "authenticated application view",
+        (value) =>
+          (value.nativeAuthActive === true &&
+            value.hasAuthenticatedShell === true) ||
+          Boolean(value.loginError),
         options
       );
       assertNoUiError(state);
@@ -540,10 +586,13 @@ async function runAction(action, options) {
       return assertSmokeState("authenticated", state, options.expected);
     }
     case "protected-profile":
-      await evaluateInWebView(
-        "globalThis.location.assign('/profile'); ({ action: 'open-profile' })",
+      await openAuthenticatedUserMenu(options);
+      await waitForState(
+        "profile menu item",
+        (value) => value.hasProfileAction === true,
         options
       );
+      await evaluateInWebView(clickProfileExpression, options);
       state = await waitForState(
         "protected profile view",
         (value) =>
@@ -566,16 +615,7 @@ async function runAction(action, options) {
       state.protectedUserEmail = await readProtectedUserEmail(options);
       return assertSmokeState("lifecycle", state, options.expected);
     case "logout":
-      await evaluateInWebView(openUserMenuExpression, options);
-      state = await inspectState(options);
-      if (state.hasUserMenu !== true) {
-        await waitForState(
-          "mobile user menu trigger",
-          (value) => value.hasUserMenu === true,
-          options
-        );
-        await evaluateInWebView(clickUserMenuExpression, options);
-      }
+      await openAuthenticatedUserMenu(options);
       await waitForState(
         "sign-out menu item",
         (value) => value.hasSignOutAction === true,
