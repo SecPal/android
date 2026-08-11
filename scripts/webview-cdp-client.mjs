@@ -61,7 +61,13 @@ export async function connectToWebViewTarget({
   debuggerListUrl,
   targetPattern,
 }) {
-  const list = await fetch(debuggerListUrl).then((response) => response.json());
+  const response = await fetch(debuggerListUrl, {
+    signal: AbortSignal.timeout(timeoutMillis()),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load WebView targets: HTTP ${response.status}`);
+  }
+  const list = await response.json();
   const target = findTarget(list, targetPattern);
 
   if (!target?.webSocketDebuggerUrl) {

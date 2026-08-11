@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a daily and change-filtered API-35 Android emulator smoke workflow that
+  builds the current frontend `main`, verifies runtime discovery and persistence,
+  native password authentication, a protected profile read, foreground lifecycle,
+  UI logout persistence, and instance switching, with bounded readiness checks
+  and failure-only diagnostics.
 - Added native Android debug JVM unit tests to the normal quality workflow,
   with bounded execution and Gradle reports retained only on test failure.
 - Added bounded Android lint coverage for every supported app variant to the
