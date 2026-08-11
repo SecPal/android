@@ -101,6 +101,19 @@ At minimum verify:
   `1.x`, prefer removing unnecessary compatibility paths over carrying them
   forward when they weaken security, correctness, or contract clarity.
 
+## Code Review Rules
+
+- Before emitting a commit-provenance finding, first obtain the reviewed pull
+  request's commit set and resolve the referenced full 40-character commit SHA
+  from that set. Never construct or expand a full SHA from an abbreviated
+  review header. A missing or non-member commit cannot produce a blocking
+  provenance finding or any author, committer, or signature claim.
+- Resolve author, committer, and signature state only from that exact member
+  commit object. Do not infer commit metadata from the PR head, patch contents,
+  contributor identity, or an unrelated local object.
+- Deduplicate provenance evidence by exact commit SHA and violated invariant
+  before assigning priority. Repeated evidence must produce one finding.
+
 ## Review guidelines
 
 - Review for correctness, security, privacy, data integrity, lifecycle ordering,
@@ -149,6 +162,19 @@ This file auto-applies to all files in this repo so strict SecPal governance sta
   attribution unless the task explicitly requires documenting AI tooling.
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.
 - Apply the SecPal domain policy and immediate warning and issue triage rules from the repo baseline.
+
+### Code Review Rules
+
+- Before emitting a commit-provenance finding, first obtain the reviewed pull
+  request's commit set and resolve the referenced full 40-character commit SHA
+  from that set. Never construct or expand a full SHA from an abbreviated
+  review header. A missing or non-member commit cannot produce a blocking
+  provenance finding or any author, committer, or signature claim.
+- Resolve author, committer, and signature state only from that exact member
+  commit object. Do not infer commit metadata from the PR head, patch contents,
+  contributor identity, or an unrelated local object.
+- Deduplicate provenance evidence by exact commit SHA and violated invariant
+  before assigning priority. Repeated evidence must produce one finding.
 
 ## Additional Rules: github-workflows.instructions.md
 
