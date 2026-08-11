@@ -82,8 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proves the compiled `android-native` production surface and effective strict
   external-script CSP contract, including a CSP meta element inside `head`
   before every script plus `script-src-elem` and `script-src-attr` overrides,
-  while debug and CT-regression packages receive an exact inventory for their
-  controlled bridge-isolation asset.
+  with stable role-based diagnostics for missing local scripts, while debug and
+  CT-regression packages receive an exact inventory for their controlled
+  bridge-isolation asset.
 - Encoded the intentional Android Credential Manager provider exclusion at the
   application declaration so lint remains clean while passkeys stay gated to
   Android 14+ and the vulnerable Play services FIDO path remains forbidden

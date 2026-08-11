@@ -144,11 +144,21 @@ function resolvePackagedScript(assetRoot, sourcePath, sourceLabel) {
     );
   }
   const scriptPath = join(assetRoot, ...sourcePath.slice(1).split("/"));
-  if (!lstatSync(scriptPath).isFile()) {
+  let scriptStats;
+  let realAssetRoot;
+  let realScriptPath;
+  try {
+    scriptStats = lstatSync(scriptPath);
+    realAssetRoot = realpathSync(assetRoot);
+    realScriptPath = realpathSync(scriptPath);
+  } catch {
+    throw new Error(
+      `${sourceLabel} referenced script is missing or unreadable.`
+    );
+  }
+  if (!scriptStats.isFile()) {
     throw new Error(`${sourceLabel} referenced script is not a regular file.`);
   }
-  const realAssetRoot = realpathSync(assetRoot);
-  const realScriptPath = realpathSync(scriptPath);
   const relativeScriptPath = relative(realAssetRoot, realScriptPath);
   if (
     !relativeScriptPath ||
@@ -254,10 +264,16 @@ export function verifyAndroidFrontendBuild(indexHtmlPath) {
         `${resolvedIndexHtmlPath} executable scripts must define src.`
       );
     }
+    const scriptLabel =
+      getAttribute(script, "id") === bridgeScriptId
+        ? "Native auth bridge"
+        : getAttribute(script, "type")?.toLowerCase() === "module"
+          ? "Frontend module entry"
+          : "Packaged frontend script";
     const scriptPath = resolvePackagedScript(
       assetRoot,
       sourcePath,
-      resolvedIndexHtmlPath
+      scriptLabel
     );
     if (getAttribute(script, "type")?.toLowerCase() === "module") {
       if (moduleEntryPath) {

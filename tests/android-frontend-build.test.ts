@@ -171,6 +171,15 @@ marker("android-native", true);
     );
   });
 
+  it("reports a stable error when a referenced script is missing", () => {
+    const indexHtmlPath = createFrontendFixture();
+    rmSync(join(dirname(indexHtmlPath), "bridge.js"));
+
+    expect(() => verifyAndroidFrontendBuild(indexHtmlPath)).toThrow(
+      "Native auth bridge referenced script is missing or unreadable."
+    );
+  });
+
   it("validates tracked Android HTML without generated checkout artifacts", () => {
     const sourceIndexPath = join(
       repositoryRoot,
