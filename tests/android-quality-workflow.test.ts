@@ -88,4 +88,70 @@ describe("Android quality workflow", () => {
       })
     );
   });
+
+  it("runs the debug JVM unit tests and uploads reports only on failure", () => {
+    const workflow = load(
+      readFileSync(resolve(repoRoot, ".github/workflows/quality.yml"), "utf8")
+    ) as Workflow;
+    const unitTestJob = workflow.jobs?.["android-jvm-unit-tests"];
+    const steps = unitTestJob?.steps ?? [];
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+
+    expect(unitTestJob?.["runs-on"]).toBe("ubuntu-latest");
+    expect(unitTestJob?.["timeout-minutes"]).toBeGreaterThan(0);
+    expect(unitTestJob?.["timeout-minutes"]).toBeLessThanOrEqual(30);
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
+      })
+    );
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        uses: expect.stringMatching(/^actions\/setup-node@[0-9a-f]{40}$/),
+        with: { "node-version": "22", cache: "npm" },
+      })
+    );
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        uses: expect.stringMatching(/^actions\/setup-java@[0-9a-f]{40}$/),
+        with: {
+          distribution: "temurin",
+          "java-version": "21",
+          cache: "gradle",
+        },
+      })
+    );
+    expect(steps).toContainEqual(expect.objectContaining({ run: "npm ci" }));
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        id: "android_jvm_unit_tests",
+        run: "npm run native:test:unit",
+      })
+    );
+    expect(packageJson.scripts["native:test:unit"]).toBe(
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest"
+    );
+    const reportUpload = steps.find((step) =>
+      step.uses?.startsWith("actions/upload-artifact@")
+    );
+    expect(reportUpload).toEqual(
+      expect.objectContaining({
+        if: "${{ failure() && steps.android_jvm_unit_tests.outcome == 'failure' }}",
+        uses: expect.stringMatching(/^actions\/upload-artifact@[0-9a-f]{40}$/),
+        with: expect.objectContaining({
+          name: "android-jvm-unit-test-reports",
+          "if-no-files-found": "warn",
+          "retention-days": 7,
+        }),
+      })
+    );
+    expect(String(reportUpload?.with?.path).trim().split("\n")).toEqual(
+      expect.arrayContaining([
+        "android/app/build/reports/tests/testDebugUnitTest",
+        "android/app/build/test-results/testDebugUnitTest",
+      ])
+    );
+  });
 });

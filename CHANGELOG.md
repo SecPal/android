@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native Android debug JVM unit tests to the normal quality workflow,
+  with bounded execution and Gradle reports retained only on test failure.
 - Added bounded Android lint coverage for every supported app variant to the
   repository quality workflow, with generated reports retained on task failure;
   independent variants continue after a lint failure, and Gradle preserves the
