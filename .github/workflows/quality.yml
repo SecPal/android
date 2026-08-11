@@ -44,7 +44,7 @@ jobs:
 
   typecheck:
     name: TypeScript Check
-    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@afb8cdde9ed711a5792171815ab284cf440af477 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@fa88c750f53091e08d051df9c60a2a3c06d5ec03 # main
     with:
       node-version: "22"
       build-command: "npm run typecheck"
