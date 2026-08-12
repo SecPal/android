@@ -29,8 +29,20 @@ if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
 fi
 
 activities="$(run_adb shell dumpsys activity activities 2>/dev/null | tr -d '\r' || true)"
-if [[ "$activities" != *"app.secpal/.MainActivity"* ]]; then
-    echo "SecPal MainActivity is not present in the activity stack on ${serial}." >&2
+is_main_activity_foreground=false
+while IFS= read -r activity_line; do
+    if [[ "$activity_line" != *"mResumedActivity"* && "$activity_line" != *"topResumedActivity"* ]]; then
+        continue
+    fi
+
+    if [[ "$activity_line" == *"app.secpal/.MainActivity"* || "$activity_line" == *"app.secpal/app.secpal.MainActivity"* ]]; then
+        is_main_activity_foreground=true
+        break
+    fi
+done <<< "$activities"
+
+if [[ "$is_main_activity_foreground" != "true" ]]; then
+    echo "SecPal MainActivity is not foreground on ${serial}." >&2
     exit 1
 fi
 

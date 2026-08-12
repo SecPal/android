@@ -387,10 +387,37 @@ if (( count == 1 )); then echo '[]'; else echo '[{"type":"page"}]'; fi
       "scripts/check-android-app-health.sh"
     );
     const scenarios = [
-      { fatalProcess: "com.android.systemui", anrProcess: "", status: 0 },
-      { fatalProcess: "app.secpal", anrProcess: "", status: 1 },
-      { fatalProcess: "", anrProcess: "com.android.systemui", status: 0 },
-      { fatalProcess: "", anrProcess: "app.secpal", status: 1 },
+      {
+        fatalProcess: "com.android.systemui",
+        anrProcess: "",
+        resumedActivityMarker: "topResumedActivity",
+        resumedActivity: "app.secpal/.MainActivity",
+        status: 0,
+      },
+      {
+        fatalProcess: "app.secpal",
+        anrProcess: "",
+        resumedActivity: "app.secpal/.MainActivity",
+        status: 1,
+      },
+      {
+        fatalProcess: "",
+        anrProcess: "com.android.systemui",
+        resumedActivity: "app.secpal/.MainActivity",
+        status: 0,
+      },
+      {
+        fatalProcess: "",
+        anrProcess: "app.secpal",
+        resumedActivity: "app.secpal/.MainActivity",
+        status: 1,
+      },
+      {
+        fatalProcess: "",
+        anrProcess: "",
+        resumedActivity: "com.android.launcher/.Launcher",
+        status: 1,
+      },
     ];
 
     for (const scenario of scenarios) {
@@ -401,7 +428,8 @@ if [[ "$1 $2 $3" == "shell pidof app.secpal" ]]; then
   echo 321
 elif [[ "$1 $2 $3" == "shell dumpsys activity" ]]; then
   if [[ "$4" == "activities" ]]; then
-    echo 'mResumedActivity app.secpal/.MainActivity'
+    echo 'Hist #0: ActivityRecord{ app.secpal/.MainActivity } state=STOPPED mVisible=false'
+    echo '${scenario.resumedActivityMarker ?? "mResumedActivity"} ${scenario.resumedActivity}'
   elif [[ "$4" == "lastanr" && -n "${scenario.anrProcess}" ]]; then
     echo 'ANR in ${scenario.anrProcess}'
   fi

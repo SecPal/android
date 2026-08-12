@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recognized API 37 zero-test split-APK install failures when the package
   service disconnects with a broken pipe, allowing the existing bounded
   emulator recovery to handle that infrastructure failure.
+- Required the Android smoke health check to observe SecPal as the foreground
+  activity, so a backgrounded or covered WebView cannot pass the user journey.
 - Derived the Android smoke APK version code from the current UTC day using the
   highest daily build sequence, so runtime discovery no longer presents the
   debug-only Gradle default build `1` to the development API compatibility gate.
