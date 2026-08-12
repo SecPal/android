@@ -46,6 +46,8 @@ const smokeStateFields = [
   "tenantBrowserStateCleared",
   "loginError",
   "discoveryError",
+  "runtimeReady",
+  "runtimeReadinessStatus",
 ];
 
 function normalizeOrigin(value) {
@@ -143,6 +145,35 @@ export async function inspectTenantBrowserState(globalLike) {
     return { cleared: true };
   } catch {
     return { cleared: false };
+  }
+}
+
+export async function probeRuntimeReadiness(globalLike, runtimeUrl) {
+  const controller = new globalLike.AbortController();
+  const timeoutId = globalLike.setTimeout(() => controller.abort(), 4_000);
+  try {
+    const readinessUrl = `${runtimeUrl.replace(/\/+$/, "")}/health/ready`;
+    const response = await globalLike.fetch(readinessUrl, {
+      cache: "no-store",
+      credentials: "omit",
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (response.status !== 200) {
+      return {
+        runtimeReady: false,
+        runtimeReadinessStatus: response.status,
+      };
+    }
+    const body = await response.json();
+    return {
+      runtimeReady: body?.status === "ready",
+      runtimeReadinessStatus: response.status,
+    };
+  } catch {
+    return { runtimeReady: false, runtimeReadinessStatus: null };
+  } finally {
+    globalLike.clearTimeout(timeoutId);
   }
 }
 
@@ -538,6 +569,17 @@ async function runAction(action, options) {
   let state;
 
   switch (action) {
+    case "network-ready":
+      return waitFor(
+        "WebView runtime readiness",
+        () =>
+          evaluateInWebView(
+            `(${probeRuntimeReadiness.toString()})(globalThis, ${JSON.stringify(options.runtimeUrl)})`,
+            options
+          ),
+        (value) => value?.runtimeReady === true,
+        options
+      );
     case "initial":
       state = await waitForState(
         "fresh instance discovery",

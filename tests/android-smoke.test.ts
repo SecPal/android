@@ -35,6 +35,13 @@ async function loadSmokeModule(): Promise<{
   inspectTenantBrowserState: (globalLike: Record<string, unknown>) => Promise<{
     cleared: boolean;
   }>;
+  probeRuntimeReadiness: (
+    globalLike: Record<string, unknown>,
+    runtimeUrl: string
+  ) => Promise<{
+    runtimeReady: boolean;
+    runtimeReadinessStatus: number | null;
+  }>;
   sanitizeSmokeState: (
     value: Record<string, unknown>
   ) => Record<string, unknown>;
@@ -68,6 +75,62 @@ function createFakeAndroidEnvironment(adbScript: string): {
 }
 
 describe("Android smoke helpers", () => {
+  it("requires the runtime readiness response through the WebView network", async () => {
+    const { probeRuntimeReadiness } = await loadSmokeModule();
+    const requestedUrls: string[] = [];
+    const abortController = new AbortController();
+    const timeoutIds: number[] = [];
+    const clearedTimeoutIds: number[] = [];
+    const globalLike = {
+      fetch: async (url: string, init: Record<string, unknown>) => {
+        requestedUrls.push(url);
+        expect(init).toEqual({
+          cache: "no-store",
+          credentials: "omit",
+          method: "GET",
+          signal: abortController.signal,
+        });
+        return {
+          status: 200,
+          json: async () => ({ status: "ready" }),
+        };
+      },
+      AbortController: class {
+        abort = abortController.abort.bind(abortController);
+        signal = abortController.signal;
+      },
+      setTimeout: (_callback: () => void, delay: number) => {
+        expect(delay).toBe(4_000);
+        timeoutIds.push(17);
+        return 17;
+      },
+      clearTimeout: (timeoutId: number) => clearedTimeoutIds.push(timeoutId),
+    };
+
+    await expect(
+      probeRuntimeReadiness(globalLike, "https://api.secpal.dev")
+    ).resolves.toEqual({
+      runtimeReady: true,
+      runtimeReadinessStatus: 200,
+    });
+    expect(requestedUrls).toEqual(["https://api.secpal.dev/health/ready"]);
+    expect(timeoutIds).toEqual([17]);
+    expect(clearedTimeoutIds).toEqual([17]);
+
+    await expect(
+      probeRuntimeReadiness(
+        {
+          ...globalLike,
+          fetch: async () => Promise.reject(new Error("offline")),
+        },
+        "https://api.secpal.dev"
+      )
+    ).resolves.toEqual({
+      runtimeReady: false,
+      runtimeReadinessStatus: null,
+    });
+  });
+
   it("opens the protected profile through the visible React menu item", async () => {
     const { clickProfileMenuItem } = await loadSmokeModule();
     const clicks: string[] = [];

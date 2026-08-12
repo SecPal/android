@@ -162,6 +162,7 @@ describe("Android smoke workflow", () => {
 
   it("executes the complete persistence, lifecycle, logout, and instance-switch journey", () => {
     const expectedActions = [
+      "run_action network-ready",
       "run_action initial",
       "run_action configure",
       "run_action login-persisted",

@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emulator recovery to handle that infrastructure failure.
 - Required the Android smoke health check to observe SecPal as the foreground
   activity, so a backgrounded or covered WebView cannot pass the user journey.
+- Required the API-35 smoke WebView to reach the ready development API before
+  starting instance discovery, avoiding a false discovery failure while the
+  freshly booted emulator is still establishing its default network.
 - Derived the Android smoke APK version code from the current UTC day using the
   highest daily build sequence, so runtime discovery no longer presents the
   debug-only Gradle default build `1` to the development API compatibility gate.

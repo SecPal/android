@@ -257,6 +257,7 @@ jobs:
             reconnect_webview
           }
 
+          run_action network-ready
           run_action initial
           run_action configure
 
