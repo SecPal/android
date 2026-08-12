@@ -177,6 +177,27 @@ export async function probeRuntimeReadiness(globalLike, runtimeUrl) {
   }
 }
 
+export async function readNativeUserEmail(globalLike) {
+  const plugin = globalLike.Capacitor?.Plugins?.SecPalNativeAuth;
+  if (typeof plugin?.getCurrentUser !== "function") {
+    throw new Error("Missing native getCurrentUser bridge method.");
+  }
+
+  try {
+    const user = await plugin.getCurrentUser();
+    if (typeof user?.email !== "string" || user.email.length === 0) {
+      throw new Error("Native current-user response is missing an email.");
+    }
+    return user.email;
+  } catch (error) {
+    const code = error && typeof error === "object" ? error.code : undefined;
+    if (code === "NO_STORED_TOKEN") {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export function clickProfileMenuItem(globalLike) {
   const isVisible = (element) =>
     Boolean(element) &&
@@ -472,19 +493,12 @@ async function inspectState(options) {
 
 async function readProtectedUserEmail(options) {
   return evaluateInWebView(
-    `(async () => {
-      try {
-        const user = await globalThis.Capacitor?.Plugins?.SecPalNativeAuth?.getCurrentUser?.();
-        return typeof user?.email === 'string' ? user.email : null;
-      } catch {
-        return null;
-      }
-    })()`,
+    `(${readNativeUserEmail.toString()})(globalThis)`,
     options
   );
 }
 
-async function waitFor(label, probe, predicate, options) {
+async function waitFor(label, probe, predicate) {
   let lastValue = null;
   let lastError = null;
   const deadline = Date.now() + defaultWaitTimeoutMs;
@@ -518,7 +532,7 @@ async function waitFor(label, probe, predicate, options) {
 }
 
 async function waitForState(label, predicate, options) {
-  return waitFor(label, () => inspectState(options), predicate, options);
+  return waitFor(label, () => inspectState(options), predicate);
 }
 
 async function configureRuntime(options, checkpoint = "configured") {
@@ -529,8 +543,7 @@ async function configureRuntime(options, checkpoint = "configured") {
   await waitFor(
     "runtime discovery validation",
     () => evaluateInWebView(discoveryReadyExpression, options),
-    (value) => value?.ready === true || Boolean(value?.error),
-    options
+    (value) => value?.ready === true || Boolean(value?.error)
   ).then((value) => {
     requireCondition(
       !value?.error,
@@ -577,8 +590,7 @@ async function runAction(action, options) {
             `(${probeRuntimeReadiness.toString()})(globalThis, ${JSON.stringify(options.runtimeUrl)})`,
             options
           ),
-        (value) => value?.runtimeReady === true,
-        options
+        (value) => value?.runtimeReady === true
       );
     case "initial":
       state = await waitForState(

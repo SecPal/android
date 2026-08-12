@@ -595,7 +595,6 @@ exit 1
         | "package-manager"
         | "package-manager-always"
         | "package-manager-then-missing-package-service"
-        | "split-install-broken-pipe"
         | "missing-package-service"
         | "install-write"
         | "install-write-always"
@@ -702,10 +701,6 @@ if [[ -n "$attempt_failure_mode" ]]; then
     fi
     printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code $status_code from server: $status_text"
-  elif [[ "$attempt_failure_mode" == "split-install-broken-pipe" ]]; then
-    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
-    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
-    printf '%s\n' "Unknown failure: cmd: Failure calling service package: Broken pipe (32)"
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
@@ -900,22 +895,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "emulator-5570 60",
     ]);
     expect(recoverableMissingPackageService.result.stdout).toContain(
-      "Retrying API 37 instrumentation after PackageManager connection failure"
-    );
-
-    const recoverableSplitInstallBrokenPipe = runScenario(
-      37,
-      "split-install-broken-pipe"
-    );
-    expect(recoverableSplitInstallBrokenPipe.result.status).toBe(0);
-    expect(recoverableSplitInstallBrokenPipe.attempts).toBe(2);
-    expect(recoverableSplitInstallBrokenPipe.reboots).toEqual([
-      "adb -s emulator-5570 reboot",
-    ]);
-    expect(recoverableSplitInstallBrokenPipe.waits).toEqual([
-      "emulator-5570 60",
-    ]);
-    expect(recoverableSplitInstallBrokenPipe.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
 

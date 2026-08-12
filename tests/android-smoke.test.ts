@@ -42,6 +42,9 @@ async function loadSmokeModule(): Promise<{
     runtimeReady: boolean;
     runtimeReadinessStatus: number | null;
   }>;
+  readNativeUserEmail: (
+    globalLike: Record<string, unknown>
+  ) => Promise<string | null>;
   sanitizeSmokeState: (
     value: Record<string, unknown>
   ) => Record<string, unknown>;
@@ -75,6 +78,49 @@ function createFakeAndroidEnvironment(adbScript: string): {
 }
 
 describe("Android smoke helpers", () => {
+  it("accepts only the explicit no-token error as a logged-out native session", async () => {
+    const { readNativeUserEmail } = await loadSmokeModule();
+    const buildGlobal = (getCurrentUser: () => Promise<unknown>) => ({
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: { getCurrentUser },
+        },
+      },
+    });
+
+    await expect(
+      readNativeUserEmail(
+        buildGlobal(async () => ({ email: "test@example.com" }))
+      )
+    ).resolves.toBe("test@example.com");
+    await expect(
+      readNativeUserEmail(buildGlobal(async () => ({ id: 7 })))
+    ).rejects.toThrow("missing an email");
+    await expect(
+      readNativeUserEmail(
+        buildGlobal(async () =>
+          Promise.reject(
+            Object.assign(new Error("No token"), { code: "NO_STORED_TOKEN" })
+          )
+        )
+      )
+    ).resolves.toBeNull();
+
+    for (const code of ["NETWORK_OFFLINE", "TOKEN_STORAGE_ERROR", "HTTP_401"]) {
+      await expect(
+        readNativeUserEmail(
+          buildGlobal(async () =>
+            Promise.reject(Object.assign(new Error(code), { code }))
+          )
+        )
+      ).rejects.toMatchObject({ code });
+    }
+
+    await expect(readNativeUserEmail({})).rejects.toThrow(
+      "Missing native getCurrentUser bridge method"
+    );
+  });
+
   it("requires the runtime readiness response through the WebView network", async () => {
     const { probeRuntimeReadiness } = await loadSmokeModule();
     const requestedUrls: string[] = [];

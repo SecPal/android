@@ -2639,9 +2639,20 @@ function decodeHtmlCharacterReferences(value) {
 
 function javascriptUrlBody(value) {
   const normalized = value.replace(/[\t\n\r]/g, "");
-  const scheme = normalized.match(/^[\u0000-\u0020]*javascript:/i);
-  if (!scheme) return undefined;
-  const body = normalized.slice(scheme[0].length);
+  let schemeStart = 0;
+  while (
+    schemeStart < normalized.length &&
+    normalized.charCodeAt(schemeStart) <= 0x20
+  ) {
+    schemeStart += 1;
+  }
+  const schemeEnd = schemeStart + "javascript:".length;
+  if (
+    normalized.slice(schemeStart, schemeEnd).toLowerCase() !== "javascript:"
+  ) {
+    return undefined;
+  }
+  const body = normalized.slice(schemeEnd);
   try {
     return decodeURIComponent(body);
   } catch {

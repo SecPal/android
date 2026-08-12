@@ -36,9 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opened the protected profile through the running frontend's user menu in the
   Android smoke, preserving the native authenticated SPA state instead of
   forcing a full WebView navigation.
-- Recognized API 37 zero-test split-APK install failures when the package
-  service disconnects with a broken pipe, allowing the existing bounded
-  emulator recovery to handle that infrastructure failure.
+- Required logout persistence checks to accept only the native
+  `NO_STORED_TOKEN` result, rather than hiding network, storage, or bridge
+  failures as successful logout.
 - Required the Android smoke health check to observe SecPal as the foreground
   activity, so a backgrounded or covered WebView cannot pass the user journey.
 - Required the API-35 smoke WebView to reach the ready development API before

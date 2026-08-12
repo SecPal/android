@@ -227,7 +227,9 @@ export async function verifyAndroidRuntimeSchemaArtifact(
     assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel, expectedBridge);
   } catch (error) {
     if (error instanceof ZipArchiveReadError) {
-      throw new Error(`Unable to inspect ${artifactPath}: ${error.message}`);
+      throw new Error(`Unable to inspect ${artifactPath}: ${error.message}`, {
+        cause: error,
+      });
     }
     throw error;
   } finally {
