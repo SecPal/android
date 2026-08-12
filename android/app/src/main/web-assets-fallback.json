@@ -3,8 +3,16 @@
   "schema_version": 1,
   "files": [
     {
+      "path": "build-metadata.json",
+      "sha256": "6b29992e551e5952d8c8ebf3aa966d935e9c0017c616f34060698bb0130c6fff"
+    },
+    {
       "path": "index.html",
-      "sha256": "ba099ae6a7e21a2b1d42e354d87ac48561720436495ebbf1955fa8b0a257f6c2"
+      "sha256": "516c65978937cb8dd6c6747c5c771fd97430ef9f12e9aa0b30723266650d91d8"
+    },
+    {
+      "path": "secpal-native-auth-bridge.cb2c013c7aa1ac66dc5887468e8f0ce7bbef88e5ac01f6000d75b5570698af03.js",
+      "sha256": "cb2c013c7aa1ac66dc5887468e8f0ce7bbef88e5ac01f6000d75b5570698af03"
     }
   ]
 }

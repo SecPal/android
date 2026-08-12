@@ -27,6 +27,9 @@ import androidx.webkit.WebViewFeature;
 import com.getcapacitor.PluginHandle;
 import com.getcapacitor.PluginMethodHandle;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -247,7 +250,8 @@ public class WebViewBridgeIsolationInstrumentedTest {
     private static ResultCollector loadControlledPage(
         ActivityScenario<MainActivity> scenario,
         String mode
-    ) {
+    ) throws Exception {
+        String controlledPage = readInstrumentationAsset("bridge-isolation-test.html");
         ResultCollector results = new ResultCollector(scenario);
         scenario.onActivity(activity -> {
             WebView webView = activity.getBridge().getWebView();
@@ -265,9 +269,33 @@ public class WebViewBridgeIsolationInstrumentedTest {
                         replyProxy != null
                     )
             );
-            webView.loadUrl(CONTROLLED_PAGE_URL + mode);
+            webView.loadDataWithBaseURL(
+                CONTROLLED_PAGE_URL + mode,
+                controlledPage,
+                "text/html",
+                "UTF-8",
+                null
+            );
         });
         return results;
+    }
+
+    private static String readInstrumentationAsset(String assetName) throws Exception {
+        try (
+            InputStream input = InstrumentationRegistry
+                .getInstrumentation()
+                .getContext()
+                .getAssets()
+                .open(assetName);
+            ByteArrayOutputStream output = new ByteArrayOutputStream()
+        ) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = input.read(buffer)) != -1) {
+                output.write(buffer, 0, bytesRead);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
     }
 
     private static void assertResult(

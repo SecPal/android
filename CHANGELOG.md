@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builds the current frontend `main`, verifies runtime discovery and persistence,
   native password authentication, a protected profile read, foreground lifecycle,
   UI logout persistence, and instance switching, with bounded readiness checks
-  failure-only diagnostics, and an exact CSP hash for the injected native bridge.
+  failure-only diagnostics, and the verified content-hashed same-origin native
+  bridge asset under the strict CSP.
 - Added native Android debug JVM unit tests to the normal quality workflow,
   with bounded execution and Gradle reports retained only on test failure.
 - Added bounded Android lint coverage for every supported app variant to the
@@ -33,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored strict-CSP-compatible Android native-auth packaging by building the
+  shared frontend's verified `android-native` surface, emitting the canonical
+  bootstrap as one content-hashed same-origin asset before the application
+  module, and binding its path, bytes, schema, metadata, overlays, and complete
+  inventory across directory, debug/store-listing, APK, and AAB packaging
+  paths without inline script or event-handler allowances. Verification also
+  requires the meta-delivered policy to be effective before any active head
+  content, reinjection restores the bridge's canonical position before the
+  application module, and strict-CSP browser coverage remains mandatory in the
+  quality workflow without requiring a system browser for unrelated local test
+  runs (issue #508, part of #402).
 - Opened the protected profile through the running frontend's user menu in the
   Android smoke, preserving the native authenticated SPA state instead of
   forcing a full WebView navigation.

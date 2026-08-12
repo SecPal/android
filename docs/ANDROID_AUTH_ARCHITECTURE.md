@@ -40,7 +40,12 @@ Forbidden storage and exposure paths:
 
 The Android app continues to embed the shared web UI from `../frontend/dist` inside the Capacitor WebView.
 
-At packaging time, the Android wrapper injects a small bootstrap script into the built `index.html` so the shared UI sees the native auth facade from its first render. This keeps the React source tree browser-oriented while ensuring the Android WebView does not boot into the browser-session auth path.
+At packaging time, the Android wrapper verifies that the shared frontend was
+built through its `android-native` surface, writes the canonical bootstrap as a
+content-hashed same-origin JavaScript asset, and inserts its empty external
+script element before the application module. The document retains the strict
+self-only script CSP without hashes or inline execution, while the shared UI
+still sees the native auth facade from its first render.
 
 The shared UI is responsible for:
 

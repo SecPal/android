@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "applicationSurface": "android-native",
+  "buildMode": "android",
+  "production": true
+}

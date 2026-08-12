@@ -35,7 +35,7 @@ echo "→ Building frontend from $FRONTEND_DIR"
 echo "→ Using Android API base URL: $API_BASE_URL"
 (
   cd "$FRONTEND_DIR"
-  VITE_API_URL="$API_BASE_URL" npm run build
+  VITE_API_URL="$API_BASE_URL" npm run build:android
 )
 
 if [ ! -d "$FRONTEND_DIR/dist" ]; then
@@ -50,7 +50,10 @@ if [ ! -f "$FRONTEND_INDEX_HTML" ]; then
   exit 1
 fi
 
-echo "→ Injecting Android native auth bootstrap into $FRONTEND_INDEX_HTML"
+echo "→ Verifying Android frontend build metadata"
+node "$ROOT_DIR/scripts/verify-android-frontend-build.mjs" "$FRONTEND_DIR/dist"
+
+echo "→ Packaging Android native auth bridge for $FRONTEND_INDEX_HTML"
 node "$ROOT_DIR/scripts/inject-native-auth-bridge.mjs" \
   "$FRONTEND_INDEX_HTML" \
   "$ANDROID_STRINGS_XML"

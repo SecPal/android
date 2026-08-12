@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
 # Android Runtime Bootstrap Contract
 
-Audit date: 2026-07-24.
+Audit date: 2026-08-12.
 
 This contract defines the merged shared frontend runtime-discovery flow, the
 Android native auth plugin, the injected WebView bridge, and persisted bootstrap
@@ -25,7 +25,12 @@ Runtime identity keeps the visible version and technical build separate. `appVer
 - Android injected bridge:
   [`scripts/inject-native-auth-bridge.mjs`](https://github.com/SecPal/android/blob/main/scripts/inject-native-auth-bridge.mjs)
   installs `globalThis.SecPalNativeAuthBridge` before the shared frontend
-  starts.
+  starts. Packaging emits its canonical bytes as
+  `/secpal-native-auth-bridge.<sha256>.js`; `index.html` contains only the empty
+  same-origin script element and retains `script-src 'self'` plus
+  `script-src-attr 'none'`. The CSP meta is the first head element after
+  optional charset metadata so no active or resource-loading head content can
+  precede enforcement.
 - Android native plugin: `SecPalNativeAuthPlugin` exposes the Capacitor
   `SecPalNativeAuth` methods and persists the normalized bootstrap payload in
   `secpal_native_auth/runtime_bootstrap`.
@@ -50,10 +55,12 @@ Stable and Beta artifacts must embed the canonical schema-4 bridge before their
 metadata advertises `release_available: true`. The signed APK and AAB build
 lanes inspect only the artifact-type-specific packaged WebView runtime, reject
 missing, duplicate, or conflicting APK/AAB index locations, and fail closed
-unless the executable bridge contains exactly one integer schema-4 constant
-and one notification-registration assignment sourced from that constant. This
-schema assertion is independent of the injector source used for the final
-canonical byte comparison.
+unless the frontend metadata is exactly the production `android-native`
+surface and the one inventoried bridge asset has a filename matching the
+SHA-256 of its exact canonical bytes. The bridge must contain exactly one
+integer schema-4 constant and one notification-registration assignment sourced
+from that constant. This schema assertion is independent of the injector source
+used for the final canonical byte comparison.
 
 An artifact that emits any other runtime schema is unsupported and must not
 remain available as an Android release. It must be replaced or withdrawn rather

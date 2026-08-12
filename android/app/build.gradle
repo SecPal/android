@@ -34,6 +34,9 @@ def androidRepositoryRoot = rootProject.projectDir.parentFile
 def runtimeSchemaVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-runtime-schema.mjs')
 def runtimeAssetInventory = new File(androidRepositoryRoot, 'scripts/android-web-asset-inventory.mjs')
 def runtimeArchiveReader = new File(androidRepositoryRoot, 'scripts/literal-zip-archive.mjs')
+def nativeAuthBridgePackager = new File(androidRepositoryRoot, 'scripts/inject-native-auth-bridge.mjs')
+def frontendBuildMetadataVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-frontend-build.mjs')
+def webAssetOverlayVerifier = new File(androidRepositoryRoot, 'scripts/verify-android-web-asset-overlays.mjs')
 def generatedAndroidWebAssets = new File(projectDir, 'src/main/assets/public')
 def fallbackAndroidWebAssetInventory = new File(projectDir, 'src/main/web-assets-fallback.json')
 def androidAssetIgnorePolicyFile = new File(projectDir, 'aapt-ignore-assets.json')
@@ -220,6 +223,8 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         runtimeSchemaVerifier,
         runtimeAssetInventory,
         runtimeArchiveReader,
+        nativeAuthBridgePackager,
+        frontendBuildMetadataVerifier,
         fallbackAndroidWebAssetInventory,
         androidAssetIgnorePolicyFile,
         androidStringsXml
@@ -234,6 +239,24 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         generatedAndroidWebAssets.absolutePath,
         androidStringsXml.absolutePath,
         fallbackAndroidWebAssetInventory.absolutePath
+    )
+}
+
+tasks.register("verifyAndroidWebAssetOverlays", Exec) {
+    group = "verification"
+    description = "Rejects build-type overlays that can replace protected Android WebView assets."
+    def overlayRoots = [
+        new File(projectDir, 'src/debug/assets'),
+        new File(projectDir, 'src/ctRegression/assets'),
+        new File(projectDir, 'src/storeListing/assets'),
+        new File(projectDir, 'src/release/assets'),
+    ]
+    inputs.file(webAssetOverlayVerifier)
+    inputs.files(overlayRoots)
+    commandLine(
+        "node",
+        webAssetOverlayVerifier.absolutePath,
+        *overlayRoots.collect { it.absolutePath }
     )
 }
 
@@ -282,6 +305,7 @@ tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.config
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(frontendPackagingGuard)
+    dependsOn("verifyAndroidWebAssetOverlays")
     dependsOn("verifyAndroidRuntimeSchemaAsset")
 }
 

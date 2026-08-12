@@ -211,6 +211,7 @@ async function loadInjectorModule({
 }: {
   attributionTermsUrl?: string;
 } = {}): Promise<{
+  buildNativeAuthBridgeAssetName: (bootstrapScript: string) => string;
   buildNativeAuthBridgeBootstrapScript: (apiBaseUrl: string) => string;
   injectNativeAuthBridgeBootstrap: (html: string, apiBaseUrl: string) => string;
   readApiBaseUrlFromStringsXml: (stringsXml: string) => string;
@@ -331,8 +332,12 @@ describe("native auth bridge bootstrap injection", () => {
     ).resolves.toBe(runtimeBootstrapPlaceholderOrigin);
   });
 
-  it("injects the bootstrap script before the first module script and stays idempotent", async () => {
-    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+  it("injects one empty content-hashed bridge element before the first module script and stays idempotent", async () => {
+    const {
+      buildNativeAuthBridgeAssetName,
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeBootstrap,
+    } = await loadInjectorModule();
     const html = [
       "<!doctype html>",
       "<html>",
@@ -347,8 +352,13 @@ describe("native auth bridge bootstrap injection", () => {
       html,
       "https://api.secpal.dev"
     );
+    const assetName = buildNativeAuthBridgeAssetName(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev")
+    );
 
-    expect(injectedHtml).toContain('id="secpal-native-auth-bridge-bootstrap"');
+    expect(injectedHtml).toContain(
+      `<script id="secpal-native-auth-bridge-bootstrap" src="/${assetName}"></script>`
+    );
     expect(
       injectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
     ).toBeLessThan(injectedHtml.indexOf('<script type="module"'));
@@ -357,16 +367,16 @@ describe("native auth bridge bootstrap injection", () => {
     ).toBe(injectedHtml);
   });
 
-  it("authorizes only the exact injected bootstrap under a self-only script CSP", async () => {
+  it("preserves a self-only script CSP while loading the bridge as a same-origin asset", async () => {
     const {
       buildNativeAuthBridgeBootstrapScript,
       injectNativeAuthBridgeBootstrap,
     } = await loadInjectorModule();
     const apiOrigin = "https://api.secpal.dev";
     const bootstrap = buildNativeAuthBridgeBootstrapScript(apiOrigin);
-    const bootstrapHash = `sha256-${createHash("sha256")
+    const bootstrapSha256 = createHash("sha256")
       .update(bootstrap, "utf8")
-      .digest("base64")}`;
+      .digest("hex");
     const html = [
       "<!doctype html>",
       "<html>",
@@ -380,22 +390,21 @@ describe("native auth bridge bootstrap injection", () => {
 
     const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiOrigin);
 
-    expect(injectedHtml).toContain(`script-src 'self' '${bootstrapHash}'`);
+    expect(injectedHtml).toContain(
+      `src="/secpal-native-auth-bridge.${bootstrapSha256}.js"`
+    );
+    expect(injectedHtml).toContain(`script-src 'self'`);
+    expect(injectedHtml).not.toContain("sha256-");
     expect(injectedHtml).not.toContain("'unsafe-inline'");
+    expect(injectedHtml).not.toContain("'unsafe-eval'");
     expect(injectNativeAuthBridgeBootstrap(injectedHtml, apiOrigin)).toBe(
       injectedHtml
     );
   });
 
-  it("authorizes the bootstrap in script-src-elem when it overrides script-src", async () => {
-    const {
-      buildNativeAuthBridgeBootstrapScript,
-      injectNativeAuthBridgeBootstrap,
-    } = await loadInjectorModule();
+  it("does not modify script-src-elem when it overrides script-src", async () => {
+    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
     const apiOrigin = "https://api.secpal.dev";
-    const bootstrapHash = `sha256-${createHash("sha256")
-      .update(buildNativeAuthBridgeBootstrapScript(apiOrigin), "utf8")
-      .digest("base64")}`;
     const html = [
       "<!doctype html>",
       "<html>",
@@ -409,8 +418,8 @@ describe("native auth bridge bootstrap injection", () => {
 
     const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiOrigin);
 
-    expect(injectedHtml).toContain(`script-src-elem 'self' '${bootstrapHash}'`);
-    expect(injectedHtml).not.toContain(`script-src 'self' '${bootstrapHash}'`);
+    expect(injectedHtml).toContain(`script-src-elem 'self'`);
+    expect(injectedHtml).not.toContain("sha256-");
   });
 
   it("injects before a case-insensitive module entry without moving the doctype", async () => {
@@ -445,7 +454,7 @@ describe("native auth bridge bootstrap injection", () => {
       "<!doctype html>",
       "<html>",
       "<head>",
-      '<script id="secpal-native-auth-bridge-bootstrap">window.__staleBootstrap = true;</script>',
+      '<script id="secpal-native-auth-bridge-bootstrap" src="/secpal-native-auth-bridge.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js"></script>',
       '<script type="module" src="/assets/index.js"></script>',
       "</head>",
       "<body></body>",
@@ -460,7 +469,33 @@ describe("native auth bridge bootstrap injection", () => {
     expect(reinjectedHtml).toContain(
       'id="secpal-native-auth-bridge-bootstrap"'
     );
-    expect(reinjectedHtml).not.toContain("window.__staleBootstrap = true;");
+    expect(reinjectedHtml).not.toContain("aaaaaaaaaaaaaaaa");
+    expect(
+      reinjectedHtml.match(/id="secpal-native-auth-bridge-bootstrap"/g)
+    ).toHaveLength(1);
+  });
+
+  it("moves an existing bootstrap script before the first module entry", async () => {
+    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      '<script type="module" src="/assets/index.js"></script>',
+      '<script id="secpal-native-auth-bridge-bootstrap" src="/secpal-native-auth-bridge.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js"></script>',
+      "</head>",
+      "<body></body>",
+      "</html>",
+    ].join("\n");
+
+    const reinjectedHtml = injectNativeAuthBridgeBootstrap(
+      html,
+      "https://api.secpal.dev"
+    );
+
+    expect(
+      reinjectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
+    ).toBeLessThan(reinjectedHtml.indexOf('<script type="module"'));
     expect(
       reinjectedHtml.match(/id="secpal-native-auth-bridge-bootstrap"/g)
     ).toHaveLength(1);
