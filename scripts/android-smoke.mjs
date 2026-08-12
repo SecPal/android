@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: MIT
  */
 
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 import {
   connectToWebViewTarget,
@@ -27,6 +29,9 @@ const defaultTargetPattern = new RegExp(
 const defaultAttempts = 90;
 const defaultDelayMs = 500;
 const defaultWaitTimeoutMs = 45_000;
+const execFileAsync = promisify(execFile);
+const nativeRuntimeConfirmationDump =
+  "/data/local/tmp/secpal-runtime-confirmation.xml";
 
 const smokeStateFields = [
   "href",
@@ -92,6 +97,98 @@ export function sanitizeDiagnosticText(value, secrets = []) {
   }
 
   return sanitized;
+}
+
+function readXmlAttribute(node, attributeName) {
+  const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escapedName}="([^"]*)"`).exec(node)?.[1] ?? null;
+}
+
+export function findNativeRuntimeConfirmationButton(hierarchy, expectedTitle) {
+  const nodes = String(hierarchy).match(/<node\b[^>]*>/g) ?? [];
+  const hasExpectedTitle = nodes.some(
+    (node) =>
+      readXmlAttribute(node, "resource-id") === "android:id/alertTitle" &&
+      readXmlAttribute(node, "text") === expectedTitle
+  );
+  if (!hasExpectedTitle) {
+    return null;
+  }
+
+  const positiveButton = nodes.find(
+    (node) =>
+      readXmlAttribute(node, "resource-id") === "android:id/button1" &&
+      readXmlAttribute(node, "text")?.toLowerCase() === "continue"
+  );
+  const bounds = positiveButton
+    ? /^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/.exec(
+        readXmlAttribute(positiveButton, "bounds") ?? ""
+      )
+    : null;
+  if (!bounds) {
+    return null;
+  }
+
+  const [, left, top, right, bottom] = bounds.map(Number);
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+  return {
+    x: Math.trunc((left + right) / 2),
+    y: Math.trunc((top + bottom) / 2),
+  };
+}
+
+async function runAdbCommand(serial, ...args) {
+  return execFileAsync(
+    "bash",
+    [
+      resolve(import.meta.dirname, "with-android-env.sh"),
+      "adb",
+      "-s",
+      serial,
+      ...args,
+    ],
+    { maxBuffer: 2 * 1024 * 1024 }
+  );
+}
+
+async function approveNativeRuntimeConfirmation(options, expectedTitle) {
+  const serial = options.androidSerial;
+  requireCondition(
+    typeof serial === "string" && serial.length > 0,
+    "Missing required environment variable: ANDROID_SERIAL"
+  );
+
+  const button = await waitFor(
+    `native runtime confirmation ${expectedTitle}`,
+    async () => {
+      await runAdbCommand(
+        serial,
+        "shell",
+        "uiautomator",
+        "dump",
+        nativeRuntimeConfirmationDump
+      );
+      const { stdout } = await runAdbCommand(
+        serial,
+        "exec-out",
+        "cat",
+        nativeRuntimeConfirmationDump
+      );
+      return findNativeRuntimeConfirmationButton(stdout, expectedTitle);
+    },
+    (value) => value !== null
+  );
+
+  await runAdbCommand(
+    serial,
+    "shell",
+    "input",
+    "tap",
+    String(button.x),
+    String(button.y)
+  );
 }
 
 export async function inspectTenantBrowserState(globalLike) {
@@ -554,6 +651,7 @@ async function configureRuntime(options, checkpoint = "configured") {
     buildDocumentCallExpression("confirmRuntimeDiscovery"),
     options
   );
+  await approveNativeRuntimeConfirmation(options, "Switch SecPal instance?");
   const state = await waitForState(
     "configured runtime and login form",
     (value) => value.runtimeConfigured === true && value.hasLoginForm === true,
@@ -703,6 +801,7 @@ async function runAction(action, options) {
         options
       );
       await evaluateInWebView(confirmSwitchExpression, options);
+      await approveNativeRuntimeConfirmation(options, "Reset SecPal instance?");
       state = await waitForState(
         "instance discovery after switch",
         (value) =>
@@ -749,6 +848,7 @@ async function main() {
     runtimeUrl: defaultRuntimeUrl,
     email,
     password: action === "login" ? readRequiredEnv("SECPAL_TEST_PASSWORD") : "",
+    androidSerial: process.env.ANDROID_SERIAL ?? "",
     expected: { email, runtimeOrigin },
   };
   const result = await runAction(action, options);

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,11 +13,15 @@ const packagedAssetsDirectory = resolve(
   repoRoot,
   "android/app/src/main/assets/public/assets"
 );
-const packagedJavascript = readdirSync(packagedAssetsDirectory)
-  .filter((name) => name.endsWith(".js"))
-  .sort()
-  .map((name) => readFileSync(resolve(packagedAssetsDirectory, name), "utf8"))
-  .join("\n");
+const packagedJavascript = existsSync(packagedAssetsDirectory)
+  ? readdirSync(packagedAssetsDirectory)
+      .filter((name) => name.endsWith(".js"))
+      .sort()
+      .map((name) =>
+        readFileSync(resolve(packagedAssetsDirectory, name), "utf8")
+      )
+      .join("\n")
+  : null;
 const nativePolicy = readFileSync(
   resolve(
     repoRoot,
@@ -25,36 +29,31 @@ const nativePolicy = readFileSync(
   ),
   "utf8"
 );
+const protectedRouteFamilies = [
+  "/v1/activity-logs",
+  "/v1/addresses/de/",
+  "/v1/auth/email/verification-notification",
+  "/v1/customer-establishments",
+  "/v1/customers",
+  "/v1/employees",
+  "/v1/lookups/",
+  "/v1/me/mfa",
+  "/v1/me/notification-installations/",
+  "/v1/me/passkeys",
+  "/v1/onboarding/",
+  "/v1/onboarding-review/employees/",
+  "/v1/organizational-units",
+  "/v1/sites",
+];
 
-describe("packaged Android native-auth route inventory", () => {
-  it("keeps every packaged protected route family represented in the native policy", () => {
-    const protectedRouteFamilies = [
-      "/v1/activity-logs",
-      "/v1/addresses/de/",
-      "/v1/auth/email/verification-notification",
-      "/v1/customer-establishments",
-      "/v1/customers",
-      "/v1/employees",
-      "/v1/lookups/",
-      "/v1/me/mfa",
-      "/v1/me/notification-installations/",
-      "/v1/me/passkeys",
-      "/v1/onboarding/",
-      "/v1/onboarding-review/employees/",
-      "/v1/organizational-units",
-      "/v1/sites",
-    ];
-
+describe("Android native-auth route inventory", () => {
+  it("keeps every reviewed protected route family represented in the native policy", () => {
     for (const routeFamily of protectedRouteFamilies) {
-      expect(packagedJavascript, routeFamily).toContain(routeFamily);
       expect(nativePolicy, routeFamily).toContain(routeFamily);
     }
   });
 
-  it("keeps removed Android provisioning requests out of the packaged app and native policy", () => {
-    expect(packagedJavascript.includes("/v1/android-enrollment-sessions")).toBe(
-      false
-    );
+  it("keeps removed Android provisioning requests out of the native policy", () => {
     expect(nativePolicy).not.toContain("/v1/android-enrollment-sessions");
   });
 
@@ -77,3 +76,22 @@ describe("packaged Android native-auth route inventory", () => {
     }
   });
 });
+
+describe.skipIf(packagedJavascript === null)(
+  "generated Android frontend route parity",
+  () => {
+    const generatedJavascript = packagedJavascript ?? "";
+
+    it("contains every protected route family represented in the native policy", () => {
+      for (const routeFamily of protectedRouteFamilies) {
+        expect(generatedJavascript, routeFamily).toContain(routeFamily);
+      }
+    });
+
+    it("keeps removed Android provisioning requests out of the packaged app", () => {
+      expect(generatedJavascript).not.toContain(
+        "/v1/android-enrollment-sessions"
+      );
+    });
+  }
+);

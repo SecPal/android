@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The packaging helper intentionally remains Node-executable JavaScript.
 import * as nativeAuthBridgePackaging from "../scripts/inject-native-auth-bridge.mjs";
@@ -27,6 +27,7 @@ import { verifyAndroidWebAssetOverlays } from "../scripts/verify-android-web-ass
 const { buildNativeAuthBridgeBootstrapScript, injectNativeAuthBridgeIntoFile } =
   nativeAuthBridgePackaging;
 
+const repoRoot = resolve(import.meta.dirname, "..");
 const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
 
 function write(path: string, content: string) {
@@ -50,6 +51,31 @@ function createFrontendBuildMetadata(
 }
 
 describe("Android native-auth packaging", () => {
+  it("keeps the standalone fallback inventory aligned with every committed web asset", () => {
+    const publicRoot = resolve(repoRoot, "android/app/src/main/assets/public");
+    const fallback = JSON.parse(
+      readFileSync(
+        resolve(repoRoot, "android/app/src/main/web-assets-fallback.json"),
+        "utf8"
+      )
+    ) as {
+      files: Array<{ path: string; sha256: string }>;
+    };
+
+    expect(fallback.files.map(({ path }) => path)).toEqual([
+      "build-metadata.json",
+      "index.html",
+      expect.stringMatching(/^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/),
+    ]);
+    for (const file of fallback.files) {
+      const content = readFileSync(resolve(publicRoot, file.path));
+      expect(
+        createHash("sha256").update(content).digest("hex"),
+        file.path
+      ).toBe(file.sha256);
+    }
+  });
+
   it("accepts only deterministic Android-native frontend build metadata", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "android-frontend-metadata-"));
     const metadataPath = join(tempRoot, "build-metadata.json");

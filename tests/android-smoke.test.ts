@@ -48,6 +48,10 @@ async function loadSmokeModule(): Promise<{
   sanitizeSmokeState: (
     value: Record<string, unknown>
   ) => Record<string, unknown>;
+  findNativeRuntimeConfirmationButton: (
+    hierarchy: string,
+    expectedTitle: string
+  ) => { x: number; y: number } | null;
 }> {
   // @ts-expect-error This helper intentionally remains a Node-executable .mjs script.
   return import("../scripts/android-smoke.mjs");
@@ -78,6 +82,41 @@ function createFakeAndroidEnvironment(adbScript: string): {
 }
 
 describe("Android smoke helpers", () => {
+  it("targets only the positive action of the expected native runtime confirmation", async () => {
+    const { findNativeRuntimeConfirmationButton } = await loadSmokeModule();
+    const hierarchy = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+      <hierarchy rotation="0">
+        <node text="Switch SecPal instance?" resource-id="android:id/alertTitle" bounds="[80,300][1000,390]" />
+        <node text="Cancel" resource-id="android:id/button2" bounds="[500,700][720,790]" />
+        <node text="Continue" resource-id="android:id/button1" bounds="[730,700][1010,790]" />
+      </hierarchy>`;
+
+    expect(
+      findNativeRuntimeConfirmationButton(hierarchy, "Switch SecPal instance?")
+    ).toEqual({ x: 870, y: 745 });
+    expect(
+      findNativeRuntimeConfirmationButton(
+        hierarchy.replace('text="Continue"', 'text="CONTINUE"'),
+        "Switch SecPal instance?"
+      )
+    ).toEqual({ x: 870, y: 745 });
+    expect(
+      findNativeRuntimeConfirmationButton(hierarchy, "Reset SecPal instance?")
+    ).toBeNull();
+    expect(
+      findNativeRuntimeConfirmationButton(
+        hierarchy.replace("android:id/button1", "android:id/button2"),
+        "Switch SecPal instance?"
+      )
+    ).toBeNull();
+    expect(smokeSource).toContain(
+      'await approveNativeRuntimeConfirmation(options, "Switch SecPal instance?")'
+    );
+    expect(smokeSource).toContain(
+      'await approveNativeRuntimeConfirmation(options, "Reset SecPal instance?")'
+    );
+  });
+
   it("accepts only the explicit no-token error as a logged-out native session", async () => {
     const { readNativeUserEmail } = await loadSmokeModule();
     const buildGlobal = (getCurrentUser: () => Promise<unknown>) => ({
