@@ -889,4 +889,51 @@ jobs:
     expect(updaters).toHaveLength(1);
     expect(isEnabledUnfilteredGitHubActionsUpdater(updater ?? {})).toBe(true);
   });
+
+  it("keeps GitHub Actions Dependabot groups semver-homogeneous", () => {
+    const dependabot = parse(
+      readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8")
+    ) as {
+      updates?: Array<{
+        "package-ecosystem"?: unknown;
+        groups?: Record<string, Record<string, unknown>>;
+      }>;
+    };
+    const groups = dependabot.updates?.find(
+      (candidate) => candidate["package-ecosystem"] === "github-actions"
+    )?.groups;
+    const sharedWorkflowPattern = "SecPal/.github/.github/workflows/*";
+
+    expect(groups?.["shared-workflow-pins"]).toEqual({
+      patterns: [sharedWorkflowPattern],
+    });
+    for (const updateType of ["patch", "minor", "major"]) {
+      expect(groups?.[`github-actions-${updateType}`]).toEqual({
+        patterns: ["*"],
+        "exclude-patterns": [sharedWorkflowPattern],
+        "update-types": [updateType],
+      });
+    }
+  });
+
+  it("runs Dependabot auto-merge from immutable target-branch code", () => {
+    const workflow = parse(
+      readFileSync(
+        resolve(repoRoot, ".github/workflows/dependabot-auto-merge.yml"),
+        "utf8"
+      )
+    ) as {
+      on?: Record<string, unknown>;
+      jobs?: Record<string, Record<string, unknown>>;
+    };
+
+    expect(workflow.on?.pull_request_target).toEqual({
+      types: ["opened", "synchronize", "reopened", "ready_for_review"],
+    });
+    expect(workflow.on?.pull_request).toBeUndefined();
+    expect(workflow.jobs?.["auto-merge"]?.uses).toMatch(
+      /^SecPal\/\.github\/\.github\/workflows\/reusable-dependabot-auto-merge\.yml@[0-9a-f]{40}$/
+    );
+    expect(workflow.jobs?.["auto-merge"]?.steps).toBeUndefined();
+  });
 });

@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored readable PATCH, MINOR, and MAJOR classification for versioned
+  GitHub Actions Dependabot updates, while keeping unversioned SecPal reusable
+  workflows on immutable commit pins in a separate manual-review group; the
+  auto-merge caller now uses reviewed target-branch code with a write-capable
+  token.
 - Required review provenance findings to bind full commit SHAs to the reviewed
   pull request's commit set, resolve identity and signature metadata from the
   exact commit object, and deduplicate repeated evidence (issue #563).
