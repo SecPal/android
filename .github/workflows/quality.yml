@@ -30,7 +30,7 @@ jobs:
 
   markdown-lint:
     name: Markdown Lint
-    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@fa88c750f53091e08d051df9c60a2a3c06d5ec03 # main
+    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@120ab50b76e0039dd8aa85b0dee49861fa7acd10 # main
 
   ai-instructions:
     name: AI Instructions
