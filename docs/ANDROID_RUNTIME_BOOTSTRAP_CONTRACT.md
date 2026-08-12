@@ -27,7 +27,10 @@ Runtime identity keeps the visible version and technical build separate. `appVer
   installs `globalThis.SecPalNativeAuthBridge` before the shared frontend
   starts. Packaging emits its canonical bytes as
   `/secpal-native-auth-bridge.<sha256>.js`; `index.html` contains only the empty
-  same-origin script element and retains `script-src 'self'`.
+  same-origin script element and retains `script-src 'self'` plus
+  `script-src-attr 'none'`. The CSP meta is the first head element after
+  optional charset metadata so no active or resource-loading head content can
+  precede enforcement.
 - Android native plugin: `SecPalNativeAuthPlugin` exposes the Capacitor
   `SecPalNativeAuth` methods and persists the normalized bootstrap payload in
   `secpal_native_auth/runtime_bootstrap`.

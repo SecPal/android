@@ -1228,6 +1228,54 @@ system("sh", "-eu", "-c", script, exception: true)
         ),
         /must not contain executable inline scripts/i
       );
+      await expectInvalidArtifact(
+        "script-before-csp",
+        canonicalIndexHtml.replace(
+          '<meta http-equiv="Content-Security-Policy"',
+          '<script src="https://attacker.invalid/pre-csp.js"></script><meta http-equiv="Content-Security-Policy"'
+        ),
+        /Content-Security-Policy.*before every script/i
+      );
+      await expectInvalidArtifact(
+        "stylesheet-before-csp",
+        canonicalIndexHtml.replace(
+          '<meta http-equiv="Content-Security-Policy"',
+          '<link rel="stylesheet" href="https://attacker.invalid/pre-csp.css"><meta http-equiv="Content-Security-Policy"'
+        ),
+        /Content-Security-Policy.*first head element after.*charset/i
+      );
+      await expectInvalidArtifact(
+        "active-charset-before-csp",
+        canonicalIndexHtml.replace(
+          '<meta http-equiv="Content-Security-Policy"',
+          '<meta charset="UTF-8" http-equiv="refresh" content="0; url=https://attacker.invalid/"><meta http-equiv="Content-Security-Policy"'
+        ),
+        /Content-Security-Policy.*first head element after.*charset/i
+      );
+      await expectInvalidArtifact(
+        "csp-outside-head",
+        canonicalIndexHtml.replace(
+          /(<meta http-equiv="Content-Security-Policy"[^>]*>)/,
+          "</head><body>$1"
+        ),
+        /Content-Security-Policy.*child of head/i
+      );
+      await expectInvalidArtifact(
+        "unsafe-inline-script-attributes",
+        canonicalIndexHtml.replace(
+          "script-src-attr 'none'",
+          "script-src-attr 'unsafe-inline'"
+        ),
+        /script-src-attr 'none'/i
+      );
+      await expectInvalidArtifact(
+        "duplicate-script-directive",
+        canonicalIndexHtml.replace(
+          "script-src-attr 'none'",
+          "script-src-attr 'none'; script-src 'self'"
+        ),
+        /exactly one script-src directive/i
+      );
 
       const canonicalAssetName = canonicalIndexHtml.match(
         /src="\/(secpal-native-auth-bridge\.[0-9a-f]{64}\.js)"/

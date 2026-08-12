@@ -76,6 +76,7 @@ function assertNoExecutableInlineScripts(indexHtml, sourceLabel) {
 function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
   const runtimeScripts = [];
   const contentSecurityPolicies = [];
+  let firstScriptOffset = null;
   let firstModuleScriptOffset = null;
   const pending = [parse(indexHtml, { sourceCodeLocationInfo: true })];
   while (pending.length > 0) {
@@ -88,6 +89,12 @@ function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
         runtimeScripts.push(node);
       }
       const location = node.sourceCodeLocation;
+      if (location?.startTag) {
+        firstScriptOffset =
+          firstScriptOffset === null
+            ? location.startTag.startOffset
+            : Math.min(firstScriptOffset, location.startTag.startOffset);
+      }
       if (
         attributes.get("type")?.trim().toLowerCase() === "module" &&
         attributes.get("src")?.trim() &&
@@ -107,7 +114,28 @@ function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
         attributes.get("http-equiv")?.trim().toLowerCase() ===
         "content-security-policy"
       ) {
-        contentSecurityPolicies.push(attributes.get("content") ?? "");
+        const precedingHeadElements =
+          node.parentNode?.tagName === "head"
+            ? node.parentNode.childNodes
+                .slice(0, node.parentNode.childNodes.indexOf(node))
+                .filter((candidate) => candidate.tagName)
+            : [];
+        contentSecurityPolicies.push({
+          content: attributes.get("content") ?? "",
+          hasDisallowedPredecessor:
+            precedingHeadElements.length > 1 ||
+            precedingHeadElements.some((candidate) => {
+              const candidateAttributes = candidate.attrs ?? [];
+              return (
+                candidate.tagName !== "meta" ||
+                candidateAttributes.length !== 1 ||
+                candidateAttributes[0].name !== "charset" ||
+                candidateAttributes[0].value.trim().toLowerCase() !== "utf-8"
+              );
+            }),
+          isHeadChild: node.parentNode?.tagName === "head",
+          startOffset: node.sourceCodeLocation?.startTag?.startOffset ?? null,
+        });
       }
     }
     pending.push(...(node.childNodes ?? []));
@@ -160,28 +188,75 @@ function extractAndroidRuntimeBridge(indexHtml, sourceLabel) {
       `${sourceLabel} must contain exactly one strict Content-Security-Policy.`
     );
   }
-  const csp = contentSecurityPolicies[0];
-  const directives = csp.split(";").map((directive) => directive.trim());
-  const scriptDirective = directives.find(
-    (directive) =>
-      directive.toLowerCase() === "script-src" ||
-      directive.toLowerCase().startsWith("script-src ")
-  );
-  const scriptElementDirective = directives.find(
-    (directive) =>
-      directive.toLowerCase() === "script-src-elem" ||
-      directive.toLowerCase().startsWith("script-src-elem ")
-  );
+  const [csp] = contentSecurityPolicies;
+  if (!csp.isHeadChild) {
+    throw new Error(
+      `${sourceLabel} Content-Security-Policy meta must be a direct child of head.`
+    );
+  }
+  if (
+    csp.startOffset === null ||
+    firstScriptOffset === null ||
+    csp.startOffset >= firstScriptOffset
+  ) {
+    throw new Error(
+      `${sourceLabel} Content-Security-Policy meta must appear before every script element.`
+    );
+  }
+  if (csp.hasDisallowedPredecessor) {
+    throw new Error(
+      `${sourceLabel} Content-Security-Policy meta must be the first head element after optional charset metadata.`
+    );
+  }
+  const directives = csp.content
+    .split(";")
+    .map((directive) => directive.trim())
+    .filter(Boolean);
+  const directivesByName = new Map();
+  for (const directive of directives) {
+    const [name] = directive.split(/\s+/);
+    const normalizedName = name.toLowerCase();
+    const existing = directivesByName.get(normalizedName) ?? [];
+    existing.push(directive);
+    directivesByName.set(normalizedName, existing);
+  }
+  const scriptDirectives = directivesByName.get("script-src") ?? [];
+  const scriptElementDirectives = directivesByName.get("script-src-elem") ?? [];
+  const scriptAttributeDirectives =
+    directivesByName.get("script-src-attr") ?? [];
+  if (scriptDirectives.length !== 1) {
+    throw new Error(
+      `${sourceLabel} must contain exactly one script-src directive.`
+    );
+  }
+  if (scriptAttributeDirectives.length !== 1) {
+    throw new Error(
+      `${sourceLabel} must contain exactly one script-src-attr 'none' directive.`
+    );
+  }
+  if (scriptElementDirectives.length > 1) {
+    throw new Error(
+      `${sourceLabel} must contain at most one script-src-elem directive.`
+    );
+  }
+  const [scriptDirective] = scriptDirectives;
+  const [scriptAttributeDirective] = scriptAttributeDirectives;
+  const [scriptElementDirective] = scriptElementDirectives;
   if (
     scriptDirective !== "script-src 'self'" ||
+    scriptAttributeDirective !== "script-src-attr 'none'" ||
     (scriptElementDirective !== undefined &&
       scriptElementDirective !== "script-src-elem 'self'") ||
     /sha256-|sha384-|sha512-|'unsafe-inline'|'unsafe-eval'|https?:/i.test(
-      `${scriptDirective ?? ""} ${scriptElementDirective ?? ""}`
+      [
+        scriptDirective,
+        scriptElementDirective ?? "",
+        scriptAttributeDirective,
+      ].join(" ")
     )
   ) {
     throw new Error(
-      `${sourceLabel} must preserve the self-only Android script CSP without hashes, remote sources, unsafe-inline, or unsafe-eval.`
+      `${sourceLabel} must preserve script-src 'self', script-src-attr 'none', and an optional script-src-elem 'self' without hashes, remote sources, unsafe-inline, or unsafe-eval.`
     );
   }
 

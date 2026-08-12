@@ -39,7 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bootstrap as one content-hashed same-origin asset before the application
   module, and binding its path, bytes, schema, metadata, overlays, and complete
   inventory across directory, debug/store-listing, APK, and AAB packaging
-  paths without inline script allowances (issue #508, part of #402).
+  paths without inline script or event-handler allowances. Verification also
+  requires the meta-delivered policy to be effective before any active head
+  content (issue #508, part of #402).
 - Opened the protected profile through the running frontend's user menu in the
   Android smoke, preserving the native authenticated SPA state instead of
   forcing a full WebView navigation.
