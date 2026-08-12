@@ -81,6 +81,18 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void redirectServerRejectsInvalidContentLengthAsIoFailure() {
+        for (String value : Arrays.asList("not-a-number", "-1")) {
+            try {
+                RedirectTestServer.parseContentLength(value);
+                throw new AssertionError("Expected invalid Content-Length to fail");
+            } catch (IOException exception) {
+                assertTrue(exception.getMessage().contains("Content-Length"));
+            }
+        }
+    }
+
+    @Test
     public void buildErrorMessageUsesJsonMessageWhenPresent() {
         assertEquals(
             "Bad credentials",
@@ -519,7 +531,7 @@ public class NativeAuthHttpClientTest {
                 String name = lines[index].substring(0, separator).trim();
                 String value = lines[index].substring(separator + 1).trim();
                 if ("Content-Length".equalsIgnoreCase(name)) {
-                    contentLength = Integer.parseInt(value);
+                    contentLength = parseContentLength(value);
                 } else if ("Authorization".equalsIgnoreCase(name)) {
                     authorization = value;
                 }
@@ -546,6 +558,18 @@ public class NativeAuthHttpClientTest {
                 ).getBytes(StandardCharsets.ISO_8859_1));
             }
             output.flush();
+        }
+
+        private static int parseContentLength(String value) throws IOException {
+            try {
+                int contentLength = Integer.parseInt(value);
+                if (contentLength < 0) {
+                    throw new IOException("Invalid Content-Length");
+                }
+                return contentLength;
+            } catch (NumberFormatException exception) {
+                throw new IOException("Invalid Content-Length", exception);
+            }
         }
 
         private static String readHeaders(InputStream input) throws IOException {

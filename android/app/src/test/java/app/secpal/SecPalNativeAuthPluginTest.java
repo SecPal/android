@@ -12,6 +12,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 
 import com.getcapacitor.JSObject;
@@ -82,6 +83,19 @@ public class SecPalNativeAuthPluginTest {
             confirmationPending
         ));
         assertFalse(confirmationPending.get());
+    }
+
+    @Test
+    public void runtimeConfirmationAcceptsOnlyThePositiveButton() {
+        assertTrue(SecPalNativeAuthPlugin.isConfirmedRuntimeButton(
+            DialogInterface.BUTTON_POSITIVE
+        ));
+        assertFalse(SecPalNativeAuthPlugin.isConfirmedRuntimeButton(
+            DialogInterface.BUTTON_NEGATIVE
+        ));
+        assertFalse(SecPalNativeAuthPlugin.isConfirmedRuntimeButton(
+            DialogInterface.BUTTON_NEUTRAL
+        ));
     }
 
     @Test

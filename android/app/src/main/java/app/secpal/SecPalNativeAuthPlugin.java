@@ -8,6 +8,7 @@ package app.secpal;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.os.Build;
 
@@ -547,22 +548,30 @@ public class SecPalNativeAuthPlugin extends Plugin {
         AtomicBoolean decisionPending = new AtomicBoolean(true);
         activity.runOnUiThread(() -> {
             try {
+                DialogInterface.OnClickListener decisionListener = (dialog, which) -> {
+                    dialog.dismiss();
+                    if (isConfirmedRuntimeButton(which)) {
+                        completeRuntimeConfirmation(decisionPending, confirmedMutation);
+                        return;
+                    }
+                    cancelRuntimeConfirmation(call, decisionPending);
+                };
                 new AlertDialog.Builder(activity)
                     .setTitle(titleResource)
                     .setMessage(message)
                     .setPositiveButton(
                         R.string.runtime_confirmation_continue,
-                        (dialog, which) -> completeRuntimeConfirmation(
-                            decisionPending,
-                            confirmedMutation
-                        )
+                        decisionListener
                     )
                     .setNegativeButton(
                         R.string.runtime_confirmation_cancel,
-                        (dialog, which) -> cancelRuntimeConfirmation(call, decisionPending)
+                        decisionListener
                     )
                     .setCancelable(true)
-                    .setOnCancelListener(dialog -> cancelRuntimeConfirmation(call, decisionPending))
+                    .setOnCancelListener(dialog -> {
+                        dialog.dismiss();
+                        cancelRuntimeConfirmation(call, decisionPending);
+                    })
                     .show();
             } catch (RuntimeException exception) {
                 if (finishRuntimeConfirmation(decisionPending, runtimeMutationConfirmationPending)) {
@@ -602,6 +611,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static boolean beginRuntimeConfirmation(AtomicBoolean confirmationPending) {
         return confirmationPending.compareAndSet(false, true);
+    }
+
+    static boolean isConfirmedRuntimeButton(int button) {
+        return button == DialogInterface.BUTTON_POSITIVE;
     }
 
     static boolean finishRuntimeConfirmation(
