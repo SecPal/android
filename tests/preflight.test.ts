@@ -156,6 +156,16 @@ describe("preflight", () => {
     );
   });
 
+  it("includes MJS scripts in the repository lint entrypoint", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+
+    expect(packageJson.scripts.lint).toMatch(
+      /(?:^|\s)--ext\s+(?:[^\s]*,)?mjs(?:,[^\s]*)?(?:\s|$)/
+    );
+  });
+
   it("installs locked Node dependencies before invoking local formatter binaries", () => {
     const script = readFileSync(
       resolve(repoRoot, "scripts", "preflight.sh"),

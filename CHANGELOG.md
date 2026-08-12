@@ -44,8 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Derived the Android smoke APK version code from the current UTC day using the
   highest daily build sequence, so runtime discovery no longer presents the
   debug-only Gradle default build `1` to the development API compatibility gate.
-- Removed a dead assignment from the Android smoke bridge CSP authorizer and
-  added a focused lint regression guard.
+- Removed a dead assignment from the Android smoke bridge CSP authorizer,
+  added a focused lint regression guard, and included MJS scripts in the
+  repository lint entrypoint so that guard runs locally and in CI.
 - Restored readable PATCH, MINOR, and MAJOR classification for versioned
   GitHub Actions Dependabot updates, while keeping unversioned SecPal reusable
   workflows on immutable commit pins in a separate manual-review group; the
