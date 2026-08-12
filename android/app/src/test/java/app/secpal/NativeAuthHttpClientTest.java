@@ -351,6 +351,40 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void nonJsonUnauthorizedResponsePreservesAuthenticationStatus() throws Exception {
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url ->
+            new StubHttpURLConnection(
+                url,
+                401,
+                null,
+                "Unauthorized".getBytes(StandardCharsets.UTF_8),
+                "text/plain"
+            )
+        );
+
+        try {
+            client.request(
+                "https://api.secpal.dev",
+                "native-secret",
+                "GET",
+                "/v1/customers",
+                null,
+                null,
+                "application/json"
+            );
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(
+                "Android auth bridge received an unsupported error response content type",
+                expected.getMessage()
+            );
+            assertEquals(401, expected.getStatusCode());
+            return;
+        }
+
+        throw new AssertionError("Expected non-JSON unauthorized response to fail closed");
+    }
+
+    @Test
     public void buildTokenPasskeyAuthenticationChallengeRequestBodyOnlyCarriesDeviceName() throws Exception {
         JSONObject body = NativeAuthHttpClient
             .buildTokenPasskeyAuthenticationChallengeRequestBody("Pixel 9");
@@ -440,6 +474,11 @@ public class NativeAuthHttpClientTest {
 
         @Override
         public ByteArrayInputStream getInputStream() {
+            return new ByteArrayInputStream(responseBody);
+        }
+
+        @Override
+        public ByteArrayInputStream getErrorStream() {
             return new ByteArrayInputStream(responseBody);
         }
 

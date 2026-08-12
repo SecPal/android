@@ -92,7 +92,14 @@ than accepted by frontend discovery or API notification registration.
   resumes.
 - A cancelled or failed native reset is atomic from the frontend's perspective:
   it does not clear the configured origin, authenticated flag, or tenant-scoped
-  browser storage.
+  browser storage. Startup compatibility recovery and push-metadata-triggered
+  resets obey the same rule and perform no logout or browser teardown before
+  native confirmation succeeds. After native persistence, credentials, and push
+  runtime have cleared successfully, the reset uses the credential captured in
+  memory to revoke any known server-side push installation on a best-effort basis
+  before frontend teardown. If native push cleanup fails after persistence or
+  credentials were cleared, native state is restored before the reset is rejected
+  and no server revocation is attempted.
 - The baked-in Android resource value is a placeholder guardrail for native
   code paths that run before runtime binding. Login, authenticated requests,
   bootstrap restoration, and push registration use the selected canonical API

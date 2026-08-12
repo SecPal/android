@@ -107,8 +107,8 @@ Focused Java and packaged-asset parity tests bind that inventory to the route
 families present in the shipped Android frontend. Retired Android
 enrollment-session operations and route families that are merely implemented by
 dormant frontend service exports are not authorized. Public bootstrap and
-release metadata stay on the unauthenticated browser transport and never enter
-the bearer broker.
+release metadata plus onboarding invitation validation and completion stay on
+the unauthenticated browser transport and never enter the bearer broker.
 
 The broker parses path and query components before matching. It rejects dot
 segments, nested or invalid percent encoding, invalid UTF-8, encoded separators,
@@ -116,7 +116,9 @@ backslashes, fragments, authority-like paths, duplicate or unlisted query keys,
 unsupported media types, and individual request or response bodies beyond the
 native limits before returning data to the WebView. Automatic redirects are
 disabled. Authenticated 301, 302, 303, 307, and 308 responses fail closed, so a
-bearer header is never replayed to a redirect target.
+bearer header is never replayed to a redirect target. Rejected response media
+types preserve the originating HTTP status so authentication failures still
+trigger native credential and frontend session cleanup.
 
 Keeping the bearer token native does not eliminate the authority of same-origin
 script execution. A same-origin XSS can still invoke inventoried operations and

@@ -705,6 +705,73 @@ public class SecPalNativeAuthPluginTest {
         );
     }
 
+    @Test
+    public void clearRuntimeBootstrapStateRollsBackWhenPushCleanupFails() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        RuntimeException pushCleanupFailure = new RuntimeException("push-cleanup-failed");
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        try {
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                () -> { throw pushCleanupFailure; }
+            );
+            fail("Expected push cleanup failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(pushCleanupFailure, thrown);
+        }
+
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
+        assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void completedNativeRuntimeClearRevokesPushRegistrationWithCapturedCredential() {
+        AtomicBoolean revocationCalled = new AtomicBoolean(false);
+
+        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
+            "tenant-a-token",
+            "https://tenant-a.example",
+            "123e4567-e89b-42d3-a456-426614174000",
+            (apiOrigin, token, installationId) -> {
+                assertEquals("https://tenant-a.example", apiOrigin);
+                assertEquals("tenant-a-token", token);
+                assertEquals("123e4567-e89b-42d3-a456-426614174000", installationId);
+                revocationCalled.set(true);
+            }
+        );
+
+        assertTrue(revocationCalled.get());
+    }
+
+    @Test
+    public void completedNativeRuntimeClearIgnoresBestEffortPushRevocationFailure() {
+        AtomicBoolean revocationCalled = new AtomicBoolean(false);
+
+        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
+            "rejected-token",
+            "https://tenant-a.example",
+            "123e4567-e89b-42d3-a456-426614174000",
+            (apiOrigin, token, installationId) -> {
+                revocationCalled.set(true);
+                throw new NativeAuthHttpException("Unauthenticated", 401);
+            }
+        );
+
+        assertTrue(revocationCalled.get());
+    }
+
     private static final class FakeTokenStorage implements TokenStorage {
         private String token;
 

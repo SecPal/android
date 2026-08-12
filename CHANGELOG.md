@@ -38,13 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method, canonical route, query-key, request-media-type, and response-kind
   inventory; ambiguous encodings, credential/bootstrap routes, unknown
   operations, unsupported media, oversized bodies, and every HTTP redirect now
-  fail closed before credentials can leave the validated runtime origin. The
+  fail closed before credentials can leave the validated runtime origin, while
+  public bootstrap, release, and onboarding-invitation requests remain on the
+  browser transport. Non-JSON authentication errors retain their HTTP status so
+  `401` responses still clear rejected credentials and frontend auth state. The
   obsolete raw `setApiBaseUrl`, `setRuntimeBootstrap`, and
   `clearRuntimeBootstrap` Capacitor exports were removed; runtime selection and
   reset now require single-use native user confirmation through the breaking
   `confirmRuntimeBootstrap` and `confirmRuntimeReset` plugin contract. The
-  confirmation identifies the natively canonicalized target, cancelled or
-  failed resets preserve the current frontend runtime atomically, rebinding
+  confirmation identifies the natively canonicalized target; cancelled or
+  failed resets, including startup recovery and push-metadata resets, preserve
+  the current frontend and native runtime atomically, and late push cleanup
+  failures roll back native persistence and credentials. Confirmed resets
+  best-effort revoke known server-side push installations after native cleanup
+  succeeds and before frontend teardown. Rebinding
   clears even orphaned credentials unless the existing canonical origin is
   identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege

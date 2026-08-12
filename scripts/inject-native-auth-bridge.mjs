@@ -425,7 +425,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const clearPersistedBootstrap = async () => {
     const plugin = getPlugin();
     if (typeof plugin.confirmRuntimeReset === "function") {
-      await plugin.confirmRuntimeReset();
+      const apiOrigin =
+        typeof runtimeState.apiOrigin === "string" ? runtimeState.apiOrigin.trim() : "";
+      const installationId = apiOrigin ? getStoredPushInstallationId(apiOrigin) : null;
+      await plugin.confirmRuntimeReset(
+        installationId ? { androidPushInstallationId: installationId } : {}
+      );
       return;
     }
 
@@ -672,6 +677,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
         "Failed to clear persisted bootstrap for incompatible Android offline vault state.",
         error
       );
+      return false;
     }
 
     if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
@@ -1727,9 +1733,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
             responseCode === "NOTIFICATION_RUNTIME_STATE_INVALID" ||
             responseCode === "NOTIFICATION_CHANNEL_UNSUPPORTED"
           ) {
-            await clearConfiguredRuntimeState({
-              revokeAndroidPushRegistrationDirect: true,
-            });
+            await clearConfiguredRuntimeState();
             return;
           }
         }
@@ -1938,9 +1942,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return new URL(url.pathname + url.search, runtimeState.apiOrigin);
   };
 
+  const publicApiPaths = new Set([
+    "/v1/bootstrap",
+    "/v1/release",
+    "/v1/onboarding/validate-token",
+    "/v1/onboarding/complete",
+  ]);
   const isNativeApiRequest = (url) => {
-    const publicPath =
-      url.pathname === "/v1/bootstrap" || url.pathname === "/v1/release";
+    const publicPath = publicApiPaths.has(url.pathname);
     return (
       !publicPath &&
       (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) &&
@@ -1950,51 +1959,17 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   let runtimeResetBusy = false;
 
-  const clearConfiguredRuntimeState = async ({
-    revokeAndroidPushRegistrationDirect: useDirectPushRevocation = false,
-  } = {}) => {
+  const clearConfiguredRuntimeState = async () => {
     if (runtimeResetBusy || !runtimeState.configured) {
       return;
     }
 
     runtimeResetBusy = true;
-    let didLogoutSucceed = false;
-
     try {
-      if (typeof getPlugin().logout === "function") {
-        try {
-          androidPushSyncState.suspended = true;
-          setAuthActive(false);
-          if (useDirectPushRevocation) {
-            await revokeConfiguredAndroidPushRegistrationDirect();
-          } else {
-            await revokeAndroidPushRegistration();
-          }
-          await getPlugin().logout();
-          didLogoutSucceed = true;
-        } catch (error) {
-          const code = error && typeof error === "object" ? error.code : undefined;
-          if (code !== "NO_STORED_TOKEN" && code !== "HTTP_401") {
-            console.warn("Failed to logout before clearing the configured SecPal runtime.", error);
-          }
-        }
-      }
-
-      try {
-        await clearPersistedBootstrap();
-      } catch (error) {
-        const code = error && typeof error === "object" ? error.code : undefined;
-        if (code === "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED") {
-          throw error;
-        }
-        console.warn("Failed to clear persisted SecPal runtime bootstrap.", error);
-      }
+      await clearPersistedBootstrap();
       await clearTenantScopedBrowserState();
     } catch (error) {
       console.warn("Failed to clear the current SecPal runtime.", error);
-      if (didLogoutSucceed) {
-        globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
-      }
       runtimeResetBusy = false;
       androidPushSyncState.suspended = false;
       return;
@@ -2010,9 +1985,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     runtimeState.nativeConfigPromise = Promise.resolve();
     runtimeResetBusy = false;
 
-    if (didLogoutSucceed) {
-      globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
-    }
+    globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
 
     if (globalThis.location && typeof globalThis.location.reload === "function") {
       globalThis.location.reload();

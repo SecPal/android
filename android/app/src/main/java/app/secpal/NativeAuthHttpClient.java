@@ -508,7 +508,7 @@ class NativeAuthHttpClient {
             if (!json) {
                 throw new NativeAuthHttpException(
                     "Android auth bridge received an unsupported error response content type",
-                    0
+                    statusCode
                 );
             }
             return;

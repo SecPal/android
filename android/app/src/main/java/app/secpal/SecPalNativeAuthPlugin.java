@@ -41,6 +41,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE =
         "VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED";
 
+    @FunctionalInterface
+    interface AndroidPushRegistrationRevoker {
+        void revoke(String apiOrigin, String token, String installationId)
+            throws IOException, NativeAuthHttpException;
+    }
+
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
@@ -396,32 +402,54 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 getContext().getString(R.string.runtime_confirmation_reset_message),
                 currentApiOrigin
             );
+            String androidPushInstallationId = call.getString("androidPushInstallationId");
             confirmNativeRuntimeMutation(
                 call,
                 R.string.runtime_confirmation_reset_title,
                 confirmationMessage,
-                () -> runAsync(call, () -> clearConfirmedRuntime(call))
+                () -> runAsync(
+                    call,
+                    () -> clearConfirmedRuntime(call, androidPushInstallationId)
+                )
             );
         });
     }
 
-    private void clearConfirmedRuntime(PluginCall call) {
-        boolean persisted = clearRuntimeBootstrapState(
-            getNativeAuthPreferences(),
-            tokenStorage
-        );
-
-        if (!persisted) {
+    private void clearConfirmedRuntime(PluginCall call, String androidPushInstallationId) {
+        try {
+            String tokenForPushRevocation = tokenStorage.getToken();
+            if (!clearRuntimeBootstrapStateWithPushRollback(
+                getNativeAuthPreferences(),
+                tokenStorage,
+                () -> androidPushRuntimeManager.apply(null)
+            )) {
+                call.reject(
+                    "Failed to clear Android runtime bootstrap state",
+                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                );
+                return;
+            }
+            revokeAndroidPushRegistrationAfterRuntimeClear(
+                tokenForPushRevocation,
+                apiBaseUrl,
+                androidPushInstallationId,
+                (apiOrigin, token, installationId) -> httpClient.request(
+                    apiOrigin,
+                    token,
+                    "DELETE",
+                    "/v1/me/notification-installations/" + installationId,
+                    null,
+                    null,
+                    "application/json"
+                )
+            );
+        } catch (TokenStorageException exception) {
             call.reject(
-                "Failed to clear Android runtime bootstrap state",
-                "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                "Failed to access Android auth token during runtime reset",
+                "TOKEN_STORAGE_ERROR",
+                exception
             );
             return;
-        }
-
-        apiBaseUrl = null;
-        try {
-            androidPushRuntimeManager.apply(null);
         } catch (RuntimeException exception) {
             call.reject(
                 exception.getMessage(),
@@ -430,6 +458,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
             );
             return;
         }
+
+        apiBaseUrl = null;
         call.resolve();
     }
 
@@ -958,6 +988,97 @@ public class SecPalNativeAuthPlugin extends Plugin {
         tokenStorage.clearToken();
 
         return true;
+    }
+
+    static boolean clearRuntimeBootstrapStateWithPushRollback(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        Runnable pushCleanup
+    ) throws TokenStorageException {
+        String previousRuntimeBootstrap = preferences.getString(
+            RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+            null
+        );
+        String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
+        String previousToken = tokenStorage.getToken();
+
+        if (!clearRuntimeBootstrapState(preferences, tokenStorage)) {
+            return false;
+        }
+
+        try {
+            pushCleanup.run();
+            return true;
+        } catch (RuntimeException exception) {
+            boolean persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
+                preferences,
+                previousRuntimeBootstrap,
+                previousApiBaseUrl
+            );
+            if (previousToken != null) {
+                try {
+                    tokenStorage.saveToken(previousToken);
+                } catch (TokenStorageException tokenException) {
+                    tokenException.addSuppressed(exception);
+                    if (!persistenceRestored) {
+                        tokenException.addSuppressed(new IllegalStateException(
+                            "Failed to restore Android runtime bootstrap after push cleanup failure"
+                        ));
+                    }
+                    throw tokenException;
+                }
+            }
+            if (!persistenceRestored) {
+                exception.addSuppressed(new IllegalStateException(
+                    "Failed to restore Android runtime bootstrap after push cleanup failure"
+                ));
+            }
+            throw exception;
+        }
+    }
+
+    static void revokeAndroidPushRegistrationAfterRuntimeClear(
+        String token,
+        String apiOrigin,
+        String installationId,
+        AndroidPushRegistrationRevoker revoker
+    ) {
+        String normalizedApiOrigin = apiOrigin == null ? "" : apiOrigin.trim();
+        String normalizedInstallationId = installationId == null ? "" : installationId.trim();
+        if (normalizedApiOrigin.isEmpty() || normalizedInstallationId.isEmpty()) {
+            return;
+        }
+
+        if (token == null || token.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            revoker.revoke(normalizedApiOrigin, token, normalizedInstallationId);
+        } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
+            // Runtime reset remains available offline; server revocation is best-effort.
+        }
+    }
+
+    private static boolean restoreRuntimeBootstrapPersistenceSynchronously(
+        SharedPreferences preferences,
+        String previousRuntimeBootstrap,
+        String previousApiBaseUrl
+    ) {
+        SharedPreferences.Editor editor = preferences.edit();
+
+        if (previousRuntimeBootstrap == null || previousRuntimeBootstrap.trim().isEmpty()) {
+            editor.remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY);
+        } else {
+            editor.putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, previousRuntimeBootstrap);
+        }
+        if (previousApiBaseUrl == null || previousApiBaseUrl.trim().isEmpty()) {
+            editor.remove(API_BASE_URL_PREFERENCE_KEY);
+        } else {
+            editor.putString(API_BASE_URL_PREFERENCE_KEY, previousApiBaseUrl);
+        }
+
+        return editor.commit();
     }
 
     static void restoreRuntimeBootstrapPersistence(
