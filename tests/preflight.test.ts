@@ -156,6 +156,30 @@ describe("preflight", () => {
     );
   });
 
+  it("includes MJS scripts in the repository lint entrypoint", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+
+    expect(packageJson.scripts.lint).toMatch(
+      /(?:^|\s)--ext\s+(?:[^\s]*,)?mjs(?:,[^\s]*)?(?:\s|$)/
+    );
+  });
+
+  it("applies the repository ESLint rules to MJS scripts", () => {
+    const result = spawnSync(
+      resolve(repoRoot, "node_modules", ".bin", "eslint"),
+      ["--print-config", "scripts/android-smoke.mjs"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+    const config = JSON.parse(result.stdout) as {
+      rules?: Record<string, unknown>;
+    };
+    expect(config.rules?.["no-undef"]).toBeDefined();
+  });
+
   it("installs locked Node dependencies before invoking local formatter binaries", () => {
     const script = readFileSync(
       resolve(repoRoot, "scripts", "preflight.sh"),

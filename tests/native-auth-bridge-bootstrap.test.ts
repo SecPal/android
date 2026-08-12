@@ -6,6 +6,7 @@
 /// <reference types="node" />
 /// <reference lib="dom" />
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
@@ -354,6 +355,62 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       injectNativeAuthBridgeBootstrap(injectedHtml, "https://api.secpal.dev")
     ).toBe(injectedHtml);
+  });
+
+  it("authorizes only the exact injected bootstrap under a self-only script CSP", async () => {
+    const {
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeBootstrap,
+    } = await loadInjectorModule();
+    const apiOrigin = "https://api.secpal.dev";
+    const bootstrap = buildNativeAuthBridgeBootstrapScript(apiOrigin);
+    const bootstrapHash = `sha256-${createHash("sha256")
+      .update(bootstrap, "utf8")
+      .digest("base64")}`;
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; script-src-attr 'none'\">",
+      '<script type="module" src="/assets/index.js"></script>',
+      "</head>",
+      "<body></body>",
+      "</html>",
+    ].join("\n");
+
+    const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiOrigin);
+
+    expect(injectedHtml).toContain(`script-src 'self' '${bootstrapHash}'`);
+    expect(injectedHtml).not.toContain("'unsafe-inline'");
+    expect(injectNativeAuthBridgeBootstrap(injectedHtml, apiOrigin)).toBe(
+      injectedHtml
+    );
+  });
+
+  it("authorizes the bootstrap in script-src-elem when it overrides script-src", async () => {
+    const {
+      buildNativeAuthBridgeBootstrapScript,
+      injectNativeAuthBridgeBootstrap,
+    } = await loadInjectorModule();
+    const apiOrigin = "https://api.secpal.dev";
+    const bootstrapHash = `sha256-${createHash("sha256")
+      .update(buildNativeAuthBridgeBootstrapScript(apiOrigin), "utf8")
+      .digest("base64")}`;
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; script-src-elem 'self'; script-src-attr 'none'\">",
+      '<script type="module" src="/assets/index.js"></script>',
+      "</head>",
+      "<body></body>",
+      "</html>",
+    ].join("\n");
+
+    const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiOrigin);
+
+    expect(injectedHtml).toContain(`script-src-elem 'self' '${bootstrapHash}'`);
+    expect(injectedHtml).not.toContain(`script-src 'self' '${bootstrapHash}'`);
   });
 
   it("injects before a case-insensitive module entry without moving the doctype", async () => {

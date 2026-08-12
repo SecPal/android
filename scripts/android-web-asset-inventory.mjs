@@ -24,7 +24,8 @@ function parseAndroidAssetIgnorePatterns(source, sourceLabel) {
     throw new Error(
       `${sourceLabel} is not valid JSON: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 
@@ -129,7 +130,8 @@ function parseInventory(source, sourceLabel) {
     throw new Error(
       `${sourceLabel} is not valid JSON: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 

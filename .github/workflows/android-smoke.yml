@@ -1,0 +1,359 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+name: Android Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-smoke.yml"
+      - "android/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/android-web-asset-inventory.mjs"
+      - "scripts/android-smoke.mjs"
+      - "scripts/build-frontend-web.sh"
+      - "scripts/check-android-app-health.sh"
+      - "scripts/forward-android-webview.sh"
+      - "scripts/generate-android-web-asset-inventory.mjs"
+      - "scripts/inject-native-auth-bridge.mjs"
+      - "scripts/normalize-capacitor-cordova-gradle.mjs"
+      - "scripts/normalize-cordova-config.mjs"
+      - "scripts/patch-capacitor-android-unchecked.mjs"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/webview-cdp-client.mjs"
+      - "scripts/webview-live-auth-smoke.mjs"
+      - "scripts/with-android-env.sh"
+      - "tests/android-smoke*.test.ts"
+      - "tests/webview-*.test.ts"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-smoke.yml"
+      - "android/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/android-web-asset-inventory.mjs"
+      - "scripts/android-smoke.mjs"
+      - "scripts/build-frontend-web.sh"
+      - "scripts/check-android-app-health.sh"
+      - "scripts/forward-android-webview.sh"
+      - "scripts/generate-android-web-asset-inventory.mjs"
+      - "scripts/inject-native-auth-bridge.mjs"
+      - "scripts/normalize-capacitor-cordova-gradle.mjs"
+      - "scripts/normalize-cordova-config.mjs"
+      - "scripts/patch-capacitor-android-unchecked.mjs"
+      - "scripts/start-android-emulator.sh"
+      - "scripts/wait-for-android-device.sh"
+      - "scripts/webview-cdp-client.mjs"
+      - "scripts/webview-live-auth-smoke.mjs"
+      - "scripts/with-android-env.sh"
+      - "tests/android-smoke*.test.ts"
+      - "tests/webview-*.test.ts"
+  schedule:
+    - cron: "43 4 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Android user journey (API 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_SERIAL: emulator-5570
+      SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend
+      SECPAL_RUNTIME_URL: https://api.secpal.dev
+      SECPAL_TEST_EMAIL: test@example.com
+      SECPAL_WEBVIEW_CDP_REQUEST_TIMEOUT_MS: "5000"
+      SECPAL_WEBVIEW_DEVTOOLS_URL: http://127.0.0.1:9223/json/list
+      SECPAL_WEBVIEW_TARGET_PATTERN: app\.secpal\.dev
+      SMOKE_STEP_FILE: ${{ github.workspace }}/android-smoke-step.txt
+
+    steps:
+      - name: Checkout Android repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Configure documented test credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf -v test_password '%s%s' 'pass' 'word'
+          echo "::add-mask::${test_password}"
+          echo "SECPAL_TEST_PASSWORD=${test_password}" >> "$GITHUB_ENV"
+
+      - name: Check development API readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "api-readiness" > "$SMOKE_STEP_FILE"
+          ready_body="${RUNNER_TEMP}/secpal-api-ready.json"
+          ready=false
+          readiness_deadline=$((SECONDS + 120))
+          attempt=0
+          while (( SECONDS < readiness_deadline )); do
+            attempt=$((attempt + 1))
+            status="$(curl --silent --show-error --connect-timeout 2 --max-time 4 \
+              --output "$ready_body" --write-out '%{http_code}' \
+              https://api.secpal.dev/health/ready || true)"
+            if [[ "$status" == "200" ]] && jq -e '.status == "ready"' "$ready_body" >/dev/null; then
+              ready=true
+              echo "Development API is ready (attempt ${attempt})."
+              break
+            fi
+            remaining=$((readiness_deadline - SECONDS))
+            if (( remaining > 0 )); then
+              sleep_seconds=$((remaining < 5 ? remaining : 5))
+              sleep "$sleep_seconds"
+            fi
+          done
+          if [[ "$ready" != "true" ]]; then
+            echo "::error::Development API is not ready; the Android emulator will not be started."
+            live_body="${RUNNER_TEMP}/secpal-api-live.json"
+            live_status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
+              --output "$live_body" --write-out '%{http_code}' \
+              https://api.secpal.dev/health/live || true)"
+            echo "Diagnostic liveness status: ${live_status:-unavailable}"
+            jq -c . "$live_body" 2>/dev/null || echo "Diagnostic liveness body unavailable."
+            exit 1
+          fi
+
+      - name: Checkout frontend main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: SecPal/frontend
+          ref: "main"
+          path: frontend
+
+      - name: Record tested revisions
+        id: revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sha="$(git rev-parse HEAD)"
+          frontend_sha="$(git -C frontend rev-parse HEAD)"
+          android_build_date="$(date --utc +%Y%m%d)"
+          smoke_version_code="${android_build_date}99"
+          if [[ ! "$smoke_version_code" =~ ^[0-9]{10}$ ]] || \
+            (( 10#${smoke_version_code} > 2100000000 )); then
+            echo "::error::Android smoke version code is invalid: ${smoke_version_code}"
+            exit 1
+          fi
+          echo "android-sha=${android_sha}" >> "$GITHUB_OUTPUT"
+          echo "frontend-sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+          echo "SECPAL_ANDROID_VERSION_CODE=${smoke_version_code}" >> "$GITHUB_ENV"
+          echo "Android SHA: ${android_sha}"
+          echo "Frontend SHA: ${frontend_sha}"
+          echo "Android version code: ${smoke_version_code}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Install reproducible dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "install-dependencies" > "$SMOKE_STEP_FILE"
+          npm ci
+          npm --prefix frontend ci
+
+      - name: Build debug APK from frontend main
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "build-debug-apk" > "$SMOKE_STEP_FILE"
+          npm run cap:sync
+          npm run native:assemble:debug
+          test -f android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Start API-35 emulator
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-smoke-avd
+          SECPAL_ANDROID_EMULATOR_GPU_MODE: software
+          SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "start-emulator" > "$SMOKE_STEP_FILE"
+          sudo chmod 666 /dev/kvm
+          mkdir -p "$ANDROID_AVD_HOME"
+          image="system-images;android-35;google_apis;x86_64"
+          bash ./scripts/with-android-env.sh sdkmanager --channel=0 \
+            "platform-tools" "emulator" "$image"
+          echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
+            --force --name secpal-smoke-api35 --package "$image"
+          # start-android-emulator.sh enforces -wipe-data and -no-snapshot.
+          npm run android:emulator:start -- secpal-smoke-api35 5570
+          if ! npm run android:device:wait -- "$ANDROID_SERIAL" 300; then
+            emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-smoke-api35-5570.log"
+            cat "$emulator_log" >&2 || true
+            exit 1
+          fi
+
+      - name: Clean install and launch SecPal
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "clean-install" > "$SMOKE_STEP_FILE"
+          adb_command() {
+            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" "$@"
+          }
+          adb_command uninstall app.secpal >/dev/null 2>&1 || true
+          adb_command install -t android/app/build/outputs/apk/debug/app-debug.apk
+          adb_command logcat -c
+          adb_command shell am start -W -n app.secpal/.MainActivity
+          bash ./scripts/forward-android-webview.sh "$ANDROID_SERIAL" 9223 60
+          bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
+
+      - name: Run Android smoke journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb_command() {
+            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" "$@"
+          }
+          mark_step() {
+            echo "$1" > "$SMOKE_STEP_FILE"
+            echo "--- Android smoke step: $1"
+          }
+          reconnect_webview() {
+            bash ./scripts/forward-android-webview.sh "$ANDROID_SERIAL" 9223 60
+          }
+          assert_healthy() {
+            bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
+          }
+          run_action() {
+            mark_step "$1"
+            npm run test:live:android-smoke -- "$1"
+            assert_healthy
+          }
+          restart_app() {
+            adb_command shell am force-stop app.secpal
+            adb_command shell am start -W -n app.secpal/.MainActivity
+            reconnect_webview
+          }
+
+          run_action network-ready
+          run_action initial
+          run_action configure
+
+          mark_step runtime-persistence-restart
+          restart_app
+          run_action login-persisted
+
+          run_action login
+          run_action protected-profile
+
+          mark_step background-foreground
+          lifecycle_pid="$(adb_command shell pidof app.secpal | tr -d '\r')"
+          adb_command shell input keyevent KEYCODE_HOME
+          sleep 2
+          background_pid="$(adb_command shell pidof app.secpal | tr -d '\r')"
+          [[ "$background_pid" == "$lifecycle_pid" ]]
+          adb_command shell am start -W -n app.secpal/.MainActivity
+          foreground_pid="$(adb_command shell pidof app.secpal | tr -d '\r')"
+          [[ "$foreground_pid" == "$lifecycle_pid" ]]
+          reconnect_webview
+          run_action lifecycle
+
+          run_action logout
+
+          mark_step logout-persistence-restart
+          restart_app
+          run_action logout-persisted
+
+          run_action switch-instance
+          run_action final-configure
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          diagnostics="${RUNNER_TEMP}/android-smoke-diagnostics"
+          mkdir -p "$diagnostics"
+          android_sha="$(git rev-parse HEAD 2>/dev/null || echo unavailable)"
+          frontend_sha="$(git -C frontend rev-parse HEAD 2>/dev/null || echo unavailable)"
+          failed_step="$(head -n 1 "$SMOKE_STEP_FILE" 2>/dev/null || echo unknown)"
+          adb_command() {
+            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" "$@"
+          }
+
+          adb_command logcat -d 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/logcat.txt"
+          emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-smoke-api35-5570.log"
+          if [[ -f "$emulator_log" ]]; then
+            node ./scripts/android-smoke.mjs sanitize \
+              < "$emulator_log" > "$diagnostics/emulator.log"
+          fi
+          adb_command exec-out screencap -p > "$diagnostics/screenshot.png" 2>/dev/null || true
+          adb_command shell dumpsys activity 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-activity.txt"
+          adb_command shell dumpsys window 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-window.txt"
+          adb_command shell dumpsys package app.secpal 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-package.txt"
+          node ./scripts/android-smoke.mjs inspect > "$diagnostics/webview-state.json" 2>/dev/null || true
+          jq -n \
+            --arg failed_step "$failed_step" \
+            --arg android_sha "$android_sha" \
+            --arg frontend_sha "$frontend_sha" \
+            --arg emulator "Android API 35 google_apis x86_64" \
+            --arg timestamp "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              failed_step: $failed_step,
+              android_sha: $android_sha,
+              frontend_sha: $frontend_sha,
+              emulator: $emulator,
+              timestamp: $timestamp
+            }' \
+            > "$diagnostics/smoke-result.json"
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-smoke-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-smoke-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup emulator
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" forward --remove tcp:9223
+          timeout --foreground --kill-after=5s 30s \
+            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" emu kill
+          emulator_pid_file="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-smoke-api35-5570.pid"
+          if [[ -f "$emulator_pid_file" ]]; then
+            emulator_pid="$(head -n 1 "$emulator_pid_file")"
+            if [[ "$emulator_pid" =~ ^[0-9]+$ ]]; then
+              kill "$emulator_pid" 2>/dev/null || true
+            fi
+          fi

@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const webviewScripts = [
@@ -18,6 +18,10 @@ const webviewScripts = [
 ] as const;
 
 describe("WebView CDP helper scripts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("centralizes WebSocket request handling with close, error, and timeout rejection", () => {
     const helperPath = resolve(repoRoot, "scripts", "webview-cdp-client.mjs");
 
@@ -40,6 +44,24 @@ describe("WebView CDP helper scripts", () => {
       expect(script).not.toContain("new WebSocket");
       expect(script).not.toContain("let nextId");
     }
+  });
+
+  it("fails closed on debugger-list HTTP errors with a bounded fetch", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+    const cdpModulePath = "../scripts/webview-cdp-client.mjs";
+    const { connectToWebViewTarget } = await import(cdpModulePath);
+
+    await expect(
+      connectToWebViewTarget({
+        debuggerListUrl: "http://127.0.0.1:9223/json/list",
+        targetPattern: /app\.secpal\.dev/,
+      })
+    ).rejects.toThrow("HTTP 503");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9223/json/list",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 
   it("fails fast when CDP evaluation throws or required navigation targets are missing", () => {

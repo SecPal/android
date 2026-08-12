@@ -542,7 +542,7 @@ function patchSystemBarsDomReadySource(source) {
   }
 
   const pageCommitCallback =
-    /^(\s*)@Override\n\1public void onPageCommitVisible\(WebView view, String url\) \{\n\1    super\.onPageCommitVisible\(view, url\);\n\1    getBridge\(\)\.getWebView\(\)\.requestApplyInsets\(\);\n\1\}$/m;
+    /^(\s*)@Override\n\1public void onPageCommitVisible\(WebView view, String url\) \{\n\1 {4}super\.onPageCommitVisible\(view, url\);\n\1 {4}getBridge\(\)\.getWebView\(\)\.requestApplyInsets\(\);\n\1\}$/m;
   const match = source.match(pageCommitCallback);
 
   if (!match) {

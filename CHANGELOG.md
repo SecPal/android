@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a daily and change-filtered API-35 Android emulator smoke workflow that
+  builds the current frontend `main`, verifies runtime discovery and persistence,
+  native password authentication, a protected profile read, foreground lifecycle,
+  UI logout persistence, and instance switching, with bounded readiness checks
+  failure-only diagnostics, and an exact CSP hash for the injected native bridge.
 - Added native Android debug JVM unit tests to the normal quality workflow,
   with bounded execution and Gradle reports retained only on test failure.
 - Added bounded Android lint coverage for every supported app variant to the
@@ -28,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opened the protected profile through the running frontend's user menu in the
+  Android smoke, preserving the native authenticated SPA state instead of
+  forcing a full WebView navigation.
+- Required logout persistence checks to accept only the native
+  `NO_STORED_TOKEN` result, rather than hiding network, storage, or bridge
+  failures as successful logout.
+- Required the Android smoke health check to observe SecPal as the foreground
+  activity, so a backgrounded or covered WebView cannot pass the user journey.
+- Required the API-35 smoke WebView to reach the ready development API before
+  starting instance discovery, avoiding a false discovery failure while the
+  freshly booted emulator is still establishing its default network.
+- Derived the Android smoke APK version code from the current UTC day using the
+  highest daily build sequence, so runtime discovery no longer presents the
+  debug-only Gradle default build `1` to the development API compatibility gate.
+- Removed a dead assignment from the Android smoke bridge CSP authorizer,
+  added a focused lint regression guard, and included MJS scripts in the
+  repository lint entrypoint so that guard runs locally and in CI.
 - Restored readable PATCH, MINOR, and MAJOR classification for versioned
   GitHub Actions Dependabot updates, while keeping unversioned SecPal reusable
   workflows on immutable commit pins in a separate manual-review group; the
