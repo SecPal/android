@@ -20,4 +20,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
     <string name="oss_licenses_title">Open-source licenses</string>
     <string name="webview_compatibility_title">Android System WebView update required</string>
     <string name="webview_compatibility_message">SecPal cannot start securely because this device does not provide the required origin-aware WebView bridge. Update Android System WebView or Google Chrome to version 83 or later, then restart SecPal. On managed devices, ask your administrator to approve and deploy the update.</string>
+    <string name="runtime_confirmation_switch_title">Switch SecPal instance?</string>
+    <string name="runtime_confirmation_switch_message">Android will clear credentials for the current instance before switching to %1$s.</string>
+    <string name="runtime_confirmation_reset_title">Reset SecPal instance?</string>
+    <string name="runtime_confirmation_reset_message">Android will remove %1$s and its tenant-bound credentials.</string>
+    <string name="runtime_confirmation_continue">Continue</string>
+    <string name="runtime_confirmation_cancel">Cancel</string>
 </resources>

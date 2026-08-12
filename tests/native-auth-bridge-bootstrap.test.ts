@@ -600,7 +600,7 @@ describe("native auth bridge bootstrap injection", () => {
           rawApiBaseUrl: "https://api.secpal.dev/v1",
         }),
       }),
-      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const browserFetch = vi
       .fn()
@@ -1114,9 +1114,14 @@ describe("native auth bridge bootstrap injection", () => {
       "https://api.secpal.dev/health/ready",
       { method: "GET" }
     );
+    (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
+    await (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/bootstrap?client_platform=browser"
+    );
+    await (sandbox.fetch as typeof fetch)("https://api.secpal.dev/v1/release");
 
     expect(plugin.request).not.toHaveBeenCalled();
-    expect(browserFetch).toHaveBeenCalledOnce();
+    expect(browserFetch).toHaveBeenCalledTimes(3);
     await expect(response.text()).resolves.toBe('{"status":"ready"}');
   });
 
@@ -1131,7 +1136,7 @@ describe("native auth bridge bootstrap injection", () => {
       getRuntimeBootstrap: vi
         .fn()
         .mockRejectedValue(new Error("native bridge unavailable")),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
     const sessionStorage = createMockStorage({
@@ -1263,7 +1268,7 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         bootstrap: runtimeBootstrap,
       }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
         (
           eventName: string,
@@ -1866,7 +1871,7 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         bootstrap: runtimeBootstrap,
       }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(() => ({
         remove: vi.fn(),
       })),
@@ -1966,7 +1971,7 @@ describe("native auth bridge bootstrap injection", () => {
         appBuild: 10500,
       }),
       getRuntimeBootstrap: vi.fn().mockReturnValue(runtimeBootstrapPromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
         (
           eventName: string,
@@ -2605,7 +2610,7 @@ describe("native auth bridge bootstrap injection", () => {
       path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(runtimeState.pendingBootstrap).toBeNull();
@@ -2699,7 +2704,7 @@ describe("native auth bridge bootstrap injection", () => {
       path: `/v1/me/notification-installations/${installationId}`,
     });
     expect(plugin.logout).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(runtimeState.pendingBootstrap).toBeNull();
@@ -3559,10 +3564,10 @@ describe("native auth bridge bootstrap injection", () => {
       getRuntimeBootstrap: vi.fn().mockResolvedValue({
         configured: false,
       }),
-      setRuntimeBootstrap: vi
+      confirmRuntimeBootstrap: vi
         .fn()
         .mockResolvedValue({ bootstrap: runtimeBootstrap }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const localStorage = createMockStorage({
       "secpal-locale": "de",
@@ -3627,7 +3632,7 @@ describe("native auth bridge bootstrap injection", () => {
         apiOrigin: "https://customer-api.example",
       })
     ).rejects.toThrow("Android runtime bootstrap is incompatible.");
-    expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeBootstrap).not.toHaveBeenCalled();
     await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
       "https://customer-api.example"
     );
@@ -3641,9 +3646,26 @@ describe("native auth bridge bootstrap injection", () => {
       normalizedRuntimeBootstrap,
       "minimumSupportedAppBuild"
     );
-    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledWith(
       normalizedRuntimeBootstrap
     );
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+
+    const cancelledConfirmation = Object.assign(
+      new Error("Android runtime change was not confirmed"),
+      { code: "RUNTIME_CONFIRMATION_CANCELLED" }
+    );
+    plugin.confirmRuntimeBootstrap.mockRejectedValueOnce(cancelledConfirmation);
+    await expect(
+      bridge.setRuntimeBootstrap(
+        buildRuntimeBootstrapValue({
+          apiOrigin: "https://other-customer.example",
+          instanceDisplayName: "Other Customer",
+        })
+      )
+    ).rejects.toThrow("Android runtime change was not confirmed");
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
     expect(runtimeState.configured).toBe(true);
     expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
 
@@ -3677,7 +3699,7 @@ describe("native auth bridge bootstrap injection", () => {
         },
       })
     );
-    expect(plugin.setRuntimeBootstrap).toHaveBeenLastCalledWith(
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenLastCalledWith(
       expect.objectContaining({
         androidPush: {
           provider: "fcm",
@@ -3694,7 +3716,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
     await expect(bridge.clearRuntimeBootstrap()).resolves.toBeUndefined();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
@@ -3705,9 +3727,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
 
-    Reflect.deleteProperty(plugin, "clearRuntimeBootstrap");
+    Reflect.deleteProperty(plugin, "confirmRuntimeReset");
     await expect(bridge.clearRuntimeBootstrap()).rejects.toThrow(
-      /runtime-bootstrap clearing is unavailable/i
+      /native-confirmed runtime reset is unavailable/i
     );
   });
 
@@ -3724,7 +3746,7 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockReturnValue(restorePromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
     const sandbox = {
@@ -3774,7 +3796,7 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
@@ -3799,8 +3821,8 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
-      setRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
     const sandbox = {
@@ -3844,14 +3866,14 @@ describe("native auth bridge bootstrap injection", () => {
     await flushMicrotasks();
     const clear = bridge.clearRuntimeBootstrap();
     await flushMicrotasks();
-    expect(plugin.clearRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
 
     resolvePersist();
     await expect(apply).rejects.toThrow(/superseded/i);
     await expect(clear).resolves.toBeUndefined();
 
-    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
@@ -3859,7 +3881,7 @@ describe("native auth bridge bootstrap injection", () => {
     ).toBeNull();
   });
 
-  it("clears tenant browser state when native runtime-bootstrap clearing fails", async () => {
+  it("preserves tenant browser state when native runtime-bootstrap clearing fails", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const runtimeBootstrap = buildRuntimeBootstrapValue({
       apiOrigin: "https://customer-api.example",
@@ -3872,8 +3894,8 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
-      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
-      clearRuntimeBootstrap: vi
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi
         .fn()
         .mockRejectedValue(new Error("native clear failed")),
     };
@@ -3930,13 +3952,13 @@ describe("native auth bridge bootstrap injection", () => {
       "native clear failed"
     );
 
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
-    expect(runtimeState.configured).toBe(false);
-    expect(runtimeState.apiOrigin).toBeNull();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
     expect(localStorage.getItem("secpal-locale")).toBe("de");
-    expect(localStorage.getItem("tenant-cache")).toBeNull();
-    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
-    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a-cache");
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).toBeNull();

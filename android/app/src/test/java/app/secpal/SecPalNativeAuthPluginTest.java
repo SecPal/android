@@ -15,15 +15,100 @@ import static org.junit.Assert.fail;
 import android.content.SharedPreferences;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PluginMethod;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Test;
 import org.json.JSONObject;
 
 public class SecPalNativeAuthPluginTest {
+
+    @Test
+    public void obsoleteApiBaseUrlMutationIsNotExportedToJavascript() {
+        Set<String> exportedMethods = new java.util.HashSet<>();
+        for (Method method : SecPalNativeAuthPlugin.class.getDeclaredMethods()) {
+            if (method.getAnnotation(PluginMethod.class) != null) {
+                exportedMethods.add(method.getName());
+            }
+        }
+
+        assertFalse(exportedMethods.contains("setApiBaseUrl"));
+        assertFalse(exportedMethods.contains("setRuntimeBootstrap"));
+        assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
+        assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
+        assertTrue(exportedMethods.contains("confirmRuntimeReset"));
+    }
+
+    @Test
+    public void runtimeConfirmationMessageBindsTheCanonicalNativeOrigin() throws Exception {
+        JSObject bootstrap = SecPalNativeAuthPlugin.buildRuntimeBootstrap(
+            "Displayed tenant name",
+            "https://customer.example:443/",
+            "https://customer.example:443/v1",
+            null,
+            null
+        );
+
+        assertEquals(
+            "Credentials for the current instance will be cleared before switching to "
+                + "https://customer.example.",
+            SecPalNativeAuthPlugin.formatRuntimeConfirmationMessage(
+                "Credentials for the current instance will be cleared before switching to %1$s.",
+                bootstrap.getString("apiOrigin")
+            )
+        );
+    }
+
+    @Test
+    public void runtimeConfirmationAllowsOnlyOnePendingDecisionAndOneOutcome() {
+        AtomicBoolean confirmationPending = new AtomicBoolean(false);
+        AtomicBoolean decisionPending = new AtomicBoolean(true);
+
+        assertTrue(SecPalNativeAuthPlugin.beginRuntimeConfirmation(confirmationPending));
+        assertFalse(SecPalNativeAuthPlugin.beginRuntimeConfirmation(confirmationPending));
+        assertTrue(SecPalNativeAuthPlugin.finishRuntimeConfirmation(
+            decisionPending,
+            confirmationPending
+        ));
+        assertFalse(SecPalNativeAuthPlugin.finishRuntimeConfirmation(
+            decisionPending,
+            confirmationPending
+        ));
+        assertFalse(confirmationPending.get());
+    }
+
+    @Test
+    public void runtimeRebindClearsTenantCredentialBeforePersistence() {
+        List<String> events = new ArrayList<>();
+        TokenStorage recordingTokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) {}
+
+            @Override
+            public String getToken() { return null; }
+
+            @Override
+            public void clearToken() { events.add("clear-token"); }
+        };
+
+        assertTrue(SecPalNativeAuthPlugin.persistRuntimeBootstrapAfterCredentialClear(
+            "https://tenant-a.example",
+            "https://tenant-b.example",
+            recordingTokenStorage,
+            () -> {
+                events.add("persist-runtime");
+                return true;
+            }
+        ));
+        assertEquals(java.util.Arrays.asList("clear-token", "persist-runtime"), events);
+    }
 
     @Test
     public void resolveErrorCodeUsesHttpStatusWhenPresent() {
@@ -495,7 +580,7 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void shouldClearStoredTokenWhenRuntimeOriginChanges() {
+    public void shouldClearStoredTokenUnlessRuntimeOriginIsAlreadyBoundToSameTenant() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(
                 "https://tenant-a.example",
@@ -508,7 +593,7 @@ public class SecPalNativeAuthPluginTest {
                 "https://tenant-a.example"
             )
         );
-        assertFalse(SecPalNativeAuthPlugin.shouldClearStoredToken(null, "https://tenant-a.example"));
+        assertTrue(SecPalNativeAuthPlugin.shouldClearStoredToken(null, "https://tenant-a.example"));
     }
 
     @Test

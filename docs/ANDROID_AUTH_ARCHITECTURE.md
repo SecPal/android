@@ -96,7 +96,35 @@ Android authentication must be implemented in a native boundary with four respon
 4. The native client sends the request with `Authorization: Bearer <token>`.
 5. The response is normalized and returned to the UI.
 
-For the current Android implementation, the wrapper bootstrap also patches authenticated `/v1/` fetch traffic in the WebView so the shared UI can keep using its existing service modules while protected requests are executed natively instead of through browser cookies.
+For the current Android implementation, the wrapper bootstrap also patches
+authenticated `/v1/` fetch traffic in the WebView so the shared UI can keep
+using its existing service modules while protected requests are executed
+natively instead of through browser cookies. The native broker does not accept
+that prefix as authority. `NativeAuthRequestPolicy` is the reviewed mobile
+inventory and matches each request by canonical method and route template,
+permitted query keys, request media type, and expected response kind.
+Focused Java and packaged-asset parity tests bind that inventory to the route
+families present in the shipped Android frontend. Retired Android
+enrollment-session operations and route families that are merely implemented by
+dormant frontend service exports are not authorized. Public bootstrap and
+release metadata stay on the unauthenticated browser transport and never enter
+the bearer broker.
+
+The broker parses path and query components before matching. It rejects dot
+segments, nested or invalid percent encoding, invalid UTF-8, encoded separators,
+backslashes, fragments, authority-like paths, duplicate or unlisted query keys,
+unsupported media types, and individual request or response bodies beyond the
+native limits before returning data to the WebView. Automatic redirects are
+disabled. Authenticated 301, 302, 303, 307, and 308 responses fail closed, so a
+bearer header is never replayed to a redirect target.
+
+Keeping the bearer token native does not eliminate the authority of same-origin
+script execution. A same-origin XSS can still invoke inventoried operations and
+read their allowed responses with the signed-in user's server-authorized
+permissions. The route table reduces that oracle to proven Android callers; it
+does not duplicate or replace API authorization. Preventing and containing XSS,
+retaining server-side authorization, and minimizing each inventoried response
+remain required.
 
 ### Logout
 
@@ -119,6 +147,8 @@ Required security properties:
 - clear handling for expired or revoked tokens
 - no silent fallback from native bearer auth to browser session auth
 - no auth shortcuts that rely on WebView cookies
+- no automatic redirect handling for bearer-authenticated connections
+- no generic path-prefix authorization in the native request broker
 
 ### Capacitor Core Plugin Boundary
 

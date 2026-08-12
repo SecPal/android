@@ -25,9 +25,10 @@ try {
 
   const result = await webView.send("Runtime.evaluate", {
     expression: `(async () => {
-    if (globalThis.Capacitor?.Plugins?.SecPalNativeAuth?.clearRuntimeBootstrap) {
-      await globalThis.Capacitor.Plugins.SecPalNativeAuth.clearRuntimeBootstrap();
+    if (typeof globalThis.SecPalNativeAuthBridge?.clearRuntimeBootstrap !== "function") {
+      throw new Error("Android native-confirmed runtime reset is unavailable.");
     }
+    await globalThis.SecPalNativeAuthBridge.clearRuntimeBootstrap();
     location.reload();
     return { ok: true, href: location.href };
   })()`,

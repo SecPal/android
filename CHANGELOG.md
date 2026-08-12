@@ -34,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Constrained the bearer-authenticated Android request broker to a reviewed
+  method, canonical route, query-key, request-media-type, and response-kind
+  inventory; ambiguous encodings, credential/bootstrap routes, unknown
+  operations, unsupported media, oversized bodies, and every HTTP redirect now
+  fail closed before credentials can leave the validated runtime origin. The
+  obsolete raw `setApiBaseUrl`, `setRuntimeBootstrap`, and
+  `clearRuntimeBootstrap` Capacitor exports were removed; runtime selection and
+  reset now require single-use native user confirmation through the breaking
+  `confirmRuntimeBootstrap` and `confirmRuntimeReset` plugin contract. The
+  confirmation identifies the natively canonicalized target, cancelled or
+  failed resets preserve the current frontend runtime atomically, rebinding
+  clears even orphaned credentials unless the existing canonical origin is
+  identical, and parity coverage keeps retired Android enrollment-session
+  operations and other uncalled service routes outside the least-privilege
+  inventory (issue #408).
+
 - Allowed one additional bounded API 37 emulator recovery for the exact
   zero-test split-APK install-session broken-pipe failure while keeping
   persistent package-service failures and real instrumentation failures
@@ -396,8 +412,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation packages at hook runtime; preflight and local hooks now install
   locked Node dependencies before invoking those local validation binaries on
   a clean checkout.
-- Serialized injected Android runtime-bootstrap apply/clear mutations, rejected stale applies, canonicalized shared-frontend payloads at the bridge boundary, failed closed when native clear support is unavailable, and reset the in-memory native-auth flag during runtime clearing.
-- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and still clear tenant browser state when native persistence cleanup reports a failure.
+- Serialized injected Android runtime-bootstrap apply/clear mutations, rejected stale applies, canonicalized shared-frontend payloads at the bridge boundary, failed closed when native clear support is unavailable, and reset the in-memory native-auth flag during successful runtime clearing.
+- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and preserve the current frontend runtime and tenant browser state when native persistence cleanup reports a failure.
 - The injected Android `clearRuntimeBootstrap()` bridge method now clears tenant-scoped browser storage alongside native runtime persistence, preventing shared frontend instance-switch flows from carrying stale customer state into discovery.
 - Removed the obsolete injected Android runtime-bootstrap compatibility path that restored or confirmed deployments through `SecPalNativeAuth.setApiBaseUrl(...)` plus session storage; the bridge now requires the merged frontend `getRuntimeBootstrap`/`setRuntimeBootstrap` native contract and fails closed when it is unavailable.
 - Exposed runtime-bootstrap read/apply/clear and runtime-info methods on the injected `SecPalNativeAuthBridge`, keeping the Android WebView bridge aligned with the merged shared frontend `SecPalRuntimeBootstrap` facade.

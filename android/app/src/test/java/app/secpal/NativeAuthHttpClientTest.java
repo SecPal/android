@@ -9,9 +9,26 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.json.JSONObject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
 
+@RunWith(RobolectricTestRunner.class)
 public class NativeAuthHttpClientTest {
 
     @Test
@@ -61,19 +78,6 @@ public class NativeAuthHttpClientTest {
     @Test
     public void normalizeHttpMethodRejectsUnsupportedMethods() {
         assertMethodErrorMessage("Android auth bridge does not support method TRACE", "trace");
-    }
-
-    @Test
-    public void normalizeRequestPathTrimsWhitespace() throws Exception {
-        assertEquals("/v1/me", NativeAuthHttpClient.normalizeRequestPath(" /v1/me "));
-    }
-
-    @Test
-    public void normalizeRequestPathRejectsAbsoluteUrls() {
-        assertPathErrorMessage(
-            "Android auth bridge requires a relative request path starting with /",
-            "https://api.secpal.dev/v1/me"
-        );
     }
 
     @Test
@@ -138,6 +142,203 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void authenticatedRedirectStatusesAlwaysFailClosed() {
+        int[] redirectStatuses = { 301, 302, 303, 307, 308 };
+
+        for (int status : redirectStatuses) {
+            try {
+                NativeAuthHttpClient.rejectAuthenticatedRedirect(status);
+            } catch (NativeAuthHttpException exception) {
+                assertEquals(status, exception.getStatusCode());
+                continue;
+            }
+
+            throw new AssertionError("Expected authenticated redirect " + status + " to fail closed");
+        }
+    }
+
+    @Test
+    public void nonRedirectStatusDoesNotTriggerRedirectRejection() throws Exception {
+        NativeAuthHttpClient.rejectAuthenticatedRedirect(200);
+        NativeAuthHttpClient.rejectAuthenticatedRedirect(422);
+    }
+
+    @Test
+    public void responseReaderRejectsOversizedBodies() throws Exception {
+        byte[] oversized = new byte[NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES + 1];
+
+        try {
+            NativeAuthHttpClient.readResponseBodyBytes(
+                new ByteArrayInputStream(oversized),
+                NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES
+            );
+        } catch (NativeAuthHttpException exception) {
+            assertEquals("Android auth bridge response exceeds the allowed size", exception.getMessage());
+            return;
+        }
+
+        throw new AssertionError("Expected oversized response to fail closed");
+    }
+
+    @Test
+    public void rejectedRouteNeverCreatesCredentialedConnection() throws Exception {
+        AtomicInteger openedConnections = new AtomicInteger();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            openedConnections.incrementAndGet();
+            return new StubHttpURLConnection(url, 200, null);
+        });
+
+        try {
+            client.request(
+                "https://api.secpal.dev",
+                "native-secret",
+                "POST",
+                "/v1/auth/token",
+                "e30=",
+                "application/json",
+                "application/json"
+            );
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(0, openedConnections.get());
+            return;
+        }
+
+        throw new AssertionError("Expected forbidden route to fail before connection creation");
+    }
+
+    @Test
+    public void redirectResponsesNeverCreateASecondConnectionOrFollowLocation() throws Exception {
+        int[] redirectStatuses = { 301, 302, 303, 307, 308 };
+        String[] redirectLocations = {
+            "https://api.secpal.dev/v1/me",
+            "https://evil.example/steal",
+        };
+
+        for (int status : redirectStatuses) {
+            for (String redirectLocation : redirectLocations) {
+                AtomicInteger openedConnections = new AtomicInteger();
+                StubHttpURLConnection[] captured = new StubHttpURLConnection[1];
+                NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+                    openedConnections.incrementAndGet();
+                    captured[0] = new StubHttpURLConnection(url, status, redirectLocation);
+                    return captured[0];
+                });
+
+                try {
+                    client.request(
+                        "https://api.secpal.dev",
+                        "native-secret",
+                        "PUT",
+                        "/v1/me/notification-installations/device-1",
+                        "e30=",
+                        "application/json",
+                        "application/json"
+                    );
+                } catch (NativeAuthHttpException expected) {
+                    assertEquals(status, expected.getStatusCode());
+                    assertEquals(1, openedConnections.get());
+                    assertFalse(captured[0].getInstanceFollowRedirects());
+                    assertEquals("PUT", captured[0].getRequestMethod());
+                    assertEquals("Bearer native-secret", captured[0].getRequestProperty("Authorization"));
+                    assertTrue(Arrays.equals(
+                        "{}".getBytes(StandardCharsets.UTF_8),
+                        captured[0].getWrittenRequestBody()
+                    ));
+                    continue;
+                }
+
+                throw new AssertionError("Expected redirect " + status + " to fail closed");
+            }
+        }
+    }
+
+    @Test
+    public void realHttpTransportNeverFollowsAnyAuthenticatedRedirect() throws Exception {
+        try (
+            RedirectTestServer sourceServer = new RedirectTestServer();
+            RedirectTestServer crossOriginServer = new RedirectTestServer()
+        ) {
+            int sourcePort = sourceServer.getPort();
+            int crossOriginPort = crossOriginServer.getPort();
+            NativeAuthHttpClient client = new NativeAuthHttpClient(url ->
+                (HttpURLConnection) new URL(
+                    "http",
+                    "127.0.0.1",
+                    url.getPort(),
+                    url.getFile()
+                ).openConnection()
+            );
+
+            for (int status : new int[] { 301, 302, 303, 307, 308 }) {
+                for (String location : new String[] {
+                    "http://127.0.0.1:" + sourcePort + "/same-origin-target",
+                    "http://127.0.0.1:" + crossOriginPort + "/cross-origin-target",
+                }) {
+                    sourceServer.setRedirect(status, location);
+                    try {
+                        client.request(
+                            "https://127.0.0.1:" + sourcePort,
+                            "native-secret",
+                            "PUT",
+                            "/v1/me/notification-installations/device-1",
+                            "e30=",
+                            "application/json",
+                            "application/json"
+                        );
+                    } catch (NativeAuthHttpException expected) {
+                        assertEquals(status, expected.getStatusCode());
+                        assertEquals("PUT", sourceServer.getLastMethod());
+                        assertEquals("Bearer native-secret", sourceServer.getLastAuthorization());
+                        assertTrue(Arrays.equals(
+                            "{}".getBytes(StandardCharsets.UTF_8),
+                            sourceServer.getLastBody()
+                        ));
+                        continue;
+                    }
+                    throw new AssertionError("Expected redirect " + status + " to fail closed");
+                }
+            }
+
+            assertEquals(10, sourceServer.getSourceRequests());
+            assertEquals(0, sourceServer.getTargetRequests());
+            assertEquals(0, crossOriginServer.getTargetRequests());
+        }
+    }
+
+    @Test
+    public void jsonRouteRejectsNonJsonResponseContentType() throws Exception {
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url ->
+            new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                "<html>unexpected</html>".getBytes(StandardCharsets.UTF_8),
+                "text/html"
+            )
+        );
+
+        try {
+            client.request(
+                "https://api.secpal.dev",
+                "native-secret",
+                "GET",
+                "/v1/customers",
+                null,
+                null,
+                "application/json"
+            );
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(
+                "Android auth bridge received an unsupported JSON response content type",
+                expected.getMessage()
+            );
+            return;
+        }
+
+        throw new AssertionError("Expected non-JSON response to fail closed");
+    }
+
+    @Test
     public void buildTokenPasskeyAuthenticationChallengeRequestBodyOnlyCarriesDeviceName() throws Exception {
         JSONObject body = NativeAuthHttpClient
             .buildTokenPasskeyAuthenticationChallengeRequestBody("Pixel 9");
@@ -179,17 +380,6 @@ public class NativeAuthHttpClientTest {
         throw new AssertionError("Expected NativeAuthHttpException");
     }
 
-    private void assertPathErrorMessage(String expected, String path) {
-        try {
-            NativeAuthHttpClient.normalizeRequestPath(path);
-        } catch (NativeAuthHttpException exception) {
-            assertEquals(expected, exception.getMessage());
-            return;
-        }
-
-        throw new AssertionError("Expected NativeAuthHttpException");
-    }
-
     private void assertDecodeErrorMessage(String expected, String requestBodyBase64) {
         try {
             NativeAuthHttpClient.validateRequestBodyBase64(requestBodyBase64);
@@ -199,5 +389,190 @@ public class NativeAuthHttpClientTest {
         }
 
         throw new AssertionError("Expected NativeAuthHttpException");
+    }
+
+    private static final class StubHttpURLConnection extends HttpURLConnection {
+        private final int stubStatus;
+        private final String redirectLocation;
+        private final byte[] responseBody;
+        private final String responseContentType;
+        private final ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
+
+        StubHttpURLConnection(URL url, int stubStatus, String redirectLocation) {
+            this(url, stubStatus, redirectLocation, new byte[0], null);
+        }
+
+        StubHttpURLConnection(
+            URL url,
+            int stubStatus,
+            String redirectLocation,
+            byte[] responseBody,
+            String responseContentType
+        ) {
+            super(url);
+            this.stubStatus = stubStatus;
+            this.redirectLocation = redirectLocation;
+            this.responseBody = responseBody;
+            this.responseContentType = responseContentType;
+        }
+
+        @Override
+        public int getResponseCode() {
+            return stubStatus;
+        }
+
+        @Override
+        public String getHeaderField(String name) {
+            return "Location".equalsIgnoreCase(name) ? redirectLocation : null;
+        }
+
+        @Override
+        public ByteArrayInputStream getInputStream() {
+            return new ByteArrayInputStream(responseBody);
+        }
+
+        @Override
+        public long getContentLengthLong() {
+            return responseBody.length;
+        }
+
+        @Override
+        public String getContentType() {
+            return responseContentType;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return requestBody;
+        }
+
+        byte[] getWrittenRequestBody() { return requestBody.toByteArray(); }
+
+        @Override
+        public void disconnect() {}
+
+        @Override
+        public boolean usingProxy() { return false; }
+
+        @Override
+        public void connect() {}
+    }
+
+    private static final class RedirectTestServer implements AutoCloseable {
+        private static final String SOURCE_PATH = "/v1/me/notification-installations/device-1";
+
+        private final ServerSocket serverSocket;
+        private final Thread serverThread;
+        private final AtomicInteger sourceRequests = new AtomicInteger();
+        private final AtomicInteger targetRequests = new AtomicInteger();
+        private volatile boolean closed;
+        private volatile int redirectStatus = 301;
+        private volatile String redirectLocation = "/same-origin-target";
+        private volatile String lastMethod;
+        private volatile String lastAuthorization;
+        private volatile byte[] lastBody = new byte[0];
+
+        RedirectTestServer() throws IOException {
+            serverSocket = new ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"));
+            serverThread = new Thread(this::serve, "native-auth-redirect-test-server");
+            serverThread.setDaemon(true);
+            serverThread.start();
+        }
+
+        int getPort() { return serverSocket.getLocalPort(); }
+        int getSourceRequests() { return sourceRequests.get(); }
+        int getTargetRequests() { return targetRequests.get(); }
+        String getLastMethod() { return lastMethod; }
+        String getLastAuthorization() { return lastAuthorization; }
+        byte[] getLastBody() { return lastBody; }
+
+        void setRedirect(int status, String location) {
+            redirectStatus = status;
+            redirectLocation = location;
+        }
+
+        private void serve() {
+            while (!closed) {
+                try (Socket socket = serverSocket.accept()) {
+                    handle(socket);
+                } catch (IOException exception) {
+                    if (!closed) {
+                        throw new AssertionError("Redirect test server failed", exception);
+                    }
+                }
+            }
+        }
+
+        private void handle(Socket socket) throws IOException {
+            InputStream input = socket.getInputStream();
+            String headers = readHeaders(input);
+            String[] lines = headers.split("\\r\\n");
+            String[] requestLine = lines[0].split(" ", 3);
+            String path = requestLine[1];
+            int contentLength = 0;
+            String authorization = null;
+            for (int index = 1; index < lines.length; index++) {
+                int separator = lines[index].indexOf(':');
+                if (separator < 1) {
+                    continue;
+                }
+                String name = lines[index].substring(0, separator).trim();
+                String value = lines[index].substring(separator + 1).trim();
+                if ("Content-Length".equalsIgnoreCase(name)) {
+                    contentLength = Integer.parseInt(value);
+                } else if ("Authorization".equalsIgnoreCase(name)) {
+                    authorization = value;
+                }
+            }
+
+            OutputStream output = socket.getOutputStream();
+            if (SOURCE_PATH.equals(path)) {
+                sourceRequests.incrementAndGet();
+                lastMethod = requestLine[0];
+                lastAuthorization = authorization;
+                lastBody = input.readNBytes(contentLength);
+                output.write((
+                    "HTTP/1.1 " + redirectStatus + " Redirect\r\n"
+                        + "Location: " + redirectLocation + "\r\n"
+                        + "Content-Length: 0\r\n"
+                        + "Connection: close\r\n\r\n"
+                ).getBytes(StandardCharsets.ISO_8859_1));
+            } else {
+                targetRequests.incrementAndGet();
+                output.write((
+                    "HTTP/1.1 200 OK\r\n"
+                        + "Content-Length: 0\r\n"
+                        + "Connection: close\r\n\r\n"
+                ).getBytes(StandardCharsets.ISO_8859_1));
+            }
+            output.flush();
+        }
+
+        private static String readHeaders(InputStream input) throws IOException {
+            ByteArrayOutputStream headers = new ByteArrayOutputStream();
+            int state = 0;
+            while (state < 4) {
+                int next = input.read();
+                if (next == -1) {
+                    throw new IOException("Unexpected end of HTTP request headers");
+                }
+                headers.write(next);
+                if ((state == 0 || state == 2) && next == '\r') {
+                    state += 1;
+                } else if ((state == 1 || state == 3) && next == '\n') {
+                    state += 1;
+                } else {
+                    state = next == '\r' ? 1 : 0;
+                }
+            }
+            return headers.toString(StandardCharsets.ISO_8859_1.name());
+        }
+
+        @Override
+        public void close() throws Exception {
+            closed = true;
+            serverSocket.close();
+            serverThread.join(1000);
+        }
     }
 }

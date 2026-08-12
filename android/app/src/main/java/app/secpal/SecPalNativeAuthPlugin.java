@@ -6,6 +6,7 @@
 package app.secpal;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -22,6 +23,10 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
@@ -42,6 +47,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private NativePasskeyAuthenticator passkeyAuthenticator;
     private AndroidPushRuntimeManager androidPushRuntimeManager;
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+    private final AtomicBoolean runtimeMutationConfirmationPending = new AtomicBoolean(false);
     private volatile boolean destroyed = false;
     private String apiBaseUrl;
 
@@ -265,50 +271,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void setApiBaseUrl(PluginCall call) {
-        String value = requireValue(call, "apiBaseUrl");
-
-        if (value == null) {
-            return;
-        }
-
-        runAsync(call, () -> {
-            try {
-                String nextApiBaseUrl = resolveRuntimeApiBaseUrl(value);
-
-                if (!getNativeAuthPreferences()
-                    .edit()
-                    .putString(API_BASE_URL_PREFERENCE_KEY, nextApiBaseUrl)
-                    .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-                    .commit()) {
-                    call.reject(
-                        "Failed to persist Android runtime API origin",
-                        "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
-                    );
-                    return;
-                }
-
-                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
-                    tokenStorage.clearToken();
-                }
-
-                apiBaseUrl = nextApiBaseUrl;
-
-                JSObject payload = new JSObject();
-                payload.put("apiBaseUrl", apiBaseUrl);
-                call.resolve(payload);
-            } catch (ConfiguredApiBaseUrlException exception) {
-                call.reject(
-                    exception.getMessage(),
-                    exception.getErrorCode(),
-                    exception
-                );
-            }
-        });
-    }
-
-    @PluginMethod
-    public void setRuntimeBootstrap(PluginCall call) {
+    public void confirmRuntimeBootstrap(PluginCall call) {
         String instanceDisplayName = requireValue(call, "instanceDisplayName");
         String apiOrigin = requireValue(call, "apiOrigin");
         String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
@@ -330,63 +293,78 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     androidPush,
                     features
                 );
-                String nextApiBaseUrl = bootstrap.getString("apiOrigin");
-                SharedPreferences preferences = getNativeAuthPreferences();
-                String previousRuntimeBootstrap = preferences.getString(
-                    RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
-                    null
+                String canonicalApiOrigin = bootstrap.getString("apiOrigin");
+                String confirmationMessage = formatRuntimeConfirmationMessage(
+                    getContext().getString(R.string.runtime_confirmation_switch_message),
+                    canonicalApiOrigin
                 );
-                String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
 
-                if (!persistRuntimeBootstrap(bootstrap)) {
-                    call.reject(
-                        "Failed to persist Android runtime bootstrap",
-                        "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
-                    );
-                    return;
-                }
-
-                try {
-                    androidPushRuntimeManager.apply(
-                        AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
-                    );
-                } catch (RuntimeException exception) {
-                    restoreRuntimeBootstrapPersistence(
-                        preferences,
-                        previousRuntimeBootstrap,
-                        previousApiBaseUrl
-                    );
-                    try {
-                        androidPushRuntimeManager.apply(null);
-                    } catch (RuntimeException cleanupException) {
-                        exception.addSuppressed(cleanupException);
-                    }
-                    throw exception;
-                }
-
-                if (shouldClearStoredToken(apiBaseUrl, nextApiBaseUrl)) {
-                    tokenStorage.clearToken();
-                }
-
-                apiBaseUrl = nextApiBaseUrl;
-
-                JSObject payload = new JSObject();
-                payload.put("bootstrap", bootstrap);
-                call.resolve(payload);
+                confirmNativeRuntimeMutation(
+                    call,
+                    R.string.runtime_confirmation_switch_title,
+                    confirmationMessage,
+                    () -> runAsync(call, () -> applyConfirmedRuntimeBootstrap(call, bootstrap))
+                );
             } catch (RuntimeException exception) {
-                call.reject(
-                    exception.getMessage(),
-                    resolveRuntimeBootstrapErrorCode(exception),
-                    exception
-                );
+                rejectRuntimeBootstrap(call, exception);
             } catch (JSONException exception) {
-                call.reject(
-                    "Failed to serialize Android runtime bootstrap",
-                    "RUNTIME_BOOTSTRAP_INVALID",
-                    exception
-                );
+                rejectInvalidRuntimeBootstrap(call, exception);
             }
         });
+    }
+
+    private void applyConfirmedRuntimeBootstrap(
+        PluginCall call,
+        JSObject bootstrap
+    ) {
+        try {
+            String nextApiBaseUrl = bootstrap.getString("apiOrigin");
+            SharedPreferences preferences = getNativeAuthPreferences();
+            String previousRuntimeBootstrap = preferences.getString(
+                RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+                null
+            );
+            String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
+
+            if (!persistRuntimeBootstrapAfterCredentialClear(
+                apiBaseUrl,
+                nextApiBaseUrl,
+                tokenStorage,
+                () -> persistRuntimeBootstrap(bootstrap)
+            )) {
+                call.reject(
+                    "Failed to persist Android runtime bootstrap",
+                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                );
+                return;
+            }
+
+            try {
+                androidPushRuntimeManager.apply(
+                    AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
+                );
+            } catch (RuntimeException exception) {
+                restoreRuntimeBootstrapPersistence(
+                    preferences,
+                    previousRuntimeBootstrap,
+                    previousApiBaseUrl
+                );
+                try {
+                    androidPushRuntimeManager.apply(null);
+                } catch (RuntimeException cleanupException) {
+                    exception.addSuppressed(cleanupException);
+                }
+                throw exception;
+            }
+
+            apiBaseUrl = nextApiBaseUrl;
+
+            JSObject payload = new JSObject();
+            payload.put("bootstrap", bootstrap);
+            call.resolve(payload);
+        } catch (RuntimeException exception) {
+            rejectRuntimeBootstrap(call, exception);
+        }
     }
 
     @PluginMethod
@@ -398,34 +376,60 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void clearRuntimeBootstrap(PluginCall call) {
+    public void confirmRuntimeReset(PluginCall call) {
         runAsync(call, () -> {
-            boolean persisted = clearRuntimeBootstrapState(
-                getNativeAuthPreferences(),
-                tokenStorage
+            JSObject persistedBootstrap = getPersistedRuntimeBootstrap();
+            String currentApiOrigin = apiBaseUrl;
+            if (persistedBootstrap != null) {
+                currentApiOrigin = persistedBootstrap.optString("apiOrigin", currentApiOrigin);
+            }
+            if (currentApiOrigin == null || currentApiOrigin.trim().isEmpty()) {
+                call.reject(
+                    "Android runtime reset requires a configured instance",
+                    "RUNTIME_NOT_CONFIGURED"
+                );
+                return;
+            }
+
+            String confirmationMessage = formatRuntimeConfirmationMessage(
+                getContext().getString(R.string.runtime_confirmation_reset_message),
+                currentApiOrigin
             );
-
-            if (!persisted) {
-                call.reject(
-                    "Failed to clear Android runtime bootstrap state",
-                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
-                );
-                return;
-            }
-
-            apiBaseUrl = null;
-            try {
-                androidPushRuntimeManager.apply(null);
-            } catch (RuntimeException exception) {
-                call.reject(
-                    exception.getMessage(),
-                    resolveRuntimeBootstrapErrorCode(exception),
-                    exception
-                );
-                return;
-            }
-            call.resolve();
+            confirmNativeRuntimeMutation(
+                call,
+                R.string.runtime_confirmation_reset_title,
+                confirmationMessage,
+                () -> runAsync(call, () -> clearConfirmedRuntime(call))
+            );
         });
+    }
+
+    private void clearConfirmedRuntime(PluginCall call) {
+        boolean persisted = clearRuntimeBootstrapState(
+            getNativeAuthPreferences(),
+            tokenStorage
+        );
+
+        if (!persisted) {
+            call.reject(
+                "Failed to clear Android runtime bootstrap state",
+                "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+            );
+            return;
+        }
+
+        apiBaseUrl = null;
+        try {
+            androidPushRuntimeManager.apply(null);
+        } catch (RuntimeException exception) {
+            call.reject(
+                exception.getMessage(),
+                resolveRuntimeBootstrapErrorCode(exception),
+                exception
+            );
+            return;
+        }
+        call.resolve();
     }
 
     @PluginMethod
@@ -514,6 +518,117 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (!taskExecutor.submit(job)) {
             call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");
         }
+    }
+
+    private void confirmNativeRuntimeMutation(
+        PluginCall call,
+        int titleResource,
+        String message,
+        Runnable confirmedMutation
+    ) {
+        if (!beginRuntimeConfirmation(runtimeMutationConfirmationPending)) {
+            call.reject(
+                "Another Android runtime confirmation is already pending",
+                "RUNTIME_CONFIRMATION_PENDING"
+            );
+            return;
+        }
+
+        Activity activity = getActivity();
+        if (activity == null) {
+            runtimeMutationConfirmationPending.set(false);
+            call.reject(
+                "Android runtime changes require an attached native activity",
+                "RUNTIME_CONFIRMATION_UNAVAILABLE"
+            );
+            return;
+        }
+
+        AtomicBoolean decisionPending = new AtomicBoolean(true);
+        activity.runOnUiThread(() -> {
+            try {
+                new AlertDialog.Builder(activity)
+                    .setTitle(titleResource)
+                    .setMessage(message)
+                    .setPositiveButton(
+                        R.string.runtime_confirmation_continue,
+                        (dialog, which) -> completeRuntimeConfirmation(
+                            decisionPending,
+                            confirmedMutation
+                        )
+                    )
+                    .setNegativeButton(
+                        R.string.runtime_confirmation_cancel,
+                        (dialog, which) -> cancelRuntimeConfirmation(call, decisionPending)
+                    )
+                    .setCancelable(true)
+                    .setOnCancelListener(dialog -> cancelRuntimeConfirmation(call, decisionPending))
+                    .show();
+            } catch (RuntimeException exception) {
+                if (finishRuntimeConfirmation(decisionPending, runtimeMutationConfirmationPending)) {
+                    call.reject(
+                        "Android runtime confirmation could not be displayed",
+                        "RUNTIME_CONFIRMATION_UNAVAILABLE",
+                        exception
+                    );
+                }
+            }
+        });
+    }
+
+    private void completeRuntimeConfirmation(
+        AtomicBoolean decisionPending,
+        Runnable confirmedMutation
+    ) {
+        if (!finishRuntimeConfirmation(decisionPending, runtimeMutationConfirmationPending)) {
+            return;
+        }
+        confirmedMutation.run();
+    }
+
+    private void cancelRuntimeConfirmation(PluginCall call, AtomicBoolean decisionPending) {
+        if (!finishRuntimeConfirmation(decisionPending, runtimeMutationConfirmationPending)) {
+            return;
+        }
+        call.reject(
+            "Android runtime change was not confirmed",
+            "RUNTIME_CONFIRMATION_CANCELLED"
+        );
+    }
+
+    static String formatRuntimeConfirmationMessage(String template, String canonicalApiOrigin) {
+        return String.format(Locale.US, template, canonicalApiOrigin);
+    }
+
+    static boolean beginRuntimeConfirmation(AtomicBoolean confirmationPending) {
+        return confirmationPending.compareAndSet(false, true);
+    }
+
+    static boolean finishRuntimeConfirmation(
+        AtomicBoolean decisionPending,
+        AtomicBoolean confirmationPending
+    ) {
+        if (!decisionPending.compareAndSet(true, false)) {
+            return false;
+        }
+        confirmationPending.set(false);
+        return true;
+    }
+
+    private static void rejectRuntimeBootstrap(PluginCall call, RuntimeException exception) {
+        call.reject(
+            exception.getMessage(),
+            resolveRuntimeBootstrapErrorCode(exception),
+            exception
+        );
+    }
+
+    private static void rejectInvalidRuntimeBootstrap(PluginCall call, JSONException exception) {
+        call.reject(
+            "Failed to serialize Android runtime bootstrap",
+            "RUNTIME_BOOTSTRAP_INVALID",
+            exception
+        );
     }
 
     private boolean requirePasskeyCapability(
@@ -761,7 +876,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     static boolean shouldClearStoredToken(String currentApiBaseUrl, String nextApiBaseUrl) {
-        return currentApiBaseUrl != null && !currentApiBaseUrl.equals(nextApiBaseUrl);
+        return !Objects.equals(currentApiBaseUrl, nextApiBaseUrl);
+    }
+
+    static boolean persistRuntimeBootstrapAfterCredentialClear(
+        String currentApiBaseUrl,
+        String nextApiBaseUrl,
+        TokenStorage tokenStorage,
+        BooleanSupplier persistence
+    ) {
+        if (shouldClearStoredToken(currentApiBaseUrl, nextApiBaseUrl)) {
+            tokenStorage.clearToken();
+        }
+        return persistence.getAsBoolean();
     }
 
     static void clearRejectedLegacyRuntimeState(SharedPreferences preferences, TokenStorage tokenStorage) {

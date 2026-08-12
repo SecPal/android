@@ -84,4 +84,18 @@ describe("WebView CDP helper scripts", () => {
     expect(aboutScript).toContain("clicked: false");
     expect(aboutScript).toContain("Missing About navigation target");
   });
+
+  it("resets runtime state only through the native-confirmed bridge contract", () => {
+    const resetScript = readFileSync(
+      resolve(repoRoot, "scripts", "webview-clear-runtime-bootstrap.mjs"),
+      "utf8"
+    );
+
+    expect(resetScript).toContain(
+      "globalThis.SecPalNativeAuthBridge?.clearRuntimeBootstrap"
+    );
+    expect(resetScript).not.toContain(
+      "Capacitor.Plugins.SecPalNativeAuth.clearRuntimeBootstrap"
+    );
+  });
 });
