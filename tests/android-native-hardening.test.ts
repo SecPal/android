@@ -1041,14 +1041,17 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
-  it("requires strict-CSP browser coverage instead of silently skipping it", () => {
+  it("runs strict-CSP browser coverage when Chromium is available", () => {
     const browserTest = readRepoFile(
       "tests",
       "native-auth-bridge-csp-browser.test.ts"
     );
+    const qualityWorkflow = readRepoFile(".github", "workflows", "quality.yml");
 
-    expect(browserTest).not.toContain("it.skip");
-    expect(browserTest).toContain("Chromium is required");
+    expect(browserTest).toContain("it.skipIf(!browserPath)");
+    expect(browserTest).not.toContain("Chromium is required");
+    expect(browserTest).toContain("SECPAL_REQUIRE_CSP_BROWSER");
+    expect(qualityWorkflow).toContain('SECPAL_REQUIRE_CSP_BROWSER: "1"');
   });
 
   it("requires frontend source for packaging while allowing standalone verification", () => {

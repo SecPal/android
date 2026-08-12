@@ -475,6 +475,32 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveLength(1);
   });
 
+  it("moves an existing bootstrap script before the first module entry", async () => {
+    const { injectNativeAuthBridgeBootstrap } = await loadInjectorModule();
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      '<script type="module" src="/assets/index.js"></script>',
+      '<script id="secpal-native-auth-bridge-bootstrap" src="/secpal-native-auth-bridge.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js"></script>',
+      "</head>",
+      "<body></body>",
+      "</html>",
+    ].join("\n");
+
+    const reinjectedHtml = injectNativeAuthBridgeBootstrap(
+      html,
+      "https://api.secpal.dev"
+    );
+
+    expect(
+      reinjectedHtml.indexOf('id="secpal-native-auth-bridge-bootstrap"')
+    ).toBeLessThan(reinjectedHtml.indexOf('<script type="module"'));
+    expect(
+      reinjectedHtml.match(/id="secpal-native-auth-bridge-bootstrap"/g)
+    ).toHaveLength(1);
+  });
+
   it("does not inject WebView presentation owned by the shared frontend", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const bootstrap = buildNativeAuthBridgeBootstrapScript(

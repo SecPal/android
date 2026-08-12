@@ -184,6 +184,7 @@ jobs:
     if: ${{ !startsWith(github.head_ref, 'spike/') && !startsWith(github.ref, 'refs/heads/spike/') }}
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SECPAL_REQUIRE_CSP_BROWSER: "1"
 
     steps:
       - name: Checkout repository

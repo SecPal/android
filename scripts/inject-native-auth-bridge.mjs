@@ -2283,6 +2283,16 @@ export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
         "Android web index contains an unterminated native-auth bridge script."
       );
     }
+    if (
+      shell.moduleEntryStartOffset !== null &&
+      location.startTag.startOffset > shell.moduleEntryStartOffset
+    ) {
+      const htmlWithoutRuntimeBridge = `${html.slice(0, location.startTag.startOffset)}${html.slice(location.endTag.endOffset)}`;
+      return injectNativeAuthBridgeBootstrap(
+        htmlWithoutRuntimeBridge,
+        apiBaseUrl
+      );
+    }
     return `${html.slice(0, location.startTag.startOffset)}${scriptTag}${html.slice(location.endTag.endOffset)}`;
   }
 

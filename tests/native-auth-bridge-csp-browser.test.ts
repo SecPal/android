@@ -20,28 +20,32 @@ const browserPath = [
 ].find((candidate): candidate is string =>
   Boolean(candidate && existsSync(candidate))
 );
+const browserRequired = process.env.SECPAL_REQUIRE_CSP_BROWSER === "1";
+
+if (browserRequired && !browserPath) {
+  throw new Error(
+    "Strict-CSP native-auth bridge browser coverage is mandatory in this environment. Set CHROME_BIN or install Chromium at a supported path."
+  );
+}
 
 describe("native-auth bridge strict CSP browser smoke", () => {
-  it("installs the bridge from its same-origin asset without CSP violations or API traffic", async () => {
-    if (!browserPath) {
-      throw new Error(
-        "Chromium is required for strict-CSP native-auth bridge browser coverage. Set CHROME_BIN or install Chromium at a supported path."
+  it.skipIf(!browserPath)(
+    "installs the bridge from its same-origin asset without CSP violations or API traffic",
+    async () => {
+      const bridge = buildNativeAuthBridgeBootstrapScript(
+        "https://runtime-bootstrap-required.secpal.dev"
       );
-    }
-    const bridge = buildNativeAuthBridgeBootstrapScript(
-      "https://runtime-bootstrap-required.secpal.dev"
-    );
-    const bridgeName = `secpal-native-auth-bridge.${createHash("sha256")
-      .update(bridge, "utf8")
-      .digest("hex")}.js`;
-    const responses = new Map([
-      [
-        "/",
-        `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; object-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'none'"><script src="/browser-stub.js"></script><script id="secpal-native-auth-bridge-bootstrap" src="/${bridgeName}"></script><script type="module" src="/application.js"></script></head><body><pre id="result">pending</pre></body></html>`,
-      ],
-      [
-        "/browser-stub.js",
-        `globalThis.__cspViolations = [];
+      const bridgeName = `secpal-native-auth-bridge.${createHash("sha256")
+        .update(bridge, "utf8")
+        .digest("hex")}.js`;
+      const responses = new Map([
+        [
+          "/",
+          `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; object-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'none'"><script src="/browser-stub.js"></script><script id="secpal-native-auth-bridge-bootstrap" src="/${bridgeName}"></script><script type="module" src="/application.js"></script></head><body><pre id="result">pending</pre></body></html>`,
+        ],
+        [
+          "/browser-stub.js",
+          `globalThis.__cspViolations = [];
 globalThis.__apiCalls = 0;
 globalThis.addEventListener("securitypolicyviolation", (event) => {
   globalThis.__cspViolations.push(event.violatedDirective);
@@ -61,11 +65,11 @@ globalThis.Capacitor = {
     },
   },
 };`,
-      ],
-      [`/${bridgeName}`, bridge],
-      [
-        "/application.js",
-        `setTimeout(() => {
+        ],
+        [`/${bridgeName}`, bridge],
+        [
+          "/application.js",
+          `setTimeout(() => {
   document.getElementById("result").textContent = JSON.stringify({
     bridgeType: typeof globalThis.SecPalNativeAuthBridge,
     bootstrapInstalled: globalThis.__SecPalNativeAuthBootstrapInstalled === true,
@@ -73,59 +77,61 @@ globalThis.Capacitor = {
     apiCalls: globalThis.__apiCalls,
   });
 }, 100);`,
-      ],
-    ]);
-    const server = createServer((request, response) => {
-      const body = responses.get(request.url ?? "");
-      if (body === undefined) {
-        response.writeHead(404).end();
-        return;
-      }
-      response.writeHead(200, {
-        "Content-Type": request.url?.endsWith(".js")
-          ? "text/javascript; charset=utf-8"
-          : "text/html; charset=utf-8",
-      });
-      response.end(body);
-    });
-
-    try {
-      server.listen(0, "127.0.0.1");
-      await once(server, "listening");
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        throw new Error("Browser smoke server did not expose a TCP port.");
-      }
-      const browser = spawn(browserPath, [
-        "--headless=new",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-background-networking",
-        "--disable-component-update",
-        "--dump-dom",
-        "--virtual-time-budget=1000",
-        `http://127.0.0.1:${address.port}/`,
+        ],
       ]);
-      let stdout = "";
-      let stderr = "";
-      browser.stdout.setEncoding("utf8");
-      browser.stderr.setEncoding("utf8");
-      browser.stdout.on("data", (chunk) => {
-        stdout += chunk;
+      const server = createServer((request, response) => {
+        const body = responses.get(request.url ?? "");
+        if (body === undefined) {
+          response.writeHead(404).end();
+          return;
+        }
+        response.writeHead(200, {
+          "Content-Type": request.url?.endsWith(".js")
+            ? "text/javascript; charset=utf-8"
+            : "text/html; charset=utf-8",
+        });
+        response.end(body);
       });
-      browser.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
-      const [exitCode] = (await once(browser, "close")) as [number | null];
 
-      expect(exitCode, stderr).toBe(0);
-      expect(stdout).toContain('"bridgeType":"object"');
-      expect(stdout).toContain('"bootstrapInstalled":true');
-      expect(stdout).toContain('"cspViolations":[]');
-      expect(stdout).toContain('"apiCalls":0');
-    } finally {
-      server.close();
-      await once(server, "close");
-    }
-  }, 15_000);
+      try {
+        server.listen(0, "127.0.0.1");
+        await once(server, "listening");
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Browser smoke server did not expose a TCP port.");
+        }
+        const browser = spawn(browserPath!, [
+          "--headless=new",
+          "--no-sandbox",
+          "--disable-gpu",
+          "--disable-background-networking",
+          "--disable-component-update",
+          "--dump-dom",
+          "--virtual-time-budget=1000",
+          `http://127.0.0.1:${address.port}/`,
+        ]);
+        let stdout = "";
+        let stderr = "";
+        browser.stdout.setEncoding("utf8");
+        browser.stderr.setEncoding("utf8");
+        browser.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        browser.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        const [exitCode] = (await once(browser, "close")) as [number | null];
+
+        expect(exitCode, stderr).toBe(0);
+        expect(stdout).toContain('"bridgeType":"object"');
+        expect(stdout).toContain('"bootstrapInstalled":true');
+        expect(stdout).toContain('"cspViolations":[]');
+        expect(stdout).toContain('"apiCalls":0');
+      } finally {
+        server.close();
+        await once(server, "close");
+      }
+    },
+    15_000
+  );
 });

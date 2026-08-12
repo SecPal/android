@@ -41,7 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inventory across directory, debug/store-listing, APK, and AAB packaging
   paths without inline script or event-handler allowances. Verification also
   requires the meta-delivered policy to be effective before any active head
-  content (issue #508, part of #402).
+  content, reinjection restores the bridge's canonical position before the
+  application module, and strict-CSP browser coverage remains mandatory in the
+  quality workflow without requiring a system browser for unrelated local test
+  runs (issue #508, part of #402).
 - Opened the protected profile through the running frontend's user menu in the
   Android smoke, preserving the native authenticated SPA state instead of
   forcing a full WebView navigation.
