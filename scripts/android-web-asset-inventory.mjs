@@ -241,6 +241,7 @@ export function assertAndroidWebAssetDirectory(assetRoot, inventoryPath) {
     ),
     assetRoot
   );
+  return { actualPaths, expectedFiles };
 }
 
 export async function assertAndroidWebAssetArchive({
@@ -292,4 +293,5 @@ export async function assertAndroidWebAssetArchive({
     }
   }
   assertNoMismatchedPaths(mismatchedPaths, sourceLabel);
+  return { actualPaths, expectedFiles };
 }

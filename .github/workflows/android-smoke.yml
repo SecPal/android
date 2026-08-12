@@ -20,6 +20,9 @@ on:
       - "scripts/forward-android-webview.sh"
       - "scripts/generate-android-web-asset-inventory.mjs"
       - "scripts/inject-native-auth-bridge.mjs"
+      - "scripts/verify-android-frontend-build.mjs"
+      - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
       - "scripts/patch-capacitor-android-unchecked.mjs"
@@ -29,6 +32,7 @@ on:
       - "scripts/webview-live-auth-smoke.mjs"
       - "scripts/with-android-env.sh"
       - "tests/android-smoke*.test.ts"
+      - "tests/native-auth-bridge*.test.ts"
       - "tests/webview-*.test.ts"
   push:
     branches: [main]
@@ -45,6 +49,9 @@ on:
       - "scripts/forward-android-webview.sh"
       - "scripts/generate-android-web-asset-inventory.mjs"
       - "scripts/inject-native-auth-bridge.mjs"
+      - "scripts/verify-android-frontend-build.mjs"
+      - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
       - "scripts/patch-capacitor-android-unchecked.mjs"
@@ -54,6 +61,7 @@ on:
       - "scripts/webview-live-auth-smoke.mjs"
       - "scripts/with-android-env.sh"
       - "tests/android-smoke*.test.ts"
+      - "tests/native-auth-bridge*.test.ts"
       - "tests/webview-*.test.ts"
   schedule:
     - cron: "43 4 * * *"

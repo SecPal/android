@@ -3,7 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -50,6 +56,17 @@ function runBuildScript(frontendDirectory?: string) {
 }
 
 describe("build frontend web script", () => {
+  it("builds and verifies the explicit Android-native frontend surface", () => {
+    const source = readFileSync(buildScript, "utf8");
+
+    expect(source).toContain("npm run build:android");
+    expect(source).toContain("verify-android-frontend-build.mjs");
+    expect(source.indexOf("verify-android-frontend-build.mjs")).toBeLessThan(
+      source.indexOf("inject-native-auth-bridge.mjs")
+    );
+    expect(source).not.toMatch(/\bnpm run build\s*$/m);
+  });
+
   it("uses the conventional sibling frontend checkout by default", () => {
     const { conventionalFrontendDirectory, result } = runBuildScript();
 

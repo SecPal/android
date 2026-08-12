@@ -238,7 +238,13 @@ For direct APK publication on `apk.secpal.app`, the repository now treats the ca
 The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to the SecPal VPS, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
 The `fastlane android deploy_direct_apk_beta` lane publishes the same signed release APK under `/android/beta/` without replacing the stable aliases.
 Direct Stable/Beta deploys hold the same canonical remote artifact-root lock from version selection through publication. A second deployment fails before changing remote state. If an ungraceful process or host termination leaves the empty `${SECPAL_ANDROID_DIRECT_ROOT}.release.lock` directory behind, verify that no direct release mutation is still running and remove only that empty directory with `rmdir` before retrying.
-All repository-provided signed build lanes and npm commands first verify that the signed APK and AAB embed the canonical schema-4 Android bridge at exactly the artifact-type-specific WebView index path. Publication fails before any upload when index locations are missing, duplicated, or conflicting, or when the packaged bridge has a non-canonical or independently overridden notification-registration schema.
+All repository-provided signed build lanes and npm commands first verify that
+the signed APK and AAB embed the production `android-native` frontend metadata
+and one inventoried, content-hashed, same-origin canonical schema-4 Android
+bridge at exactly the artifact-type-specific WebView path. Publication fails
+before any upload when the index, metadata, bridge path, filename hash, bytes,
+inventory, strict CSP, or notification-registration schema is missing,
+duplicated, stale, or non-canonical.
 
 The resulting latest-channel endpoints are:
 

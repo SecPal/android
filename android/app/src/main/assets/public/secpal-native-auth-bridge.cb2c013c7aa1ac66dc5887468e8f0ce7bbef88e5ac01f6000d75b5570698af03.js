@@ -1,168 +1,10 @@
-#!/usr/bin/env node
-// SPDX-FileCopyrightText: 2026 SecPal Contributors
-// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
 
-import { createHash } from "node:crypto";
-import {
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { parse } from "parse5";
-
-const BOOTSTRAP_SCRIPT_ID = "secpal-native-auth-bridge-bootstrap";
-export const nativeAuthBridgeAssetPrefix = "secpal-native-auth-bridge.";
-export const nativeAuthBridgeAssetPattern =
-  /^secpal-native-auth-bridge\.([0-9a-f]{64})\.js$/;
-
-export function isDirectNodeExecution(moduleUrl, argvPath = process.argv[1]) {
-  if (!argvPath) {
-    return false;
-  }
-
-  const directModuleUrls = new Set([pathToFileURL(resolve(argvPath)).href]);
-  try {
-    directModuleUrls.add(pathToFileURL(realpathSync(argvPath)).href);
-  } catch {
-    // The resolved URL still covers direct execution on non-canonical filesystems.
-  }
-
-  return directModuleUrls.has(moduleUrl);
-}
-
-function inspectAndroidWebApplicationShell(html) {
-  const document = parse(html, { sourceCodeLocationInfo: true });
-  const requiredElements = {
-    body: false,
-    head: false,
-    html: false,
-  };
-  let headEndTagStartOffset = null;
-  let hasHtmlDoctype = false;
-  let hasModuleEntry = false;
-  let moduleEntryStartOffset = null;
-  const runtimeBridgeScripts = [];
-  const pending = [document];
-
-  while (pending.length > 0) {
-    const node = pending.pop();
-    const location = node.sourceCodeLocation;
-
-    if (
-      node.nodeName === "#documentType" &&
-      node.name?.toLowerCase() === "html" &&
-      location
-    ) {
-      hasHtmlDoctype = true;
-    }
-
-    if (
-      Object.hasOwn(requiredElements, node.tagName) &&
-      location?.startTag &&
-      location.endTag
-    ) {
-      requiredElements[node.tagName] = true;
-    }
-
-    if (node.tagName === "head" && location?.endTag) {
-      headEndTagStartOffset = location.endTag.startOffset;
-    }
-
-    if (
-      node.tagName === "script" &&
-      node.attrs?.some(
-        ({ name, value }) => name === "id" && value === BOOTSTRAP_SCRIPT_ID
-      )
-    ) {
-      runtimeBridgeScripts.push(node);
-    }
-
-    if (
-      node.tagName === "script" &&
-      location?.startTag &&
-      location.endTag &&
-      node.attrs?.some(
-        ({ name, value }) =>
-          name === "type" && value.trim().toLowerCase() === "module"
-      ) &&
-      node.attrs?.some(
-        ({ name, value }) => name === "src" && value.trim().length > 0
-      )
-    ) {
-      hasModuleEntry = true;
-      moduleEntryStartOffset =
-        moduleEntryStartOffset === null
-          ? location.startTag.startOffset
-          : Math.min(moduleEntryStartOffset, location.startTag.startOffset);
-    }
-
-    pending.push(...(node.childNodes ?? []));
-  }
-
-  return {
-    hasHtmlDoctype,
-    hasModuleEntry,
-    headEndTagStartOffset,
-    moduleEntryStartOffset,
-    requiredElements,
-    runtimeBridgeScripts,
-  };
-}
-
-export function assertCompleteAndroidWebApplicationShell(
-  html,
-  sourceLabel = "Android web index"
-) {
-  const shell = inspectAndroidWebApplicationShell(html);
-
-  if (
-    !shell.hasHtmlDoctype ||
-    !shell.requiredElements.html ||
-    !shell.requiredElements.head ||
-    !shell.requiredElements.body ||
-    !shell.hasModuleEntry
-  ) {
-    throw new Error(
-      `${sourceLabel} must contain a complete Android web application shell with an HTML doctype, explicit html/head/body elements, and a module entry script.`
-    );
-  }
-}
-
-function serializeInlineScriptString(value) {
-  return JSON.stringify(value).replace(
-    /<\/script(?=[\t\n\f\r />])/gi,
-    "<\\/script"
-  );
-}
-
-export function readApiBaseUrlFromStringsXml(stringsXml) {
-  const match = stringsXml.match(
-    /<string\s+name="api_base_url">([^<]+)<\/string>/
-  );
-
-  if (!match) {
-    throw new Error(
-      "Android strings.xml is missing the api_base_url string resource"
-    );
-  }
-
-  return match[1].trim();
-}
-
-export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
-  const serializedApiBaseUrl = serializeInlineScriptString(apiBaseUrl);
-  return (
-    `
 (function () {
   if (globalThis.__SecPalNativeAuthBootstrapInstalled) {
     return;
   }
 
-  const fallbackApiOrigin = ${serializedApiBaseUrl};
+  const fallbackApiOrigin = "https://runtime-bootstrap-required.secpal.dev";
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const authVaultStateStorageKey = "auth_vault_state";
   const incompatibleVaultWrapperKind = "native-device-bound";
@@ -250,7 +92,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return -1;
     }
 
-    if (/^\\d+$/.test(trimmedValue)) {
+    if (/^\d+$/.test(trimmedValue)) {
       const parsedLegacyValue = Number(trimmedValue);
 
       return isPushTokenSavedAtValueUsable(parsedLegacyValue)
@@ -824,7 +666,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       throw new Error("Android runtime bootstrap API URL must use HTTPS.");
     }
 
-    const pathname = url.pathname.replace(/\\/+$/, "");
+    const pathname = url.pathname.replace(/\/+$/, "");
 
     if (pathname === "" || pathname === "/v1") {
       return url.origin;
@@ -2252,98 +2094,3 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   globalThis.__SecPalNativeAuthBootstrapInstalled = true;
 })();
-`.trimEnd() + "\n"
-  );
-}
-
-export function buildNativeAuthBridgeAssetName(bootstrapScript) {
-  const sha256 = createHash("sha256")
-    .update(bootstrapScript, "utf8")
-    .digest("hex");
-  return `${nativeAuthBridgeAssetPrefix}${sha256}.js`;
-}
-
-export function injectNativeAuthBridgeBootstrap(html, apiBaseUrl) {
-  const bootstrapScript = buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-  const assetName = buildNativeAuthBridgeAssetName(bootstrapScript);
-  const scriptTag = `<script id="${BOOTSTRAP_SCRIPT_ID}" src="/${assetName}"></script>`;
-  const shell = inspectAndroidWebApplicationShell(html);
-
-  if (shell.runtimeBridgeScripts.length > 1) {
-    throw new Error(
-      "Android web index must not contain duplicate native-auth bridge scripts."
-    );
-  }
-
-  if (shell.runtimeBridgeScripts.length === 1) {
-    const [runtimeBridgeScript] = shell.runtimeBridgeScripts;
-    const location = runtimeBridgeScript.sourceCodeLocation;
-    if (!location?.startTag || !location.endTag) {
-      throw new Error(
-        "Android web index contains an unterminated native-auth bridge script."
-      );
-    }
-    return `${html.slice(0, location.startTag.startOffset)}${scriptTag}${html.slice(location.endTag.endOffset)}`;
-  }
-
-  if (shell.moduleEntryStartOffset !== null) {
-    const lineStartOffset = html.lastIndexOf(
-      "\n",
-      shell.moduleEntryStartOffset - 1
-    );
-    const indentation = html.slice(
-      lineStartOffset + 1,
-      shell.moduleEntryStartOffset
-    );
-    const moduleIndentation = /^\s*$/.test(indentation) ? indentation : "";
-    return `${html.slice(0, shell.moduleEntryStartOffset)}${scriptTag}\n${moduleIndentation}${html.slice(shell.moduleEntryStartOffset)}`;
-  }
-
-  if (shell.headEndTagStartOffset !== null) {
-    return `${html.slice(0, shell.headEndTagStartOffset)}${scriptTag}\n${html.slice(shell.headEndTagStartOffset)}`;
-  }
-
-  return `${scriptTag}\n${html}`;
-}
-
-export function injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath) {
-  const html = readFileSync(indexHtmlPath, "utf8");
-  const stringsXml = readFileSync(stringsXmlPath, "utf8");
-  assertCompleteAndroidWebApplicationShell(html, indexHtmlPath);
-  const apiBaseUrl = readApiBaseUrlFromStringsXml(stringsXml);
-  const bootstrapScript = buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
-  const assetName = buildNativeAuthBridgeAssetName(bootstrapScript);
-  const assetRoot = dirname(indexHtmlPath);
-  const injectedHtml = injectNativeAuthBridgeBootstrap(html, apiBaseUrl);
-
-  for (const entry of readdirSync(assetRoot, { withFileTypes: true })) {
-    if (!entry.name.startsWith(nativeAuthBridgeAssetPrefix)) {
-      continue;
-    }
-    if (!entry.isFile()) {
-      throw new Error(
-        `${assetRoot} contains an unsupported native-auth bridge asset entry ${entry.name}.`
-      );
-    }
-    if (entry.name !== assetName) {
-      unlinkSync(resolve(assetRoot, entry.name));
-    }
-  }
-
-  writeFileSync(resolve(assetRoot, assetName), bootstrapScript, "utf8");
-  writeFileSync(indexHtmlPath, injectedHtml, "utf8");
-}
-
-if (isDirectNodeExecution(import.meta.url)) {
-  const indexHtmlPath = process.argv[2];
-  const stringsXmlPath = process.argv[3];
-
-  if (!indexHtmlPath || !stringsXmlPath) {
-    console.error(
-      "Usage: node scripts/inject-native-auth-bridge.mjs <dist-index-html> <strings-xml>"
-    );
-    process.exit(1);
-  }
-
-  injectNativeAuthBridgeIntoFile(indexHtmlPath, stringsXmlPath);
-}

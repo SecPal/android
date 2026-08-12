@@ -108,6 +108,9 @@ describe("Android smoke workflow", () => {
       "scripts/normalize-capacitor-cordova-gradle.mjs",
       "scripts/normalize-cordova-config.mjs",
       "scripts/patch-capacitor-android-unchecked.mjs",
+      "scripts/verify-android-frontend-build.mjs",
+      "scripts/verify-android-runtime-schema.mjs",
+      "scripts/verify-android-web-asset-overlays.mjs",
     ];
 
     for (const path of requiredPaths) {

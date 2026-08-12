@@ -115,7 +115,11 @@ npm run cap:sync
 npm run cap:open:android
 ```
 
-`npm run cap:sync` automatically builds `../frontend` first.
+`npm run cap:sync` automatically builds the shared frontend through its
+`android-native` surface, verifies its deterministic `build-metadata.json`, and
+packages the native-auth bootstrap as a content-hashed same-origin JavaScript
+asset before the application module. The generated document keeps the
+frontend's self-only script CSP and contains no executable inline script.
 
 The generated native Android project is committed in this repository and validated by the local test suite.
 

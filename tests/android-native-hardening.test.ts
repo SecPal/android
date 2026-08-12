@@ -322,9 +322,8 @@ describe("Android native hardening", () => {
       "android",
       "app",
       "src",
-      "debug",
+      "androidTest",
       "assets",
-      "public",
       "bridge-isolation-test.html"
     );
     const architecture = readRepoFile("docs", "ANDROID_AUTH_ARCHITECTURE.md");
@@ -1042,6 +1041,16 @@ describe("Android native hardening", () => {
     expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
   });
 
+  it("requires strict-CSP browser coverage instead of silently skipping it", () => {
+    const browserTest = readRepoFile(
+      "tests",
+      "native-auth-bridge-csp-browser.test.ts"
+    );
+
+    expect(browserTest).not.toContain("it.skip");
+    expect(browserTest).toContain("Chromium is required");
+  });
+
   it("requires frontend source for packaging while allowing standalone verification", () => {
     const appBuildGradle = readRepoFile("android", "app", "build.gradle");
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
@@ -1083,6 +1092,12 @@ describe("Android native hardening", () => {
     );
     expect(appBuildGradle).toContain("scripts/android-web-asset-inventory.mjs");
     expect(appBuildGradle).toContain("scripts/literal-zip-archive.mjs");
+    expect(appBuildGradle).toContain(
+      "scripts/verify-android-web-asset-overlays.mjs"
+    );
+    expect(appBuildGradle).toContain(
+      'tasks.register("verifyAndroidWebAssetOverlays", Exec)'
+    );
     expect(aaptIgnoreAssetsPolicy.ignore_assets_pattern).toBe(
       "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
     );
@@ -1128,7 +1143,9 @@ describe("Android native hardening", () => {
       "!app/src/main/assets/public/secpal-web-assets.json"
     );
     expect(fallbackInventory.files.map(({ path }) => path)).toEqual([
+      "build-metadata.json",
       "index.html",
+      expect.stringMatching(/^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/),
     ]);
     expect(playStoreReleaseTests).toContain(
       "writeAndroidWebAssetInventory(assetRoot);"
@@ -1180,6 +1197,9 @@ describe("Android native hardening", () => {
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidWebAssetOverlays"\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?onlyIf\("frontend source is present"\)\s*\{\s*frontendRepositoryRoot\.isDirectory\(\)\s*\}/
@@ -1621,8 +1641,9 @@ describe("Android native hardening", () => {
       "https://apk.secpal.app/android/beta/latest.json"
     );
     expect(distributionDoc).toContain(
-      "signed APK and AAB embed the canonical schema-4 Android bridge"
+      "signed APK and AAB embed the production `android-native` frontend metadata"
     );
+    expect(distributionDoc).toContain("content-hashed, same-origin");
     expect(fastfile).toContain('File.expand_path("..", __dir__)');
     expect(fastfile).toContain("deploy_direct_apk");
     expect(fastfile).toContain("deploy_direct_apk_beta");
