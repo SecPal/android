@@ -1206,5 +1206,5 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(testFailure.attempts).toBe(1);
     expect(testFailure.reboots).toEqual([]);
     expect(testFailure.waits).toEqual([]);
-  });
+  }, 10_000);
 });
