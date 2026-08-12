@@ -48,7 +48,31 @@ updates:
     pull-request-branch-name:
       separator: "-"
     groups:
-      minor-and-patch:
+      # SecPal reusable workflows track immutable commits on main rather than
+      # releases, so Dependabot cannot assign them a semantic update type.
+      shared-workflow-pins:
+        patterns:
+          - "SecPal/.github/.github/workflows/*"
+      # Keep versioned action groups semver-homogeneous so their PR titles and
+      # the reusable auto-merge policy preserve the actual update class.
+      github-actions-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "SecPal/.github/.github/workflows/*"
+        update-types:
+          - "patch"
+      github-actions-minor:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "SecPal/.github/.github/workflows/*"
         update-types:
           - "minor"
-          - "patch"
+      github-actions-major:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "SecPal/.github/.github/workflows/*"
+        update-types:
+          - "major"

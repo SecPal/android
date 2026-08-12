@@ -11,7 +11,10 @@
 name: Dependabot Auto-Merge
 
 on:
-  pull_request:
+  # Dependabot pull_request runs receive a read-only token. The target event is
+  # safe because this caller only invokes immutable reviewed workflow code and
+  # never checks out or executes pull-request-controlled content.
+  pull_request_target:
     types:
       - opened
       - synchronize
