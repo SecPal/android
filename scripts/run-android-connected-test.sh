@@ -107,6 +107,7 @@ fi
 
 classify_api37_failure() {
     retry_key=""
+    retry_limit=1
     retry_reason=""
     reboot_before_retry=false
 
@@ -114,6 +115,14 @@ classify_api37_failure() {
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then
         retry_key="package-manager-install-write"
         retry_reason="PackageManager install-write failure"
+        reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
+        grep -Fq "Failed to commit install session" "$attempt_log" &&
+        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+        retry_key="package-manager-split-install-broken-pipe"
+        retry_limit=2
+        retry_reason="PackageManager split-install connection failure"
         reboot_before_retry=true
     elif {
         grep -Fq "Failed to commit install session" "$attempt_log" &&
@@ -163,11 +172,15 @@ while (( attempt_status != 0 )); do
         exit "$attempt_status"
     fi
 
+    recovered_failure_count=0
     for recovered_failure in "${recovered_api37_failures[@]}"; do
         if [[ "$recovered_failure" == "$retry_key" ]]; then
-            exit "$attempt_status"
+            recovered_failure_count=$((recovered_failure_count + 1))
         fi
     done
+    if (( recovered_failure_count >= retry_limit )); then
+        exit "$attempt_status"
+    fi
 
     recovered_api37_failures+=("$retry_key")
     recover_api37_failure

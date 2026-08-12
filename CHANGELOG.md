@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed one additional bounded API 37 emulator recovery for the exact
+  zero-test split-APK install-session broken-pipe failure while keeping
+  persistent package-service failures and real instrumentation failures
+  fail-closed (issue #579).
 - Restored strict-CSP-compatible Android native-auth packaging by building the
   shared frontend's verified `android-native` surface, emitting the canonical
   bootstrap as one content-hashed same-origin asset before the application

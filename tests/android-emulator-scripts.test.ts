@@ -595,6 +595,9 @@ exit 1
         | "package-manager"
         | "package-manager-always"
         | "package-manager-then-missing-package-service"
+        | "split-install-broken-pipe-twice"
+        | "split-install-broken-pipe-always"
+        | "split-install-broken-pipe-then-test"
         | "missing-package-service"
         | "install-write"
         | "install-write-always"
@@ -646,6 +649,16 @@ elif [[ "${failureMode}" == "package-manager-then-missing-package-service" ]]; t
     attempt_failure_mode="package-manager"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="missing-package-service"
+  fi
+elif [[ "${failureMode}" == "split-install-broken-pipe-twice" ]]; then
+  if (( attempt <= 2 )); then
+    attempt_failure_mode="split-install-broken-pipe"
+  fi
+elif [[ "${failureMode}" == "split-install-broken-pipe-then-test" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="split-install-broken-pipe"
+  elif [[ "$attempt" == "2" ]]; then
+    attempt_failure_mode="test"
   fi
 elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -701,6 +714,11 @@ if [[ -n "$attempt_failure_mode" ]]; then
     fi
     printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code $status_code from server: $status_text"
+  elif [[ "$attempt_failure_mode" == "split-install-broken-pipe" || "$attempt_failure_mode" == "split-install-broken-pipe-always" ]]; then
+    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'com.android.builder.testing.api.DeviceException: com.android.ddmlib.InstallException: Failed to install split APK(s): [app-ctRegression.apk, app-ctRegression-androidTest.apk]'
+    printf '%s\n' 'Caused by: com.android.ddmlib.InstallException: Failed to commit install session 1234 with command cmd package install-commit 1234'
+    printf '%s\n' 'Caused by: java.lang.IllegalStateException: Failure calling service package: Broken pipe (32)'
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
@@ -905,6 +923,49 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    const recoverableRepeatedSplitInstallFailure = runScenario(
+      37,
+      "split-install-broken-pipe-twice"
+    );
+    expect(recoverableRepeatedSplitInstallFailure.result.status).toBe(0);
+    expect(recoverableRepeatedSplitInstallFailure.attempts).toBe(3);
+    expect(recoverableRepeatedSplitInstallFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoverableRepeatedSplitInstallFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
+    const persistentSplitInstallFailure = runScenario(
+      37,
+      "split-install-broken-pipe-always"
+    );
+    expect(persistentSplitInstallFailure.result.status).toBe(1);
+    expect(persistentSplitInstallFailure.attempts).toBe(3);
+    expect(persistentSplitInstallFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(persistentSplitInstallFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
+    const testFailureAfterSplitInstallRecovery = runScenario(
+      37,
+      "split-install-broken-pipe-then-test"
+    );
+    expect(testFailureAfterSplitInstallRecovery.result.status).toBe(1);
+    expect(testFailureAfterSplitInstallRecovery.attempts).toBe(2);
+    expect(testFailureAfterSplitInstallRecovery.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(testFailureAfterSplitInstallRecovery.waits).toEqual([
+      "emulator-5570 60",
+    ]);
 
     const missingPackageServiceAfterPackageManagerFailure = runScenario(
       37,
