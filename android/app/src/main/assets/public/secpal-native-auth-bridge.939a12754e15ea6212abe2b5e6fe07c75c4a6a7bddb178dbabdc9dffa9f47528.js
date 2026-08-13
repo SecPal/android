@@ -1918,6 +1918,38 @@
     runtimeState.nativeConfigPromise = Promise.resolve();
   };
 
+  const leaveConfirmedRuntimeResetShell = () => {
+    try {
+      globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
+    } catch (error) {
+      console.warn("Failed to dispatch the SecPal runtime-reset logout event.", error);
+    }
+
+    try {
+      if (globalThis.location && typeof globalThis.location.reload === "function") {
+        globalThis.location.reload();
+      }
+    } catch (error) {
+      console.warn("Failed to reload after the SecPal runtime reset.", error);
+    }
+  };
+
+  const completeConfirmedRuntimeReset = async (reloadAfterCleanup) => {
+    beginRuntimeBootstrapMutation();
+    markRuntimeResetConfirmed();
+    try {
+      await clearTenantScopedBrowserState();
+      clearPendingRuntimeReset();
+    } catch (error) {
+      leaveConfirmedRuntimeResetShell();
+      throw error;
+    }
+
+    if (reloadAfterCleanup) {
+      leaveConfirmedRuntimeResetShell();
+    }
+  };
+
   const clearConfiguredRuntimeState = async () => {
     if (runtimeResetBusy || !runtimeState.configured) {
       return;
@@ -1927,24 +1959,13 @@
     try {
       await queueRuntimeBootstrapMutation(async () => {
         await clearPersistedBootstrap();
-        beginRuntimeBootstrapMutation();
-        markRuntimeResetConfirmed();
-        await clearTenantScopedBrowserState();
-        clearPendingRuntimeReset();
+        await completeConfirmedRuntimeReset(true);
       });
     } catch (error) {
       console.warn("Failed to clear the current SecPal runtime.", error);
+    } finally {
       runtimeResetBusy = false;
       androidPushSyncState.suspended = false;
-      return;
-    }
-
-    runtimeResetBusy = false;
-
-    globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
-
-    if (globalThis.location && typeof globalThis.location.reload === "function") {
-      globalThis.location.reload();
     }
   };
 
@@ -2024,10 +2045,7 @@
       }
       await queueRuntimeBootstrapMutation(async () => {
         await clearPersistedBootstrap();
-        beginRuntimeBootstrapMutation();
-        markRuntimeResetConfirmed();
-        await clearTenantScopedBrowserState();
-        clearPendingRuntimeReset();
+        await completeConfirmedRuntimeReset(false);
       });
     },
     async request(request) {

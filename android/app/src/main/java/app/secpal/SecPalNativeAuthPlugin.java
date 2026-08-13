@@ -345,11 +345,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     previousBootstrap.optJSONObject("androidPush")
                 );
 
-            if (!persistRuntimeBootstrapAfterCredentialClear(
+            if (!replaceRuntimeBootstrapStateWithRollback(
                 apiBaseUrl,
                 nextApiBaseUrl,
                 tokenStorage,
-                () -> persistRuntimeBootstrap(bootstrap)
+                () -> persistRuntimeBootstrap(bootstrap),
+                () -> restoreRuntimeBootstrapPersistenceSynchronously(
+                    preferences,
+                    previousRuntimeBootstrap,
+                    previousApiBaseUrl
+                ),
+                () -> androidPushRuntimeManager.applyWithRollback(
+                    AndroidPushRuntimeMetadata.fromBootstrap(
+                        bootstrap.optJSONObject("androidPush")
+                    ),
+                    previousPushRuntime
+                )
             )) {
                 call.reject(
                     "Failed to persist Android runtime bootstrap",
@@ -358,25 +369,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 return;
             }
 
-            try {
-                androidPushRuntimeManager.applyWithRollback(
-                    AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush")),
-                    previousPushRuntime
-                );
-            } catch (RuntimeException exception) {
-                restoreRuntimeBootstrapPersistence(
-                    preferences,
-                    previousRuntimeBootstrap,
-                    previousApiBaseUrl
-                );
-                throw exception;
-            }
-
             apiBaseUrl = nextApiBaseUrl;
 
             JSObject payload = new JSObject();
             payload.put("bootstrap", bootstrap);
             call.resolve(payload);
+        } catch (TokenStorageException exception) {
+            call.reject(
+                "Failed to access Android auth token during runtime rebind",
+                "TOKEN_STORAGE_ERROR",
+                exception
+            );
         } catch (RuntimeException exception) {
             rejectRuntimeBootstrap(call, exception);
         }
@@ -435,7 +438,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String androidPushInstallationId
     ) {
         try {
-            String tokenForServerRevocation = readStoredTokenForRuntimeReset(tokenStorage);
+            String tokenForServerRevocation = readStoredTokenForRuntimeMutation(tokenStorage);
             if (!clearRuntimeBootstrapStateWithPushRollback(
                 getNativeAuthPreferences(),
                 tokenStorage,
@@ -942,16 +945,101 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return !Objects.equals(currentApiBaseUrl, nextApiBaseUrl);
     }
 
-    static boolean persistRuntimeBootstrapAfterCredentialClear(
+    static boolean replaceRuntimeBootstrapStateWithRollback(
         String currentApiBaseUrl,
         String nextApiBaseUrl,
         TokenStorage tokenStorage,
-        BooleanSupplier persistence
-    ) {
-        if (shouldClearStoredToken(currentApiBaseUrl, nextApiBaseUrl)) {
+        BooleanSupplier persistence,
+        BooleanSupplier runtimeRollback,
+        Runnable pushReplacement
+    ) throws TokenStorageException {
+        boolean credentialMustBeRebound = shouldClearStoredToken(
+            currentApiBaseUrl,
+            nextApiBaseUrl
+        );
+        String previousToken = credentialMustBeRebound
+            ? readStoredTokenForRuntimeMutation(tokenStorage)
+            : null;
+        if (credentialMustBeRebound) {
             tokenStorage.clearToken();
         }
-        return persistence.getAsBoolean();
+
+        final boolean persisted;
+        try {
+            persisted = persistence.getAsBoolean();
+        } catch (RuntimeException exception) {
+            rollbackRuntimeBootstrapReplacement(
+                exception,
+                runtimeRollback,
+                tokenStorage,
+                previousToken,
+                credentialMustBeRebound
+            );
+            throw exception;
+        }
+
+        if (!persisted) {
+            restoreRuntimeCredential(
+                tokenStorage,
+                previousToken,
+                credentialMustBeRebound
+            );
+            return false;
+        }
+
+        try {
+            pushReplacement.run();
+            return true;
+        } catch (RuntimeException exception) {
+            rollbackRuntimeBootstrapReplacement(
+                exception,
+                runtimeRollback,
+                tokenStorage,
+                previousToken,
+                credentialMustBeRebound
+            );
+            throw exception;
+        }
+    }
+
+    private static void rollbackRuntimeBootstrapReplacement(
+        RuntimeException failure,
+        BooleanSupplier runtimeRollback,
+        TokenStorage tokenStorage,
+        String previousToken,
+        boolean restoreCredential
+    ) throws TokenStorageException {
+        final boolean runtimeRestored;
+        try {
+            runtimeRestored = runtimeRollback.getAsBoolean();
+        } catch (RuntimeException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+            return;
+        }
+
+        if (!runtimeRestored) {
+            failure.addSuppressed(new IllegalStateException(
+                "Failed to restore Android runtime bootstrap after replacement failure"
+            ));
+            return;
+        }
+
+        try {
+            restoreRuntimeCredential(tokenStorage, previousToken, restoreCredential);
+        } catch (TokenStorageException tokenException) {
+            tokenException.addSuppressed(failure);
+            throw tokenException;
+        }
+    }
+
+    private static void restoreRuntimeCredential(
+        TokenStorage tokenStorage,
+        String previousToken,
+        boolean restoreCredential
+    ) throws TokenStorageException {
+        if (restoreCredential && previousToken != null) {
+            tokenStorage.saveToken(previousToken);
+        }
     }
 
     static void clearRejectedLegacyRuntimeState(SharedPreferences preferences, TokenStorage tokenStorage) {
@@ -1029,21 +1117,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
             pushCleanup.run();
             return true;
         } catch (RuntimeException exception) {
-            boolean persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
-                preferences,
-                previousRuntimeBootstrap,
-                previousApiBaseUrl
-            );
-            if (previousToken != null) {
+            final boolean persistenceRestored;
+            try {
+                persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
+                    preferences,
+                    previousRuntimeBootstrap,
+                    previousApiBaseUrl
+                );
+            } catch (RuntimeException rollbackException) {
+                exception.addSuppressed(rollbackException);
+                throw exception;
+            }
+            if (persistenceRestored && previousToken != null) {
                 try {
                     tokenStorage.saveToken(previousToken);
                 } catch (TokenStorageException tokenException) {
                     tokenException.addSuppressed(exception);
-                    if (!persistenceRestored) {
-                        tokenException.addSuppressed(new IllegalStateException(
-                            "Failed to restore Android runtime bootstrap after push cleanup failure"
-                        ));
-                    }
                     throw tokenException;
                 }
             }
@@ -1056,7 +1145,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
-    static String readStoredTokenForRuntimeReset(TokenStorage tokenStorage) {
+    static String readStoredTokenForRuntimeMutation(TokenStorage tokenStorage) {
         try {
             return tokenStorage.getToken();
         } catch (TokenStorageException ignored) {
@@ -1124,7 +1213,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
-    private static boolean restoreRuntimeBootstrapPersistenceSynchronously(
+    static boolean restoreRuntimeBootstrapPersistenceSynchronously(
         SharedPreferences preferences,
         String previousRuntimeBootstrap,
         String previousApiBaseUrl
@@ -1143,28 +1232,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         return editor.commit();
-    }
-
-    static void restoreRuntimeBootstrapPersistence(
-        SharedPreferences preferences,
-        String previousRuntimeBootstrap,
-        String previousApiBaseUrl
-    ) {
-        SharedPreferences.Editor editor = preferences.edit();
-
-        if (previousRuntimeBootstrap == null || previousRuntimeBootstrap.trim().isEmpty()) {
-            editor.remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY);
-        } else {
-            editor.putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, previousRuntimeBootstrap);
-        }
-
-        if (previousApiBaseUrl == null || previousApiBaseUrl.trim().isEmpty()) {
-            editor.remove(API_BASE_URL_PREFERENCE_KEY);
-        } else {
-            editor.putString(API_BASE_URL_PREFERENCE_KEY, previousApiBaseUrl);
-        }
-
-        editor.apply();
     }
 
     private boolean persistRuntimeBootstrap(JSObject bootstrap) {

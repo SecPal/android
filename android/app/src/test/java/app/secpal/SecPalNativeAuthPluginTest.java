@@ -101,29 +101,302 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void runtimeRebindClearsTenantCredentialBeforePersistence() {
+    public void runtimeRebindClearsTenantCredentialBeforePersistence() throws Exception {
         List<String> events = new ArrayList<>();
-        TokenStorage recordingTokenStorage = new TokenStorage() {
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+            "https://tenant-a.example",
+            "https://tenant-b.example",
+            tokenStorage,
+            () -> {
+                events.add("persist-runtime");
+                return true;
+            },
+            () -> {
+                events.add("restore-runtime");
+                return true;
+            },
+            () -> events.add("apply-push")
+        ));
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "apply-push"
+            ),
+            events
+        );
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindRestoresCredentialWhenPersistenceFails() throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+
+        assertFalse(SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+            "https://tenant-a.example",
+            "https://tenant-b.example",
+            tokenStorage,
+            () -> {
+                events.add("persist-runtime");
+                return false;
+            },
+            () -> {
+                events.add("restore-runtime");
+                return true;
+            },
+            () -> events.add("apply-push")
+        ));
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindRestoresRuntimeAndCredentialWhenPushReplacementFails()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+        RuntimeException pushFailure = new RuntimeException("push-replacement-failed");
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> {
+                    events.add("persist-runtime");
+                    return true;
+                },
+                () -> {
+                    events.add("restore-runtime");
+                    return true;
+                },
+                () -> {
+                    events.add("apply-push");
+                    throw pushFailure;
+                }
+            );
+            fail("Expected push replacement failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(pushFailure, thrown);
+        }
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "apply-push",
+                "restore-runtime",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindKeepsCredentialClearedWhenRuntimeRollbackFails()
+        throws Exception {
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        tokenStorage.token = "tenant-a-token";
+        RuntimeException pushFailure = new RuntimeException("push-replacement-failed");
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> true,
+                () -> false,
+                () -> { throw pushFailure; }
+            );
+            fail("Expected push replacement failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(pushFailure, thrown);
+            assertEquals(1, thrown.getSuppressed().length);
+        }
+
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindReportsCredentialRestoreFailureAfterRuntimeRollback() {
+        RuntimeException pushFailure = new RuntimeException("push-replacement-failed");
+        TokenStorage unrestorableTokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) throws TokenStorageException {
+                throw new TokenStorageException(
+                    "Failed to restore Android auth token",
+                    new IllegalStateException("keystore-unavailable")
+                );
+            }
+
+            @Override
+            public String getToken() {
+                return "tenant-a-token";
+            }
+
+            @Override
+            public void clearToken() {}
+        };
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                unrestorableTokenStorage,
+                () -> true,
+                () -> true,
+                () -> { throw pushFailure; }
+            );
+            fail("Expected token restoration failure");
+        } catch (TokenStorageException thrown) {
+            assertEquals(1, thrown.getSuppressed().length);
+            assertEquals(pushFailure, thrown.getSuppressed()[0]);
+        }
+    }
+
+    @Test
+    public void runtimeRebindRollsBackAfterPersistenceThrows() throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+        RuntimeException persistenceFailure = new RuntimeException("persistence-failed");
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> {
+                    events.add("persist-runtime");
+                    throw persistenceFailure;
+                },
+                () -> {
+                    events.add("restore-runtime");
+                    return true;
+                },
+                () -> events.add("apply-push")
+            );
+            fail("Expected persistence failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(persistenceFailure, thrown);
+        }
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "restore-runtime",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void sameOriginRuntimeReplacementDoesNotTouchCredential() throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+            "https://tenant-a.example",
+            "https://tenant-a.example",
+            tokenStorage,
+            () -> {
+                events.add("persist-runtime");
+                return true;
+            },
+            () -> {
+                events.add("restore-runtime");
+                return true;
+            },
+            () -> events.add("apply-push")
+        ));
+
+        assertEquals(
+            java.util.Arrays.asList("persist-runtime", "apply-push"),
+            events
+        );
+        assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindContinuesWhenPreviousCredentialCannotBeRead() throws Exception {
+        List<String> events = new ArrayList<>();
+        TokenStorage unreadableTokenStorage = new TokenStorage() {
             @Override
             public void saveToken(String token) {}
 
             @Override
-            public String getToken() { return null; }
+            public String getToken() throws TokenStorageException {
+                events.add("read-token");
+                throw new TokenStorageException(
+                    "Stored Android auth token cannot be decrypted",
+                    new IllegalStateException("invalidated")
+                );
+            }
 
             @Override
-            public void clearToken() { events.add("clear-token"); }
+            public void clearToken() {
+                events.add("clear-token");
+            }
         };
 
-        assertTrue(SecPalNativeAuthPlugin.persistRuntimeBootstrapAfterCredentialClear(
-            "https://tenant-a.example",
-            "https://tenant-b.example",
-            recordingTokenStorage,
-            () -> {
-                events.add("persist-runtime");
-                return true;
-            }
-        ));
-        assertEquals(java.util.Arrays.asList("clear-token", "persist-runtime"), events);
+        assertTrue(
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                unreadableTokenStorage,
+                () -> {
+                    events.add("persist-runtime");
+                    return true;
+                },
+                () -> {
+                    events.add("restore-runtime");
+                    return true;
+                },
+                () -> events.add("apply-push")
+            )
+        );
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "apply-push"
+            ),
+            events
+        );
     }
 
     @Test
@@ -463,7 +736,7 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void restoreRuntimeBootstrapPersistenceRollsBackPreviousDeploymentState() {
+    public void restoreRuntimeBootstrapPersistenceRollsBackPreviousDeploymentStateSynchronously() {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
 
         preferences.edit()
@@ -476,10 +749,12 @@ public class SecPalNativeAuthPluginTest {
             .remove("api_base_url")
             .commit();
 
-        SecPalNativeAuthPlugin.restoreRuntimeBootstrapPersistence(
-            preferences,
-            "{\"apiOrigin\":\"https://tenant-a.example\"}",
-            "https://tenant-a.example"
+        assertTrue(
+            SecPalNativeAuthPlugin.restoreRuntimeBootstrapPersistenceSynchronously(
+                preferences,
+                "{\"apiOrigin\":\"https://tenant-a.example\"}",
+                "https://tenant-a.example"
+            )
         );
 
         assertEquals(
@@ -487,7 +762,7 @@ public class SecPalNativeAuthPluginTest {
             preferences.getString("runtime_bootstrap", null)
         );
         assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
-        assertEquals(1, preferences.applyCallCount);
+        assertEquals(0, preferences.applyCallCount);
     }
 
     @Test
@@ -740,6 +1015,74 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void clearRuntimeBootstrapStateKeepsCredentialClearedWhenRollbackFails()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        RuntimeException pushCleanupFailure = new RuntimeException("push-cleanup-failed");
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        try {
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                tokenStorage.token,
+                () -> {
+                    preferences.failNextCommit = true;
+                    throw pushCleanupFailure;
+                }
+            );
+            fail("Expected push cleanup failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(pushCleanupFailure, thrown);
+            assertEquals(1, thrown.getSuppressed().length);
+        }
+
+        assertNull(preferences.getString("runtime_bootstrap", null));
+        assertNull(preferences.getString("api_base_url", null));
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void clearRuntimeBootstrapStatePreservesPushFailureWhenRollbackThrows()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        RuntimeException pushCleanupFailure = new RuntimeException("push-cleanup-failed");
+        RuntimeException rollbackFailure = new RuntimeException("rollback-failed");
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        try {
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                tokenStorage.token,
+                () -> {
+                    preferences.nextCommitFailure = rollbackFailure;
+                    throw pushCleanupFailure;
+                }
+            );
+            fail("Expected push cleanup failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(pushCleanupFailure, thrown);
+            assertEquals(1, thrown.getSuppressed().length);
+            assertEquals(rollbackFailure, thrown.getSuppressed()[0]);
+        }
+
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
     public void runtimeResetContinuesWhenStoredCredentialCannotBeRead() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AtomicBoolean pushCleanupCalled = new AtomicBoolean(false);
@@ -765,7 +1108,7 @@ public class SecPalNativeAuthPluginTest {
             .putString("api_base_url", "https://tenant-a.example")
             .commit();
 
-        String token = SecPalNativeAuthPlugin.readStoredTokenForRuntimeReset(
+        String token = SecPalNativeAuthPlugin.readStoredTokenForRuntimeMutation(
             unreadableTokenStorage
         );
         assertNull(token);
@@ -894,6 +1237,34 @@ public class SecPalNativeAuthPluginTest {
         }
     }
 
+    private static final class RecordingTokenStorage implements TokenStorage {
+        private String token;
+        private final List<String> events;
+
+        private RecordingTokenStorage(String token, List<String> events) {
+            this.token = token;
+            this.events = events;
+        }
+
+        @Override
+        public void saveToken(String token) {
+            events.add("save-token");
+            this.token = token;
+        }
+
+        @Override
+        public String getToken() {
+            events.add("read-token");
+            return token;
+        }
+
+        @Override
+        public void clearToken() {
+            events.add("clear-token");
+            token = null;
+        }
+    }
+
     private static final class ThrowingFirebaseBackend implements AndroidPushRuntimeManager.FirebaseBackend {
         private int findRuntimeAppCallCount;
         private int initializeCallCount;
@@ -922,6 +1293,7 @@ public class SecPalNativeAuthPluginTest {
     private static final class InMemorySharedPreferences implements SharedPreferences {
         private final Map<String, String> values = new HashMap<>();
         private boolean failNextCommit;
+        private RuntimeException nextCommitFailure;
         private int applyCallCount;
 
         @Override
@@ -970,6 +1342,11 @@ public class SecPalNativeAuthPluginTest {
 
                 @Override
                 public boolean commit() {
+                    if (nextCommitFailure != null) {
+                        RuntimeException failure = nextCommitFailure;
+                        nextCommitFailure = null;
+                        throw failure;
+                    }
                     if (failNextCommit) {
                         failNextCommit = false;
                         return false;

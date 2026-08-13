@@ -2656,6 +2656,60 @@ describe("native auth bridge bootstrap injection", () => {
     ).toHaveBeenCalledOnce();
   });
 
+  it("reloads into reset recovery when stale-push browser cleanup fails", async () => {
+    const { bridge, listeners, localStorage, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const logoutListener = vi.fn();
+    sandbox.caches = {
+      keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+      delete: vi.fn().mockResolvedValue(false),
+    };
+    (
+      sandbox as {
+        addEventListener(
+          eventName: string,
+          listener: (event: { type: string }) => void
+        ): void;
+      }
+    ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz",
+    });
+    await flushMicrotasks();
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message: "Notification runtime metadata changed.",
+          code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+        })
+      ),
+      contentType: "application/json",
+    });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+    expect(logoutListener).toHaveBeenCalledOnce();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
   it("preserves the current session when a stale-push reset is not confirmed", async () => {
     const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const runtimeBootstrap = createCustomerAndroidPushBootstrap();
@@ -4290,7 +4344,16 @@ describe("native auth bridge bootstrap injection", () => {
     for (const cleanupFailure of cleanupFailures) {
       const { bridge, localStorage, plugin, sandbox } =
         await createAndroidPushLifecycleSandbox();
+      const logoutListener = vi.fn();
       cleanupFailure.configure(sandbox);
+      (
+        sandbox as {
+          addEventListener(
+            eventName: string,
+            listener: (event: { type: string }) => void
+          ): void;
+        }
+      ).addEventListener("secpal:native-auth-logout", logoutListener);
       const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
         configured: boolean;
         apiOrigin: string | null;
@@ -4309,6 +4372,11 @@ describe("native auth bridge bootstrap injection", () => {
       ).toBe("1");
       expect(runtimeState.configured, cleanupFailure.name).toBe(false);
       expect(runtimeState.apiOrigin, cleanupFailure.name).toBeNull();
+      expect(logoutListener, cleanupFailure.name).toHaveBeenCalledOnce();
+      expect(
+        (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload,
+        cleanupFailure.name
+      ).toHaveBeenCalledOnce();
       await expect(
         (
           bridge as typeof bridge & {

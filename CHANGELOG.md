@@ -59,11 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IndexedDB, and service-worker cleanup explicitly succeeds; incomplete cleanup
   fails closed with the native and frontend runtime both unconfigured. Runtime
   resets serialize behind in-flight confirmed rebinds, failed push-runtime
-  replacement restores the previous deployment metadata, rejected native
-  `HTTP_401` requests deactivate frontend authentication, and `GET` bodies are
-  rejected before a credentialed connection can be created. Rebinding
-  clears even orphaned credentials unless the existing canonical origin is
-  identical, and parity coverage keeps retired Android enrollment-session
+  replacement restores the previous deployment metadata and credential as one
+  transaction, and failed rollback never reattaches a credential to an
+  unconfirmed runtime. Confirmed native resets that encounter incomplete
+  browser cleanup now dispatch logout and reload into durable reset recovery
+  instead of leaving the authenticated application shell running. Rejected
+  native `HTTP_401` requests deactivate frontend authentication, and `GET`
+  bodies are rejected before a credentialed connection can be created.
+  Rebinding clears even orphaned or unreadable credentials unless the existing
+  canonical origin is identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege
   inventory. The Android smoke build now runs the generated-caller parity suite
   after packaging and fails closed when packaged JavaScript assets are
