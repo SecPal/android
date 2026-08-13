@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounded the strict-CSP real-browser smoke with separate Chromium process and
+  Vitest deadlines, forceful browser termination, and awaited HTTP server
+  cleanup across timeout, assertion failure, and success paths (issue #585).
 - Allowed one additional bounded API 37 emulator recovery for the exact
   zero-test split-APK install-session broken-pipe failure while keeping
   persistent package-service failures and real instrumentation failures

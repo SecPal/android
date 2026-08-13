@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -11,6 +11,12 @@ import { once } from "node:events";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The bridge generator intentionally remains Node-executable JavaScript.
 import { buildNativeAuthBridgeBootstrapScript } from "../scripts/inject-native-auth-bridge.mjs";
+import {
+  browserTestTimeoutMs,
+  cleanupBrowserSmoke,
+  waitForBrowserClose,
+  type BrowserExit,
+} from "./native-auth-bridge-csp-browser-lifecycle";
 
 const browserPath = [
   process.env.CHROME_BIN,
@@ -92,6 +98,8 @@ globalThis.Capacitor = {
         });
         response.end(body);
       });
+      let browser: ChildProcessWithoutNullStreams | undefined;
+      let browserClosed: Promise<BrowserExit> | undefined;
 
       try {
         server.listen(0, "127.0.0.1");
@@ -100,7 +108,7 @@ globalThis.Capacitor = {
         if (!address || typeof address === "string") {
           throw new Error("Browser smoke server did not expose a TCP port.");
         }
-        const browser = spawn(browserPath!, [
+        browser = spawn(browserPath!, [
           "--headless=new",
           "--no-sandbox",
           "--disable-gpu",
@@ -110,6 +118,7 @@ globalThis.Capacitor = {
           "--virtual-time-budget=1000",
           `http://127.0.0.1:${address.port}/`,
         ]);
+        browserClosed = once(browser, "close") as Promise<BrowserExit>;
         let stdout = "";
         let stderr = "";
         browser.stdout.setEncoding("utf8");
@@ -120,7 +129,7 @@ globalThis.Capacitor = {
         browser.stderr.on("data", (chunk) => {
           stderr += chunk;
         });
-        const [exitCode] = (await once(browser, "close")) as [number | null];
+        const [exitCode] = await waitForBrowserClose(browser, browserClosed);
 
         expect(exitCode, stderr).toBe(0);
         expect(stdout).toContain('"bridgeType":"object"');
@@ -128,10 +137,9 @@ globalThis.Capacitor = {
         expect(stdout).toContain('"cspViolations":[]');
         expect(stdout).toContain('"apiCalls":0');
       } finally {
-        server.close();
-        await once(server, "close");
+        await cleanupBrowserSmoke(browser, browserClosed, server);
       }
     },
-    15_000
+    browserTestTimeoutMs
   );
 });
