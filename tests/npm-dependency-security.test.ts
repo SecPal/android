@@ -67,6 +67,22 @@ const jobNeeds = (
 };
 
 describe("npm dependency security", () => {
+  it("pins nanoid outside the vulnerable custom-generator range", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as { overrides?: Record<string, string> };
+    const packageLock = JSON.parse(
+      readFileSync(resolve(repoRoot, "package-lock.json"), "utf8")
+    ) as {
+      packages?: Record<string, { version?: string }>;
+    };
+
+    expect(packageJson.overrides?.nanoid).toBe("3.3.18");
+    expect(packageLock.packages?.["node_modules/nanoid"]?.version).toBe(
+      "3.3.18"
+    );
+  });
+
   it("runs an unconditional audit before the required Vitest job", () => {
     const qualityWorkflow = readFileSync(
       resolve(repoRoot, ".github/workflows/quality.yml"),

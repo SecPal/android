@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact commit object, and deduplicate repeated evidence (issue #563).
 - Kept the CodeQL initialization and analysis actions on the same release to
   prevent configuration-version failures in the security workflow.
-- Overrode the vulnerable transitive `nanoid` dependency to 3.3.17, preventing
+- Overrode the vulnerable transitive `nanoid` dependency to 3.3.18, preventing
   custom generators from looping indefinitely when invoked with a zero size
   (issue #539).
 - Aligned the local Prettier pre-commit hook with `format:check`, including
