@@ -7,6 +7,8 @@
   const fallbackApiOrigin = "https://runtime-bootstrap-required.secpal.dev";
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
   const authVaultStateStorageKey = "auth_vault_state";
+  const runtimeResetPendingStorageKey =
+    "secpal-android-runtime-reset-pending";
   const incompatibleVaultWrapperKind = "native-device-bound";
   const currentBootstrapVersion = "v1";
   const currentBootstrapSchemaVersion = 4;
@@ -264,15 +266,72 @@
     }
   };
 
+  const hasPendingRuntimeReset = () => {
+    const storage = getLocalStorage();
+
+    if (!storage || typeof storage.getItem !== "function") {
+      return false;
+    }
+
+    try {
+      return storage.getItem(runtimeResetPendingStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const markRuntimeResetPending = () => {
+    const storage = getLocalStorage();
+
+    if (
+      !storage ||
+      typeof storage.setItem !== "function" ||
+      typeof storage.getItem !== "function"
+    ) {
+      throw new Error("Android runtime reset recovery storage is unavailable.");
+    }
+
+    try {
+      storage.setItem(runtimeResetPendingStorageKey, "1");
+      if (storage.getItem(runtimeResetPendingStorageKey) !== "1") {
+        throw new Error("Android runtime reset recovery marker was not persisted.");
+      }
+    } catch (error) {
+      throw new Error("Android runtime reset recovery marker was not persisted.", {
+        cause: error,
+      });
+    }
+  };
+
+  const clearPendingRuntimeReset = () => {
+    const storage = getLocalStorage();
+
+    if (!storage || typeof storage.removeItem !== "function") {
+      return;
+    }
+
+    try {
+      storage.removeItem(runtimeResetPendingStorageKey);
+    } catch {
+      // A stale marker is reconciled against native state on the next startup.
+    }
+  };
+
   const clearPersistedBootstrap = async () => {
     const plugin = getPlugin();
     if (typeof plugin.confirmRuntimeReset === "function") {
       const apiOrigin =
         typeof runtimeState.apiOrigin === "string" ? runtimeState.apiOrigin.trim() : "";
       const installationId = apiOrigin ? getStoredPushInstallationId(apiOrigin) : null;
-      await plugin.confirmRuntimeReset(
-        installationId ? { androidPushInstallationId: installationId } : {}
-      );
+      markRuntimeResetPending();
+      try {
+        await plugin.confirmRuntimeReset(
+          installationId ? { androidPushInstallationId: installationId } : {}
+        );
+      } catch (error) {
+        clearPendingRuntimeReset();
+        throw error;
+      }
       return;
     }
 
@@ -441,6 +500,39 @@
       clearIndexedDatabases(),
       clearServiceWorkers(),
     ]);
+  };
+
+  const recoverPendingRuntimeResetOnStartup = async (bootstrapEpoch) => {
+    if (!hasPendingRuntimeReset()) {
+      return false;
+    }
+
+    let restored;
+    try {
+      restored = await loadPersistedBootstrap();
+    } catch {
+      return false;
+    }
+
+    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+      return false;
+    }
+
+    if (restored) {
+      clearPendingRuntimeReset();
+      return false;
+    }
+
+    await clearTenantScopedBrowserState();
+    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
+      return false;
+    }
+
+    runtimeState.configured = false;
+    runtimeState.bootstrap = null;
+    runtimeState.apiOrigin = null;
+    runtimeState.pendingBootstrap = null;
+    return true;
   };
 
   const hasIncompatibleNativeDeviceBoundVaultWrapper = (
@@ -819,6 +911,10 @@
   const restorePersistedBootstrap = () => {
     const bootstrapEpoch = runtimeState.bootstrapEpoch;
     runtimeState.nativeConfigPromise = queueRuntimeBootstrapMutation(async () => {
+      if (await recoverPendingRuntimeResetOnStartup(bootstrapEpoch)) {
+        return;
+      }
+
       if (await clearIncompatibleNativeDeviceBoundVaultStateOnStartup(bootstrapEpoch)) {
         return;
       }

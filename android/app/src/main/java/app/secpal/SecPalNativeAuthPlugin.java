@@ -47,6 +47,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
             throws IOException, NativeAuthHttpException;
     }
 
+    @FunctionalInterface
+    interface NativeAuthenticationRevoker {
+        void revoke(String apiOrigin, String token)
+            throws IOException, JSONException, NativeAuthHttpException;
+    }
+
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
@@ -398,9 +404,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 return;
             }
 
+            String confirmedApiOrigin = currentApiOrigin.trim();
+
             String confirmationMessage = formatRuntimeConfirmationMessage(
                 getContext().getString(R.string.runtime_confirmation_reset_message),
-                currentApiOrigin
+                confirmedApiOrigin
             );
             String androidPushInstallationId = call.getString("androidPushInstallationId");
             confirmNativeRuntimeMutation(
@@ -409,18 +417,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 confirmationMessage,
                 () -> runAsync(
                     call,
-                    () -> clearConfirmedRuntime(call, androidPushInstallationId)
+                    () -> clearConfirmedRuntime(
+                        call,
+                        confirmedApiOrigin,
+                        androidPushInstallationId
+                    )
                 )
             );
         });
     }
 
-    private void clearConfirmedRuntime(PluginCall call, String androidPushInstallationId) {
+    private void clearConfirmedRuntime(
+        PluginCall call,
+        String confirmedApiOrigin,
+        String androidPushInstallationId
+    ) {
         try {
-            String tokenForPushRevocation = tokenStorage.getToken();
+            String tokenForServerRevocation = readStoredTokenForRuntimeReset(tokenStorage);
             if (!clearRuntimeBootstrapStateWithPushRollback(
                 getNativeAuthPreferences(),
                 tokenStorage,
+                tokenForServerRevocation,
                 () -> androidPushRuntimeManager.apply(null)
             )) {
                 call.reject(
@@ -429,9 +446,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 );
                 return;
             }
-            revokeAndroidPushRegistrationAfterRuntimeClear(
-                tokenForPushRevocation,
-                apiBaseUrl,
+            revokeServerStateAfterRuntimeClear(
+                tokenForServerRevocation,
+                confirmedApiOrigin,
                 androidPushInstallationId,
                 (apiOrigin, token, installationId) -> httpClient.request(
                     apiOrigin,
@@ -441,7 +458,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     null,
                     null,
                     "application/json"
-                )
+                ),
+                (apiOrigin, token) -> httpClient.logout(apiOrigin, token)
             );
         } catch (TokenStorageException exception) {
             call.reject(
@@ -993,6 +1011,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static boolean clearRuntimeBootstrapStateWithPushRollback(
         SharedPreferences preferences,
         TokenStorage tokenStorage,
+        String previousToken,
         Runnable pushCleanup
     ) throws TokenStorageException {
         String previousRuntimeBootstrap = preferences.getString(
@@ -1000,8 +1019,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
             null
         );
         String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
-        String previousToken = tokenStorage.getToken();
-
         if (!clearRuntimeBootstrapState(preferences, tokenStorage)) {
             return false;
         }
@@ -1037,6 +1054,34 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
+    static String readStoredTokenForRuntimeReset(TokenStorage tokenStorage) {
+        try {
+            return tokenStorage.getToken();
+        } catch (TokenStorageException ignored) {
+            return null;
+        }
+    }
+
+    static void revokeServerStateAfterRuntimeClear(
+        String token,
+        String apiOrigin,
+        String installationId,
+        AndroidPushRegistrationRevoker pushRevoker,
+        NativeAuthenticationRevoker authenticationRevoker
+    ) {
+        revokeAndroidPushRegistrationAfterRuntimeClear(
+            token,
+            apiOrigin,
+            installationId,
+            pushRevoker
+        );
+        revokeNativeAuthenticationAfterRuntimeClear(
+            token,
+            apiOrigin,
+            authenticationRevoker
+        );
+    }
+
     static void revokeAndroidPushRegistrationAfterRuntimeClear(
         String token,
         String apiOrigin,
@@ -1057,6 +1102,23 @@ public class SecPalNativeAuthPlugin extends Plugin {
             revoker.revoke(normalizedApiOrigin, token, normalizedInstallationId);
         } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
             // Runtime reset remains available offline; server revocation is best-effort.
+        }
+    }
+
+    static void revokeNativeAuthenticationAfterRuntimeClear(
+        String token,
+        String apiOrigin,
+        NativeAuthenticationRevoker revoker
+    ) {
+        String normalizedApiOrigin = apiOrigin == null ? "" : apiOrigin.trim();
+        if (normalizedApiOrigin.isEmpty() || token == null || token.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            revoker.revoke(normalizedApiOrigin, token);
+        } catch (IOException | JSONException | NativeAuthHttpException | RuntimeException ignored) {
+            // Runtime reset remains available offline; server logout is best-effort.
         }
     }
 

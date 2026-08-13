@@ -50,8 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed resets, including startup recovery and push-metadata resets, preserve
   the current frontend and native runtime atomically, and late push cleanup
   failures roll back native persistence and credentials. Confirmed resets
-  best-effort revoke known server-side push installations after native cleanup
-  succeeds and before frontend teardown. Rebinding
+  best-effort revoke known server-side push installations and the authenticated
+  server session against the exact confirmed origin after native cleanup
+  succeeds and before frontend teardown. Unreadable device-bound credentials no
+  longer block an approved reset, and a durable browser recovery marker finishes
+  tenant-state teardown after process termination while preserving state when
+  the native runtime is still configured. Rebinding
   clears even orphaned credentials unless the existing canonical origin is
   identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege
