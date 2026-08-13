@@ -219,6 +219,34 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void transportUsesOnlyCanonicalHeadersFromTheAuthorizedRequest() throws Exception {
+        StubHttpURLConnection[] captured = new StubHttpURLConnection[1];
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            captured[0] = new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                "{}".getBytes(StandardCharsets.UTF_8),
+                "application/json"
+            );
+            return captured[0];
+        });
+
+        client.request(
+            "https://api.secpal.dev",
+            "native-secret",
+            "POST",
+            "/v1/customers",
+            "e30=",
+            " application/json; charset=UTF-8 ",
+            " */* "
+        );
+
+        assertEquals("application/json", captured[0].getRequestProperty("Content-Type"));
+        assertEquals("application/json", captured[0].getRequestProperty("Accept"));
+    }
+
+    @Test
     public void redirectResponsesNeverCreateASecondConnectionOrFollowLocation() throws Exception {
         int[] redirectStatuses = { 301, 302, 303, 307, 308 };
         String[] redirectLocations = {

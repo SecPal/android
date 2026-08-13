@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
@@ -38,5 +39,28 @@ public class NativeAuthTaskExecutorTest {
         assertFalse(taskExecutor.submit(() -> {
             // no-op
         }));
+    }
+
+    @Test
+    public void submittedRuntimeFailuresReachTheSettlementHandler()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(Executors.newSingleThreadExecutor());
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<RuntimeException> captured = new AtomicReference<>();
+        RuntimeException failure = new IllegalArgumentException("invalid request property");
+
+        try {
+            assertTrue(taskExecutor.submit(
+                () -> { throw failure; },
+                exception -> {
+                    captured.set(exception);
+                    latch.countDown();
+                }
+            ));
+            assertTrue(latch.await(2, TimeUnit.SECONDS));
+            assertTrue(captured.get() == failure);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
     }
 }

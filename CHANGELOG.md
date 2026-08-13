@@ -63,7 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaction, and failed rollback never reattaches a credential to an
   unconfirmed runtime. Confirmed native resets that encounter incomplete
   browser cleanup now dispatch logout and reload into durable reset recovery
-  instead of leaving the authenticated application shell running. Rejected
+  instead of leaving the authenticated application shell running; startup
+  recovery contains cleanup failures without entering a reload loop, and every
+  confirmed reset path clears its durable recovery marker only after browser
+  teardown succeeds. Runtime persistence failures now restore the previous
+  canonical runtime before reattaching its credential, including Android's
+  `commit()` failure case where in-memory preferences may already have changed.
+  Validated request headers are canonicalized into the authorized request and
+  raw JavaScript header values never reach the credentialed connection; an
+  executor-wide rejection boundary also settles unexpected native request
+  failures. Rejected
   native `HTTP_401` requests deactivate frontend authentication, and `GET`
   bodies are rejected before a credentialed connection can be created.
   Rebinding clears even orphaned or unreadable credentials unless the existing

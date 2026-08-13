@@ -569,7 +569,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     private void runAsync(PluginCall call, Runnable job) {
-        if (!taskExecutor.submit(job)) {
+        if (!taskExecutor.submit(
+            job,
+            exception -> call.reject(
+                "Android native auth operation failed unexpectedly",
+                "NATIVE_AUTH_INTERNAL_ERROR",
+                exception
+            )
+        )) {
             call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");
         }
     }
@@ -979,11 +986,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
 
         if (!persisted) {
-            restoreRuntimeCredential(
+            RuntimeException failure = new RuntimeException(
+                "Failed to persist Android runtime bootstrap"
+            );
+            if (!rollbackRuntimeBootstrapReplacement(
+                failure,
+                runtimeRollback,
                 tokenStorage,
                 previousToken,
                 credentialMustBeRebound
-            );
+            )) {
+                throw failure;
+            }
             return false;
         }
 
@@ -1002,7 +1016,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
-    private static void rollbackRuntimeBootstrapReplacement(
+    private static boolean rollbackRuntimeBootstrapReplacement(
         RuntimeException failure,
         BooleanSupplier runtimeRollback,
         TokenStorage tokenStorage,
@@ -1014,14 +1028,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
             runtimeRestored = runtimeRollback.getAsBoolean();
         } catch (RuntimeException rollbackFailure) {
             failure.addSuppressed(rollbackFailure);
-            return;
+            return false;
         }
 
         if (!runtimeRestored) {
             failure.addSuppressed(new IllegalStateException(
                 "Failed to restore Android runtime bootstrap after replacement failure"
             ));
-            return;
+            return false;
         }
 
         try {
@@ -1030,6 +1044,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             tokenException.addSuppressed(failure);
             throw tokenException;
         }
+        return true;
     }
 
     private static void restoreRuntimeCredential(
@@ -1084,12 +1099,31 @@ public class SecPalNativeAuthPlugin extends Plugin {
         SharedPreferences preferences,
         TokenStorage tokenStorage
     ) {
+        String previousRuntimeBootstrap = preferences.getString(
+            RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+            null
+        );
+        String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
         boolean persisted = preferences.edit()
             .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
             .remove(API_BASE_URL_PREFERENCE_KEY)
             .commit();
 
         if (!persisted) {
+            final boolean persistenceRestored;
+            try {
+                persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
+                    preferences,
+                    previousRuntimeBootstrap,
+                    previousApiBaseUrl
+                );
+            } catch (RuntimeException rollbackFailure) {
+                tokenStorage.clearToken();
+                throw rollbackFailure;
+            }
+            if (!persistenceRestored) {
+                tokenStorage.clearToken();
+            }
             return false;
         }
 

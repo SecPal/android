@@ -162,11 +162,53 @@ public class SecPalNativeAuthPluginTest {
                 "read-token",
                 "clear-token",
                 "persist-runtime",
+                "restore-runtime",
                 "save-token"
             ),
             events
         );
         assertEquals("tenant-a-token", tokenStorage.token);
+    }
+
+    @Test
+    public void runtimeRebindKeepsCredentialClearedWhenFailedPersistenceCannotRollBack()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> {
+                    events.add("persist-runtime");
+                    return false;
+                },
+                () -> {
+                    events.add("restore-runtime");
+                    return false;
+                },
+                () -> events.add("apply-push")
+            );
+            fail("Expected failed runtime rollback to fail closed");
+        } catch (RuntimeException expected) {
+            assertEquals("Failed to persist Android runtime bootstrap", expected.getMessage());
+        }
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "persist-runtime",
+                "restore-runtime"
+            ),
+            events
+        );
+        assertNull(tokenStorage.token);
     }
 
     @Test
@@ -1043,8 +1085,11 @@ public class SecPalNativeAuthPluginTest {
             assertEquals(1, thrown.getSuppressed().length);
         }
 
-        assertNull(preferences.getString("runtime_bootstrap", null));
-        assertNull(preferences.getString("api_base_url", null));
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("https://tenant-a.example", preferences.getString("api_base_url", null));
         assertNull(tokenStorage.token);
     }
 
@@ -1349,6 +1394,7 @@ public class SecPalNativeAuthPluginTest {
                     }
                     if (failNextCommit) {
                         failNextCommit = false;
+                        flush();
                         return false;
                     }
                     flush();

@@ -673,16 +673,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return false;
     }
 
-    await clearTenantScopedBrowserState();
-    clearPendingRuntimeReset();
-    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
-      return false;
+    try {
+      await completeConfirmedRuntimeReset({ reloadOnFailure: false });
+    } catch (error) {
+      console.warn(
+        "Failed to finish interrupted Android runtime-reset browser cleanup.",
+        error
+      );
     }
-
-    runtimeState.configured = false;
-    runtimeState.bootstrap = null;
-    runtimeState.apiOrigin = null;
-    runtimeState.pendingBootstrap = null;
     return true;
   };
 
@@ -769,14 +767,14 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       return false;
     }
 
-    await clearTenantScopedBrowserState();
-    if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
-      return false;
+    try {
+      await completeConfirmedRuntimeReset({ reloadOnFailure: false });
+    } catch (error) {
+      console.warn(
+        "Failed to finish incompatible Android offline-vault browser cleanup.",
+        error
+      );
     }
-    runtimeState.configured = false;
-    runtimeState.bootstrap = null;
-    runtimeState.apiOrigin = null;
-    runtimeState.pendingBootstrap = null;
     console.warn(
       "Cleared incompatible Android offline vault state that required the removed native-device-bound wrapper bridge."
     );
@@ -2073,38 +2071,42 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     runtimeState.bootstrap = null;
     runtimeState.apiOrigin = null;
     runtimeState.pendingBootstrap = null;
-    runtimeState.nativeConfigPromise = Promise.resolve();
   };
 
-  const leaveConfirmedRuntimeResetShell = () => {
+  const leaveConfirmedRuntimeResetShell = (reload) => {
     try {
       globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
     } catch (error) {
       console.warn("Failed to dispatch the SecPal runtime-reset logout event.", error);
     }
 
-    try {
-      if (globalThis.location && typeof globalThis.location.reload === "function") {
-        globalThis.location.reload();
+    if (reload) {
+      try {
+        if (globalThis.location && typeof globalThis.location.reload === "function") {
+          globalThis.location.reload();
+        }
+      } catch (error) {
+        console.warn("Failed to reload after the SecPal runtime reset.", error);
       }
-    } catch (error) {
-      console.warn("Failed to reload after the SecPal runtime reset.", error);
     }
   };
 
-  const completeConfirmedRuntimeReset = async (reloadAfterCleanup) => {
+  const completeConfirmedRuntimeReset = async ({
+    reloadAfterCleanup = false,
+    reloadOnFailure = true,
+  } = {}) => {
     beginRuntimeBootstrapMutation();
     markRuntimeResetConfirmed();
     try {
       await clearTenantScopedBrowserState();
       clearPendingRuntimeReset();
     } catch (error) {
-      leaveConfirmedRuntimeResetShell();
+      leaveConfirmedRuntimeResetShell(reloadOnFailure);
       throw error;
     }
 
     if (reloadAfterCleanup) {
-      leaveConfirmedRuntimeResetShell();
+      leaveConfirmedRuntimeResetShell(true);
     }
   };
 
@@ -2117,7 +2119,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     try {
       await queueRuntimeBootstrapMutation(async () => {
         await clearPersistedBootstrap();
-        await completeConfirmedRuntimeReset(true);
+        await completeConfirmedRuntimeReset({ reloadAfterCleanup: true });
       });
     } catch (error) {
       console.warn("Failed to clear the current SecPal runtime.", error);
@@ -2203,7 +2205,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       }
       await queueRuntimeBootstrapMutation(async () => {
         await clearPersistedBootstrap();
-        await completeConfirmedRuntimeReset(false);
+        await completeConfirmedRuntimeReset();
       });
     },
     async request(request) {

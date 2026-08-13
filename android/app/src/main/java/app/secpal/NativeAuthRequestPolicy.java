@@ -40,6 +40,9 @@ final class NativeAuthRequestPolicy {
         new HashSet<>(Arrays.asList(RequestContentKind.NONE, RequestContentKind.JSON))
     );
     private static final Set<RequestContentKind> MULTIPART_CONTENT = Collections.singleton(RequestContentKind.MULTIPART);
+    private static final Pattern MULTIPART_BOUNDARY = Pattern.compile(
+        "^[A-Za-z0-9'()+_,./:=?-]{1,70}$"
+    );
 
     private static final List<RouteSpec> ROUTES = buildRoutes();
 
@@ -81,7 +84,8 @@ final class NativeAuthRequestPolicy {
             throw validationError("Android auth bridge request method does not allow a body");
         }
         CanonicalTarget target = canonicalizeTarget(pathAndQuery);
-        RequestContentKind requestContentKind = classifyContentType(contentType);
+        ValidatedContentType validatedContentType = validateContentType(contentType);
+        RequestContentKind requestContentKind = validatedContentType.kind;
 
         if (requestBodyLength > 0 && requestContentKind == RequestContentKind.NONE) {
             throw validationError("Android auth bridge requires an inventoried request content type");
@@ -97,7 +101,7 @@ final class NativeAuthRequestPolicy {
             if (!route.allowedContentKinds.contains(requestContentKind)) {
                 throw validationError("Android auth bridge request has an unsupported content type");
             }
-            validateAccept(accept, route.responseKind);
+            String validatedAccept = validateAccept(accept, route.responseKind);
             if (requestContentKind == RequestContentKind.MULTIPART && requestBodyLength == 0) {
                 throw validationError("Android auth bridge multipart request body is empty");
             }
@@ -105,6 +109,8 @@ final class NativeAuthRequestPolicy {
             return new AuthorizedRequest(
                 normalizedMethod,
                 target.canonicalPathAndQuery,
+                validatedContentType.value,
+                validatedAccept,
                 route.responseKind
             );
         }
@@ -214,37 +220,77 @@ final class NativeAuthRequestPolicy {
         return Collections.unmodifiableSet(new HashSet<>(Arrays.asList(keys)));
     }
 
-    private static RequestContentKind classifyContentType(String contentType) throws NativeAuthHttpException {
+    private static ValidatedContentType validateContentType(String contentType)
+        throws NativeAuthHttpException {
         if (contentType == null || contentType.trim().isEmpty()) {
-            return RequestContentKind.NONE;
+            return new ValidatedContentType(RequestContentKind.NONE, null);
         }
 
-        String mediaType = contentType.split(";", 2)[0].trim().toLowerCase(Locale.US);
+        rejectControlCharacters(contentType, "content type");
+        String[] parts = contentType.trim().split(";", -1);
+        String mediaType = parts[0].trim().toLowerCase(Locale.US);
         if ("application/json".equals(mediaType)) {
-            return RequestContentKind.JSON;
+            if (parts.length > 2
+                || (parts.length == 2
+                    && !"charset=utf-8".equals(parts[1].trim().toLowerCase(Locale.US)))) {
+                throw validationError("Android auth bridge request has unsupported content type parameters");
+            }
+            return new ValidatedContentType(RequestContentKind.JSON, "application/json");
         }
         if ("multipart/form-data".equals(mediaType)) {
-            if (!contentType.toLowerCase(Locale.US).contains("boundary=")) {
+            if (parts.length != 2) {
                 throw validationError("Android auth bridge multipart request requires a boundary");
             }
-            return RequestContentKind.MULTIPART;
+            String[] parameter = parts[1].trim().split("=", 2);
+            if (parameter.length != 2
+                || !"boundary".equals(parameter[0].trim().toLowerCase(Locale.US))) {
+                throw validationError("Android auth bridge multipart request requires a boundary");
+            }
+            String boundary = unquoteBoundary(parameter[1].trim());
+            if (!MULTIPART_BOUNDARY.matcher(boundary).matches()) {
+                throw validationError("Android auth bridge multipart request has an invalid boundary");
+            }
+            return new ValidatedContentType(
+                RequestContentKind.MULTIPART,
+                "multipart/form-data; boundary=" + boundary
+            );
         }
 
         throw validationError("Android auth bridge request has an unsupported content type");
     }
 
-    private static void validateAccept(String accept, ResponseKind responseKind)
+    private static String validateAccept(String accept, ResponseKind responseKind)
         throws NativeAuthHttpException {
         if (accept == null || accept.trim().isEmpty()) {
-            return;
+            return null;
         }
 
+        rejectControlCharacters(accept, "accept type");
         String mediaType = accept.trim().toLowerCase(Locale.US);
         if (responseKind == ResponseKind.JSON
             && ("*/*".equals(mediaType) || "application/json".equals(mediaType))) {
-            return;
+            return "application/json";
         }
         throw validationError("Android auth bridge request has an unsupported accept type");
+    }
+
+    private static String unquoteBoundary(String boundary) throws NativeAuthHttpException {
+        if (boundary.startsWith("\"") || boundary.endsWith("\"")) {
+            if (boundary.length() < 2
+                || !boundary.startsWith("\"")
+                || !boundary.endsWith("\"")) {
+                throw validationError("Android auth bridge multipart request has an invalid boundary");
+            }
+            return boundary.substring(1, boundary.length() - 1);
+        }
+        return boundary;
+    }
+
+    private static void rejectControlCharacters(String value, String headerName)
+        throws NativeAuthHttpException {
+        if (containsControlCharacter(value)) {
+            throw validationError("Android auth bridge request has an invalid " + headerName);
+        }
     }
 
     private static CanonicalTarget canonicalizeTarget(String target) throws NativeAuthHttpException {
@@ -419,17 +465,39 @@ final class NativeAuthRequestPolicy {
     static final class AuthorizedRequest {
         private final String method;
         private final String canonicalPathAndQuery;
+        private final String contentType;
+        private final String accept;
         private final ResponseKind responseKind;
 
-        AuthorizedRequest(String method, String canonicalPathAndQuery, ResponseKind responseKind) {
+        AuthorizedRequest(
+            String method,
+            String canonicalPathAndQuery,
+            String contentType,
+            String accept,
+            ResponseKind responseKind
+        ) {
             this.method = method;
             this.canonicalPathAndQuery = canonicalPathAndQuery;
+            this.contentType = contentType;
+            this.accept = accept;
             this.responseKind = responseKind;
         }
 
         String getMethod() { return method; }
         String getCanonicalPathAndQuery() { return canonicalPathAndQuery; }
+        String getContentType() { return contentType; }
+        String getAccept() { return accept; }
         ResponseKind getResponseKind() { return responseKind; }
+    }
+
+    private static final class ValidatedContentType {
+        private final RequestContentKind kind;
+        private final String value;
+
+        ValidatedContentType(RequestContentKind kind, String value) {
+            this.kind = kind;
+            this.value = value;
+        }
     }
 
     private static final class RouteSpec {

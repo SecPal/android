@@ -130,8 +130,8 @@ class NativeAuthHttpClient {
             authorizedRequest.getMethod(),
             requestBody,
             token,
-            contentType,
-            accept,
+            authorizedRequest.getContentType(),
+            authorizedRequest.getAccept(),
             false,
             authorizedRequest.getResponseKind()
         );

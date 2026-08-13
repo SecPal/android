@@ -194,6 +194,54 @@ public class NativeAuthRequestPolicyTest {
     }
 
     @Test
+    public void canonicalizesValidatedRequestHeaders() throws Exception {
+        NativeAuthRequestPolicy.AuthorizedRequest jsonRequest =
+            NativeAuthRequestPolicy.authorize(
+                "POST",
+                "/v1/customers",
+                " application/json; charset=UTF-8 ",
+                " */* ",
+                2
+            );
+        NativeAuthRequestPolicy.AuthorizedRequest multipartRequest =
+            NativeAuthRequestPolicy.authorize(
+                "POST",
+                "/v1/onboarding/submissions/submission-1/files",
+                "multipart/form-data; boundary=----WebKitFormBoundary123",
+                "application/json",
+                10
+            );
+
+        assertEquals("application/json", jsonRequest.getContentType());
+        assertEquals("application/json", jsonRequest.getAccept());
+        assertEquals(
+            "multipart/form-data; boundary=----WebKitFormBoundary123",
+            multipartRequest.getContentType()
+        );
+        assertEquals("application/json", multipartRequest.getAccept());
+    }
+
+    @Test
+    public void rejectsControlCharactersAndUnsupportedHeaderParameters() {
+        assertHeaderRejected(
+            "application/json;\r\nX-Test: value",
+            "application/json"
+        );
+        assertHeaderRejected(
+            "application/json",
+            "application/json\nX-Test: value"
+        );
+        assertHeaderRejected(
+            "application/json; profile=admin",
+            "application/json"
+        );
+        assertHeaderRejected(
+            "multipart/form-data; boundary=valid; injected=value",
+            "application/json"
+        );
+    }
+
+    @Test
     public void rejectsOversizedIndividualRequestBeforeAuthorization() {
         assertRejected(
             "POST",
@@ -244,6 +292,21 @@ public class NativeAuthRequestPolicyTest {
         try {
             NativeAuthRequestPolicy.authorize(method, path, null, accept, 0);
             fail("Expected native authenticated request Accept header to be rejected");
+        } catch (NativeAuthHttpException expected) {
+            // Expected fail-closed policy decision.
+        }
+    }
+
+    private static void assertHeaderRejected(String contentType, String accept) {
+        try {
+            NativeAuthRequestPolicy.authorize(
+                "POST",
+                "/v1/customers",
+                contentType,
+                accept,
+                2
+            );
+            fail("Expected native authenticated request header to be rejected");
         } catch (NativeAuthHttpException expected) {
             // Expected fail-closed policy decision.
         }

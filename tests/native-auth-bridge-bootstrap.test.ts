@@ -3999,6 +3999,91 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
   });
 
+  it("completes an accepted incompatible-vault reset before allowing a runtime rebind", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const currentBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    const replacementBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://replacement-api.example",
+      instanceDisplayName: "Replacement Example",
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: currentBootstrap,
+      }),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const localStorage = createMockStorage({
+      auth_vault_state: JSON.stringify({
+        wrapper: { kind: "native-device-bound" },
+      }),
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(currentBootstrap),
+      "tenant-session": "customer-a-session",
+    });
+    const reload = vi.fn();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+      configured: boolean;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+    };
+    await expect(
+      bridge.setRuntimeBootstrap(replacementBootstrap)
+    ).resolves.toBe("https://replacement-api.example");
+
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(runtimeState.configured).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("completes browser teardown after an interrupted native runtime reset", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -4055,6 +4140,137 @@ describe("native auth bridge bootstrap injection", () => {
     expect(localStorage.getItem("tenant-cache")).toBeNull();
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
+  });
+
+  it("contains interrupted-reset cleanup failure without a startup reload loop", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      confirmRuntimeReset: vi.fn(),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "tenant-cache": "customer-a-cache",
+    });
+    const reload = vi.fn();
+    const dispatchEvent = vi.fn();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+        "tenant-session": "customer-a-session",
+      }),
+      caches: {
+        keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+        delete: vi.fn().mockResolvedValue(false),
+      },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Event,
+      dispatchEvent,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login", reload },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect((dispatchEvent.mock.calls[0]?.[0] as Event).type).toBe(
+      "secpal:native-auth-logout"
+    );
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("keeps startup runtime initialization bound to interrupted-reset cleanup", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let finishCacheDeletion!: () => void;
+    const cacheDeletion = new Promise<boolean>((resolve) => {
+      finishCacheDeletion = () => resolve(true);
+    });
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            getRuntimeBootstrap: vi
+              .fn()
+              .mockResolvedValue({ configured: false }),
+          },
+        },
+      },
+      document: new MockDocument(),
+      localStorage: createMockStorage({
+        [runtimeResetPendingStorageKey]: "1",
+      }),
+      sessionStorage: createMockStorage(),
+      caches: {
+        keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+        delete: vi.fn().mockReturnValue(cacheDeletion),
+      },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+    };
+    const startupInitialization = runtimeState.nativeConfigPromise;
+    await flushMicrotasks();
+
+    expect(runtimeState.nativeConfigPromise).toBe(startupInitialization);
+
+    finishCacheDeletion();
+    await expect(startupInitialization).resolves.toBeUndefined();
   });
 
   it("discards a stale reset marker when the native runtime remains configured", async () => {
