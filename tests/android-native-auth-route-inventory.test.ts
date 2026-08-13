@@ -6,22 +6,13 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const packagedAssetsDirectory = resolve(
   repoRoot,
   "android/app/src/main/assets/public/assets"
 );
-const packagedJavascript = existsSync(packagedAssetsDirectory)
-  ? readdirSync(packagedAssetsDirectory)
-      .filter((name) => name.endsWith(".js"))
-      .sort()
-      .map((name) =>
-        readFileSync(resolve(packagedAssetsDirectory, name), "utf8")
-      )
-      .join("\n")
-  : null;
 const nativePolicy = readFileSync(
   resolve(
     repoRoot,
@@ -46,7 +37,36 @@ const protectedRouteFamilies = [
   "/v1/sites",
 ];
 
+function readPackagedJavascript(directory: string): string {
+  if (!existsSync(directory)) {
+    throw new Error(
+      `Packaged Android JavaScript assets are unavailable: ${directory}`
+    );
+  }
+
+  const javascriptFiles = readdirSync(directory)
+    .filter((name) => name.endsWith(".js"))
+    .sort();
+  if (javascriptFiles.length === 0) {
+    throw new Error(
+      `Packaged Android JavaScript assets are unavailable: ${directory}`
+    );
+  }
+
+  return javascriptFiles
+    .map((name) => readFileSync(resolve(directory, name), "utf8"))
+    .join("\n");
+}
+
 describe("Android native-auth route inventory", () => {
+  it("fails closed when packaged Android assets are unavailable", () => {
+    expect(() =>
+      readPackagedJavascript(
+        resolve(repoRoot, "android/app/src/main/assets/missing-public-assets")
+      )
+    ).toThrow("Packaged Android JavaScript assets are unavailable");
+  });
+
   it("keeps every reviewed protected route family represented in the native policy", () => {
     for (const routeFamily of protectedRouteFamilies) {
       expect(nativePolicy, routeFamily).toContain(routeFamily);
@@ -77,21 +97,24 @@ describe("Android native-auth route inventory", () => {
   });
 });
 
-describe.skipIf(packagedJavascript === null)(
-  "generated Android frontend route parity",
-  () => {
-    const generatedJavascript = packagedJavascript ?? "";
+describe.runIf(
+  existsSync(packagedAssetsDirectory) || process.env.CI === "true"
+)("generated Android frontend route parity", () => {
+  let generatedJavascript = "";
 
-    it("contains every protected route family represented in the native policy", () => {
-      for (const routeFamily of protectedRouteFamilies) {
-        expect(generatedJavascript, routeFamily).toContain(routeFamily);
-      }
-    });
+  beforeAll(() => {
+    generatedJavascript = readPackagedJavascript(packagedAssetsDirectory);
+  });
 
-    it("keeps removed Android provisioning requests out of the packaged app", () => {
-      expect(generatedJavascript).not.toContain(
-        "/v1/android-enrollment-sessions"
-      );
-    });
-  }
-);
+  it("contains every protected route family represented in the native policy", () => {
+    for (const routeFamily of protectedRouteFamilies) {
+      expect(generatedJavascript, routeFamily).toContain(routeFamily);
+    }
+  });
+
+  it("keeps removed Android provisioning requests out of the packaged app", () => {
+    expect(generatedJavascript).not.toContain(
+      "/v1/android-enrollment-sessions"
+    );
+  });
+});

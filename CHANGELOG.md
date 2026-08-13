@@ -55,7 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clears even orphaned credentials unless the existing canonical origin is
   identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege
-  inventory (issue #408).
+  inventory. The generated-caller parity suite now also fails closed in CI
+  when packaged JavaScript assets are unavailable instead of silently skipping
+  its assertions (issue #408).
 
 - Allowed one additional bounded API 37 emulator recovery for the exact
   zero-test split-APK install-session broken-pipe failure while keeping
