@@ -333,11 +333,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
         try {
             String nextApiBaseUrl = bootstrap.getString("apiOrigin");
             SharedPreferences preferences = getNativeAuthPreferences();
+            JSObject previousBootstrap = loadPersistedRuntimeBootstrap(preferences);
             String previousRuntimeBootstrap = preferences.getString(
                 RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
                 null
             );
             String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
+            AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
+                ? null
+                : AndroidPushRuntimeMetadata.fromBootstrap(
+                    previousBootstrap.optJSONObject("androidPush")
+                );
 
             if (!persistRuntimeBootstrapAfterCredentialClear(
                 apiBaseUrl,
@@ -353,8 +359,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
             }
 
             try {
-                androidPushRuntimeManager.apply(
-                    AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush"))
+                androidPushRuntimeManager.applyWithRollback(
+                    AndroidPushRuntimeMetadata.fromBootstrap(bootstrap.optJSONObject("androidPush")),
+                    previousPushRuntime
                 );
             } catch (RuntimeException exception) {
                 restoreRuntimeBootstrapPersistence(
@@ -362,11 +369,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     previousRuntimeBootstrap,
                     previousApiBaseUrl
                 );
-                try {
-                    androidPushRuntimeManager.apply(null);
-                } catch (RuntimeException cleanupException) {
-                    exception.addSuppressed(cleanupException);
-                }
                 throw exception;
             }
 

@@ -203,6 +203,11 @@ public class NativeAuthRequestPolicyTest {
         );
     }
 
+    @Test
+    public void rejectsBodiesForMethodsThatMustNotCarryRequestContent() {
+        assertRejected("GET", "/v1/organizational-units", "application/json", 2);
+    }
+
     private static void assertAuthorized(
         String method,
         String path,

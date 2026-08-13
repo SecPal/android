@@ -1280,6 +1280,7 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         bootstrap: runtimeBootstrap,
       }),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
       confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
         (
@@ -2205,6 +2206,35 @@ describe("native auth bridge bootstrap injection", () => {
     });
 
     expect(response.status).toBe(401);
+    expect(authState.active).toBe(false);
+  });
+
+  it("clears auth state when a direct bridge request rejects with HTTP_401", async () => {
+    const { bridge, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const nativeBridge = bridge as typeof bridge & {
+      request(request: {
+        method: string;
+        path: string;
+        accept?: string;
+      }): Promise<unknown>;
+    };
+    const unauthorizedError = Object.assign(new Error("Unauthenticated"), {
+      code: "HTTP_401",
+    });
+
+    plugin.request.mockRejectedValueOnce(unauthorizedError);
+    authState.active = true;
+
+    await expect(
+      nativeBridge.request({
+        method: "GET",
+        path: "/v1/me",
+        accept: "application/json",
+      })
+    ).rejects.toBe(unauthorizedError);
+
     expect(authState.active).toBe(false);
   });
 
@@ -4103,7 +4133,7 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
 
     resolvePersist();
-    await expect(apply).rejects.toThrow(/superseded/i);
+    await expect(apply).resolves.toBe("https://customer-api.example");
     await expect(clear).resolves.toBeUndefined();
 
     expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledOnce();
@@ -4114,6 +4144,186 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).toBeNull();
+  });
+
+  it("keeps the confirmed runtime when a queued reset is cancelled", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    let resolvePersist!: () => void;
+    const persistPromise = new Promise<void>((resolve) => {
+      resolvePersist = resolve;
+    });
+    const resetCancelled = new Error("runtime reset cancelled");
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      confirmRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
+      confirmRuntimeReset: vi.fn().mockRejectedValue(resetCancelled),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+      clearRuntimeBootstrap(): Promise<void>;
+    };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    const apply = bridge.setRuntimeBootstrap(runtimeBootstrap);
+    await flushMicrotasks();
+    const clear = bridge.clearRuntimeBootstrap();
+    resolvePersist();
+
+    await expect(apply).resolves.toBe("https://customer-api.example");
+    await expect(clear).rejects.toBe(resetCancelled);
+
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+  });
+
+  it("keeps the reset marker until asynchronous tenant cleanup completes", async () => {
+    let resolveCacheDeletion!: (deleted: boolean) => void;
+    const cacheDeletion = new Promise<boolean>((resolve) => {
+      resolveCacheDeletion = resolve;
+    });
+    const { bridge, localStorage, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    sandbox.caches = {
+      keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+      delete: vi.fn().mockReturnValue(cacheDeletion),
+    };
+
+    const clear = (
+      bridge as typeof bridge & { clearRuntimeBootstrap(): Promise<void> }
+    ).clearRuntimeBootstrap();
+    await flushMicrotasks();
+
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+
+    resolveCacheDeletion(true);
+    await expect(clear).resolves.toBeUndefined();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+  });
+
+  it("keeps reset recovery pending when tenant cleanup is incomplete", async () => {
+    const cleanupFailures: Array<{
+      name: string;
+      configure(sandbox: Record<string, unknown>): void;
+    }> = [
+      {
+        name: "cache deletion",
+        configure(sandbox) {
+          sandbox.caches = {
+            keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+            delete: vi.fn().mockResolvedValue(false),
+          };
+        },
+      },
+      {
+        name: "blocked IndexedDB deletion",
+        configure(sandbox) {
+          sandbox.indexedDB = {
+            databases: vi.fn().mockResolvedValue([{ name: "tenant-db" }]),
+            deleteDatabase: vi.fn(() => {
+              const request: { onblocked?: () => void } = {};
+              void Promise.resolve().then(() => request.onblocked?.());
+              return request;
+            }),
+          };
+        },
+      },
+      {
+        name: "service-worker removal",
+        configure(sandbox) {
+          sandbox.navigator = {
+            serviceWorker: {
+              getRegistrations: vi
+                .fn()
+                .mockResolvedValue([
+                  { unregister: vi.fn().mockResolvedValue(false) },
+                ]),
+            },
+          };
+        },
+      },
+    ];
+
+    for (const cleanupFailure of cleanupFailures) {
+      const { bridge, localStorage, plugin, sandbox } =
+        await createAndroidPushLifecycleSandbox();
+      cleanupFailure.configure(sandbox);
+      const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+        configured: boolean;
+        apiOrigin: string | null;
+      };
+
+      await expect(
+        (
+          bridge as typeof bridge & { clearRuntimeBootstrap(): Promise<void> }
+        ).clearRuntimeBootstrap(),
+        cleanupFailure.name
+      ).rejects.toThrow(/cleanup|blocked/i);
+
+      expect(
+        localStorage.getItem(runtimeResetPendingStorageKey),
+        cleanupFailure.name
+      ).toBe("1");
+      expect(runtimeState.configured, cleanupFailure.name).toBe(false);
+      expect(runtimeState.apiOrigin, cleanupFailure.name).toBeNull();
+      await expect(
+        (
+          bridge as typeof bridge & {
+            setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+          }
+        ).setRuntimeBootstrap(
+          buildRuntimeBootstrapValue({
+            apiOrigin: "https://other-customer.example",
+            instanceDisplayName: "Other Customer",
+          })
+        ),
+        cleanupFailure.name
+      ).rejects.toThrow(/reset recovery.*pending/i);
+      expect(plugin.confirmRuntimeBootstrap).not.toHaveBeenCalled();
+    }
   });
 
   it("preserves tenant browser state when native runtime-bootstrap clearing fails", async () => {

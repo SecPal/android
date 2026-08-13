@@ -76,6 +76,10 @@ final class NativeAuthRequestPolicy {
         }
 
         String normalizedMethod = NativeAuthHttpClient.normalizeHttpMethod(method);
+        if (("GET".equals(normalizedMethod) || "HEAD".equals(normalizedMethod))
+            && requestBodyLength > 0) {
+            throw validationError("Android auth bridge request method does not allow a body");
+        }
         CanonicalTarget target = canonicalizeTarget(pathAndQuery);
         RequestContentKind requestContentKind = classifyContentType(contentType);
 

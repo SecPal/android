@@ -144,6 +144,7 @@
     ? runtimeState.bootstrapEpoch
     : 0;
   runtimeState.bootstrapMutationPromise = runtimeState.bootstrapMutationPromise ?? Promise.resolve();
+  runtimeState.bootstrapWriteInFlight = runtimeState.bootstrapWriteInFlight === true;
   androidPushSyncState.currentToken =
     typeof androidPushSyncState.currentToken === "string" &&
     androidPushSyncState.currentToken.trim().length >= minAndroidPushTokenLength
@@ -342,37 +343,40 @@
     const storage = getSessionStorage();
 
     if (!storage || typeof storage.clear !== "function") {
-      return;
+      throw new Error("Android runtime reset session cleanup is unavailable.");
     }
 
-    try {
-      storage.clear();
-    } catch {
-      // Browser session cleanup is best-effort during destructive resets.
-    }
+    storage.clear();
   };
 
   const clearLocalStoragePreservingLocale = () => {
     const storage = getLocalStorage();
 
     if (!storage || typeof storage.clear !== "function") {
-      return;
+      throw new Error("Android runtime reset local cleanup is unavailable.");
     }
 
     let locale = null;
+    let resetPending = false;
     try {
       locale =
         typeof storage.getItem === "function"
           ? storage.getItem("secpal-locale")
           : null;
+      resetPending =
+        typeof storage.getItem === "function" &&
+        storage.getItem(runtimeResetPendingStorageKey) === "1";
     } catch {
-      // Preserve tenant cleanup even when the locale cannot be read.
+      throw new Error("Android runtime reset browser cleanup failed.");
     }
 
-    try {
-      storage.clear();
-    } catch {
-      return;
+    storage.clear();
+
+    if (resetPending) {
+      if (typeof storage.setItem !== "function") {
+        throw new Error("Android runtime reset browser cleanup failed.");
+      }
+      storage.setItem(runtimeResetPendingStorageKey, "1");
     }
 
     if (locale !== null && typeof storage.setItem === "function") {
@@ -395,40 +399,38 @@
       return;
     }
 
-    let cacheNames;
-
-    try {
-      cacheNames = await cacheStorage.keys();
-    } catch {
-      return;
-    }
-
-    await Promise.all(
+    const cacheNames = await cacheStorage.keys();
+    const deletions = await Promise.all(
       (Array.isArray(cacheNames) ? cacheNames : []).map((cacheName) =>
-        Promise.resolve(cacheStorage.delete(cacheName)).catch(() => false)
+        Promise.resolve(cacheStorage.delete(cacheName))
       )
     );
+    if (deletions.some((deleted) => deleted !== true)) {
+      throw new Error("Android runtime reset cache cleanup failed.");
+    }
   };
 
   const deleteIndexedDatabase = (indexedDb, databaseName) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
       let request;
 
       try {
         request = indexedDb.deleteDatabase(databaseName);
-      } catch {
-        resolve();
+      } catch (error) {
+        reject(error);
         return;
       }
 
       if (!request || typeof request !== "object") {
-        resolve();
+        reject(new Error("Android runtime reset IndexedDB cleanup failed."));
         return;
       }
 
       request.onsuccess = () => resolve();
-      request.onerror = () => resolve();
-      request.onblocked = () => resolve();
+      request.onerror = () =>
+        reject(new Error("Android runtime reset IndexedDB cleanup failed."));
+      request.onblocked = () =>
+        reject(new Error("Android runtime reset IndexedDB cleanup was blocked."));
     });
 
   const clearIndexedDatabases = async () => {
@@ -442,13 +444,7 @@
       return;
     }
 
-    let databases;
-
-    try {
-      databases = await indexedDb.databases();
-    } catch {
-      return;
-    }
+    const databases = await indexedDb.databases();
 
     const databaseNames = Array.isArray(databases)
       ? databases
@@ -475,21 +471,17 @@
       return;
     }
 
-    let registrations;
-
-    try {
-      registrations = await serviceWorker.getRegistrations();
-    } catch {
-      return;
-    }
-
-    await Promise.all(
+    const registrations = await serviceWorker.getRegistrations();
+    const removals = await Promise.all(
       (Array.isArray(registrations) ? registrations : []).map((registration) =>
         typeof registration?.unregister === "function"
-          ? Promise.resolve(registration.unregister()).catch(() => false)
+          ? Promise.resolve(registration.unregister())
           : false
       )
     );
+    if (removals.some((removed) => removed !== true)) {
+      throw new Error("Android runtime reset service-worker cleanup failed.");
+    }
   };
 
   const clearTenantScopedBrowserState = async () => {
@@ -524,6 +516,7 @@
     }
 
     await clearTenantScopedBrowserState();
+    clearPendingRuntimeReset();
     if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
       return false;
     }
@@ -876,7 +869,11 @@
     if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {
       throw createSupersededBootstrapMutationError();
     }
+    if (hasPendingRuntimeReset()) {
+      throw new Error("Android runtime reset recovery is still pending.");
+    }
     runtimeState.pendingBootstrap = null;
+    runtimeState.bootstrapWriteInFlight = true;
     const previousRuntime = {
       configured: runtimeState.configured,
       bootstrap: runtimeState.bootstrap,
@@ -904,8 +901,12 @@
       }
     })();
 
-    await runtimeState.nativeConfigPromise;
-    return bootstrap.apiOrigin;
+    try {
+      await runtimeState.nativeConfigPromise;
+      return bootstrap.apiOrigin;
+    } finally {
+      runtimeState.bootstrapWriteInFlight = false;
+    }
   };
 
   const restorePersistedBootstrap = () => {
@@ -1704,7 +1705,16 @@
   ) => {
     await ensureRuntimeConfigured();
 
-    const response = await getPlugin().request(request);
+    let response;
+    try {
+      response = await getPlugin().request(request);
+    } catch (error) {
+      const code = error && typeof error === "object" ? error.code : undefined;
+      if (code === "HTTP_401" || code === "NO_STORED_TOKEN") {
+        setAuthActive(false);
+      }
+      throw error;
+    }
     const status =
       response && typeof response === "object" ? Number(response.status) : Number.NaN;
 
@@ -1897,22 +1907,7 @@
 
   let runtimeResetBusy = false;
 
-  const clearConfiguredRuntimeState = async () => {
-    if (runtimeResetBusy || !runtimeState.configured) {
-      return;
-    }
-
-    runtimeResetBusy = true;
-    try {
-      await clearPersistedBootstrap();
-      await clearTenantScopedBrowserState();
-    } catch (error) {
-      console.warn("Failed to clear the current SecPal runtime.", error);
-      runtimeResetBusy = false;
-      androidPushSyncState.suspended = false;
-      return;
-    }
-
+  const markRuntimeResetConfirmed = () => {
     androidPushSyncState.suspended = false;
     setAuthActive(false);
     clearAndroidPushSyncState();
@@ -1921,6 +1916,29 @@
     runtimeState.apiOrigin = null;
     runtimeState.pendingBootstrap = null;
     runtimeState.nativeConfigPromise = Promise.resolve();
+  };
+
+  const clearConfiguredRuntimeState = async () => {
+    if (runtimeResetBusy || !runtimeState.configured) {
+      return;
+    }
+
+    runtimeResetBusy = true;
+    try {
+      await queueRuntimeBootstrapMutation(async () => {
+        await clearPersistedBootstrap();
+        beginRuntimeBootstrapMutation();
+        markRuntimeResetConfirmed();
+        await clearTenantScopedBrowserState();
+        clearPendingRuntimeReset();
+      });
+    } catch (error) {
+      console.warn("Failed to clear the current SecPal runtime.", error);
+      runtimeResetBusy = false;
+      androidPushSyncState.suspended = false;
+      return;
+    }
+
     runtimeResetBusy = false;
 
     globalThis.dispatchEvent?.(new Event(nativeAuthLogoutEventName));
@@ -1991,24 +2009,25 @@
     },
     async setRuntimeBootstrap(bootstrap) {
       const normalizedBootstrap = normalizeStoredBootstrap(bootstrap);
-      const bootstrapEpoch = beginRuntimeBootstrapMutation();
-      const apiOrigin = await queueRuntimeBootstrapMutation(() =>
-        applyRuntimeBootstrap(normalizedBootstrap, bootstrapEpoch)
-      );
+      if (!runtimeState.configured && runtimeState.bootstrapWriteInFlight !== true) {
+        beginRuntimeBootstrapMutation();
+      }
+      const apiOrigin = await queueRuntimeBootstrapMutation(() => {
+        const bootstrapEpoch = beginRuntimeBootstrapMutation();
+        return applyRuntimeBootstrap(normalizedBootstrap, bootstrapEpoch);
+      });
       return apiOrigin;
     },
     async clearRuntimeBootstrap() {
-      beginRuntimeBootstrapMutation();
+      if (!runtimeState.configured && runtimeState.bootstrapWriteInFlight !== true) {
+        beginRuntimeBootstrapMutation();
+      }
       await queueRuntimeBootstrapMutation(async () => {
         await clearPersistedBootstrap();
+        beginRuntimeBootstrapMutation();
+        markRuntimeResetConfirmed();
         await clearTenantScopedBrowserState();
-        runtimeState.configured = false;
-        runtimeState.bootstrap = null;
-        runtimeState.apiOrigin = null;
-        runtimeState.pendingBootstrap = null;
-        runtimeState.nativeConfigPromise = Promise.resolve();
-        setAuthActive(false);
-        clearAndroidPushSyncState();
+        clearPendingRuntimeReset();
       });
     },
     async request(request) {

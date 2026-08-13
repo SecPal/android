@@ -55,7 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   succeeds and before frontend teardown. Unreadable device-bound credentials no
   longer block an approved reset, and a durable browser recovery marker finishes
   tenant-state teardown after process termination while preserving state when
-  the native runtime is still configured. Rebinding
+  the native runtime is still configured. The marker now remains until cache,
+  IndexedDB, and service-worker cleanup explicitly succeeds; incomplete cleanup
+  fails closed with the native and frontend runtime both unconfigured. Runtime
+  resets serialize behind in-flight confirmed rebinds, failed push-runtime
+  replacement restores the previous deployment metadata, rejected native
+  `HTTP_401` requests deactivate frontend authentication, and `GET` bodies are
+  rejected before a credentialed connection can be created. Rebinding
   clears even orphaned credentials unless the existing canonical origin is
   identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege
