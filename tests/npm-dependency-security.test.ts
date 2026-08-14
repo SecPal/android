@@ -66,21 +66,86 @@ const jobNeeds = (
   );
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const hasNanoidOverride = (
+  overrides: Record<string, unknown> | undefined
+): boolean =>
+  Object.entries(overrides ?? {}).some(
+    ([name, value]) =>
+      name === "nanoid" ||
+      name.startsWith("nanoid@") ||
+      (isRecord(value) && hasNanoidOverride(value))
+  );
+
+const isPatchedNanoidVersion = (version: unknown) => {
+  if (typeof version !== "string") {
+    return false;
+  }
+
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) {
+    return false;
+  }
+
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return (
+    (major === 3 && (minor > 3 || (minor === 3 && patch >= 18))) ||
+    major > 5 ||
+    (major === 5 && (minor > 1 || (minor === 1 && patch >= 6)))
+  );
+};
+
 describe("npm dependency security", () => {
   it("resolves nanoid outside the vulnerable range without an override", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repoRoot, "package.json"), "utf8")
-    ) as { overrides?: Record<string, string> };
+    ) as { overrides?: Record<string, unknown> };
     const packageLock = JSON.parse(
       readFileSync(resolve(repoRoot, "package-lock.json"), "utf8")
     ) as {
       packages?: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.overrides).not.toHaveProperty("nanoid");
-    expect(packageLock.packages?.["node_modules/nanoid"]?.version).toBe(
-      "3.3.18"
-    );
+    expect(hasNanoidOverride(packageJson.overrides)).toBe(false);
+    expect(
+      isPatchedNanoidVersion(
+        packageLock.packages?.["node_modules/nanoid"]?.version
+      )
+    ).toBe(true);
+  });
+
+  it.each(["3.3.19", "3.4.0", "5.1.6", "6.0.0"])(
+    "accepts later patched nanoid release %s",
+    (version) => {
+      expect(isPatchedNanoidVersion(version)).toBe(true);
+    }
+  );
+
+  it("finds nested nanoid overrides", () => {
+    expect(
+      hasNanoidOverride({
+        postcss: {
+          "nanoid@^3.3.16": "3.3.18",
+        },
+      })
+    ).toBe(true);
+  });
+
+  it.each([
+    "3.3.17",
+    "3.2.99",
+    "2.99.99",
+    "4.0.0",
+    "4.99.99",
+    "5.1.5",
+    "3.3.18-beta.1",
+    undefined,
+  ])("rejects vulnerable or non-release nanoid version %s", (version) => {
+    expect(isPatchedNanoidVersion(version)).toBe(false);
   });
 
   it("runs an unconditional audit before the required Vitest job", () => {
