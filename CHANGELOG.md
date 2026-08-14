@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed one additional bounded API 37 recovery when the PackageManager
+  service disappears on two consecutive zero-test installation attempts,
+  while keeping a third identical failure and real test failures fail-closed.
+- Bounded the strict-CSP real-browser smoke with an absolute Chromium process
+  deadline, forceful browser termination, a deadline for HTTP server closure,
+  and reserved cleanup headroom inside the outer Vitest timeout across timeout,
+  assertion failure, and success paths (issue #585).
 - Allowed one additional bounded API 37 emulator recovery for the exact
   zero-test split-APK install-session broken-pipe failure while keeping
   persistent package-service failures and real instrumentation failures
@@ -76,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact commit object, and deduplicate repeated evidence (issue #563).
 - Kept the CodeQL initialization and analysis actions on the same release to
   prevent configuration-version failures in the security workflow.
-- Overrode the vulnerable transitive `nanoid` dependency to 3.3.17, preventing
+- Overrode the vulnerable transitive `nanoid` dependency to 3.3.18, preventing
   custom generators from looping indefinitely when invoked with a zero size
   (issue #539).
 - Aligned the local Prettier pre-commit hook with `format:check`, including
