@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounded the Android bearer-authenticated request broker to one in-flight and
+  up to eight queued small operations with a 128 MiB aggregate native working-
+  set budget, including conservative Base64, Java-string, response-copy, and
+  bridge-serialization reservations, plus 12 MiB upload, 8 MiB download,
+  15-second connect/read/write, and 30-second total-lifetime limits.
+  Overload now fails before a credentialed connection is opened; request IDs
+  provide end-to-end WebView cancellation, native streams and connections are
+  released on cancellation, logout and runtime-reset revocations share the
+  managed lifetime policy, and atomic single-terminal generation guards prevent
+  old results from crossing logout, credential replacement, runtime changes,
+  plugin teardown, or background/foreground transitions (issue #412).
 - Constrained the bearer-authenticated Android request broker to a reviewed
   method, canonical route, query-key, request-media-type, and response-kind
   inventory; ambiguous encodings, credential/bootstrap routes, unknown

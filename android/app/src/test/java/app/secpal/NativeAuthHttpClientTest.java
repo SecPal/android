@@ -21,6 +21,10 @@ import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.json.JSONObject;
@@ -216,6 +220,128 @@ public class NativeAuthHttpClientTest {
         }
 
         throw new AssertionError("Expected forbidden route to fail before connection creation");
+    }
+
+    @Test
+    public void cancellationDisconnectsAnInFlightCredentialedConnection() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/customers")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        Thread requestThread = new Thread(() -> {
+            try {
+                client.request(
+                    "https://api.secpal.dev",
+                    "native-secret",
+                    "GET",
+                    "/v1/customers",
+                    null,
+                    null,
+                    "application/json",
+                    cancellation
+                );
+            } catch (IOException | NativeAuthHttpException expected) {
+                // Cancellation terminates the blocked transport.
+            }
+        });
+
+        requestThread.start();
+        assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+
+        cancellation.cancel();
+
+        assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+        requestThread.join(2_000L);
+        assertFalse(requestThread.isAlive());
+    }
+
+    @Test
+    public void cancellationDisconnectsAnInFlightLogoutConnection() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/auth/logout")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        Thread requestThread = new Thread(() -> {
+            try {
+                client.logout(
+                    "https://api.secpal.dev",
+                    "native-secret",
+                    cancellation
+                );
+            } catch (IOException | org.json.JSONException | NativeAuthHttpException expected) {
+                // Cancellation terminates the blocked logout transport.
+            }
+        });
+
+        requestThread.start();
+        assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+
+        cancellation.cancel();
+
+        assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+        requestThread.join(2_000L);
+        assertFalse(requestThread.isAlive());
+    }
+
+    @Test
+    public void totalLifetimeDisconnectsASlowCredentialedResponse() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/customers")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor(),
+            scheduler,
+            250L
+        );
+        CountDownLatch terminal = new CountDownLatch(1);
+        AtomicInteger terminalCallbacks = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "slow-http-response",
+                    0,
+                    () -> {
+                        try {
+                            client.request(
+                                "https://api.secpal.dev",
+                                "native-secret",
+                                "GET",
+                                "/v1/customers",
+                                null,
+                                null,
+                                "application/json",
+                                cancellation
+                            );
+                        } catch (IOException | NativeAuthHttpException expected) {
+                            // The total-lifetime cancellation owns terminal settlement.
+                        }
+                    },
+                    reason -> {
+                        assertEquals("REQUEST_TIMEOUT", reason);
+                        cancellation.cancel();
+                        terminalCallbacks.incrementAndGet();
+                        terminal.countDown();
+                    }
+                )
+            );
+            assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+            assertTrue(terminal.await(2, TimeUnit.SECONDS));
+            assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+            assertEquals(1, terminalCallbacks.get());
+        } finally {
+            taskExecutor.shutdownNow();
+            scheduler.shutdownNow();
+        }
     }
 
     @Test
@@ -532,6 +658,42 @@ public class NativeAuthHttpClientTest {
 
         @Override
         public boolean usingProxy() { return false; }
+
+        @Override
+        public void connect() {}
+    }
+
+    private static final class BlockingHttpURLConnection extends HttpURLConnection {
+        private final CountDownLatch responseStarted = new CountDownLatch(1);
+        private final CountDownLatch disconnected = new CountDownLatch(1);
+
+        BlockingHttpURLConnection(URL url) {
+            super(url);
+        }
+
+        @Override
+        public int getResponseCode() throws IOException {
+            responseStarted.countDown();
+            try {
+                if (!disconnected.await(2, TimeUnit.SECONDS)) {
+                    throw new IOException("connection was not cancelled");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException("request interrupted", exception);
+            }
+            throw new IOException("connection cancelled");
+        }
+
+        @Override
+        public void disconnect() {
+            disconnected.countDown();
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
 
         @Override
         public void connect() {}

@@ -14,26 +14,40 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 class NativeAuthHttpClient {
-    private static final int CONNECT_TIMEOUT_MILLIS = 15000;
-    private static final int READ_TIMEOUT_MILLIS = 15000;
+    static final int CONNECT_TIMEOUT_MILLIS = 15_000;
+    static final int READ_TIMEOUT_MILLIS = 15_000;
+    static final int WRITE_TIMEOUT_MILLIS = 15_000;
+    static final int TOTAL_REQUEST_LIFETIME_MILLIS = 30_000;
     private static final int CURRENT_USER_CONNECT_TIMEOUT_MILLIS = 3000;
     private static final int CURRENT_USER_READ_TIMEOUT_MILLIS = 3000;
     private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
     private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
         "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
     );
+    private static final ScheduledExecutorService WRITE_DEADLINE_SCHEDULER =
+        Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "secpal-native-auth-write-deadline");
+            thread.setDaemon(true);
+            return thread;
+        });
     private final ConnectionFactory connectionFactory;
 
     NativeAuthHttpClient() {
@@ -97,13 +111,30 @@ class NativeAuthHttpClient {
     }
 
     JSObject getCurrentUser(String baseUrl, String token) throws IOException, JSONException, NativeAuthHttpException {
-        JSONObject response = sendJsonRequest(baseUrl, "/v1/me", "GET", null, token);
+        return getCurrentUser(baseUrl, token, new CancellationSignal());
+    }
+
+    JSObject getCurrentUser(String baseUrl, String token, CancellationSignal cancellation)
+        throws IOException, JSONException, NativeAuthHttpException {
+        JSONObject response = sendJsonRequest(
+            baseUrl,
+            "/v1/me",
+            "GET",
+            null,
+            token,
+            cancellation
+        );
 
         return JSObject.fromJSONObject(response);
     }
 
     void logout(String baseUrl, String token) throws IOException, JSONException, NativeAuthHttpException {
-        sendJsonRequest(baseUrl, "/v1/auth/logout", "POST", null, token);
+        logout(baseUrl, token, new CancellationSignal());
+    }
+
+    void logout(String baseUrl, String token, CancellationSignal cancellation)
+        throws IOException, JSONException, NativeAuthHttpException {
+        sendJsonRequest(baseUrl, "/v1/auth/logout", "POST", null, token, cancellation);
     }
 
     JSObject request(
@@ -114,6 +145,29 @@ class NativeAuthHttpClient {
         String requestBodyBase64,
         String contentType,
         String accept
+    )
+        throws IOException, NativeAuthHttpException {
+        return request(
+            baseUrl,
+            token,
+            method,
+            path,
+            requestBodyBase64,
+            contentType,
+            accept,
+            new CancellationSignal()
+        );
+    }
+
+    JSObject request(
+        String baseUrl,
+        String token,
+        String method,
+        String path,
+        String requestBodyBase64,
+        String contentType,
+        String accept,
+        CancellationSignal cancellation
     )
         throws IOException, NativeAuthHttpException {
         byte[] requestBody = decodeRequestBody(requestBodyBase64);
@@ -133,7 +187,8 @@ class NativeAuthHttpClient {
             authorizedRequest.getContentType(),
             authorizedRequest.getAccept(),
             false,
-            authorizedRequest.getResponseKind()
+            authorizedRequest.getResponseKind(),
+            cancellation
         );
 
         JSObject payload = new JSObject();
@@ -149,6 +204,25 @@ class NativeAuthHttpClient {
 
     private JSONObject sendJsonRequest(String baseUrl, String path, String method, JSONObject requestBody, String bearerToken)
         throws IOException, JSONException, NativeAuthHttpException {
+        return sendJsonRequest(
+            baseUrl,
+            path,
+            method,
+            requestBody,
+            bearerToken,
+            new CancellationSignal()
+        );
+    }
+
+    private JSONObject sendJsonRequest(
+        String baseUrl,
+        String path,
+        String method,
+        JSONObject requestBody,
+        String bearerToken,
+        CancellationSignal cancellation
+    )
+        throws IOException, JSONException, NativeAuthHttpException {
         RequestResponse response = sendRequest(
             baseUrl,
             path,
@@ -158,7 +232,8 @@ class NativeAuthHttpClient {
             "application/json",
             "application/json",
             true,
-            NativeAuthRequestPolicy.ResponseKind.JSON
+            NativeAuthRequestPolicy.ResponseKind.JSON,
+            cancellation
         );
 
         String responseBody = response.getResponseBodyAsString();
@@ -178,10 +253,40 @@ class NativeAuthHttpClient {
         NativeAuthRequestPolicy.ResponseKind responseKind
     )
         throws IOException, NativeAuthHttpException {
+        return sendRequest(
+            baseUrl,
+            path,
+            method,
+            requestBody,
+            bearerToken,
+            contentType,
+            accept,
+            throwOnError,
+            responseKind,
+            new CancellationSignal()
+        );
+    }
+
+    private RequestResponse sendRequest(
+        String baseUrl,
+        String path,
+        String method,
+        byte[] requestBody,
+        String bearerToken,
+        String contentType,
+        String accept,
+        boolean throwOnError,
+        NativeAuthRequestPolicy.ResponseKind responseKind,
+        CancellationSignal cancellation
+    )
+        throws IOException, NativeAuthHttpException {
+        cancellation.throwIfCancelled();
         HttpURLConnection connection = connectionFactory.open(
             new URL(normalizeBaseUrl(baseUrl) + path)
         );
+        cancellation.registerConnection(connection);
         try {
+            cancellation.throwIfCancelled();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod(method);
             connection.setConnectTimeout(resolveConnectTimeoutMillis(method, path));
@@ -201,12 +306,25 @@ class NativeAuthHttpClient {
 
             if (requestBody != null && requestBody.length > 0) {
                 connection.setDoOutput(true);
-                try (OutputStream outputStream = connection.getOutputStream()) {
-                    outputStream.write(requestBody);
+                ScheduledFuture<?> writeDeadline = WRITE_DEADLINE_SCHEDULER.schedule(
+                    cancellation::cancel,
+                    WRITE_TIMEOUT_MILLIS,
+                    TimeUnit.MILLISECONDS
+                );
+                try {
+                    try (OutputStream outputStream = connection.getOutputStream()) {
+                        cancellation.registerOutputStream(outputStream);
+                        cancellation.throwIfCancelled();
+                        outputStream.write(requestBody);
+                        cancellation.clearOutputStream(outputStream);
+                    }
+                } finally {
+                    writeDeadline.cancel(false);
                 }
             }
 
             int statusCode = connection.getResponseCode();
+            cancellation.throwIfCancelled();
             rejectAuthenticatedRedirect(statusCode);
             long declaredResponseLength = connection.getContentLengthLong();
             if (declaredResponseLength > NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES) {
@@ -216,7 +334,9 @@ class NativeAuthHttpClient {
             byte[] responseBody;
             if (responseStream != null) {
                 try (InputStream in = responseStream) {
+                    cancellation.registerInputStream(in);
                     responseBody = readResponseBodyBytes(in, NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES);
+                    cancellation.clearInputStream(in);
                 }
             } else {
                 responseBody = new byte[0];
@@ -233,6 +353,7 @@ class NativeAuthHttpClient {
 
             return new RequestResponse(statusCode, responseBody, connection.getContentType());
         } finally {
+            cancellation.clearConnection(connection);
             connection.disconnect();
         }
     }
@@ -533,6 +654,106 @@ class NativeAuthHttpClient {
             return Base64.decode(requestBodyBase64, Base64.NO_WRAP);
         } catch (IllegalArgumentException exception) {
             throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
+        }
+    }
+
+    static int decodedRequestBodyLength(String requestBodyBase64) throws NativeAuthHttpException {
+        if (requestBodyBase64 == null || requestBodyBase64.isEmpty()) {
+            return 0;
+        }
+        validateRequestBodyBase64(requestBodyBase64);
+        int padding = requestBodyBase64.endsWith("==")
+            ? 2
+            : requestBodyBase64.endsWith("=") ? 1 : 0;
+        return (requestBodyBase64.length() / 4) * 3 - padding;
+    }
+
+    static final class CancellationSignal {
+        private boolean cancelled;
+        private HttpURLConnection connection;
+        private InputStream inputStream;
+        private OutputStream outputStream;
+
+        synchronized void registerConnection(HttpURLConnection value) {
+            if (cancelled) {
+                value.disconnect();
+                return;
+            }
+            connection = value;
+        }
+
+        synchronized void clearConnection(HttpURLConnection value) {
+            if (connection == value) {
+                connection = null;
+            }
+        }
+
+        synchronized void registerInputStream(InputStream value) throws IOException {
+            if (cancelled) {
+                value.close();
+                throw cancelledException();
+            }
+            inputStream = value;
+        }
+
+        synchronized void clearInputStream(InputStream value) {
+            if (inputStream == value) {
+                inputStream = null;
+            }
+        }
+
+        synchronized void registerOutputStream(OutputStream value) throws IOException {
+            if (cancelled) {
+                value.close();
+                throw cancelledException();
+            }
+            outputStream = value;
+        }
+
+        synchronized void clearOutputStream(OutputStream value) {
+            if (outputStream == value) {
+                outputStream = null;
+            }
+        }
+
+        synchronized void throwIfCancelled() throws InterruptedIOException {
+            if (cancelled) {
+                throw cancelledException();
+            }
+        }
+
+        synchronized boolean isCancelled() {
+            return cancelled;
+        }
+
+        synchronized void cancel() {
+            if (cancelled) {
+                return;
+            }
+            cancelled = true;
+            closeQuietly(outputStream);
+            closeQuietly(inputStream);
+            if (connection != null) {
+                connection.disconnect();
+            }
+            outputStream = null;
+            inputStream = null;
+            connection = null;
+        }
+
+        private static InterruptedIOException cancelledException() {
+            return new InterruptedIOException("Android authenticated request was cancelled");
+        }
+
+        private static void closeQuietly(Closeable closeable) {
+            if (closeable == null) {
+                return;
+            }
+            try {
+                closeable.close();
+            } catch (IOException ignored) {
+                // The connection is disconnected below as the final cancellation mechanism.
+            }
         }
     }
 

@@ -26,12 +26,44 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 import org.json.JSONObject;
 
 public class SecPalNativeAuthPluginTest {
+
+    @Test
+    public void terminalSettlementRunsOnlyOnceAcrossCompletionAndCancellation() throws Exception {
+        AtomicBoolean settled = new AtomicBoolean(false);
+        AtomicInteger callbacks = new AtomicInteger();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Runnable contender = () -> {
+            ready.countDown();
+            try {
+                start.await();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            SecPalNativeAuthPlugin.settleOnce(settled, callbacks::incrementAndGet);
+        };
+        Thread completion = new Thread(contender);
+        Thread cancellation = new Thread(contender);
+        completion.start();
+        cancellation.start();
+        assertTrue(ready.await(2, TimeUnit.SECONDS));
+
+        start.countDown();
+        completion.join(2_000L);
+        cancellation.join(2_000L);
+
+        assertEquals(1, callbacks.get());
+    }
 
     @Test
     public void obsoleteApiBaseUrlMutationIsNotExportedToJavascript() {
@@ -47,6 +79,7 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeReset"));
+        assertTrue(exportedMethods.contains("cancelRequest"));
     }
 
     @Test

@@ -6,16 +6,125 @@
 package app.secpal;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
 public class NativeAuthTaskExecutorTest {
+
+    @Test
+    public void memoryBudgetAccountsForBase64AndBridgeRepresentations() {
+        assertEquals(
+            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES * 10,
+            NativeAuthTaskExecutor.MAX_RESPONSE_WORKING_SET_BYTES
+        );
+        assertEquals(
+            44 * 1024 * 1024,
+            NativeAuthTaskExecutor.estimateRequestReservationBytes(
+                NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES
+            )
+        );
+        assertTrue(
+            NativeAuthTaskExecutor.MAX_AGGREGATE_BUFFERED_BYTES
+                >= NativeAuthTaskExecutor.MAX_RESPONSE_WORKING_SET_BYTES
+                    + NativeAuthTaskExecutor.estimateRequestReservationBytes(
+                        NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES
+                    )
+        );
+    }
+
+    @Test
+    public void defaultExecutorRejectsWorkBeyondItsExplicitCapacity()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch workersStarted = new CountDownLatch(
+            NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS
+        );
+        CountDownLatch releaseWorkers = new CountDownLatch(1);
+
+        try {
+            for (int index = 0; index < NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS; index++) {
+                assertTrue(taskExecutor.submit(() -> {
+                    workersStarted.countDown();
+                    try {
+                        releaseWorkers.await();
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+            }
+            assertTrue(workersStarted.await(2, TimeUnit.SECONDS));
+
+            for (int index = 0; index < NativeAuthTaskExecutor.MAX_QUEUED_TASKS; index++) {
+                assertTrue(taskExecutor.submit(() -> {
+                    // Deliberately queued behind the blocked workers.
+                }));
+            }
+
+            assertFalse(taskExecutor.submit(() -> {
+                // Must never enter an unbounded work queue.
+            }));
+        } finally {
+            releaseWorkers.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void authenticatedSmallRequestsReachTheExplicitQueueCapacity()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "small-running",
+                    0,
+                    () -> {
+                        running.countDown();
+                        try {
+                            release.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(running.await(2, TimeUnit.SECONDS));
+
+            for (int index = 0; index < NativeAuthTaskExecutor.MAX_QUEUED_TASKS; index++) {
+                assertEquals(
+                    NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                    taskExecutor.submitAuthenticated(
+                        "small-queued-" + index,
+                        0,
+                        () -> {},
+                        reason -> {}
+                    )
+                );
+            }
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.OVERLOADED,
+                taskExecutor.submitAuthenticated("small-overload", 0, () -> {}, reason -> {})
+            );
+        } finally {
+            release.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void submittedJobsRunOnTheExecutor() throws InterruptedException {
@@ -60,6 +169,345 @@ public class NativeAuthTaskExecutorTest {
             assertTrue(latch.await(2, TimeUnit.SECONDS));
             assertTrue(captured.get() == failure);
         } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void invalidationCancelsRunningAndQueuedAuthenticatedWorkAndReleasesBytes()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch started = new CountDownLatch(
+            NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS
+        );
+        CountDownLatch cancelled = new CountDownLatch(
+            NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS + 1
+        );
+        CountDownLatch runningTasksFinished = new CountDownLatch(
+            NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS
+        );
+
+        try {
+            for (int index = 0; index < NativeAuthTaskExecutor.MAX_CONCURRENT_TASKS + 1; index++) {
+                String requestId = "request-" + index;
+                assertEquals(
+                    NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                    taskExecutor.submitAuthenticated(
+                        requestId,
+                        1024,
+                        () -> {
+                            started.countDown();
+                            try {
+                                Thread.sleep(10_000L);
+                            } catch (InterruptedException exception) {
+                                Thread.currentThread().interrupt();
+                            } finally {
+                                runningTasksFinished.countDown();
+                            }
+                        },
+                        reason -> {
+                            assertEquals("SESSION_INVALIDATED", reason);
+                            cancelled.countDown();
+                        }
+                    )
+                );
+            }
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.invalidateAuthenticated("SESSION_INVALIDATED");
+
+            assertTrue(cancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(runningTasksFinished.await(2, TimeUnit.SECONDS));
+            long reservationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (taskExecutor.getReservedBufferedBytesForTest() != 0
+                && System.nanoTime() < reservationDeadline) {
+                Thread.yield();
+            }
+            assertEquals(0, taskExecutor.getReservedBufferedBytesForTest());
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void backgroundRejectsNewAuthenticatedWorkUntilForegrounded() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+
+        try {
+            taskExecutor.pauseAuthenticated();
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED,
+                taskExecutor.submitAuthenticated("background", 0, () -> {}, reason -> {})
+            );
+
+            taskExecutor.resumeAuthenticated();
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated("foreground", 0, () -> {}, reason -> {})
+            );
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void credentialReplacementInvalidatesOldWorkBeforeNewAdmission()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        AtomicReference<String> cancellationReason = new AtomicReference<>();
+        CountDownLatch oldStarted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "old-credential",
+                    0,
+                    () -> {
+                        oldStarted.countDown();
+                        try {
+                            Thread.sleep(10_000L);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    cancellationReason::set
+                )
+            );
+            assertTrue(oldStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.beginSessionTransition();
+
+            assertEquals("SESSION_INVALIDATED", cancellationReason.get());
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED,
+                taskExecutor.submitAuthenticated(
+                    "replacement-not-active",
+                    0,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+            taskExecutor.endSessionTransition();
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "replacement-active",
+                    0,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aggregateRequestRepresentationsBoundLargeUploadAdmission()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "large-upload",
+                    NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES,
+                    () -> {
+                        running.countDown();
+                        try {
+                            release.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(running.await(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.BUFFER_LIMIT,
+                taskExecutor.submitAuthenticated(
+                    "second-large-upload",
+                    NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+        } finally {
+            release.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void totalLifetimeCancelsSlowAuthenticatedWorkExactlyOnce()
+        throws InterruptedException {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor(),
+            scheduler,
+            50L
+        );
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch cancelled = new CountDownLatch(1);
+        AtomicInteger terminalCallbacks = new AtomicInteger();
+        AtomicReference<String> cancellationReason = new AtomicReference<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "slow-request",
+                    0,
+                    () -> {
+                        started.countDown();
+                        try {
+                            Thread.sleep(10_000L);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {
+                        cancellationReason.set(reason);
+                        terminalCallbacks.incrementAndGet();
+                        cancelled.countDown();
+                    }
+                )
+            );
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            assertTrue(cancelled.await(2, TimeUnit.SECONDS));
+            assertEquals("REQUEST_TIMEOUT", cancellationReason.get());
+            assertEquals(1, terminalCallbacks.get());
+        } finally {
+            taskExecutor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    public void sessionTransitionInvalidatesOldWorkAndEndsWhenItsTaskFinishes()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch oldStarted = new CountDownLatch(1);
+        CountDownLatch oldCancelled = new CountDownLatch(1);
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "old-session",
+                    0,
+                    () -> {
+                        oldStarted.countDown();
+                        try {
+                            Thread.sleep(10_000L);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> oldCancelled.countDown()
+                )
+            );
+            assertTrue(oldStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "logout-transition",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(oldCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED,
+                taskExecutor.submitAuthenticated("new-session-too-early", 0, () -> {}, reason -> {})
+            );
+
+            releaseTransition.countDown();
+            long transitionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            NativeAuthTaskExecutor.SubmitResult result;
+            do {
+                result = taskExecutor.submitAuthenticated(
+                    "new-session",
+                    0,
+                    () -> {},
+                    reason -> {}
+                );
+                if (result == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED) {
+                    Thread.yield();
+                }
+            } while (result == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+                && System.nanoTime() < transitionDeadline);
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
+        } finally {
+            releaseTransition.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void backgroundCancelsAQueuedSessionTransitionAndReleasesItsGate()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch transitionCancelled = new CountDownLatch(1);
+
+        try {
+            assertTrue(taskExecutor.submit(() -> {
+                blockerStarted.countDown();
+                try {
+                    releaseBlocker.await();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertTrue(blockerStarted.await(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "queued-runtime-reset",
+                    0,
+                    () -> {},
+                    reason -> {
+                        assertEquals("APP_BACKGROUNDED", reason);
+                        transitionCancelled.countDown();
+                    }
+                )
+            );
+
+            taskExecutor.pauseAuthenticated();
+
+            assertTrue(transitionCancelled.await(2, TimeUnit.SECONDS));
+            releaseBlocker.countDown();
+            taskExecutor.resumeAuthenticated();
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "foreground-after-reset-cancel",
+                    0,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+        } finally {
+            releaseBlocker.countDown();
             taskExecutor.shutdownNow();
         }
     }

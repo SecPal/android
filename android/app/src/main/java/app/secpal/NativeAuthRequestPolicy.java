@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  */
 final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024;
-    static final int MAX_RESPONSE_BODY_BYTES = 32 * 1024 * 1024;
+    static final int MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;
 
     private static final String ID = "[A-Za-z0-9][A-Za-z0-9._~-]*";
     private static final Set<String> NO_QUERY = Collections.emptySet();

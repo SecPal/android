@@ -1857,19 +1857,51 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   const sendAuthenticatedNativeRequest = async (
     request,
-    { markAuthenticatedOnSuccess = true } = {}
+    { markAuthenticatedOnSuccess = true, signal } = {}
   ) => {
     await ensureRuntimeConfigured();
 
+    const requestSignal = signal ?? request?.signal;
+    if (requestSignal?.aborted) {
+      const error = new Error("The authenticated request was aborted.");
+      error.name = "AbortError";
+      throw error;
+    }
+    authState.nativeRequestSequence =
+      Number.isSafeInteger(authState.nativeRequestSequence)
+        ? authState.nativeRequestSequence + 1
+        : 1;
+    const requestId =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : "webview-" + Date.now().toString(36) + "-" + authState.nativeRequestSequence.toString(36);
+    const nativeRequest = { ...request };
+    delete nativeRequest.signal;
+    nativeRequest.requestId = requestId;
+    const cancel = () => {
+      const cancellation = getPlugin().cancelRequest?.({ requestId });
+      cancellation?.catch?.(() => {
+        // The native request may already have reached its terminal callback.
+      });
+    };
+    requestSignal?.addEventListener?.("abort", cancel, { once: true });
+
     let response;
     try {
-      response = await getPlugin().request(request);
+      response = await getPlugin().request(nativeRequest);
     } catch (error) {
+      if (requestSignal?.aborted) {
+        const abortError = new Error("The authenticated request was aborted.");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
       const code = error && typeof error === "object" ? error.code : undefined;
       if (code === "HTTP_401" || code === "NO_STORED_TOKEN") {
         setAuthActive(false);
       }
       throw error;
+    } finally {
+      requestSignal?.removeEventListener?.("abort", cancel);
     }
     const status =
       response && typeof response === "object" ? Number(response.status) : Number.NaN;
@@ -2341,6 +2373,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
               : undefined,
           contentType: request.headers.get("Content-Type") ?? undefined,
           accept: request.headers.get("Accept") ?? undefined,
+          signal: request.signal,
         });
         const headers = new Headers();
         if (nativeResponse.contentType) {

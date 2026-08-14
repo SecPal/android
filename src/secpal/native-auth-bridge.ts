@@ -89,6 +89,7 @@ export interface NativeAuthenticatedRequest {
   bodyBase64?: string;
   contentType?: string;
   accept?: string;
+  signal?: AbortSignal;
 }
 
 export interface NativeAuthenticatedResponse {
@@ -108,16 +109,37 @@ interface SecPalNativeAuthPlugin {
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<{ available?: boolean }>;
   request(options: {
+    requestId: string;
     method: string;
     path: string;
     bodyBase64?: string;
     contentType?: string;
     accept?: string;
   }): Promise<NativeAuthenticatedResponse>;
+  cancelRequest(options: {
+    requestId: string;
+  }): Promise<{ cancelled?: boolean }>;
 }
 
 const secPalNativeAuthPlugin =
   registerPlugin<SecPalNativeAuthPlugin>("SecPalNativeAuth");
+
+let nativeRequestSequence = 0;
+
+function createNativeRequestId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  nativeRequestSequence += 1;
+  return `webview-${Date.now().toString(36)}-${nativeRequestSequence.toString(36)}`;
+}
+
+function createAbortError(): DOMException {
+  return new DOMException(
+    "The authenticated request was aborted.",
+    "AbortError"
+  );
+}
 
 function createEmptyAndroidPushRegistrationState(): AndroidPushRegistrationState {
   return {
@@ -151,14 +173,36 @@ export function createNativeAuthBridge(): NativeAuthBridge {
     getPasskeyCapabilities() {
       return secPalNativeAuthPlugin.getPasskeyCapabilities();
     },
-    request(request) {
-      return secPalNativeAuthPlugin.request({
-        method: request.method,
-        path: request.path,
-        bodyBase64: request.bodyBase64,
-        contentType: request.contentType,
-        accept: request.accept,
-      });
+    async request(request) {
+      const requestId = createNativeRequestId();
+      const signal = request.signal;
+      if (signal?.aborted) {
+        throw createAbortError();
+      }
+
+      const cancel = () => {
+        void secPalNativeAuthPlugin.cancelRequest({ requestId }).catch(() => {
+          // The request may already have reached its one terminal callback.
+        });
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
+      try {
+        return await secPalNativeAuthPlugin.request({
+          requestId,
+          method: request.method,
+          path: request.path,
+          bodyBase64: request.bodyBase64,
+          contentType: request.contentType,
+          accept: request.accept,
+        });
+      } catch (error) {
+        if (signal?.aborted) {
+          throw createAbortError();
+        }
+        throw error;
+      } finally {
+        signal?.removeEventListener("abort", cancel);
+      }
     },
   };
 
