@@ -136,6 +136,7 @@ classify_api37_failure() {
             grep -Fq "Can't find service: package" "$attempt_log"
     }; then
         retry_key="package-manager-service-unavailable"
+        retry_limit=2
         retry_reason="PackageManager connection failure"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&

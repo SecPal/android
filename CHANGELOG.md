@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed one additional bounded API 37 recovery when the PackageManager
+  service disappears on two consecutive zero-test installation attempts,
+  while keeping a third identical failure and real test failures fail-closed.
 - Bounded the strict-CSP real-browser smoke with separate Chromium process and
   Vitest deadlines, forceful browser termination, and awaited HTTP server
   cleanup across timeout, assertion failure, and success paths (issue #585).
