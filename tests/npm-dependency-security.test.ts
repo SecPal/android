@@ -67,7 +67,7 @@ const jobNeeds = (
 };
 
 describe("npm dependency security", () => {
-  it("pins nanoid outside the vulnerable custom-generator range", () => {
+  it("resolves nanoid outside the vulnerable range without an override", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repoRoot, "package.json"), "utf8")
     ) as { overrides?: Record<string, string> };
@@ -77,7 +77,7 @@ describe("npm dependency security", () => {
       packages?: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.overrides?.nanoid).toBe("3.3.18");
+    expect(packageJson.overrides).not.toHaveProperty("nanoid");
     expect(packageLock.packages?.["node_modules/nanoid"]?.version).toBe(
       "3.3.18"
     );
