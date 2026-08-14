@@ -7,6 +7,7 @@ package app.secpal;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
@@ -74,6 +75,99 @@ public class NativeAuthTaskExecutorTest {
             }));
         } finally {
             releaseWorkers.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void sessionTransitionEvictsQueuedOrdinaryWorkInsteadOfRejectingTeardown()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch evicted = new CountDownLatch(
+            NativeAuthTaskExecutor.MAX_QUEUED_TASKS
+        );
+
+        try {
+            assertTrue(taskExecutor.submit(() -> {
+                blockerStarted.countDown();
+                try {
+                    releaseBlocker.await();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertTrue(blockerStarted.await(2, TimeUnit.SECONDS));
+
+            for (int index = 0; index < NativeAuthTaskExecutor.MAX_QUEUED_TASKS; index++) {
+                assertTrue(taskExecutor.submit(
+                    () -> {},
+                    exception -> evicted.countDown()
+                ));
+            }
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "capacity-safe-logout",
+                    0,
+                    transitionStarted::countDown,
+                    reason -> {}
+                )
+            );
+            assertTrue(evicted.await(2, TimeUnit.SECONDS));
+
+            releaseBlocker.countDown();
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+        } finally {
+            releaseBlocker.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedSessionTransitionDoesNotInvalidateExistingAuthenticatedWork()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch existingStarted = new CountDownLatch(1);
+        CountDownLatch releaseExisting = new CountDownLatch(1);
+        AtomicReference<String> cancellationReason = new AtomicReference<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "duplicate-transition-id",
+                    0,
+                    () -> {
+                        existingStarted.countDown();
+                        while (releaseExisting.getCount() > 0) {
+                            try {
+                                releaseExisting.await();
+                            } catch (InterruptedException ignored) {
+                                // Keep the original operation alive to expose premature invalidation.
+                            }
+                        }
+                    },
+                    cancellationReason::set
+                )
+            );
+            assertTrue(existingStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.DUPLICATE_ID,
+                taskExecutor.submitSessionTransition(
+                    "duplicate-transition-id",
+                    0,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+            assertNull(cancellationReason.get());
+        } finally {
+            releaseExisting.countDown();
             taskExecutor.shutdownNow();
         }
     }
@@ -151,6 +245,34 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
+    public void shutdownSettlesOrdinaryWorkThatNeverStarted()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch queuedFailure = new CountDownLatch(1);
+
+        assertTrue(taskExecutor.submit(() -> {
+            blockerStarted.countDown();
+            try {
+                releaseBlocker.await();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        assertTrue(blockerStarted.await(2, TimeUnit.SECONDS));
+        assertTrue(taskExecutor.submit(
+            () -> {},
+            exception -> queuedFailure.countDown()
+        ));
+
+        taskExecutor.shutdownNow();
+        releaseBlocker.countDown();
+
+        assertTrue(queuedFailure.await(2, TimeUnit.SECONDS));
+    }
+
+    @Test
     public void submittedRuntimeFailuresReachTheSettlementHandler()
         throws InterruptedException {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(Executors.newSingleThreadExecutor());
@@ -167,6 +289,69 @@ public class NativeAuthTaskExecutorTest {
                 }
             ));
             assertTrue(latch.await(2, TimeUnit.SECONDS));
+            assertTrue(captured.get() == failure);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void managedRuntimeFailuresReachTheSettlementHandler()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor()
+        );
+        CountDownLatch failureSettled = new CountDownLatch(1);
+        AtomicReference<RuntimeException> captured = new AtomicReference<>();
+        RuntimeException failure = new IllegalStateException("native interop failed");
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "managed-runtime-failure",
+                    0,
+                    () -> { throw failure; },
+                    reason -> {},
+                    exception -> {
+                        captured.set(exception);
+                        failureSettled.countDown();
+                    }
+                )
+            );
+            assertTrue(failureSettled.await(2, TimeUnit.SECONDS));
+            assertTrue(captured.get() == failure);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void sessionTransitionRuntimeFailuresReachTheSettlementHandler()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor()
+        );
+        CountDownLatch failureSettled = new CountDownLatch(1);
+        AtomicReference<RuntimeException> captured = new AtomicReference<>();
+        RuntimeException failure = new IllegalStateException("runtime mutation failed");
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "transition-runtime-failure",
+                    0,
+                    () -> { throw failure; },
+                    reason -> {},
+                    reason -> {},
+                    exception -> {
+                        captured.set(exception);
+                        failureSettled.countDown();
+                    }
+                )
+            );
+            assertTrue(failureSettled.await(2, TimeUnit.SECONDS));
             assertTrue(captured.get() == failure);
         } finally {
             taskExecutor.shutdownNow();
@@ -280,7 +465,7 @@ public class NativeAuthTaskExecutorTest {
 
             assertEquals("SESSION_INVALIDATED", cancellationReason.get());
             assertEquals(
-                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED,
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
                 taskExecutor.submitAuthenticated(
                     "replacement-not-active",
                     0,
@@ -389,6 +574,59 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
+    public void runningSessionTransitionSettlesCancellationOnlyAfterMutationStops()
+        throws InterruptedException {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor(),
+            scheduler,
+            50L
+        );
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        CountDownLatch cancellationSettled = new CountDownLatch(1);
+        AtomicReference<Boolean> committedAtSettlement = new AtomicReference<>();
+        AtomicReference<Boolean> committed = new AtomicReference<>(false);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "non-interruptible-runtime-mutation",
+                    0,
+                    () -> {
+                        mutationStarted.countDown();
+                        while (releaseMutation.getCount() > 0) {
+                            try {
+                                releaseMutation.await();
+                            } catch (InterruptedException ignored) {
+                                // Preference and keystore writes cannot be interrupted safely.
+                            }
+                        }
+                        committed.set(true);
+                    },
+                    reason -> {
+                        assertEquals("REQUEST_TIMEOUT", reason);
+                        committedAtSettlement.set(committed.get());
+                        cancellationSettled.countDown();
+                    }
+                )
+            );
+            assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
+            assertFalse(cancellationSettled.await(150, TimeUnit.MILLISECONDS));
+
+            releaseMutation.countDown();
+
+            assertTrue(cancellationSettled.await(2, TimeUnit.SECONDS));
+            assertEquals(Boolean.TRUE, committedAtSettlement.get());
+        } finally {
+            releaseMutation.countDown();
+            taskExecutor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void sessionTransitionInvalidatesOldWorkAndEndsWhenItsTaskFinishes()
         throws InterruptedException {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
@@ -435,7 +673,7 @@ public class NativeAuthTaskExecutorTest {
             assertTrue(oldCancelled.await(2, TimeUnit.SECONDS));
             assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
             assertEquals(
-                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED,
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
                 taskExecutor.submitAuthenticated("new-session-too-early", 0, () -> {}, reason -> {})
             );
 
@@ -449,10 +687,10 @@ public class NativeAuthTaskExecutorTest {
                     () -> {},
                     reason -> {}
                 );
-                if (result == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED) {
+                if (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS) {
                     Thread.yield();
                 }
-            } while (result == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+            } while (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
                 && System.nanoTime() < transitionDeadline);
             assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
         } finally {

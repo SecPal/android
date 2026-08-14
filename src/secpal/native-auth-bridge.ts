@@ -187,7 +187,7 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       };
       signal?.addEventListener("abort", cancel, { once: true });
       try {
-        return await secPalNativeAuthPlugin.request({
+        const response = await secPalNativeAuthPlugin.request({
           requestId,
           method: request.method,
           path: request.path,
@@ -195,6 +195,10 @@ export function createNativeAuthBridge(): NativeAuthBridge {
           contentType: request.contentType,
           accept: request.accept,
         });
+        if (signal?.aborted) {
+          throw createAbortError();
+        }
+        return response;
       } catch (error) {
         if (signal?.aborted) {
           throw createAbortError();

@@ -309,6 +309,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     settled,
                     () -> call.reject(cancellationMessage(reasonCode), reasonCode)
                 );
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
         );
 
@@ -616,8 +626,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     ));
                 }
             },
+            reasonCode -> cancellation.cancel(),
             reasonCode -> {
-                cancellation.cancel();
                 settleOnce(settled, () -> {
                     if (localRuntimeCleared.get()) {
                         call.resolve();
@@ -625,6 +635,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         call.reject(cancellationMessage(reasonCode), reasonCode);
                     }
                 });
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
         );
         if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
@@ -694,8 +714,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     ));
                 }
             },
+            reasonCode -> cancellation.cancel(),
             reasonCode -> {
-                cancellation.cancel();
                 settleOnce(settled, () -> {
                     if (localCredentialCleared.get()) {
                         call.resolve();
@@ -703,6 +723,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         call.reject(cancellationMessage(reasonCode), reasonCode);
                     }
                 });
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
         );
         if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
@@ -722,7 +752,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String bodyBase64 = call.getString("bodyBase64");
         String contentType = call.getString("contentType");
         String accept = call.getString("accept");
-        String requestId = normalizeRequestId(call.getString("requestId"));
+        String requestId = normalizeRequiredRequestId(call.getString("requestId"));
         if (requestId == null) {
             call.reject("Android auth request id is invalid", "INVALID_INPUT");
             return;
@@ -802,6 +832,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     settled,
                     () -> call.reject(cancellationMessage(reasonCode), reasonCode)
                 );
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
         );
 
@@ -852,14 +892,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return true;
     }
 
-    private static String normalizeRequestId(String requestId) {
-        if (requestId == null || requestId.trim().isEmpty()) {
-            return UUID.randomUUID().toString();
-        }
-        return normalizeRequiredRequestId(requestId);
-    }
-
-    private static String normalizeRequiredRequestId(String requestId) {
+    static String normalizeRequiredRequestId(String requestId) {
         if (requestId == null) {
             return null;
         }
@@ -899,7 +932,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 call.reject("Android native auth buffered-data limit reached", "NATIVE_AUTH_BUFFER_LIMIT");
                 return;
             case BACKGROUNDED:
-                call.reject("Android authenticated requests are paused in the background", "NATIVE_AUTH_BACKGROUND");
+                call.reject(
+                    "Android authenticated requests are paused in the background",
+                    submissionErrorCode(submitResult)
+                );
+                return;
+            case TRANSITION_IN_PROGRESS:
+                call.reject(
+                    "Android native auth is temporarily busy",
+                    submissionErrorCode(submitResult)
+                );
                 return;
             case SHUTDOWN:
                 call.reject("Android native auth plugin is unavailable", "PLUGIN_SHUTDOWN");
@@ -910,6 +952,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
             default:
                 call.reject("Android native auth is temporarily busy", "NATIVE_AUTH_BUSY");
         }
+    }
+
+    static String submissionErrorCode(NativeAuthTaskExecutor.SubmitResult submitResult) {
+        return submitResult == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+            ? "NATIVE_AUTH_BACKGROUND"
+            : "NATIVE_AUTH_BUSY";
     }
 
     private void confirmNativeRuntimeMutation(

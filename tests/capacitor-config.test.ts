@@ -179,6 +179,32 @@ describe("capacitor Android wrapper configuration", () => {
     expect(pluginMocks.cancelRequest).toHaveBeenCalledWith({ requestId });
   });
 
+  it("rejects when abort wins after the native response resolves", async () => {
+    let resolveNativeRequest:
+      ((response: { status: number; bodyBase64: string }) => void) | undefined;
+    pluginMocks.request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveNativeRequest = resolve;
+        })
+    );
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+    const abortController = new AbortController();
+    pluginMocks.cancelRequest.mockResolvedValueOnce({ cancelled: true });
+    const pendingRequest = bridge.request({
+      method: "GET",
+      path: "/v1/me",
+      signal: abortController.signal,
+    });
+
+    resolveNativeRequest?.({ status: 200, bodyBase64: "e30=" });
+    abortController.abort();
+
+    await expect(pendingRequest).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("preserves the stable non-sensitive native overload contract", async () => {
     pluginMocks.request.mockRejectedValueOnce(
       Object.assign(new Error("Android native auth is temporarily busy"), {

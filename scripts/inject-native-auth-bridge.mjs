@@ -1903,6 +1903,11 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     } finally {
       requestSignal?.removeEventListener?.("abort", cancel);
     }
+    if (requestSignal?.aborted) {
+      const abortError = new Error("The authenticated request was aborted.");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
     const status =
       response && typeof response === "object" ? Number(response.status) : Number.NaN;
 

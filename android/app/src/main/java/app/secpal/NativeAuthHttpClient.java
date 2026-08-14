@@ -36,6 +36,9 @@ class NativeAuthHttpClient {
     static final int READ_TIMEOUT_MILLIS = 15_000;
     static final int WRITE_TIMEOUT_MILLIS = 15_000;
     static final int TOTAL_REQUEST_LIFETIME_MILLIS = 30_000;
+    private static final int MIN_UPLOAD_BYTES_PER_SECOND = 64 * 1024;
+    private static final int UPLOAD_DEADLINE_OVERHEAD_MILLIS = 15_000;
+    private static final int TOTAL_DEADLINE_OVERHEAD_MILLIS = 5_000;
     private static final int CURRENT_USER_CONNECT_TIMEOUT_MILLIS = 3000;
     private static final int CURRENT_USER_READ_TIMEOUT_MILLIS = 3000;
     private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
@@ -306,9 +309,10 @@ class NativeAuthHttpClient {
 
             if (requestBody != null && requestBody.length > 0) {
                 connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(requestBody.length);
                 ScheduledFuture<?> writeDeadline = WRITE_DEADLINE_SCHEDULER.schedule(
                     cancellation::cancel,
-                    WRITE_TIMEOUT_MILLIS,
+                    resolveWriteTimeoutMillis(requestBody.length),
                     TimeUnit.MILLISECONDS
                 );
                 try {
@@ -368,6 +372,33 @@ class NativeAuthHttpClient {
         return isCurrentUserBootstrapRequest(method, path)
             ? CURRENT_USER_READ_TIMEOUT_MILLIS
             : READ_TIMEOUT_MILLIS;
+    }
+
+    static int resolveWriteTimeoutMillis(int requestBodyBytes) {
+        if (requestBodyBytes <= 0) {
+            return WRITE_TIMEOUT_MILLIS;
+        }
+
+        long transferMillis = (
+            (long) requestBodyBytes * 1000L + MIN_UPLOAD_BYTES_PER_SECOND - 1L
+        ) / MIN_UPLOAD_BYTES_PER_SECOND;
+        return (int) Math.max(
+            WRITE_TIMEOUT_MILLIS,
+            transferMillis + UPLOAD_DEADLINE_OVERHEAD_MILLIS
+        );
+    }
+
+    static int resolveTotalRequestLifetimeMillis(int requestBodyBytes) {
+        if (requestBodyBytes <= 0) {
+            return TOTAL_REQUEST_LIFETIME_MILLIS;
+        }
+
+        return Math.max(
+            TOTAL_REQUEST_LIFETIME_MILLIS,
+            resolveWriteTimeoutMillis(requestBodyBytes)
+                + READ_TIMEOUT_MILLIS
+                + TOTAL_DEADLINE_OVERHEAD_MILLIS
+        );
     }
 
     private static boolean isCurrentUserBootstrapRequest(String method, String path) {

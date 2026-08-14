@@ -370,6 +370,25 @@ public class NativeAuthHttpClientTest {
 
         assertEquals("application/json", captured[0].getRequestProperty("Content-Type"));
         assertEquals("application/json", captured[0].getRequestProperty("Accept"));
+        assertEquals(2, captured[0].getFixedLengthRequestBodyBytes());
+    }
+
+    @Test
+    public void uploadDeadlinesScaleToTheMaximumSupportedRequestBody() {
+        int maximumRequestBytes = NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES;
+
+        assertTrue(
+            NativeAuthHttpClient.resolveWriteTimeoutMillis(maximumRequestBytes)
+                > NativeAuthHttpClient.WRITE_TIMEOUT_MILLIS
+        );
+        assertTrue(
+            NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(maximumRequestBytes)
+                > NativeAuthHttpClient.resolveWriteTimeoutMillis(maximumRequestBytes)
+        );
+        assertEquals(
+            NativeAuthHttpClient.TOTAL_REQUEST_LIFETIME_MILLIS,
+            NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(0)
+        );
     }
 
     @Test
@@ -597,6 +616,7 @@ public class NativeAuthHttpClientTest {
         private final byte[] responseBody;
         private final String responseContentType;
         private final ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
+        private int fixedLengthRequestBodyBytes = -1;
 
         StubHttpURLConnection(URL url, int stubStatus, String redirectLocation) {
             this(url, stubStatus, redirectLocation, new byte[0], null);
@@ -651,7 +671,14 @@ public class NativeAuthHttpClientTest {
             return requestBody;
         }
 
+        @Override
+        public void setFixedLengthStreamingMode(int contentLength) {
+            fixedLengthRequestBodyBytes = contentLength;
+        }
+
         byte[] getWrittenRequestBody() { return requestBody.toByteArray(); }
+
+        int getFixedLengthRequestBodyBytes() { return fixedLengthRequestBodyBytes; }
 
         @Override
         public void disconnect() {}

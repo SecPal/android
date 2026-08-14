@@ -83,6 +83,32 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void authenticatedRequestsRequireACallerVisibleCancellationIdentifier() {
+        assertNull(SecPalNativeAuthPlugin.normalizeRequiredRequestId(null));
+        assertNull(SecPalNativeAuthPlugin.normalizeRequiredRequestId("   "));
+        assertEquals(
+            "webview-request_42",
+            SecPalNativeAuthPlugin.normalizeRequiredRequestId(" webview-request_42 ")
+        );
+    }
+
+    @Test
+    public void sessionTransitionsDoNotUseTheBackgroundErrorContract() {
+        assertEquals(
+            "NATIVE_AUTH_BACKGROUND",
+            SecPalNativeAuthPlugin.submissionErrorCode(
+                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+            )
+        );
+        assertEquals(
+            "NATIVE_AUTH_BUSY",
+            SecPalNativeAuthPlugin.submissionErrorCode(
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
+            )
+        );
+    }
+
+    @Test
     public void runtimeConfirmationMessageBindsTheCanonicalNativeOrigin() throws Exception {
         JSObject bootstrap = SecPalNativeAuthPlugin.buildRuntimeBootstrap(
             "Displayed tenant name",

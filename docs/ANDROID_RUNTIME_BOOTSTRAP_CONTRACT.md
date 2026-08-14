@@ -94,7 +94,12 @@ than accepted by frontend discovery or API notification registration.
   it does not clear the configured origin, authenticated flag, or tenant-scoped
   browser storage. Startup compatibility recovery and push-metadata-triggered
   resets obey the same rule and perform no logout or browser teardown before
-  native confirmation succeeds. After native persistence, credentials, and push
+  native confirmation succeeds. If cancellation arrives while a synchronous
+  native persistence or keystore mutation is already running, native settlement
+  is deferred until that mutation reaches a safe terminal state; a committed
+  reset resolves successfully so the frontend performs matching teardown,
+  while a reset that did not commit rejects and preserves frontend state. After
+  native persistence, credentials, and push
   runtime have cleared successfully, the reset uses the credential captured in
   memory to revoke any known server-side push installation and the authenticated
   server session on the exact confirmed origin on a best-effort basis before
