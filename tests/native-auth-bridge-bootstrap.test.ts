@@ -268,6 +268,7 @@ function createMockStorage(initialValues?: Record<string, string>) {
 const runtimeBootstrapPlaceholderOrigin =
   "https://runtime-bootstrap-required.secpal.dev";
 const runtimeBootstrapStorageKey = "runtimeBootstrapState";
+const runtimeResetPendingStorageKey = "secpal-android-runtime-reset-pending";
 
 function buildRuntimeBootstrapValue(
   overrides: Partial<{
@@ -600,7 +601,7 @@ describe("native auth bridge bootstrap injection", () => {
           rawApiBaseUrl: "https://api.secpal.dev/v1",
         }),
       }),
-      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
     };
     const browserFetch = vi
       .fn()
@@ -1114,9 +1115,25 @@ describe("native auth bridge bootstrap injection", () => {
       "https://api.secpal.dev/health/ready",
       { method: "GET" }
     );
+    (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
+    await (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/bootstrap?client_platform=browser"
+    );
+    await (sandbox.fetch as typeof fetch)("https://api.secpal.dev/v1/release");
+    await (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/onboarding/validate-token?token=invite&email=worker%40example.com"
+    );
+    await (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/onboarding/complete",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }
+    );
 
     expect(plugin.request).not.toHaveBeenCalled();
-    expect(browserFetch).toHaveBeenCalledOnce();
+    expect(browserFetch).toHaveBeenCalledTimes(5);
     await expect(response.text()).resolves.toBe('{"status":"ready"}');
   });
 
@@ -1131,7 +1148,7 @@ describe("native auth bridge bootstrap injection", () => {
       getRuntimeBootstrap: vi
         .fn()
         .mockRejectedValue(new Error("native bridge unavailable")),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
     const sessionStorage = createMockStorage({
@@ -1263,7 +1280,8 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         bootstrap: runtimeBootstrap,
       }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
         (
           eventName: string,
@@ -1866,7 +1884,7 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         bootstrap: runtimeBootstrap,
       }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(() => ({
         remove: vi.fn(),
       })),
@@ -1966,7 +1984,7 @@ describe("native auth bridge bootstrap injection", () => {
         appBuild: 10500,
       }),
       getRuntimeBootstrap: vi.fn().mockReturnValue(runtimeBootstrapPromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
       addListener: vi.fn(
         (
           eventName: string,
@@ -2188,6 +2206,35 @@ describe("native auth bridge bootstrap injection", () => {
     });
 
     expect(response.status).toBe(401);
+    expect(authState.active).toBe(false);
+  });
+
+  it("clears auth state when a direct bridge request rejects with HTTP_401", async () => {
+    const { bridge, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const nativeBridge = bridge as typeof bridge & {
+      request(request: {
+        method: string;
+        path: string;
+        accept?: string;
+      }): Promise<unknown>;
+    };
+    const unauthorizedError = Object.assign(new Error("Unauthenticated"), {
+      code: "HTTP_401",
+    });
+
+    plugin.request.mockRejectedValueOnce(unauthorizedError);
+    authState.active = true;
+
+    await expect(
+      nativeBridge.request({
+        method: "GET",
+        path: "/v1/me",
+        accept: "application/json",
+      })
+    ).rejects.toBe(unauthorizedError);
+
     expect(authState.active).toBe(false);
   });
 
@@ -2553,37 +2600,24 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
-    plugin.request
-      .mockResolvedValueOnce({
-        status: 409,
-        bodyBase64: encodeBase64(
-          JSON.stringify({
-            message:
-              "Notification runtime metadata changed; refresh bootstrap before retrying this installation update.",
-            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
-            details: {
-              bootstrap_version: "v1",
-              schema_version: 4,
-              channel: "android_fcm",
-              provided_metadata_revision: 3,
-              expected_metadata_revision: 4,
-            },
-          })
-        ),
-        contentType: "application/json",
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        bodyBase64: encodeBase64(
-          JSON.stringify({
-            data: {
-              installation_id: installationId,
-              revoked_at: "2026-05-26T10:00:00Z",
-            },
-          })
-        ),
-        contentType: "application/json",
-      });
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message:
+            "Notification runtime metadata changed; refresh bootstrap before retrying this installation update.",
+          code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+          details: {
+            bootstrap_version: "v1",
+            schema_version: 4,
+            channel: "android_fcm",
+            provided_metadata_revision: 3,
+            expected_metadata_revision: 4,
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -2595,17 +2629,15 @@ describe("native auth bridge bootstrap injection", () => {
       plugin.request.mock.calls.map(
         (call) => (call[0] as { method: string }).method
       )
-    ).toEqual(["PUT", "DELETE"]);
+    ).toEqual(["PUT"]);
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
       path: `/v1/me/notification-installations/${installationId}`,
     });
-    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
-      method: "DELETE",
-      path: `/v1/me/notification-installations/${installationId}`,
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledWith({
+      androidPushInstallationId: installationId,
     });
-    expect(plugin.logout).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(runtimeState.pendingBootstrap).toBeNull();
@@ -2622,6 +2654,114 @@ describe("native auth bridge bootstrap injection", () => {
     expect(
       (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
     ).toHaveBeenCalledOnce();
+  });
+
+  it("reloads into reset recovery when stale-push browser cleanup fails", async () => {
+    const { bridge, listeners, localStorage, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    const logoutListener = vi.fn();
+    sandbox.caches = {
+      keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+      delete: vi.fn().mockResolvedValue(false),
+    };
+    (
+      sandbox as {
+        addEventListener(
+          eventName: string,
+          listener: (event: { type: string }) => void
+        ): void;
+      }
+    ).addEventListener("secpal:native-auth-logout", logoutListener);
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz",
+    });
+    await flushMicrotasks();
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message: "Notification runtime metadata changed.",
+          code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+        })
+      ),
+      contentType: "application/json",
+    });
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+    expect(logoutListener).toHaveBeenCalledOnce();
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the current session when a stale-push reset is not confirmed", async () => {
+    const pushToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
+    const runtimeBootstrap = createCustomerAndroidPushBootstrap();
+    const { bridge, listeners, localStorage, plugin, sandbox, sessionStorage } =
+      await createAndroidPushLifecycleSandbox({ runtimeBootstrap });
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    const cancelledConfirmation = Object.assign(
+      new Error("Android runtime change was not confirmed"),
+      { code: "RUNTIME_CONFIRMATION_CANCELLED" }
+    );
+
+    listeners.androidPushTokenReceived[0]?.({
+      appName: "secpal-runtime-push",
+      provider: "fcm",
+      token: pushToken,
+    });
+    await flushMicrotasks();
+
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message: "Notification runtime metadata changed.",
+          code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+        })
+      ),
+      contentType: "application/json",
+    });
+    plugin.confirmRuntimeReset.mockRejectedValueOnce(cancelledConfirmation);
+
+    await bridge.login({
+      email: "worker@customer.example",
+      password: "password123",
+    });
+    await flushMicrotasks(16);
+
+    expect(plugin.request).toHaveBeenCalledOnce();
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe(runtimeBootstrap.apiOrigin);
+    expect(authState.active).toBe(true);
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a");
+    expect(
+      (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
+    ).not.toHaveBeenCalled();
   });
 
   it("clears the selected runtime when push registration reports an unsupported notification channel", async () => {
@@ -2656,28 +2796,22 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
-    plugin.request
-      .mockResolvedValueOnce({
-        status: 409,
-        bodyBase64: encodeBase64(
-          JSON.stringify({
-            message:
-              "Notification channel is no longer supported for this deployment.",
-            code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
-            details: {
-              bootstrap_version: "v1",
-              schema_version: 4,
-              channel: "android_fcm",
-            },
-          })
-        ),
-        contentType: "application/json",
-      })
-      .mockResolvedValueOnce({
-        status: 404,
-        bodyBase64: encodeBase64(JSON.stringify({ message: "Not found." })),
-        contentType: "application/json",
-      });
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message:
+            "Notification channel is no longer supported for this deployment.",
+          code: "NOTIFICATION_CHANNEL_UNSUPPORTED",
+          details: {
+            bootstrap_version: "v1",
+            schema_version: 4,
+            channel: "android_fcm",
+          },
+        })
+      ),
+      contentType: "application/json",
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -2689,17 +2823,13 @@ describe("native auth bridge bootstrap injection", () => {
       plugin.request.mock.calls.map(
         (call) => (call[0] as { method: string }).method
       )
-    ).toEqual(["PUT", "DELETE"]);
+    ).toEqual(["PUT"]);
     expect(plugin.request.mock.calls[0]?.[0]).toMatchObject({
       method: "PUT",
       path: `/v1/me/notification-installations/${installationId}`,
     });
-    expect(plugin.request.mock.calls[1]?.[0]).toMatchObject({
-      method: "DELETE",
-      path: `/v1/me/notification-installations/${installationId}`,
-    });
-    expect(plugin.logout).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.logout).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(runtimeState.pendingBootstrap).toBeNull();
@@ -2738,22 +2868,16 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
-    plugin.request
-      .mockResolvedValueOnce({
-        status: 409,
-        bodyBase64: encodeBase64(
-          JSON.stringify({
-            message: "Notification runtime metadata changed.",
-            code: "NOTIFICATION_RUNTIME_STATE_INVALID",
-          })
-        ),
-        contentType: "application/json",
-      })
-      .mockResolvedValueOnce({
-        status: 204,
-        bodyBase64: encodeBase64(""),
-        contentType: "application/json",
-      });
+    plugin.request.mockResolvedValueOnce({
+      status: 409,
+      bodyBase64: encodeBase64(
+        JSON.stringify({
+          message: "Notification runtime metadata changed.",
+          code: "NOTIFICATION_RUNTIME_STATE_INVALID",
+        })
+      ),
+      contentType: "application/json",
+    });
 
     await bridge.login({
       email: "worker@customer.example",
@@ -2765,8 +2889,8 @@ describe("native auth bridge bootstrap injection", () => {
       plugin.request.mock.calls.map(
         (call) => (call[0] as { method: string }).method
       )
-    ).toEqual(["PUT", "DELETE"]);
-    expect(plugin.logout).toHaveBeenCalledOnce();
+    ).toEqual(["PUT"]);
+    expect(plugin.logout).not.toHaveBeenCalled();
     expect(runtimeState.configured).toBe(false);
     expect(
       (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload
@@ -3559,10 +3683,10 @@ describe("native auth bridge bootstrap injection", () => {
       getRuntimeBootstrap: vi.fn().mockResolvedValue({
         configured: false,
       }),
-      setRuntimeBootstrap: vi
+      confirmRuntimeBootstrap: vi
         .fn()
         .mockResolvedValue({ bootstrap: runtimeBootstrap }),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const localStorage = createMockStorage({
       "secpal-locale": "de",
@@ -3627,7 +3751,7 @@ describe("native auth bridge bootstrap injection", () => {
         apiOrigin: "https://customer-api.example",
       })
     ).rejects.toThrow("Android runtime bootstrap is incompatible.");
-    expect(plugin.setRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeBootstrap).not.toHaveBeenCalled();
     await expect(bridge.setRuntimeBootstrap(runtimeBootstrap)).resolves.toBe(
       "https://customer-api.example"
     );
@@ -3641,9 +3765,26 @@ describe("native auth bridge bootstrap injection", () => {
       normalizedRuntimeBootstrap,
       "minimumSupportedAppBuild"
     );
-    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledWith(
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledWith(
       normalizedRuntimeBootstrap
     );
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+
+    const cancelledConfirmation = Object.assign(
+      new Error("Android runtime change was not confirmed"),
+      { code: "RUNTIME_CONFIRMATION_CANCELLED" }
+    );
+    plugin.confirmRuntimeBootstrap.mockRejectedValueOnce(cancelledConfirmation);
+    await expect(
+      bridge.setRuntimeBootstrap(
+        buildRuntimeBootstrapValue({
+          apiOrigin: "https://other-customer.example",
+          instanceDisplayName: "Other Customer",
+        })
+      )
+    ).rejects.toThrow("Android runtime change was not confirmed");
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
     expect(runtimeState.configured).toBe(true);
     expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
 
@@ -3677,7 +3818,7 @@ describe("native auth bridge bootstrap injection", () => {
         },
       })
     );
-    expect(plugin.setRuntimeBootstrap).toHaveBeenLastCalledWith(
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenLastCalledWith(
       expect.objectContaining({
         androidPush: {
           provider: "fcm",
@@ -3694,7 +3835,7 @@ describe("native auth bridge bootstrap injection", () => {
 
     (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
     await expect(bridge.clearRuntimeBootstrap()).resolves.toBeUndefined();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
@@ -3705,9 +3846,9 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
 
-    Reflect.deleteProperty(plugin, "clearRuntimeBootstrap");
+    Reflect.deleteProperty(plugin, "confirmRuntimeReset");
     await expect(bridge.clearRuntimeBootstrap()).rejects.toThrow(
-      /runtime-bootstrap clearing is unavailable/i
+      /native-confirmed runtime reset is unavailable/i
     );
   });
 
@@ -3724,12 +3865,14 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockReturnValue(restorePromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
+    const localStorage = createMockStorage();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
+      localStorage,
       sessionStorage: createMockStorage({
         [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
       }),
@@ -3774,12 +3917,481 @@ describe("native auth bridge bootstrap injection", () => {
     });
     await flushMicrotasks();
 
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).toBeNull();
+  });
+
+  it("preserves an incompatible vault and configured runtime when startup reset is not confirmed", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    const cancelledConfirmation = Object.assign(
+      new Error("Android runtime change was not confirmed"),
+      { code: "RUNTIME_CONFIRMATION_CANCELLED" }
+    );
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: runtimeBootstrap,
+      }),
+      confirmRuntimeReset: vi.fn().mockRejectedValue(cancelledConfirmation),
+    };
+    const localStorage = createMockStorage({
+      auth_vault_state: JSON.stringify({
+        wrapper: { kind: "native-device-bound" },
+      }),
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(runtimeBootstrap),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a-cache");
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
+  });
+
+  it("completes an accepted incompatible-vault reset before allowing a runtime rebind", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const currentBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    const replacementBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://replacement-api.example",
+      instanceDisplayName: "Replacement Example",
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: currentBootstrap,
+      }),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const localStorage = createMockStorage({
+      auth_vault_state: JSON.stringify({
+        wrapper: { kind: "native-device-bound" },
+      }),
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]:
+        buildStoredRuntimeBootstrap(currentBootstrap),
+      "tenant-session": "customer-a-session",
+    });
+    const reload = vi.fn();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+      configured: boolean;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+    };
+    await expect(
+      bridge.setRuntimeBootstrap(replacementBootstrap)
+    ).resolves.toBe("https://replacement-api.example");
+
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(runtimeState.configured).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("completes browser teardown after an interrupted native runtime reset", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      confirmRuntimeReset: vi.fn(),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "secpal-locale": "de",
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+  });
+
+  it("retries interrupted-reset recovery before leaving the recovery path", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      getRuntimeBootstrap: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("transient native read failure"))
+        .mockResolvedValue({ configured: false }),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "secpal-locale": "de",
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+  });
+
+  it("contains interrupted-reset cleanup failure without a startup reload loop", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      confirmRuntimeReset: vi.fn(),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "tenant-cache": "customer-a-cache",
+    });
+    const reload = vi.fn();
+    const dispatchEvent = vi.fn();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage: createMockStorage({
+        [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+        "tenant-session": "customer-a-session",
+      }),
+      caches: {
+        keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+        delete: vi.fn().mockResolvedValue(false),
+      },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Event,
+      dispatchEvent,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console: { ...console, warn: vi.fn() },
+      location: { href: "https://app.secpal.dev/login", reload },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+    expect(runtimeState.configured).toBe(false);
+    expect(runtimeState.apiOrigin).toBeNull();
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect((dispatchEvent.mock.calls[0]?.[0] as Event).type).toBe(
+      "secpal:native-auth-logout"
+    );
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("keeps startup runtime initialization bound to interrupted-reset cleanup", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let finishCacheDeletion!: () => void;
+    const cacheDeletion = new Promise<boolean>((resolve) => {
+      finishCacheDeletion = () => resolve(true);
+    });
+    const sandbox = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            getRuntimeBootstrap: vi
+              .fn()
+              .mockResolvedValue({ configured: false }),
+          },
+        },
+      },
+      document: new MockDocument(),
+      localStorage: createMockStorage({
+        [runtimeResetPendingStorageKey]: "1",
+      }),
+      sessionStorage: createMockStorage(),
+      caches: {
+        keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+        delete: vi.fn().mockReturnValue(cacheDeletion),
+      },
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+    };
+    const startupInitialization = runtimeState.nativeConfigPromise;
+    await flushMicrotasks();
+
+    expect(runtimeState.nativeConfigPromise).toBe(startupInitialization);
+
+    finishCacheDeletion();
+    await expect(startupInitialization).resolves.toBeUndefined();
+  });
+
+  it("discards a stale reset marker when the native runtime remains configured", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: runtimeBootstrap,
+      }),
+      confirmRuntimeReset: vi.fn(),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledTimes(2);
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a-cache");
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
   });
 
   it("serializes a shared frontend clear after an in-flight runtime bootstrap apply", async () => {
@@ -3799,13 +4411,15 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
-      setRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
-      clearRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
+      confirmRuntimeReset: vi.fn().mockResolvedValue(undefined),
     };
     const document = new MockDocument();
+    const localStorage = createMockStorage();
     const sandbox = {
       Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
       document,
+      localStorage,
       sessionStorage: createMockStorage(),
       fetch: vi.fn(),
       Request,
@@ -3844,14 +4458,15 @@ describe("native auth bridge bootstrap injection", () => {
     await flushMicrotasks();
     const clear = bridge.clearRuntimeBootstrap();
     await flushMicrotasks();
-    expect(plugin.clearRuntimeBootstrap).not.toHaveBeenCalled();
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
 
     resolvePersist();
-    await expect(apply).rejects.toThrow(/superseded/i);
+    await expect(apply).resolves.toBe("https://customer-api.example");
     await expect(clear).resolves.toBeUndefined();
 
-    expect(plugin.setRuntimeBootstrap).toHaveBeenCalledOnce();
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeBootstrap).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
     expect(runtimeState.configured).toBe(false);
     expect(runtimeState.apiOrigin).toBeNull();
     expect(
@@ -3859,7 +4474,201 @@ describe("native auth bridge bootstrap injection", () => {
     ).toBeNull();
   });
 
-  it("clears tenant browser state when native runtime-bootstrap clearing fails", async () => {
+  it("keeps the confirmed runtime when a queued reset is cancelled", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const runtimeBootstrap = buildRuntimeBootstrapValue({
+      apiOrigin: "https://customer-api.example",
+      instanceDisplayName: "Customer Example",
+    });
+    let resolvePersist!: () => void;
+    const persistPromise = new Promise<void>((resolve) => {
+      resolvePersist = resolve;
+    });
+    const resetCancelled = new Error("runtime reset cancelled");
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
+      confirmRuntimeBootstrap: vi.fn().mockReturnValue(persistPromise),
+      confirmRuntimeReset: vi.fn().mockRejectedValue(resetCancelled),
+    };
+    const document = new MockDocument();
+    const localStorage = createMockStorage();
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document,
+      localStorage,
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+    await flushMicrotasks();
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+      clearRuntimeBootstrap(): Promise<void>;
+    };
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    const apply = bridge.setRuntimeBootstrap(runtimeBootstrap);
+    await flushMicrotasks();
+    const clear = bridge.clearRuntimeBootstrap();
+    resolvePersist();
+
+    await expect(apply).resolves.toBe("https://customer-api.example");
+    await expect(clear).rejects.toBe(resetCancelled);
+
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+  });
+
+  it("keeps the reset marker until asynchronous tenant cleanup completes", async () => {
+    let resolveCacheDeletion!: (deleted: boolean) => void;
+    const cacheDeletion = new Promise<boolean>((resolve) => {
+      resolveCacheDeletion = resolve;
+    });
+    const { bridge, localStorage, sandbox } =
+      await createAndroidPushLifecycleSandbox();
+    sandbox.caches = {
+      keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+      delete: vi.fn().mockReturnValue(cacheDeletion),
+    };
+
+    const clear = (
+      bridge as typeof bridge & { clearRuntimeBootstrap(): Promise<void> }
+    ).clearRuntimeBootstrap();
+    await flushMicrotasks();
+
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBe("1");
+
+    resolveCacheDeletion(true);
+    await expect(clear).resolves.toBeUndefined();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+  });
+
+  it("keeps reset recovery pending when tenant cleanup is incomplete", async () => {
+    const cleanupFailures: Array<{
+      name: string;
+      configure(sandbox: Record<string, unknown>): void;
+    }> = [
+      {
+        name: "cache deletion",
+        configure(sandbox) {
+          sandbox.caches = {
+            keys: vi.fn().mockResolvedValue(["tenant-cache"]),
+            delete: vi.fn().mockResolvedValue(false),
+          };
+        },
+      },
+      {
+        name: "blocked IndexedDB deletion",
+        configure(sandbox) {
+          sandbox.indexedDB = {
+            databases: vi.fn().mockResolvedValue([{ name: "tenant-db" }]),
+            deleteDatabase: vi.fn(() => {
+              const request: { onblocked?: () => void } = {};
+              void Promise.resolve().then(() => request.onblocked?.());
+              return request;
+            }),
+          };
+        },
+      },
+      {
+        name: "service-worker removal",
+        configure(sandbox) {
+          sandbox.navigator = {
+            serviceWorker: {
+              getRegistrations: vi
+                .fn()
+                .mockResolvedValue([
+                  { unregister: vi.fn().mockResolvedValue(false) },
+                ]),
+            },
+          };
+        },
+      },
+    ];
+
+    for (const cleanupFailure of cleanupFailures) {
+      const { bridge, localStorage, plugin, sandbox } =
+        await createAndroidPushLifecycleSandbox();
+      const logoutListener = vi.fn();
+      cleanupFailure.configure(sandbox);
+      (
+        sandbox as {
+          addEventListener(
+            eventName: string,
+            listener: (event: { type: string }) => void
+          ): void;
+        }
+      ).addEventListener("secpal:native-auth-logout", logoutListener);
+      const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+        configured: boolean;
+        apiOrigin: string | null;
+      };
+
+      await expect(
+        (
+          bridge as typeof bridge & { clearRuntimeBootstrap(): Promise<void> }
+        ).clearRuntimeBootstrap(),
+        cleanupFailure.name
+      ).rejects.toThrow(/cleanup|blocked/i);
+
+      expect(
+        localStorage.getItem(runtimeResetPendingStorageKey),
+        cleanupFailure.name
+      ).toBe("1");
+      expect(runtimeState.configured, cleanupFailure.name).toBe(false);
+      expect(runtimeState.apiOrigin, cleanupFailure.name).toBeNull();
+      expect(logoutListener, cleanupFailure.name).toHaveBeenCalledOnce();
+      expect(
+        (sandbox.location as { reload: ReturnType<typeof vi.fn> }).reload,
+        cleanupFailure.name
+      ).toHaveBeenCalledOnce();
+      await expect(
+        (
+          bridge as typeof bridge & {
+            setRuntimeBootstrap(bootstrap: unknown): Promise<unknown>;
+          }
+        ).setRuntimeBootstrap(
+          buildRuntimeBootstrapValue({
+            apiOrigin: "https://other-customer.example",
+            instanceDisplayName: "Other Customer",
+          })
+        ),
+        cleanupFailure.name
+      ).rejects.toThrow(/reset recovery.*pending/i);
+      expect(plugin.confirmRuntimeBootstrap).not.toHaveBeenCalled();
+    }
+  });
+
+  it("preserves tenant browser state when native runtime-bootstrap clearing fails", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const runtimeBootstrap = buildRuntimeBootstrapValue({
       apiOrigin: "https://customer-api.example",
@@ -3872,8 +4681,8 @@ describe("native auth bridge bootstrap injection", () => {
       isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
       request: vi.fn(),
       getRuntimeBootstrap: vi.fn().mockResolvedValue({ configured: false }),
-      setRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
-      clearRuntimeBootstrap: vi
+      confirmRuntimeBootstrap: vi.fn().mockResolvedValue(undefined),
+      confirmRuntimeReset: vi
         .fn()
         .mockRejectedValue(new Error("native clear failed")),
     };
@@ -3930,13 +4739,14 @@ describe("native auth bridge bootstrap injection", () => {
       "native clear failed"
     );
 
-    expect(plugin.clearRuntimeBootstrap).toHaveBeenCalledOnce();
-    expect(runtimeState.configured).toBe(false);
-    expect(runtimeState.apiOrigin).toBeNull();
+    expect(plugin.confirmRuntimeReset).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
     expect(localStorage.getItem("secpal-locale")).toBe("de");
-    expect(localStorage.getItem("tenant-cache")).toBeNull();
-    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
-    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a-cache");
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).not.toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
     expect(
       document.getElementById("secpal-instance-discovery-gate")
     ).toBeNull();

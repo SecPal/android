@@ -34,6 +34,15 @@ class NativeAuthHttpClient {
     private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
         "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
     );
+    private final ConnectionFactory connectionFactory;
+
+    NativeAuthHttpClient() {
+        this(url -> (HttpURLConnection) url.openConnection());
+    }
+
+    NativeAuthHttpClient(ConnectionFactory connectionFactory) {
+        this.connectionFactory = connectionFactory;
+    }
 
     LoginResponse login(String baseUrl, String email, String password) throws IOException, JSONException, NativeAuthHttpException {
         JSONObject requestBody = new JSONObject()
@@ -107,15 +116,24 @@ class NativeAuthHttpClient {
         String accept
     )
         throws IOException, NativeAuthHttpException {
-        RequestResponse response = sendRequest(
-            baseUrl,
-            normalizeRequestPath(path),
-            normalizeHttpMethod(method),
-            decodeRequestBody(requestBodyBase64),
-            token,
+        byte[] requestBody = decodeRequestBody(requestBodyBase64);
+        NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest = NativeAuthRequestPolicy.authorize(
+            method,
+            path,
             contentType,
             accept,
-            false
+            requestBody == null ? 0 : requestBody.length
+        );
+        RequestResponse response = sendRequest(
+            baseUrl,
+            authorizedRequest.getCanonicalPathAndQuery(),
+            authorizedRequest.getMethod(),
+            requestBody,
+            token,
+            authorizedRequest.getContentType(),
+            authorizedRequest.getAccept(),
+            false,
+            authorizedRequest.getResponseKind()
         );
 
         JSObject payload = new JSObject();
@@ -139,7 +157,8 @@ class NativeAuthHttpClient {
             bearerToken,
             "application/json",
             "application/json",
-            true
+            true,
+            NativeAuthRequestPolicy.ResponseKind.JSON
         );
 
         String responseBody = response.getResponseBodyAsString();
@@ -155,11 +174,15 @@ class NativeAuthHttpClient {
         String bearerToken,
         String contentType,
         String accept,
-        boolean throwOnError
+        boolean throwOnError,
+        NativeAuthRequestPolicy.ResponseKind responseKind
     )
         throws IOException, NativeAuthHttpException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(normalizeBaseUrl(baseUrl) + path).openConnection();
+        HttpURLConnection connection = connectionFactory.open(
+            new URL(normalizeBaseUrl(baseUrl) + path)
+        );
         try {
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod(method);
             connection.setConnectTimeout(resolveConnectTimeoutMillis(method, path));
             connection.setReadTimeout(resolveReadTimeoutMillis(method, path));
@@ -184,15 +207,22 @@ class NativeAuthHttpClient {
             }
 
             int statusCode = connection.getResponseCode();
+            rejectAuthenticatedRedirect(statusCode);
+            long declaredResponseLength = connection.getContentLengthLong();
+            if (declaredResponseLength > NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES) {
+                throw new NativeAuthHttpException("Android auth bridge response exceeds the allowed size", 0);
+            }
             InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
             byte[] responseBody;
             if (responseStream != null) {
                 try (InputStream in = responseStream) {
-                    responseBody = readResponseBodyBytes(in);
+                    responseBody = readResponseBodyBytes(in, NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES);
                 }
             } else {
                 responseBody = new byte[0];
             }
+
+            validateResponseContentType(responseKind, statusCode, responseBody.length, connection.getContentType());
 
             if (statusCode >= 400 && throwOnError) {
                 throw new NativeAuthHttpException(
@@ -385,20 +415,6 @@ class NativeAuthHttpClient {
         }
     }
 
-    static String normalizeRequestPath(String path) throws NativeAuthHttpException {
-        if (path == null || path.trim().isEmpty()) {
-            throw new NativeAuthHttpException("Android auth bridge requires a request path", 0);
-        }
-
-        String normalizedPath = path.trim();
-
-        if (!normalizedPath.startsWith("/")) {
-            throw new NativeAuthHttpException("Android auth bridge requires a relative request path starting with /", 0);
-        }
-
-        return normalizedPath;
-    }
-
     static LoginResponse parseLoginResponse(JSONObject response) throws JSONException {
         return new LoginResponse(response.getString("token"), JSObject.fromJSONObject(response.getJSONObject("user")));
     }
@@ -421,7 +437,8 @@ class NativeAuthHttpClient {
         return challengeId.trim();
     }
 
-    private byte[] readResponseBodyBytes(InputStream inputStream) throws IOException {
+    static byte[] readResponseBodyBytes(InputStream inputStream, int maximumBytes)
+        throws IOException, NativeAuthHttpException {
         if (inputStream == null) {
             return new byte[0];
         }
@@ -431,6 +448,12 @@ class NativeAuthHttpClient {
             int bytesRead;
 
             while ((bytesRead = inputStream.read(buffer)) != -1) {
+                if (bytesRead > maximumBytes - outputStream.size()) {
+                    throw new NativeAuthHttpException(
+                        "Android auth bridge response exceeds the allowed size",
+                        0
+                    );
+                }
                 outputStream.write(buffer, 0, bytesRead);
             }
 
@@ -445,6 +468,57 @@ class NativeAuthHttpClient {
 
         if (!REQUEST_BODY_BASE64_PATTERN.matcher(requestBodyBase64).matches()) {
             throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
+        }
+
+        int maximumEncodedLength = ((NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES + 2) / 3) * 4;
+        if (requestBodyBase64.length() > maximumEncodedLength) {
+            throw new NativeAuthHttpException("Android auth bridge request exceeds the allowed size", 0);
+        }
+    }
+
+    static void rejectAuthenticatedRedirect(int statusCode) throws NativeAuthHttpException {
+        if (statusCode == HttpURLConnection.HTTP_MOVED_PERM
+            || statusCode == HttpURLConnection.HTTP_MOVED_TEMP
+            || statusCode == HttpURLConnection.HTTP_SEE_OTHER
+            || statusCode == 307
+            || statusCode == 308) {
+            throw new NativeAuthHttpException(
+                "Android auth bridge does not follow authenticated redirects",
+                statusCode
+            );
+        }
+    }
+
+    private static void validateResponseContentType(
+        NativeAuthRequestPolicy.ResponseKind responseKind,
+        int statusCode,
+        int responseBodyLength,
+        String contentType
+    ) throws NativeAuthHttpException {
+        if (responseBodyLength == 0) {
+            return;
+        }
+
+        String mediaType = contentType == null
+            ? ""
+            : contentType.split(";", 2)[0].trim().toLowerCase(Locale.US);
+        boolean json = "application/json".equals(mediaType) || mediaType.endsWith("+json");
+
+        if (statusCode >= 400) {
+            if (!json) {
+                throw new NativeAuthHttpException(
+                    "Android auth bridge received an unsupported error response content type",
+                    statusCode
+                );
+            }
+            return;
+        }
+
+        if (responseKind == NativeAuthRequestPolicy.ResponseKind.JSON && !json) {
+            throw new NativeAuthHttpException(
+                "Android auth bridge received an unsupported JSON response content type",
+                0
+            );
         }
     }
 
@@ -486,6 +560,10 @@ class NativeAuthHttpClient {
         JSObject getUser() {
             return user;
         }
+    }
+
+    interface ConnectionFactory {
+        HttpURLConnection open(URL url) throws IOException;
     }
 
     static final class PasskeyChallenge {

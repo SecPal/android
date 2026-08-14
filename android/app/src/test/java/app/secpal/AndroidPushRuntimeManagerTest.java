@@ -81,6 +81,34 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void applyWithRollbackRestoresPreviousRuntimeAfterReplacementFails() {
+        RuntimeException replacementFailure = new RuntimeException("replacement-failed");
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
+        backend.nextInitializeFailure = replacementFailure;
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+        AndroidPushRuntimeMetadata previousMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 2, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        AndroidPushRuntimeMetadata nextMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "new-api-key", "new-project", "new-app", "new-sender"
+        );
+
+        try {
+            manager.applyWithRollback(nextMetadata, previousMetadata);
+            fail("Expected replacement failure");
+        } catch (RuntimeException thrown) {
+            assertSame(replacementFailure, thrown);
+        }
+
+        assertEquals(2, backend.initializeCallCount);
+        assertEquals(1, backend.deleteCallCount);
+        assertEquals(1, backend.ensureMessagingCallCount);
+        assertSame(previousMetadata, backend.lastInitializedMetadata);
+        assertSame(backend.lastInitializedApp, backend.lastEnsuredMessagingApp);
+    }
+
+    @Test
     public void defaultFirebaseBackendRequestsTokenForNamedRuntimeApp() {
         FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
         FakeMessagingListener messagingListener = new FakeMessagingListener();
@@ -173,6 +201,7 @@ public class AndroidPushRuntimeManagerTest {
         int initializeCallCount;
         int ensureMessagingCallCount;
         int deleteCallCount;
+        RuntimeException nextInitializeFailure;
 
         @Override
         public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
@@ -185,6 +214,11 @@ public class AndroidPushRuntimeManagerTest {
         ) {
             initializeCallCount += 1;
             lastInitializedMetadata = metadata;
+            if (nextInitializeFailure != null) {
+                RuntimeException failure = nextInitializeFailure;
+                nextInitializeFailure = null;
+                throw failure;
+            }
             existingApp = new FakeFirebaseApp(this, "secpal-runtime-push");
             lastInitializedApp = existingApp;
             return existingApp;

@@ -7,6 +7,7 @@ package app.secpal;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 class NativeAuthTaskExecutor {
     private final ExecutorService executorService;
@@ -31,6 +32,16 @@ class NativeAuthTaskExecutor {
         }
 
         return true;
+    }
+
+    boolean submit(Runnable job, Consumer<RuntimeException> failureHandler) {
+        return submit(() -> {
+            try {
+                job.run();
+            } catch (RuntimeException exception) {
+                failureHandler.accept(exception);
+            }
+        });
     }
 
     void shutdownNow() {

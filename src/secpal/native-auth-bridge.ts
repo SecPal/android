@@ -84,7 +84,7 @@ export interface NativeAuthBridge {
 }
 
 export interface NativeAuthenticatedRequest {
-  method: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   bodyBase64?: string;
   contentType?: string;

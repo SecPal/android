@@ -17,6 +17,7 @@ const emulatorHelperSource = readFileSync(
 );
 type WorkflowStep = {
   name?: string;
+  env?: Record<string, string>;
   if?: string;
   run?: string;
   uses?: string;
@@ -76,6 +77,29 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("npm run native:assemble:debug");
     expect(workflowSource).toContain("Android SHA:");
     expect(workflowSource).toContain("Frontend SHA:");
+  });
+
+  it("verifies generated native-auth route parity after packaging", () => {
+    const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Build debug APK from frontend main"
+    );
+    const parityStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Verify generated native-auth route parity"
+    );
+    const parityStep = workflow.jobs.smoke.steps[parityStepIndex];
+
+    expect(buildStepIndex).toBeGreaterThan(-1);
+    expect(parityStepIndex).toBe(buildStepIndex + 1);
+    expect(parityStep?.env?.SECPAL_REQUIRE_PACKAGED_ROUTE_PARITY).toBe("1");
+    expect(parityStep?.run).toBe(
+      "./node_modules/.bin/vitest run tests/android-native-auth-route-inventory.test.ts"
+    );
+    expect(workflow.on.pull_request.paths).toContain(
+      "tests/android-native-auth-route-inventory.test.ts"
+    );
+    expect(workflow.on.push.paths).toContain(
+      "tests/android-native-auth-route-inventory.test.ts"
+    );
   });
 
   it("uses a deterministic current-day version code for the smoke APK", () => {

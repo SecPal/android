@@ -34,6 +34,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Constrained the bearer-authenticated Android request broker to a reviewed
+  method, canonical route, query-key, request-media-type, and response-kind
+  inventory; ambiguous encodings, credential/bootstrap routes, unknown
+  operations, unsupported media, oversized bodies, and every HTTP redirect now
+  fail closed before credentials can leave the validated runtime origin, while
+  public bootstrap, release, and onboarding-invitation requests remain on the
+  browser transport. Non-JSON authentication errors retain their HTTP status so
+  `401` responses still clear rejected credentials and frontend auth state. The
+  obsolete raw `setApiBaseUrl`, `setRuntimeBootstrap`, and
+  `clearRuntimeBootstrap` Capacitor exports were removed; runtime selection and
+  reset now require single-use native user confirmation through the breaking
+  `confirmRuntimeBootstrap` and `confirmRuntimeReset` plugin contract. The
+  confirmation identifies the natively canonicalized target; cancelled or
+  failed resets, including startup recovery and push-metadata resets, preserve
+  the current frontend and native runtime atomically, and late push cleanup
+  failures roll back native persistence and credentials. Confirmed resets
+  best-effort revoke known server-side push installations and the authenticated
+  server session against the exact confirmed origin after native cleanup
+  succeeds and before frontend teardown. Unreadable device-bound credentials no
+  longer block an approved reset, and a durable browser recovery marker finishes
+  tenant-state teardown after process termination while preserving state when
+  the native runtime is still configured. The marker now remains until cache,
+  IndexedDB, and service-worker cleanup explicitly succeeds; incomplete cleanup
+  fails closed with the native and frontend runtime both unconfigured. Runtime
+  resets serialize behind in-flight confirmed rebinds, failed push-runtime
+  replacement restores the previous deployment metadata and credential as one
+  transaction, and failed rollback never reattaches a credential to an
+  unconfirmed runtime. Confirmed native resets that encounter incomplete
+  browser cleanup now dispatch logout and reload into durable reset recovery
+  instead of leaving the authenticated application shell running; startup
+  recovery contains cleanup failures without entering a reload loop, and every
+  confirmed reset path clears its durable recovery marker only after browser
+  teardown succeeds. Runtime persistence failures now restore the previous
+  canonical runtime before reattaching its credential, including Android's
+  `commit()` failure case where in-memory preferences may already have changed.
+  Validated request headers are canonicalized into the authorized request and
+  raw JavaScript header values never reach the credentialed connection; an
+  executor-wide rejection boundary also settles unexpected native request
+  failures. Rejected
+  native `HTTP_401` requests deactivate frontend authentication, and `GET`
+  bodies are rejected before a credentialed connection can be created.
+  Rebinding clears even orphaned or unreadable credentials unless the existing
+  canonical origin is identical, and parity coverage keeps retired Android enrollment-session
+  operations and other uncalled service routes outside the least-privilege
+  inventory. The generated-caller parity suite now compares complete method,
+  route-template, query-key, and request-media-type contracts, removing stale
+  activity-log and organizational-tree grants; a failed push reset also restores
+  the previous deployment's push runtime together with its bootstrap and
+  credential. Interrupted-reset startup recovery retries one transient native
+  bootstrap read and remains blocked when native runtime state is still unknown.
+  The Android smoke build runs this suite after packaging and fails closed when
+  packaged JavaScript assets are unavailable instead of silently skipping its
+  assertions (issue #408).
+
 - Allowed one additional bounded API 37 recovery when the PackageManager
   service disappears on two consecutive zero-test installation attempts,
   while keeping a third identical failure and real test failures fail-closed.
@@ -403,8 +457,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation packages at hook runtime; preflight and local hooks now install
   locked Node dependencies before invoking those local validation binaries on
   a clean checkout.
-- Serialized injected Android runtime-bootstrap apply/clear mutations, rejected stale applies, canonicalized shared-frontend payloads at the bridge boundary, failed closed when native clear support is unavailable, and reset the in-memory native-auth flag during runtime clearing.
-- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and still clear tenant browser state when native persistence cleanup reports a failure.
+- Serialized injected Android runtime-bootstrap apply/clear mutations, rejected stale applies, canonicalized shared-frontend payloads at the bridge boundary, failed closed when native clear support is unavailable, and reset the in-memory native-auth flag during successful runtime clearing.
+- Hardened the injected Android runtime-bootstrap bridge so shared frontend apply/clear calls remove stale discovery UI, cannot be overwritten by an older in-flight native restore, and preserve the current frontend runtime and tenant browser state when native persistence cleanup reports a failure.
 - The injected Android `clearRuntimeBootstrap()` bridge method now clears tenant-scoped browser storage alongside native runtime persistence, preventing shared frontend instance-switch flows from carrying stale customer state into discovery.
 - Removed the obsolete injected Android runtime-bootstrap compatibility path that restored or confirmed deployments through `SecPalNativeAuth.setApiBaseUrl(...)` plus session storage; the bridge now requires the merged frontend `getRuntimeBootstrap`/`setRuntimeBootstrap` native contract and fails closed when it is unavailable.
 - Exposed runtime-bootstrap read/apply/clear and runtime-info methods on the injected `SecPalNativeAuthBridge`, keeping the Android WebView bridge aligned with the merged shared frontend `SecPalRuntimeBootstrap` facade.

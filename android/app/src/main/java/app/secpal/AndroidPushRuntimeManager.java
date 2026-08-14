@@ -88,6 +88,22 @@ final class AndroidPushRuntimeManager {
         firebaseBackend.ensureMessaging(initializedApp);
     }
 
+    void applyWithRollback(
+        AndroidPushRuntimeMetadata metadata,
+        AndroidPushRuntimeMetadata rollbackMetadata
+    ) {
+        try {
+            apply(metadata);
+        } catch (RuntimeException exception) {
+            try {
+                apply(rollbackMetadata);
+            } catch (RuntimeException rollbackException) {
+                exception.addSuppressed(rollbackException);
+            }
+            throw exception;
+        }
+    }
+
     static final class DefaultFirebaseBackend implements FirebaseBackend {
         private final Context applicationContext;
         private final FirebaseMessagingClient messagingClient;
