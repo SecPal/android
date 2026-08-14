@@ -26,12 +26,142 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 import org.json.JSONObject;
 
 public class SecPalNativeAuthPluginTest {
+
+    @Test
+    public void bridgeCallShapeRejectsUnexpectedRetainedPayloads() {
+        JSObject data = new JSObject();
+        data.put("method", "GET");
+        data.put("path", "/v1/me");
+        data.put("unexpected", "x");
+
+        assertFalse(SecPalNativeAuthPlugin.hasOnlyKeys(data, "method", "path"));
+        data.remove("unexpected");
+        assertTrue(SecPalNativeAuthPlugin.hasOnlyKeys(data, "method", "path"));
+    }
+
+    @Test
+    public void boundedBridgeValuesRejectQueueRetainedCredentialPayloads() {
+        assertTrue(SecPalNativeAuthPlugin.isBoundedValue("worker@secpal.dev", 320));
+        assertFalse(SecPalNativeAuthPlugin.isBoundedValue("x".repeat(321), 320));
+    }
+
+    @Test
+    public void boundedBridgeObjectsRejectQueueRetainedRuntimeAndPasskeyPayloads() {
+        JSObject bounded = new JSObject();
+        bounded.put("challenge", "x".repeat(128));
+        JSObject oversized = new JSObject();
+        oversized.put(
+            "challenge",
+            "x".repeat(SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS)
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.isBoundedJsonObject(
+            bounded,
+            SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS
+        ));
+        assertFalse(SecPalNativeAuthPlugin.isBoundedJsonObject(
+            oversized,
+            SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS
+        ));
+    }
+
+    @Test
+    public void runtimeBootstrapRejectsOversizedIdentityAndOriginValues() throws Exception {
+        assertRuntimeBootstrapInvalid(
+            "x".repeat(SecPalNativeAuthPlugin.MAX_RUNTIME_DISPLAY_NAME_CHARACTERS + 1),
+            "https://tenant.example/v1"
+        );
+        assertRuntimeBootstrapInvalid(
+            "Tenant",
+            "https://" + "x".repeat(SecPalNativeAuthPlugin.MAX_RUNTIME_URL_CHARACTERS)
+        );
+    }
+
+    @Test
+    public void terminalSettlementRunsOnlyOnceAcrossCompletionAndCancellation() throws Exception {
+        AtomicBoolean settled = new AtomicBoolean(false);
+        AtomicInteger callbacks = new AtomicInteger();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Runnable contender = () -> {
+            ready.countDown();
+            try {
+                start.await();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            SecPalNativeAuthPlugin.settleOnce(settled, callbacks::incrementAndGet);
+        };
+        Thread completion = new Thread(contender);
+        Thread cancellation = new Thread(contender);
+        completion.start();
+        cancellation.start();
+        assertTrue(ready.await(2, TimeUnit.SECONDS));
+
+        start.countDown();
+        completion.join(2_000L);
+        cancellation.join(2_000L);
+
+        assertEquals(1, callbacks.get());
+    }
+
+    @Test
+    public void lifecycleNotificationInvalidatesWebViewBeforeNativeBackgroundCancellation()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch requestStarted = new CountDownLatch(1);
+        List<String> events = new ArrayList<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "background-ordering",
+                    0,
+                    () -> {
+                        requestStarted.countDown();
+                        try {
+                            Thread.sleep(10_000L);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> events.add("cancel:" + reason)
+                )
+            );
+            assertTrue(requestStarted.await(2, TimeUnit.SECONDS));
+
+            SecPalNativeAuthPlugin.pauseAuthenticatedForLifecycle(
+                taskExecutor,
+                (event, payload) -> events.add(
+                    event + ":" + payload.getBool("foreground")
+                )
+            );
+
+            assertEquals("nativeAuthLifecycleChanged:false", events.get(0));
+            assertEquals("cancel:APP_BACKGROUNDED", events.get(1));
+
+            SecPalNativeAuthPlugin.resumeAuthenticatedForLifecycle(
+                taskExecutor,
+                (event, payload) -> events.add(
+                    event + ":" + payload.getBool("foreground")
+                )
+            );
+            assertEquals("nativeAuthLifecycleChanged:true", events.get(2));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void obsoleteApiBaseUrlMutationIsNotExportedToJavascript() {
@@ -47,6 +177,33 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeReset"));
+        assertTrue(exportedMethods.contains("cancelRequest"));
+    }
+
+    @Test
+    public void authenticatedRequestsRequireACallerVisibleCancellationIdentifier() {
+        assertNull(SecPalNativeAuthPlugin.normalizeRequiredRequestId(null));
+        assertNull(SecPalNativeAuthPlugin.normalizeRequiredRequestId("   "));
+        assertEquals(
+            "webview-request_42",
+            SecPalNativeAuthPlugin.normalizeRequiredRequestId(" webview-request_42 ")
+        );
+    }
+
+    @Test
+    public void sessionTransitionsDoNotUseTheBackgroundErrorContract() {
+        assertEquals(
+            "NATIVE_AUTH_BACKGROUND",
+            SecPalNativeAuthPlugin.submissionErrorCode(
+                NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+            )
+        );
+        assertEquals(
+            "NATIVE_AUTH_BUSY",
+            SecPalNativeAuthPlugin.submissionErrorCode(
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
+            )
+        );
     }
 
     @Test
@@ -454,6 +611,19 @@ public class SecPalNativeAuthPluginTest {
         assertEquals(
             "VALIDATION_ERROR",
             SecPalNativeAuthPlugin.resolveErrorCode(new NativeAuthHttpException("Invalid", 0))
+        );
+    }
+
+    @Test
+    public void resolveErrorCodePreservesStableTransportTimeout() {
+        assertEquals(
+            "REQUEST_TIMEOUT",
+            SecPalNativeAuthPlugin.resolveErrorCode(
+                new NativeAuthHttpClient.NativeAuthCancelledException(
+                    "REQUEST_TIMEOUT",
+                    null
+                )
+            )
         );
     }
 
@@ -1300,6 +1470,22 @@ public class SecPalNativeAuthPluginTest {
         );
 
         assertTrue(logoutCalled.get());
+    }
+
+    private static void assertRuntimeBootstrapInvalid(
+        String instanceDisplayName,
+        String rawApiBaseUrl
+    ) throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", instanceDisplayName)
+                    .put("rawApiBaseUrl", rawApiBaseUrl)
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException expected) {
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", expected.getErrorCode());
+        }
     }
 
     private static final class FakeTokenStorage implements TokenStorage {

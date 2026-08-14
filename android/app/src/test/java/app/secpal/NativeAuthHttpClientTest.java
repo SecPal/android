@@ -21,6 +21,10 @@ import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.json.JSONObject;
@@ -154,6 +158,43 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void oversizedBase64IsRejectedBeforeDecoding() {
+        assertDecodeErrorMessage(
+            "Android auth bridge request exceeds the allowed size",
+            "A".repeat(NativeAuthHttpClient.MAX_REQUEST_BODY_BASE64_CHARACTERS + 4)
+        );
+    }
+
+    @Test
+    public void transportTimeoutReasonCannotBeOverwrittenByLaterCancellation()
+        throws Exception {
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+
+        cancellation.cancelForTimeout();
+        cancellation.cancel();
+
+        try {
+            cancellation.throwIfCancelled();
+            throw new AssertionError("Expected cancellation to throw");
+        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            assertEquals("REQUEST_TIMEOUT", exception.getReasonCode());
+        }
+    }
+
+    @Test
+    public void callerCancellationAfterUnauthorizedStatusPreservesCancellationReason()
+        throws Exception {
+        assertCancellationAfterUnauthorizedStatus(false, "REQUEST_CANCELLED");
+    }
+
+    @Test
+    public void lifetimeTimeoutAfterUnauthorizedStatusPreservesTimeoutReason()
+        throws Exception {
+        assertCancellationAfterUnauthorizedStatus(true, "REQUEST_TIMEOUT");
+    }
+
+    @Test
     public void authenticatedRedirectStatusesAlwaysFailClosed() {
         int[] redirectStatuses = { 301, 302, 303, 307, 308 };
 
@@ -182,7 +223,8 @@ public class NativeAuthHttpClientTest {
         try {
             NativeAuthHttpClient.readResponseBodyBytes(
                 new ByteArrayInputStream(oversized),
-                NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES
+                NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES,
+                0
             );
         } catch (NativeAuthHttpException exception) {
             assertEquals("Android auth bridge response exceeds the allowed size", exception.getMessage());
@@ -219,6 +261,128 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void cancellationDisconnectsAnInFlightCredentialedConnection() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/customers")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        Thread requestThread = new Thread(() -> {
+            try {
+                client.request(
+                    "https://api.secpal.dev",
+                    "native-secret",
+                    "GET",
+                    "/v1/customers",
+                    null,
+                    null,
+                    "application/json",
+                    cancellation
+                );
+            } catch (IOException | NativeAuthHttpException expected) {
+                // Cancellation terminates the blocked transport.
+            }
+        });
+
+        requestThread.start();
+        assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+
+        cancellation.cancel();
+
+        assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+        requestThread.join(2_000L);
+        assertFalse(requestThread.isAlive());
+    }
+
+    @Test
+    public void cancellationDisconnectsAnInFlightLogoutConnection() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/auth/logout")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        Thread requestThread = new Thread(() -> {
+            try {
+                client.logout(
+                    "https://api.secpal.dev",
+                    "native-secret",
+                    cancellation
+                );
+            } catch (IOException | org.json.JSONException | NativeAuthHttpException expected) {
+                // Cancellation terminates the blocked logout transport.
+            }
+        });
+
+        requestThread.start();
+        assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+
+        cancellation.cancel();
+
+        assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+        requestThread.join(2_000L);
+        assertFalse(requestThread.isAlive());
+    }
+
+    @Test
+    public void totalLifetimeDisconnectsASlowCredentialedResponse() throws Exception {
+        BlockingHttpURLConnection connection = new BlockingHttpURLConnection(
+            new URL("https://api.secpal.dev/v1/customers")
+        );
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> connection);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor(
+            Executors.newSingleThreadExecutor(),
+            scheduler,
+            250L
+        );
+        CountDownLatch terminal = new CountDownLatch(1);
+        AtomicInteger terminalCallbacks = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "slow-http-response",
+                    0,
+                    () -> {
+                        try {
+                            client.request(
+                                "https://api.secpal.dev",
+                                "native-secret",
+                                "GET",
+                                "/v1/customers",
+                                null,
+                                null,
+                                "application/json",
+                                cancellation
+                            );
+                        } catch (IOException | NativeAuthHttpException expected) {
+                            // The total-lifetime cancellation owns terminal settlement.
+                        }
+                    },
+                    reason -> {
+                        assertEquals("REQUEST_TIMEOUT", reason);
+                        cancellation.cancel();
+                        terminalCallbacks.incrementAndGet();
+                        terminal.countDown();
+                    }
+                )
+            );
+            assertTrue(connection.responseStarted.await(2, TimeUnit.SECONDS));
+            assertTrue(terminal.await(2, TimeUnit.SECONDS));
+            assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS));
+            assertEquals(1, terminalCallbacks.get());
+        } finally {
+            taskExecutor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
     public void transportUsesOnlyCanonicalHeadersFromTheAuthorizedRequest() throws Exception {
         StubHttpURLConnection[] captured = new StubHttpURLConnection[1];
         NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
@@ -244,6 +408,209 @@ public class NativeAuthHttpClientTest {
 
         assertEquals("application/json", captured[0].getRequestProperty("Content-Type"));
         assertEquals("application/json", captured[0].getRequestProperty("Accept"));
+        assertEquals(2, captured[0].getFixedLengthRequestBodyBytes());
+    }
+
+    @Test
+    public void uploadDeadlinesScaleToTheMaximumSupportedRequestBody() {
+        int maximumRequestBytes = NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES;
+
+        assertTrue(
+            NativeAuthHttpClient.resolveWriteTimeoutMillis(maximumRequestBytes)
+                > NativeAuthHttpClient.WRITE_TIMEOUT_MILLIS
+        );
+        assertTrue(
+            NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(maximumRequestBytes)
+                > NativeAuthHttpClient.resolveWriteTimeoutMillis(maximumRequestBytes)
+        );
+        assertEquals(
+            NativeAuthHttpClient.TOTAL_REQUEST_LIFETIME_MILLIS,
+            NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(0)
+        );
+    }
+
+    @Test
+    public void completedUploadsDoNotAccumulateCancelledWriteDeadlines()
+        throws Exception {
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                "{}".getBytes(StandardCharsets.UTF_8),
+                "application/json"
+            )
+        );
+
+        for (int index = 0; index < 32; index++) {
+            client.request(
+                "https://api.secpal.dev",
+                "native-secret",
+                "POST",
+                "/v1/customers",
+                "e30=",
+                "application/json",
+                "application/json"
+            );
+        }
+
+        assertEquals(0, NativeAuthHttpClient.getPendingWriteDeadlineCountForTest());
+    }
+
+    @Test
+    public void oversizedDedicatedJsonRequestFailsBeforeOpeningAConnection()
+        throws Exception {
+        AtomicInteger openedConnections = new AtomicInteger();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            openedConnections.incrementAndGet();
+            return new StubHttpURLConnection(url, 200, null);
+        });
+        String oversizedPassword = "x".repeat(
+            NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES
+        );
+
+        try {
+            client.login(
+                "https://api.secpal.dev",
+                "worker@secpal.dev",
+                oversizedPassword
+            );
+            throw new AssertionError("Expected oversized login body to fail closed");
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(0, expected.getStatusCode());
+        }
+
+        assertEquals(0, openedConnections.get());
+    }
+
+    @Test
+    public void dedicatedAuthJsonResponseUsesItsSmallerBufferLimit() throws Exception {
+        byte[] oversizedResponse = new byte[
+            NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                oversizedResponse,
+                "application/json"
+            )
+        );
+
+        try {
+            client.login(
+                "https://api.secpal.dev",
+                "worker@secpal.dev",
+                "correct horse battery staple"
+            );
+            throw new AssertionError("Expected oversized auth JSON response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(
+                "Android auth bridge response exceeds the allowed size",
+                exception.getMessage()
+            );
+            assertEquals(0, exception.getStatusCode());
+        }
+    }
+
+    @Test
+    public void oversizedUnauthorizedResponsesPreserveAuthenticationStatus()
+        throws Exception {
+        byte[] oversizedDedicatedResponse = new byte[
+            NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient dedicatedClient = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                401,
+                null,
+                oversizedDedicatedResponse,
+                "application/json"
+            )
+        );
+
+        try {
+            dedicatedClient.getCurrentUser(
+                "https://api.secpal.dev",
+                "rejected-token"
+            );
+            throw new AssertionError("Expected oversized dedicated response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(401, exception.getStatusCode());
+        }
+
+        byte[] oversizedStreamingResponse = new byte[
+            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient streamingClient = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                401,
+                null,
+                oversizedStreamingResponse,
+                "application/json"
+            ) {
+                @Override
+                public long getContentLengthLong() {
+                    return -1L;
+                }
+            }
+        );
+
+        try {
+            streamingClient.request(
+                "https://api.secpal.dev",
+                "rejected-token",
+                "GET",
+                "/v1/customers",
+                null,
+                null,
+                "application/json"
+            );
+            throw new AssertionError("Expected oversized streaming response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(401, exception.getStatusCode());
+        }
+    }
+
+    @Test
+    public void unreadableUnauthorizedResponsePreservesAuthenticationStatus()
+        throws Exception {
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                401,
+                null,
+                new byte[0],
+                "application/json"
+            ) {
+                @Override
+                public long getContentLengthLong() {
+                    return -1L;
+                }
+
+                @Override
+                public InputStream getErrorStream() {
+                    return new InputStream() {
+                        @Override
+                        public int read() throws IOException {
+                            throw new IOException("truncated error response");
+                        }
+                    };
+                }
+            }
+        );
+
+        try {
+            client.getCurrentUser(
+                "https://api.secpal.dev",
+                "rejected-token"
+            );
+            throw new AssertionError("Expected unreadable unauthorized response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(401, exception.getStatusCode());
+        }
     }
 
     @Test
@@ -465,12 +832,45 @@ public class NativeAuthHttpClientTest {
         throw new AssertionError("Expected NativeAuthHttpException");
     }
 
-    private static final class StubHttpURLConnection extends HttpURLConnection {
+    private static void assertCancellationAfterUnauthorizedStatus(
+        boolean timeout,
+        String expectedReasonCode
+    ) throws Exception {
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(url, 401, null) {
+                @Override
+                public int getResponseCode() {
+                    if (timeout) {
+                        cancellation.cancelForTimeout();
+                    } else {
+                        cancellation.cancel();
+                    }
+                    return 401;
+                }
+            }
+        );
+
+        try {
+            client.getCurrentUser(
+                "https://api.secpal.dev",
+                "rejected-token",
+                cancellation
+            );
+            throw new AssertionError("Expected cancellation to terminate the response");
+        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            assertEquals(expectedReasonCode, exception.getReasonCode());
+        }
+    }
+
+    private static class StubHttpURLConnection extends HttpURLConnection {
         private final int stubStatus;
         private final String redirectLocation;
         private final byte[] responseBody;
         private final String responseContentType;
         private final ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
+        private int fixedLengthRequestBodyBytes = -1;
 
         StubHttpURLConnection(URL url, int stubStatus, String redirectLocation) {
             this(url, stubStatus, redirectLocation, new byte[0], null);
@@ -501,12 +901,12 @@ public class NativeAuthHttpClientTest {
         }
 
         @Override
-        public ByteArrayInputStream getInputStream() {
+        public InputStream getInputStream() {
             return new ByteArrayInputStream(responseBody);
         }
 
         @Override
-        public ByteArrayInputStream getErrorStream() {
+        public InputStream getErrorStream() {
             return new ByteArrayInputStream(responseBody);
         }
 
@@ -525,13 +925,56 @@ public class NativeAuthHttpClientTest {
             return requestBody;
         }
 
+        @Override
+        public void setFixedLengthStreamingMode(int contentLength) {
+            fixedLengthRequestBodyBytes = contentLength;
+        }
+
         byte[] getWrittenRequestBody() { return requestBody.toByteArray(); }
+
+        int getFixedLengthRequestBodyBytes() { return fixedLengthRequestBodyBytes; }
 
         @Override
         public void disconnect() {}
 
         @Override
         public boolean usingProxy() { return false; }
+
+        @Override
+        public void connect() {}
+    }
+
+    private static final class BlockingHttpURLConnection extends HttpURLConnection {
+        private final CountDownLatch responseStarted = new CountDownLatch(1);
+        private final CountDownLatch disconnected = new CountDownLatch(1);
+
+        BlockingHttpURLConnection(URL url) {
+            super(url);
+        }
+
+        @Override
+        public int getResponseCode() throws IOException {
+            responseStarted.countDown();
+            try {
+                if (!disconnected.await(2, TimeUnit.SECONDS)) {
+                    throw new IOException("connection was not cancelled");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException("request interrupted", exception);
+            }
+            throw new IOException("connection cancelled");
+        }
+
+        @Override
+        public void disconnect() {
+            disconnected.countDown();
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
 
         @Override
         public void connect() {}

@@ -24,8 +24,13 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
@@ -36,10 +41,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
     private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
     private static final String ANDROID_PUSH_TOKEN_ERROR_EVENT = "androidPushTokenError";
+    private static final String NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT =
+        "nativeAuthLifecycleChanged";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_MESSAGE =
         "Android offline vault root keys cannot be bridged into WebView JavaScript";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE =
         "VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED";
+    private static final int MAX_LOGIN_EMAIL_CHARACTERS = 320;
+    private static final int MAX_LOGIN_PASSWORD_CHARACTERS = 4 * 1024;
+    static final int MAX_RUNTIME_DISPLAY_NAME_CHARACTERS = 256;
+    static final int MAX_RUNTIME_URL_CHARACTERS = 2 * 1024;
+    private static final int MAX_RUNTIME_METADATA_CHARACTERS = 64 * 1024;
+    static final int MAX_PASSKEY_OPTIONS_CHARACTERS = 1024 * 1024;
+    private static final int MAX_PUSH_INSTALLATION_ID_CHARACTERS = 256;
 
     @FunctionalInterface
     interface AndroidPushRegistrationRevoker {
@@ -62,7 +76,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private final AtomicBoolean runtimeMutationConfirmationPending = new AtomicBoolean(false);
     private volatile boolean destroyed = false;
-    private String apiBaseUrl;
+    private volatile String apiBaseUrl;
 
     @Override
     public void load() {
@@ -94,30 +108,63 @@ public class SecPalNativeAuthPlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         destroyed = true;
-        super.handleOnDestroy();
         taskExecutor.shutdownNow();
+        super.handleOnDestroy();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        pauseAuthenticatedForLifecycle(
+            taskExecutor,
+            (event, payload) -> notifyListeners(event, payload, true)
+        );
+        super.handleOnPause();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        resumeAuthenticatedForLifecycle(
+            taskExecutor,
+            (event, payload) -> notifyListeners(event, payload, true)
+        );
     }
 
     @PluginMethod
     public void login(PluginCall call) {
-        String email = requireValue(call, "email");
-        String password = requireValue(call, "password");
+        if (!requireOnlyKeys(call, "email", "password")) {
+            return;
+        }
+        String email = requireValue(call, "email", MAX_LOGIN_EMAIL_CHARACTERS);
+        String password = requireValue(call, "password", MAX_LOGIN_PASSWORD_CHARACTERS);
 
         if (email == null || password == null) {
             return;
         }
-
+        long loginGeneration = taskExecutor.captureGeneration();
+        String loginApiBaseUrl = apiBaseUrl;
         runAsync(call, () -> {
             try {
                 requireNetworkConnection();
-                NativeAuthHttpClient.LoginResponse response = httpClient.login(apiBaseUrl, email, password);
-                tokenStorage.saveToken(response.getToken());
-
+                NativeAuthHttpClient.LoginResponse response = httpClient.login(
+                    loginApiBaseUrl,
+                    email,
+                    password
+                );
                 JSObject payload = new JSObject();
                 payload.put("user", response.getUser());
-                call.resolve(payload);
+                if (!taskExecutor.completeCredentialReplacement(
+                    loginGeneration,
+                    () -> tokenStorage.saveToken(response.getToken()),
+                    () -> call.resolve(payload)
+                )) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                }
             } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
-                rejectCall(call, exception);
+                rejectSessionBoundCall(call, loginGeneration, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
@@ -126,12 +173,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void loginWithPasskey(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
 
         if (!requirePasskeyCapability(call, capability)) {
             return;
         }
 
+        long loginGeneration = taskExecutor.captureSessionGeneration();
+        String loginApiBaseUrl = apiBaseUrl;
         runAsync(call, () -> {
             try {
                 Activity activity = getActivity();
@@ -147,7 +199,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 requireNetworkConnection();
 
                 NativeAuthHttpClient.PasskeyChallenge challenge = httpClient.startTokenPasskeyAuthenticationChallenge(
-                    apiBaseUrl,
+                    loginApiBaseUrl,
                     NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL)
                 );
                 String requestJson = PasskeyAuthenticationJson.buildAuthenticationRequestJson(challenge.getPublicKey());
@@ -156,20 +208,35 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     requestJson,
                     capability
                 );
+                requireBoundedPasskeyResult(authenticationResponseJson);
                 JSObject credential = PasskeyAuthenticationJson.buildAuthenticationVerificationCredential(
                     authenticationResponseJson
                 );
+                if (!taskExecutor.isSessionGenerationCurrent(loginGeneration)) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                    return;
+                }
                 NativeAuthHttpClient.LoginResponse response = httpClient.verifyTokenPasskeyAuthenticationChallenge(
-                    apiBaseUrl,
+                    loginApiBaseUrl,
                     challenge.getChallengeId(),
                     credential
                 );
 
-                tokenStorage.saveToken(response.getToken());
-
                 JSObject payload = new JSObject();
                 payload.put("user", response.getUser());
-                call.resolve(payload);
+                if (!taskExecutor.completeSessionCredentialReplacement(
+                    loginGeneration,
+                    () -> tokenStorage.saveToken(response.getToken()),
+                    () -> call.resolve(payload)
+                )) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                }
             } catch (
                 IOException
                 | JSONException
@@ -177,7 +244,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 | NetworkUnavailableException
                 | PasskeyAuthenticationException exception
             ) {
-                rejectCall(call, exception);
+                rejectPasskeySessionBoundCall(call, loginGeneration, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
@@ -186,6 +253,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void createPasskeyAttestation(PluginCall call) {
+        if (!requireOnlyKeys(call, "publicKey")) {
+            return;
+        }
         NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
 
         if (!requirePasskeyCapability(call, capability)) {
@@ -196,6 +266,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         if (publicKey == null) {
             call.reject("Missing required value: publicKey", "INVALID_INPUT");
+            return;
+        }
+        if (!isBoundedJsonObject(publicKey, MAX_PASSKEY_OPTIONS_CHARACTERS)) {
+            call.reject("Android passkey options exceed the allowed size", "INVALID_INPUT");
             return;
         }
 
@@ -217,6 +291,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     requestJson,
                     capability
                 );
+                requireBoundedPasskeyResult(registrationResponseJson);
                 JSObject credential = PasskeyAuthenticationJson.buildRegistrationVerificationCredential(
                     registrationResponseJson
                 );
@@ -232,22 +307,79 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getCurrentUser(PluginCall call) {
-        runAsync(call, () -> {
-            try {
-                String token = requireStoredToken(call);
-                if (token == null) {
-                    return;
-                }
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
+        String requestId = UUID.randomUUID().toString();
+        AtomicBoolean settled = new AtomicBoolean(false);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthTaskExecutor.SubmitResult submitResult = taskExecutor.submitAuthenticated(
+            requestId,
+            0,
+            () -> {
+                try {
+                    String token = tokenStorage.getToken();
+                    if (token == null || token.trim().isEmpty()) {
+                        taskExecutor.completeAuthenticated(requestId, () -> {
+                            settleOnce(
+                                settled,
+                                () -> call.reject(
+                                    "Android auth token is not available",
+                                    "NO_STORED_TOKEN"
+                                )
+                            );
+                        });
+                        return;
+                    }
 
-                requireNetworkConnection();
-                call.resolve(httpClient.getCurrentUser(apiBaseUrl, token));
-            } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
-                maybeClearToken(exception);
-                rejectCall(call, exception);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
+                    requireNetworkConnection();
+                    JSObject response = httpClient.getCurrentUser(apiBaseUrl, token, cancellation);
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(settled, () -> call.resolve(response));
+                    });
+                } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(settled, () -> {
+                            maybeClearToken(exception);
+                            rejectCall(call, exception);
+                        });
+                    });
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Failed to load Android auth token",
+                                "TOKEN_STORAGE_ERROR",
+                                exception
+                            )
+                        );
+                    });
+                }
+            },
+            reasonCode -> {
+                cancellation.cancel();
+                settleOnce(
+                    settled,
+                    () -> call.reject(cancellationMessage(reasonCode), reasonCode)
+                );
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
-        });
+        );
+
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
+        }
     }
 
     @PluginMethod
@@ -285,9 +417,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void confirmRuntimeBootstrap(PluginCall call) {
-        String instanceDisplayName = requireValue(call, "instanceDisplayName");
-        String apiOrigin = requireValue(call, "apiOrigin");
-        String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
+        if (!requireOnlyKeys(
+            call,
+            "instanceDisplayName",
+            "apiOrigin",
+            "rawApiBaseUrl",
+            "androidPush",
+            "features"
+        )) {
+            return;
+        }
+        String instanceDisplayName = requireValue(
+            call,
+            "instanceDisplayName",
+            MAX_RUNTIME_DISPLAY_NAME_CHARACTERS
+        );
+        String apiOrigin = requireValue(call, "apiOrigin", MAX_RUNTIME_URL_CHARACTERS);
+        String rawApiBaseUrl = requireValue(
+            call,
+            "rawApiBaseUrl",
+            MAX_RUNTIME_URL_CHARACTERS
+        );
         JSObject androidPush = call.getObject("androidPush");
         JSObject features = call.getObject("features");
 
@@ -296,33 +446,42 @@ public class SecPalNativeAuthPlugin extends Plugin {
             || rawApiBaseUrl == null) {
             return;
         }
+        if (!isBoundedJsonObject(androidPush, MAX_RUNTIME_METADATA_CHARACTERS)
+            || !isBoundedJsonObject(features, MAX_RUNTIME_METADATA_CHARACTERS)) {
+            call.reject("Android runtime bootstrap exceeds the allowed size", "INVALID_INPUT");
+            return;
+        }
+
+        final JSObject bootstrap;
+        try {
+            bootstrap = buildRuntimeBootstrap(
+                instanceDisplayName,
+                apiOrigin,
+                rawApiBaseUrl,
+                androidPush,
+                features
+            );
+        } catch (RuntimeException exception) {
+            rejectRuntimeBootstrap(call, exception);
+            return;
+        } catch (JSONException exception) {
+            rejectInvalidRuntimeBootstrap(call, exception);
+            return;
+        }
 
         runAsync(call, () -> {
-            try {
-                JSObject bootstrap = buildRuntimeBootstrap(
-                    instanceDisplayName,
-                    apiOrigin,
-                    rawApiBaseUrl,
-                    androidPush,
-                    features
-                );
-                String canonicalApiOrigin = bootstrap.getString("apiOrigin");
-                String confirmationMessage = formatRuntimeConfirmationMessage(
-                    getContext().getString(R.string.runtime_confirmation_switch_message),
-                    canonicalApiOrigin
-                );
+            String canonicalApiOrigin = bootstrap.getString("apiOrigin");
+            String confirmationMessage = formatRuntimeConfirmationMessage(
+                getContext().getString(R.string.runtime_confirmation_switch_message),
+                canonicalApiOrigin
+            );
 
-                confirmNativeRuntimeMutation(
-                    call,
-                    R.string.runtime_confirmation_switch_title,
-                    confirmationMessage,
-                    () -> runAsync(call, () -> applyConfirmedRuntimeBootstrap(call, bootstrap))
-                );
-            } catch (RuntimeException exception) {
-                rejectRuntimeBootstrap(call, exception);
-            } catch (JSONException exception) {
-                rejectInvalidRuntimeBootstrap(call, exception);
-            }
+            confirmNativeRuntimeMutation(
+                call,
+                R.string.runtime_confirmation_switch_title,
+                confirmationMessage,
+                () -> applyConfirmedRuntimeBootstrap(call, bootstrap)
+            );
         });
     }
 
@@ -330,63 +489,110 @@ public class SecPalNativeAuthPlugin extends Plugin {
         PluginCall call,
         JSObject bootstrap
     ) {
-        try {
-            String nextApiBaseUrl = bootstrap.getString("apiOrigin");
-            SharedPreferences preferences = getNativeAuthPreferences();
-            JSObject previousBootstrap = loadPersistedRuntimeBootstrap(preferences);
-            String previousRuntimeBootstrap = preferences.getString(
-                RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
-                null
-            );
-            String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
-            AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
-                ? null
-                : AndroidPushRuntimeMetadata.fromBootstrap(
-                    previousBootstrap.optJSONObject("androidPush")
-                );
+        String requestId = "runtime-switch-" + UUID.randomUUID();
+        AtomicBoolean settled = new AtomicBoolean(false);
+        AtomicBoolean runtimeApplied = new AtomicBoolean(false);
+        NativeAuthTaskExecutor.SubmitResult submitResult = taskExecutor.submitSessionTransition(
+            requestId,
+            0,
+            () -> {
+                try {
+                    String nextApiBaseUrl = bootstrap.getString("apiOrigin");
+                    SharedPreferences preferences = getNativeAuthPreferences();
+                    JSObject previousBootstrap = loadPersistedRuntimeBootstrap(preferences);
+                    String previousRuntimeBootstrap = preferences.getString(
+                        RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
+                        null
+                    );
+                    String previousApiBaseUrl = preferences.getString(
+                        API_BASE_URL_PREFERENCE_KEY,
+                        null
+                    );
+                    AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
+                        ? null
+                        : AndroidPushRuntimeMetadata.fromBootstrap(
+                            previousBootstrap.optJSONObject("androidPush")
+                        );
 
-            if (!replaceRuntimeBootstrapStateWithRollback(
-                apiBaseUrl,
-                nextApiBaseUrl,
-                tokenStorage,
-                () -> persistRuntimeBootstrap(bootstrap),
-                () -> restoreRuntimeBootstrapPersistenceSynchronously(
-                    preferences,
-                    previousRuntimeBootstrap,
-                    previousApiBaseUrl
-                ),
-                () -> androidPushRuntimeManager.applyWithRollback(
-                    AndroidPushRuntimeMetadata.fromBootstrap(
-                        bootstrap.optJSONObject("androidPush")
-                    ),
-                    previousPushRuntime
-                )
-            )) {
-                call.reject(
-                    "Failed to persist Android runtime bootstrap",
-                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
-                );
-                return;
-            }
+                    AtomicBoolean replacementSucceeded = new AtomicBoolean(false);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        replacementSucceeded.set(replaceRuntimeBootstrapStateWithRollback(
+                            apiBaseUrl,
+                            nextApiBaseUrl,
+                            tokenStorage,
+                            () -> persistRuntimeBootstrap(bootstrap),
+                            () -> restoreRuntimeBootstrapPersistenceSynchronously(
+                                preferences,
+                                previousRuntimeBootstrap,
+                                previousApiBaseUrl
+                            ),
+                            () -> androidPushRuntimeManager.applyWithRollback(
+                                AndroidPushRuntimeMetadata.fromBootstrap(
+                                    bootstrap.optJSONObject("androidPush")
+                                ),
+                                previousPushRuntime
+                            )
+                        ));
+                        if (replacementSucceeded.get()) {
+                            apiBaseUrl = nextApiBaseUrl;
+                            runtimeApplied.set(true);
+                        }
+                    })) {
+                        return;
+                    }
+                    if (!replacementSucceeded.get()) {
+                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Failed to persist Android runtime bootstrap",
+                                "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                            )
+                        ));
+                        return;
+                    }
 
-            apiBaseUrl = nextApiBaseUrl;
-
-            JSObject payload = new JSObject();
-            payload.put("bootstrap", bootstrap);
-            call.resolve(payload);
-        } catch (TokenStorageException exception) {
-            call.reject(
-                "Failed to access Android auth token during runtime rebind",
-                "TOKEN_STORAGE_ERROR",
-                exception
-            );
-        } catch (RuntimeException exception) {
-            rejectRuntimeBootstrap(call, exception);
+                    JSObject payload = new JSObject();
+                    payload.put("bootstrap", bootstrap);
+                    taskExecutor.completeAuthenticated(
+                        requestId,
+                        () -> settleOnce(settled, () -> call.resolve(payload))
+                    );
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        settled,
+                        () -> call.reject(
+                            "Failed to access Android auth token during runtime rebind",
+                            "TOKEN_STORAGE_ERROR",
+                            exception
+                        )
+                    ));
+                } catch (RuntimeException exception) {
+                    taskExecutor.completeAuthenticated(
+                        requestId,
+                        () -> settleOnce(settled, () -> rejectRuntimeBootstrap(call, exception))
+                    );
+                }
+            },
+            reasonCode -> settleOnce(settled, () -> {
+                if (runtimeApplied.get()) {
+                    JSObject payload = new JSObject();
+                    payload.put("bootstrap", bootstrap);
+                    call.resolve(payload);
+                } else {
+                    call.reject(cancellationMessage(reasonCode), reasonCode);
+                }
+            })
+        );
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
         }
     }
 
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         runAsync(call, () -> {
             JSObject payload = buildRuntimeBootstrapPayload(getPersistedRuntimeBootstrap());
             call.resolve(payload);
@@ -395,6 +601,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void confirmRuntimeReset(PluginCall call) {
+        if (!requireOnlyKeys(call, "androidPushInstallationId")) {
+            return;
+        }
+        String androidPushInstallationId = call.getString("androidPushInstallationId");
+        if (androidPushInstallationId != null
+            && (!isBoundedValue(
+                androidPushInstallationId,
+                MAX_PUSH_INSTALLATION_ID_CHARACTERS
+            ) || !androidPushInstallationId.matches("[A-Za-z0-9][A-Za-z0-9._~-]*"))) {
+            call.reject("Android push installation id is invalid", "INVALID_INPUT");
+            return;
+        }
         runAsync(call, () -> {
             JSObject persistedBootstrap = getPersistedRuntimeBootstrap();
             String currentApiOrigin = apiBaseUrl;
@@ -415,18 +633,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 getContext().getString(R.string.runtime_confirmation_reset_message),
                 confirmedApiOrigin
             );
-            String androidPushInstallationId = call.getString("androidPushInstallationId");
             confirmNativeRuntimeMutation(
                 call,
                 R.string.runtime_confirmation_reset_title,
                 confirmationMessage,
-                () -> runAsync(
+                () -> clearConfirmedRuntime(
                     call,
-                    () -> clearConfirmedRuntime(
-                        call,
-                        confirmedApiOrigin,
-                        androidPushInstallationId
-                    )
+                    confirmedApiOrigin,
+                    androidPushInstallationId
                 )
             );
         });
@@ -437,60 +651,117 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String confirmedApiOrigin,
         String androidPushInstallationId
     ) {
-        try {
-            String tokenForServerRevocation = readStoredTokenForRuntimeMutation(tokenStorage);
-            JSObject previousBootstrap = getPersistedRuntimeBootstrap();
-            AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
-                ? null
-                : AndroidPushRuntimeMetadata.fromBootstrap(
-                    previousBootstrap.optJSONObject("androidPush")
+        String requestId = "runtime-reset-" + UUID.randomUUID();
+        AtomicBoolean settled = new AtomicBoolean(false);
+        AtomicBoolean localRuntimeCleared = new AtomicBoolean(false);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthTaskExecutor.SubmitResult submitResult = taskExecutor.submitSessionTransition(
+            requestId,
+            0,
+            () -> {
+                try {
+                    String tokenForServerRevocation = readStoredTokenForRuntimeMutation(tokenStorage);
+                    JSObject previousBootstrap = getPersistedRuntimeBootstrap();
+                    AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
+                        ? null
+                        : AndroidPushRuntimeMetadata.fromBootstrap(
+                            previousBootstrap.optJSONObject("androidPush")
+                        );
+                    AtomicBoolean clearSucceeded = new AtomicBoolean(false);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        clearSucceeded.set(clearRuntimeBootstrapStateWithPushRollback(
+                            getNativeAuthPreferences(),
+                            tokenStorage,
+                            tokenForServerRevocation,
+                            androidPushRuntimeManager,
+                            previousPushRuntime
+                        ));
+                        if (clearSucceeded.get()) {
+                            apiBaseUrl = null;
+                            localRuntimeCleared.set(true);
+                        }
+                    })) {
+                        return;
+                    }
+                    if (!clearSucceeded.get()) {
+                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Failed to clear Android runtime bootstrap state",
+                                "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
+                            )
+                        ));
+                        return;
+                    }
+                    revokeServerStateAfterRuntimeClear(
+                        tokenForServerRevocation,
+                        confirmedApiOrigin,
+                        androidPushInstallationId,
+                        (apiOrigin, token, installationId) -> httpClient.request(
+                            apiOrigin,
+                            token,
+                            "DELETE",
+                            "/v1/me/notification-installations/" + installationId,
+                            null,
+                            null,
+                            "application/json",
+                            cancellation
+                        ),
+                        (apiOrigin, token) -> httpClient.logout(
+                            apiOrigin,
+                            token,
+                            cancellation
+                        )
+                    );
+                    taskExecutor.completeAuthenticated(
+                        requestId,
+                        () -> settleOnce(settled, call::resolve)
+                    );
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        settled,
+                        () -> call.reject(
+                            "Failed to access Android auth token during runtime reset",
+                            "TOKEN_STORAGE_ERROR",
+                            exception
+                        )
+                    ));
+                } catch (RuntimeException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        settled,
+                        () -> call.reject(
+                            exception.getMessage(),
+                            resolveRuntimeBootstrapErrorCode(exception),
+                            exception
+                        )
+                    ));
+                }
+            },
+            reasonCode -> cancellation.cancel(),
+            reasonCode -> {
+                settleOnce(settled, () -> {
+                    if (localRuntimeCleared.get()) {
+                        call.resolve();
+                    } else {
+                        call.reject(cancellationMessage(reasonCode), reasonCode);
+                    }
+                });
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
                 );
-            if (!clearRuntimeBootstrapStateWithPushRollback(
-                getNativeAuthPreferences(),
-                tokenStorage,
-                tokenForServerRevocation,
-                androidPushRuntimeManager,
-                previousPushRuntime
-            )) {
-                call.reject(
-                    "Failed to clear Android runtime bootstrap state",
-                    "RUNTIME_BOOTSTRAP_PERSISTENCE_FAILED"
-                );
-                return;
             }
-            revokeServerStateAfterRuntimeClear(
-                tokenForServerRevocation,
-                confirmedApiOrigin,
-                androidPushInstallationId,
-                (apiOrigin, token, installationId) -> httpClient.request(
-                    apiOrigin,
-                    token,
-                    "DELETE",
-                    "/v1/me/notification-installations/" + installationId,
-                    null,
-                    null,
-                    "application/json"
-                ),
-                (apiOrigin, token) -> httpClient.logout(apiOrigin, token)
-            );
-        } catch (TokenStorageException exception) {
-            call.reject(
-                "Failed to access Android auth token during runtime reset",
-                "TOKEN_STORAGE_ERROR",
-                exception
-            );
-            return;
-        } catch (RuntimeException exception) {
-            call.reject(
-                exception.getMessage(),
-                resolveRuntimeBootstrapErrorCode(exception),
-                exception
-            );
-            return;
+        );
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
         }
-
-        apiBaseUrl = null;
-        call.resolve();
     }
 
     @PluginMethod
@@ -508,29 +779,109 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void logout(PluginCall call) {
-        runAsync(call, () -> {
-            try {
-                String token = requireStoredToken(call);
-                if (token == null) {
-                    return;
-                }
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
+        String requestId = "logout-" + UUID.randomUUID();
+        AtomicBoolean settled = new AtomicBoolean(false);
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthTaskExecutor.SubmitResult submitResult = taskExecutor.submitSessionTransition(
+            requestId,
+            0,
+            () -> {
+                try {
+                    String token = tokenStorage.getToken();
+                    if (token == null || token.trim().isEmpty()) {
+                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Android auth token is not available",
+                                "NO_STORED_TOKEN"
+                            )
+                        ));
+                        return;
+                    }
 
-                httpClient.logout(apiBaseUrl, token);
-                tokenStorage.clearToken();
-                call.resolve();
-            } catch (IOException | JSONException | NativeAuthHttpException exception) {
-                maybeClearToken(exception);
-                rejectCall(call, exception);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        tokenStorage.clearToken();
+                        localCredentialCleared.set(true);
+                    })) {
+                        return;
+                    }
+                    try {
+                        httpClient.logout(apiBaseUrl, token, cancellation);
+                    } catch (IOException | JSONException | NativeAuthHttpException exception) {
+                        if (cancellation.isCancelled()) {
+                            return;
+                        }
+                        // Server revocation is best effort after the local credential is gone.
+                    }
+                    taskExecutor.completeAuthenticated(
+                        requestId,
+                        () -> settleOnce(settled, call::resolve)
+                    );
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        settled,
+                        () -> call.reject(
+                            "Failed to load Android auth token",
+                            "TOKEN_STORAGE_ERROR",
+                            exception
+                        )
+                    ));
+                }
+            },
+            reasonCode -> cancellation.cancel(),
+            reasonCode -> {
+                settleOnce(settled, () -> {
+                    if (localCredentialCleared.get()) {
+                        call.resolve();
+                    } else {
+                        call.reject(cancellationMessage(reasonCode), reasonCode);
+                    }
+                });
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
-        });
+        );
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
+        }
     }
 
     @PluginMethod
     public void request(PluginCall call) {
-        String method = requireValue(call, "method");
-        String path = requireValue(call, "path");
+        if (!requireOnlyKeys(
+            call,
+            "requestId",
+            "method",
+            "path",
+            "bodyBase64",
+            "contentType",
+            "accept"
+        )) {
+            return;
+        }
+        String method = requireValue(
+            call,
+            "method",
+            NativeAuthRequestPolicy.MAX_METHOD_CHARACTERS
+        );
+        String path = requireValue(
+            call,
+            "path",
+            NativeAuthRequestPolicy.MAX_REQUEST_TARGET_CHARACTERS
+        );
 
         if (method == null || path == null) {
             return;
@@ -539,30 +890,123 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String bodyBase64 = call.getString("bodyBase64");
         String contentType = call.getString("contentType");
         String accept = call.getString("accept");
+        String requestId = normalizeRequiredRequestId(call.getString("requestId"));
+        if (requestId == null) {
+            call.reject("Android auth request id is invalid", "INVALID_INPUT");
+            return;
+        }
+        final int requestBodyBytes;
+        final NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest;
+        try {
+            requestBodyBytes = NativeAuthHttpClient.decodedRequestBodyLength(bodyBase64);
+            authorizedRequest = NativeAuthRequestPolicy.authorize(
+                method,
+                path,
+                contentType,
+                accept,
+                requestBodyBytes
+            );
+        } catch (NativeAuthHttpException exception) {
+            rejectCall(call, exception);
+            return;
+        }
 
-        runAsync(call, () -> {
-            try {
-                String token = requireStoredToken(call);
-                if (token == null) {
-                    return;
+        AtomicBoolean settled = new AtomicBoolean(false);
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthTaskExecutor.SubmitResult submitResult = taskExecutor.submitAuthenticated(
+            requestId,
+            requestBodyBytes,
+            () -> {
+                try {
+                    String token = tokenStorage.getToken();
+                    if (token == null || token.trim().isEmpty()) {
+                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Android auth token is not available",
+                                "NO_STORED_TOKEN"
+                            )
+                        ));
+                        return;
+                    }
+
+                    requireNetworkConnection();
+                    JSObject response = httpClient.requestAuthorized(
+                        apiBaseUrl,
+                        token,
+                        authorizedRequest,
+                        bodyBase64,
+                        cancellation
+                    );
+
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(settled, () -> {
+                            Integer statusCode = response.getInteger("status");
+                            if (statusCode != null && statusCode == 401) {
+                                maybeClearToken(new NativeAuthHttpException("Unauthenticated", 401));
+                            }
+                            call.resolve(response);
+                        });
+                    });
+                } catch (IOException | NativeAuthHttpException | NetworkUnavailableException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(settled, () -> {
+                            maybeClearToken(exception);
+                            rejectCall(call, exception);
+                        });
+                    });
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(requestId, () -> {
+                        settleOnce(
+                            settled,
+                            () -> call.reject(
+                                "Failed to load Android auth token",
+                                "TOKEN_STORAGE_ERROR",
+                                exception
+                            )
+                        );
+                    });
                 }
-
-                requireNetworkConnection();
-                JSObject response = httpClient.request(apiBaseUrl, token, method, path, bodyBase64, contentType, accept);
-
-                Integer statusCode = response.getInteger("status");
-                if (statusCode != null && statusCode == 401) {
-                    tokenStorage.clearToken();
-                }
-
-                call.resolve(response);
-            } catch (IOException | NativeAuthHttpException | NetworkUnavailableException exception) {
-                maybeClearToken(exception);
-                rejectCall(call, exception);
-            } catch (TokenStorageException exception) {
-                call.reject("Failed to load Android auth token", "TOKEN_STORAGE_ERROR", exception);
+            },
+            reasonCode -> {
+                cancellation.cancel();
+                settleOnce(
+                    settled,
+                    () -> call.reject(cancellationMessage(reasonCode), reasonCode)
+                );
+            },
+            exception -> {
+                settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                );
             }
-        });
+        );
+
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
+        }
+    }
+
+    @PluginMethod
+    public void cancelRequest(PluginCall call) {
+        if (!requireOnlyKeys(call, "requestId")) {
+            return;
+        }
+        String requestId = normalizeRequiredRequestId(call.getString("requestId"));
+        if (requestId == null) {
+            call.reject("Android auth request id is invalid", "INVALID_INPUT");
+            return;
+        }
+
+        JSObject payload = new JSObject();
+        payload.put("cancelled", taskExecutor.cancelAuthenticated(requestId));
+        call.resolve(payload);
     }
 
     @PluginMethod
@@ -575,17 +1019,122 @@ public class SecPalNativeAuthPlugin extends Plugin {
         rejectVaultRootKeyBridgeCall(call);
     }
 
-    private void runAsync(PluginCall call, Runnable job) {
+    private boolean runAsync(PluginCall call, Runnable job) {
         if (!taskExecutor.submit(
             job,
             exception -> call.reject(
                 "Android native auth operation failed unexpectedly",
                 "NATIVE_AUTH_INTERNAL_ERROR",
                 exception
-            )
+            ),
+            reasonCode -> call.reject(cancellationMessage(reasonCode), reasonCode)
         )) {
-            call.reject("Failed to execute auth request - plugin was shutdown", "PLUGIN_SHUTDOWN");
+            if (destroyed) {
+                call.reject("Android native auth plugin is unavailable", "PLUGIN_SHUTDOWN");
+            } else {
+                call.reject("Android native auth is temporarily busy", "NATIVE_AUTH_BUSY");
+            }
+            return false;
         }
+        return true;
+    }
+
+    private void rejectSessionBoundCall(
+        PluginCall call,
+        long expectedGeneration,
+        Exception exception
+    ) {
+        if (!taskExecutor.isGenerationCurrent(expectedGeneration)) {
+            call.reject(
+                cancellationMessage("SESSION_INVALIDATED"),
+                "SESSION_INVALIDATED"
+            );
+            return;
+        }
+        rejectCall(call, exception);
+    }
+
+    private void rejectPasskeySessionBoundCall(
+        PluginCall call,
+        long expectedGeneration,
+        Exception exception
+    ) {
+        if (!taskExecutor.isSessionGenerationCurrent(expectedGeneration)) {
+            call.reject(
+                cancellationMessage("SESSION_INVALIDATED"),
+                "SESSION_INVALIDATED"
+            );
+            return;
+        }
+        rejectCall(call, exception);
+    }
+
+    static String normalizeRequiredRequestId(String requestId) {
+        if (requestId == null) {
+            return null;
+        }
+        String normalized = requestId.trim();
+        return normalized.matches("[A-Za-z0-9_-]{1,64}") ? normalized : null;
+    }
+
+    private static String cancellationMessage(String reasonCode) {
+        switch (reasonCode) {
+            case "REQUEST_TIMEOUT":
+                return "Android authenticated request exceeded its lifetime limit";
+            case "APP_BACKGROUNDED":
+                return "Android authenticated request was cancelled in the background";
+            case "SESSION_INVALIDATED":
+                return "Android authenticated request belongs to an expired session";
+            case "PLUGIN_SHUTDOWN":
+                return "Android native auth plugin is unavailable";
+            default:
+                return "Android authenticated request was cancelled";
+        }
+    }
+
+    static boolean settleOnce(AtomicBoolean settled, Runnable terminalCallback) {
+        if (!settled.compareAndSet(false, true)) {
+            return false;
+        }
+        terminalCallback.run();
+        return true;
+    }
+
+    private static void rejectSubmission(
+        PluginCall call,
+        NativeAuthTaskExecutor.SubmitResult submitResult
+    ) {
+        switch (submitResult) {
+            case BUFFER_LIMIT:
+                call.reject("Android native auth buffered-data limit reached", "NATIVE_AUTH_BUFFER_LIMIT");
+                return;
+            case BACKGROUNDED:
+                call.reject(
+                    "Android authenticated requests are paused in the background",
+                    submissionErrorCode(submitResult)
+                );
+                return;
+            case TRANSITION_IN_PROGRESS:
+                call.reject(
+                    "Android native auth is temporarily busy",
+                    submissionErrorCode(submitResult)
+                );
+                return;
+            case SHUTDOWN:
+                call.reject("Android native auth plugin is unavailable", "PLUGIN_SHUTDOWN");
+                return;
+            case DUPLICATE_ID:
+                call.reject("Android auth request id is already active", "INVALID_INPUT");
+                return;
+            default:
+                call.reject("Android native auth is temporarily busy", "NATIVE_AUTH_BUSY");
+        }
+    }
+
+    static String submissionErrorCode(NativeAuthTaskExecutor.SubmitResult submitResult) {
+        return submitResult == NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED
+            ? "NATIVE_AUTH_BACKGROUND"
+            : "NATIVE_AUTH_BUSY";
     }
 
     private void confirmNativeRuntimeMutation(
@@ -728,8 +1277,36 @@ public class SecPalNativeAuthPlugin extends Plugin {
         boolean isDestroyed();
     }
 
-    interface PushEventNotifier {
+    interface RetainedEventNotifier {
         void notifyRetained(String event, JSObject payload);
+    }
+
+    static void pauseAuthenticatedForLifecycle(
+        NativeAuthTaskExecutor taskExecutor,
+        RetainedEventNotifier notifier
+    ) {
+        notifier.notifyRetained(
+            NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT,
+            buildNativeAuthLifecyclePayload(false)
+        );
+        taskExecutor.pauseAuthenticated();
+    }
+
+    static void resumeAuthenticatedForLifecycle(
+        NativeAuthTaskExecutor taskExecutor,
+        RetainedEventNotifier notifier
+    ) {
+        taskExecutor.resumeAuthenticated();
+        notifier.notifyRetained(
+            NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT,
+            buildNativeAuthLifecyclePayload(true)
+        );
+    }
+
+    private static JSObject buildNativeAuthLifecyclePayload(boolean foreground) {
+        JSObject payload = new JSObject();
+        payload.put("foreground", foreground);
+        return payload;
     }
 
     static boolean isVaultRootKeyBridgeEnabledForWebView() {
@@ -770,7 +1347,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static AndroidPushRuntimeManager.MessagingListener buildAndroidPushMessagingListener(
         DestroyedCheck destroyedCheck,
-        PushEventNotifier notifier
+        RetainedEventNotifier notifier
     ) {
         return new AndroidPushRuntimeManager.MessagingListener() {
             @Override
@@ -822,26 +1399,62 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return payload;
     }
 
-    private String requireStoredToken(PluginCall call) throws TokenStorageException {
-        String token = tokenStorage.getToken();
+    private String requireValue(PluginCall call, String key, int maximumCharacters) {
+        String value = call.getString(key);
 
-        if (token == null || token.trim().isEmpty()) {
-            call.reject("Android auth token is not available", "NO_STORED_TOKEN");
+        if (value == null) {
+            call.reject("Missing required value: " + key, "INVALID_INPUT");
+            return null;
+        }
+        if (value.length() > maximumCharacters) {
+            call.reject("Android native auth value exceeds the allowed size", "INVALID_INPUT");
             return null;
         }
 
-        return token;
-    }
-
-    private String requireValue(PluginCall call, String key) {
-        String value = call.getString(key);
-
-        if (value == null || value.trim().isEmpty()) {
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
             call.reject("Missing required value: " + key, "INVALID_INPUT");
             return null;
         }
 
-        return value.trim();
+        return normalized;
+    }
+
+    private boolean requireOnlyKeys(PluginCall call, String... allowedKeys) {
+        if (hasOnlyKeys(call.getData(), allowedKeys)) {
+            return true;
+        }
+        call.reject("Android native auth call contains unsupported input", "INVALID_INPUT");
+        return false;
+    }
+
+    static boolean hasOnlyKeys(JSObject data, String... allowedKeys) {
+        Set<String> allowed = new HashSet<>(Arrays.asList(allowedKeys));
+        Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            if (!allowed.contains(keys.next())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isBoundedValue(String value, int maximumCharacters) {
+        return value != null && value.length() <= maximumCharacters;
+    }
+
+    static boolean isBoundedJsonObject(JSONObject value, int maximumCharacters) {
+        return value == null || value.toString().length() <= maximumCharacters;
+    }
+
+    private static void requireBoundedPasskeyResult(String value)
+        throws PasskeyAuthenticationException {
+        if (!isBoundedValue(value, MAX_PASSKEY_OPTIONS_CHARACTERS)) {
+            throw new PasskeyAuthenticationException(
+                "Android passkey response exceeds the allowed size.",
+                "INVALID_INPUT"
+            );
+        }
     }
 
     private void rejectCall(PluginCall call, Exception exception) {
@@ -858,6 +1471,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static String resolveErrorCode(Exception exception) {
         if (exception instanceof NetworkUnavailableException) {
             return "NETWORK_OFFLINE";
+        }
+
+        if (exception instanceof NativeAuthHttpClient.NativeAuthCancelledException) {
+            return ((NativeAuthHttpClient.NativeAuthCancelledException) exception)
+                .getReasonCode();
         }
 
         if (exception instanceof PasskeyAuthenticationException) {
@@ -1371,6 +1989,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
             firstNonBlank(bootstrap.optString("rawApiBaseUrl", null), bootstrap.optString("apiOrigin", null)),
             "Android runtime bootstrap requires a raw API base URL"
         );
+        if (!isBoundedValue(instanceDisplayName, MAX_RUNTIME_DISPLAY_NAME_CHARACTERS)
+            || !isBoundedValue(rawApiBaseUrl, MAX_RUNTIME_URL_CHARACTERS)) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap exceeds the allowed size",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
         String canonicalApiOrigin = resolveCanonicalBootstrapApiOrigin(
             firstNonBlank(bootstrap.optString("apiOrigin", null), rawApiBaseUrl)
         );
@@ -1429,7 +2054,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             NativeAuthHttpException httpException = (NativeAuthHttpException) exception;
 
             if (httpException.getStatusCode() == 401) {
-                tokenStorage.clearToken();
+                taskExecutor.invalidateAndRunSessionMutation(tokenStorage::clearToken);
             }
         }
     }

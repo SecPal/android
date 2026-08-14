@@ -30,7 +30,10 @@ import java.util.regex.Pattern;
  */
 final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024;
-    static final int MAX_RESPONSE_BODY_BYTES = 32 * 1024 * 1024;
+    static final int MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;
+    static final int MAX_REQUEST_TARGET_CHARACTERS = 8 * 1024;
+    static final int MAX_MEDIA_TYPE_CHARACTERS = 512;
+    static final int MAX_METHOD_CHARACTERS = 16;
 
     private static final String ID = "[A-Za-z0-9][A-Za-z0-9._~-]*";
     private static final Set<String> NO_QUERY = Collections.emptySet();
@@ -71,8 +74,16 @@ final class NativeAuthRequestPolicy {
         String accept,
         int requestBodyLength
     ) throws NativeAuthHttpException {
+        if (method != null && method.length() > MAX_METHOD_CHARACTERS) {
+            throw validationError("Android auth bridge request method exceeds the allowed size");
+        }
         if (requestBodyLength < 0 || requestBodyLength > MAX_REQUEST_BODY_BYTES) {
             throw validationError("Android auth bridge request exceeds the allowed size");
+        }
+        if (isOversizedMediaValue(contentType) || isOversizedMediaValue(accept)) {
+            throw validationError(
+                "Android auth bridge request media metadata exceeds the allowed size"
+            );
         }
 
         String normalizedMethod = NativeAuthHttpClient.normalizeHttpMethod(method);
@@ -113,6 +124,10 @@ final class NativeAuthRequestPolicy {
         }
 
         throw validationError("Android auth bridge request is not in the mobile route inventory");
+    }
+
+    private static boolean isOversizedMediaValue(String value) {
+        return value != null && value.length() > MAX_MEDIA_TYPE_CHARACTERS;
     }
 
     private static List<RouteSpec> buildRoutes() {
@@ -288,6 +303,9 @@ final class NativeAuthRequestPolicy {
     }
 
     private static CanonicalTarget canonicalizeTarget(String target) throws NativeAuthHttpException {
+        if (target != null && target.length() > MAX_REQUEST_TARGET_CHARACTERS) {
+            throw validationError("Android auth bridge request target exceeds the allowed size");
+        }
         if (target == null || target.isEmpty() || !target.equals(target.trim())) {
             throw validationError("Android auth bridge requires a canonical request target");
         }

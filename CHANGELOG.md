@@ -34,6 +34,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounded the Android bearer-authenticated request broker to one in-flight and
+  up to eight queued small operations with a 144 MiB aggregate native working-
+  set budget, including conservative Base64, Java-string, response-copy, and
+  bridge-serialization reservations, plus 12 MiB upload, 8 MiB broker download,
+  256 KiB dedicated authentication/session JSON responses, 15-second base
+  connect/read/write and 30-second base total-lifetime limits.
+  Fixed-length request streaming now makes the write deadline cover the actual
+  network upload, while request-size-aware write and total deadlines allow the
+  supported 12 MiB body at a bounded minimum transfer rate.
+  Overload now fails before a credentialed connection is opened; required
+  caller-visible request IDs provide end-to-end WebView cancellation, native
+  streams and connections are released on cancellation, logout and runtime-
+  reset revocations share the
+  managed lifetime policy, and atomic single-terminal generation guards prevent
+  old results from crossing logout, credential replacement, runtime changes,
+  plugin teardown, or background/foreground transitions. Destructive session
+  transitions use an independent zero-queue lane, evict queued ordinary work,
+  atomically gate irreversible local mutations against timeout and lifecycle
+  invalidation, report transition-time admission as temporary busy rather than
+  backgrounded, and settle unexpected managed-task failures. Cancelled deadline
+  entries are removed immediately instead of accumulating in scheduler queues.
+  Route and payload validation now occurs before admission or credential access,
+  queued bridge objects have explicit size and key-shape limits, and the WebView
+  snapshots fetch inputs before queueing and streams request bodies into a
+  bounded buffer while observing aborts. WebView queue deadlines start at fetch
+  invocation, use the same bounded upload-size policy as native execution, and
+  session generations reject queued or late results across logout and runtime
+  replacement without falling back to browser transport. Credential replacement
+  closes WebView admission before native login starts, native background events
+  invalidate queued WebView work before cancelling native execution, and
+  completion rechecks the absolute deadline even when the JavaScript timer was
+  delayed. Response-size validation and body-read failures preserve a known
+  HTTP error status so a rejected credential is still invalidated without
+  buffering an oversized response body, while caller cancellation and the
+  absolute request deadline retain precedence over that status. Public and
+  otherwise browser-only API routes bypass the native scheduler, so native
+  saturation cannot delay or reject them. Web requests also re-check abort
+  state after native completion so a late abort cannot surface a stale success. Native
+  passkey interaction keeps a distinct session binding across the expected
+  system-UI pause while still failing
+  closed on logout, credential replacement, or tenant changes (issue #412).
 - Constrained the bearer-authenticated Android request broker to a reviewed
   method, canonical route, query-key, request-media-type, and response-kind
   inventory; ambiguous encodings, credential/bootstrap routes, unknown

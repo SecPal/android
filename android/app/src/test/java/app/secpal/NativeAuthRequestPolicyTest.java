@@ -11,6 +11,41 @@ import static org.junit.Assert.fail;
 import org.junit.Test;
 
 public class NativeAuthRequestPolicyTest {
+
+    @Test
+    public void rejectsRequestTargetsBeyondThePreAdmissionMemoryBound() {
+        String oversizedTarget = "/v1/customers?cursor=" + "a".repeat(
+            NativeAuthRequestPolicy.MAX_REQUEST_TARGET_CHARACTERS
+        );
+
+        assertRejected(
+            "GET",
+            oversizedTarget,
+            null,
+            0
+        );
+    }
+
+    @Test
+    public void rejectsOversizedMediaMetadataBeforeParsing() {
+        assertHeaderRejected(
+            "application/json;" + "x".repeat(
+                NativeAuthRequestPolicy.MAX_MEDIA_TYPE_CHARACTERS
+            ),
+            "application/json"
+        );
+    }
+
+    @Test
+    public void rejectsOversizedMethodsBeforeNormalization() {
+        assertRejected(
+            "G".repeat(NativeAuthRequestPolicy.MAX_METHOD_CHARACTERS + 1),
+            "/v1/me",
+            null,
+            0
+        );
+    }
+
     @Test
     public void allowsRepresentativeInventoriedFrontendRequests() throws Exception {
         assertAuthorized(

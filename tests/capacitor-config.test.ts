@@ -20,6 +20,7 @@ const pluginMocks = vi.hoisted(
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn(),
       request: vi.fn(),
+      cancelRequest: vi.fn(),
       isVaultDeviceBoundWrapperAvailable: undefined,
       wrapVaultRootKey: undefined,
       unwrapVaultRootKey: undefined,
@@ -32,6 +33,7 @@ const pluginMocks = vi.hoisted(
       getCurrentUser: Mock;
       isNetworkAvailable: Mock;
       request: Mock;
+      cancelRequest: Mock;
       isVaultDeviceBoundWrapperAvailable: Mock | undefined;
       wrapVaultRootKey: Mock | undefined;
       unwrapVaultRootKey: Mock | undefined;
@@ -135,12 +137,105 @@ describe("capacitor Android wrapper configuration", () => {
     });
     expect(pluginMocks.isNetworkAvailable).toHaveBeenCalledTimes(1);
     expect(pluginMocks.request).toHaveBeenCalledWith({
+      requestId: expect.any(String),
       method: "GET",
       path: "/v1/me",
       bodyBase64: undefined,
       contentType: undefined,
       accept: undefined,
     });
+  });
+
+  it("cancels the matching native request when its abort signal fires", async () => {
+    let rejectNativeRequest: ((error: Error) => void) | undefined;
+    pluginMocks.request.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectNativeRequest = reject;
+        })
+    );
+    pluginMocks.cancelRequest.mockImplementationOnce(({ requestId }) => {
+      rejectNativeRequest?.(
+        Object.assign(new Error("cancelled"), {
+          code: "REQUEST_CANCELLED",
+        })
+      );
+      return Promise.resolve({ cancelled: true, requestId });
+    });
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+    const abortController = new AbortController();
+    const pendingRequest = bridge.request({
+      method: "GET",
+      path: "/v1/me",
+      signal: abortController.signal,
+    });
+
+    abortController.abort();
+
+    await expect(pendingRequest).rejects.toMatchObject({ name: "AbortError" });
+    const requestId = pluginMocks.request.mock.calls.at(-1)?.[0].requestId;
+    expect(pluginMocks.cancelRequest).toHaveBeenCalledWith({ requestId });
+  });
+
+  it("rejects when abort wins after the native response resolves", async () => {
+    let resolveNativeRequest:
+      ((response: { status: number; bodyBase64: string }) => void) | undefined;
+    pluginMocks.request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveNativeRequest = resolve;
+        })
+    );
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const bridge = createNativeAuthBridge();
+    const abortController = new AbortController();
+    pluginMocks.cancelRequest.mockResolvedValueOnce({ cancelled: true });
+    const pendingRequest = bridge.request({
+      method: "GET",
+      path: "/v1/me",
+      signal: abortController.signal,
+    });
+
+    resolveNativeRequest?.({ status: 200, bodyBase64: "e30=" });
+    abortController.abort();
+
+    await expect(pendingRequest).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("preserves the stable non-sensitive native overload contract", async () => {
+    pluginMocks.request.mockRejectedValueOnce(
+      Object.assign(new Error("Android native auth is temporarily busy"), {
+        code: "NATIVE_AUTH_BUSY",
+      })
+    );
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+
+    await expect(
+      createNativeAuthBridge().request({ method: "GET", path: "/v1/me" })
+    ).rejects.toMatchObject({
+      code: "NATIVE_AUTH_BUSY",
+      message: "Android native auth is temporarily busy",
+    });
+  });
+
+  it("rejects oversized encoded bodies before native submission", async () => {
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const requestsBefore = pluginMocks.request.mock.calls.length;
+
+    await expect(
+      createNativeAuthBridge().request({
+        method: "POST",
+        path: "/v1/customers/import",
+        bodyBase64: "A".repeat(16 * 1024 * 1024 + 1),
+        contentType: "application/json",
+      })
+    ).rejects.toMatchObject({ code: "NATIVE_AUTH_REQUEST_TOO_LARGE" });
+    expect(pluginMocks.request).toHaveBeenCalledTimes(requestsBefore);
   });
 
   it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
