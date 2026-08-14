@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
  */
 
-export const browserProcessTimeoutMs = 25_000;
+export const browserProcessTimeoutMs = 35_000;
 export const browserShutdownTimeoutMs = 2_000;
-export const browserTestTimeoutMs = 30_000;
+export const browserServerShutdownTimeoutMs = 2_000;
+export const browserTestTimeoutMs = 45_000;
 
 export type BrowserExit = [
   exitCode: number | null,
@@ -23,6 +24,33 @@ export interface BrowserSmokeServer {
   close(callback: (error?: Error) => void): unknown;
   closeAllConnections(): void;
 }
+
+export const remainingBrowserProcessTimeout = (
+  deadlineMs: number,
+  nowMs = Date.now()
+) => Math.max(0, deadlineMs - nowMs);
+
+export const waitForServerListening = async (
+  serverListening: Promise<unknown>,
+  timeoutMs: number
+) => {
+  let setupTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    await Promise.race([
+      serverListening,
+      new Promise<never>((_resolve, reject) => {
+        setupTimeout = setTimeout(() => {
+          reject(
+            new Error(`HTTP server did not start within ${timeoutMs} ms.`)
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(setupTimeout);
+  }
+};
 
 export const waitForBrowserClose = async (
   browser: BrowserProcess,
@@ -79,34 +107,47 @@ export const terminateBrowser = async (
   }
 };
 
-export const closeServer = async (server: BrowserSmokeServer) => {
+export const closeServer = async (
+  server: BrowserSmokeServer,
+  timeoutMs = browserServerShutdownTimeoutMs
+) => {
   if (!server.listening) {
     return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
+  let closeTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      closeTimeout = setTimeout(() => {
+        reject(new Error(`HTTP server did not close within ${timeoutMs} ms.`));
+      }, timeoutMs);
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+      server.closeAllConnections();
     });
-    server.closeAllConnections();
-  });
+  } finally {
+    clearTimeout(closeTimeout);
+  }
 };
 
 export const cleanupBrowserSmoke = async (
   browser: BrowserProcess | undefined,
   browserClosed: Promise<BrowserExit> | undefined,
   server: BrowserSmokeServer,
-  shutdownTimeoutMs = browserShutdownTimeoutMs
+  shutdownTimeoutMs = browserShutdownTimeoutMs,
+  serverShutdownTimeoutMs = browserServerShutdownTimeoutMs
 ) => {
   try {
     if (browser && browserClosed) {
       await terminateBrowser(browser, browserClosed, shutdownTimeoutMs);
     }
   } finally {
-    await closeServer(server);
+    await closeServer(server, serverShutdownTimeoutMs);
   }
 };

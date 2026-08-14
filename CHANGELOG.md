@@ -37,9 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allowed one additional bounded API 37 recovery when the PackageManager
   service disappears on two consecutive zero-test installation attempts,
   while keeping a third identical failure and real test failures fail-closed.
-- Bounded the strict-CSP real-browser smoke with separate Chromium process and
-  Vitest deadlines, forceful browser termination, and awaited HTTP server
-  cleanup across timeout, assertion failure, and success paths (issue #585).
+- Bounded the strict-CSP real-browser smoke with an absolute Chromium process
+  deadline, forceful browser termination, a deadline for HTTP server closure,
+  and reserved cleanup headroom inside the outer Vitest timeout across timeout,
+  assertion failure, and success paths (issue #585).
 - Allowed one additional bounded API 37 emulator recovery for the exact
   zero-test split-APK install-session broken-pipe failure while keeping
   persistent package-service failures and real instrumentation failures

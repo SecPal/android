@@ -12,9 +12,12 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error The bridge generator intentionally remains Node-executable JavaScript.
 import { buildNativeAuthBridgeBootstrapScript } from "../scripts/inject-native-auth-bridge.mjs";
 import {
+  browserProcessTimeoutMs,
   browserTestTimeoutMs,
   cleanupBrowserSmoke,
+  remainingBrowserProcessTimeout,
   waitForBrowserClose,
+  waitForServerListening,
   type BrowserExit,
 } from "./native-auth-bridge-csp-browser-lifecycle";
 
@@ -38,6 +41,7 @@ describe("native-auth bridge strict CSP browser smoke", () => {
   it.skipIf(!browserPath)(
     "installs the bridge from its same-origin asset without CSP violations or API traffic",
     async () => {
+      const browserProcessDeadline = Date.now() + browserProcessTimeoutMs;
       const bridge = buildNativeAuthBridgeBootstrapScript(
         "https://runtime-bootstrap-required.secpal.dev"
       );
@@ -103,7 +107,10 @@ globalThis.Capacitor = {
 
       try {
         server.listen(0, "127.0.0.1");
-        await once(server, "listening");
+        await waitForServerListening(
+          once(server, "listening"),
+          remainingBrowserProcessTimeout(browserProcessDeadline)
+        );
         const address = server.address();
         if (!address || typeof address === "string") {
           throw new Error("Browser smoke server did not expose a TCP port.");
@@ -129,7 +136,11 @@ globalThis.Capacitor = {
         browser.stderr.on("data", (chunk) => {
           stderr += chunk;
         });
-        const [exitCode] = await waitForBrowserClose(browser, browserClosed);
+        const [exitCode] = await waitForBrowserClose(
+          browser,
+          browserClosed,
+          remainingBrowserProcessTimeout(browserProcessDeadline)
+        );
 
         expect(exitCode, stderr).toBe(0);
         expect(stdout).toContain('"bridgeType":"object"');

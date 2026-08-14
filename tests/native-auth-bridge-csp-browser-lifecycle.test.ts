@@ -6,12 +6,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserProcessTimeoutMs,
+  browserServerShutdownTimeoutMs,
   browserShutdownTimeoutMs,
   browserTestTimeoutMs,
   cleanupBrowserSmoke,
   closeServer,
+  remainingBrowserProcessTimeout,
   terminateBrowser,
   waitForBrowserClose,
+  waitForServerListening,
   type BrowserExit,
   type BrowserProcess,
   type BrowserSmokeServer,
@@ -66,9 +69,31 @@ afterEach(() => {
 
 describe("strict-CSP browser smoke lifecycle", () => {
   it("keeps process termination and cleanup inside the outer test deadline", () => {
-    expect(browserProcessTimeoutMs + browserShutdownTimeoutMs).toBeLessThan(
-      browserTestTimeoutMs
+    const reservedHeadroomMs =
+      browserTestTimeoutMs -
+      browserProcessTimeoutMs -
+      browserShutdownTimeoutMs -
+      browserServerShutdownTimeoutMs;
+
+    expect(reservedHeadroomMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("derives the browser wait from the absolute smoke deadline", () => {
+    expect(remainingBrowserProcessTimeout(25_000, 8_000)).toBe(17_000);
+    expect(remainingBrowserProcessTimeout(25_000, 26_000)).toBe(0);
+  });
+
+  it("bounds server startup by the same absolute smoke deadline", async () => {
+    vi.useFakeTimers();
+    const listening = deferred<void>();
+    const result = waitForServerListening(listening.promise, 25);
+    const rejection = expect(result).rejects.toThrow(
+      "HTTP server did not start within 25 ms."
     );
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await rejection;
   });
 
   it("returns a normal Chromium close without terminating it", async () => {
@@ -180,6 +205,21 @@ describe("strict-CSP browser smoke lifecycle", () => {
     completeClose(new Error("server close failed"));
 
     await rejection;
+    expect(closeAllConnections).toHaveBeenCalledOnce();
+  });
+
+  it("bounds the wait for the HTTP server close callback", async () => {
+    vi.useFakeTimers();
+    const { close, closeAllConnections, server } = createServer();
+    const closing = closeServer(server, 25);
+    const rejection = expect(closing).rejects.toThrow(
+      "HTTP server did not close within 25 ms."
+    );
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await rejection;
+    expect(close).toHaveBeenCalledOnce();
     expect(closeAllConnections).toHaveBeenCalledOnce();
   });
 
