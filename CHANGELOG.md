@@ -65,10 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closes WebView admission before native login starts, native background events
   invalidate queued WebView work before cancelling native execution, and
   completion rechecks the absolute deadline even when the JavaScript timer was
-  delayed. Public and otherwise
-  browser-only API routes bypass the native scheduler, so native saturation
-  cannot delay or reject them. Web requests also re-check abort state after
-  native completion so a late abort cannot surface a stale success. Native
+  delayed. Response-size validation and body-read failures preserve a known
+  HTTP error status so a rejected credential is still invalidated without
+  buffering an oversized response body, while caller cancellation and the
+  absolute request deadline retain precedence over that status. Public and
+  otherwise browser-only API routes bypass the native scheduler, so native
+  saturation cannot delay or reject them. Web requests also re-check abort
+  state after native completion so a late abort cannot surface a stale success. Native
   passkey interaction keeps a distinct session binding across the expected
   system-UI pause while still failing
   closed on logout, credential replacement, or tenant changes (issue #412).

@@ -313,6 +313,7 @@ class NativeAuthHttpClient {
             new URL(normalizeBaseUrl(baseUrl) + path)
         );
         cancellation.registerConnection(connection);
+        int statusCode = 0;
         try {
             cancellation.throwIfCancelled();
             connection.setInstanceFollowRedirects(false);
@@ -352,19 +353,27 @@ class NativeAuthHttpClient {
                 }
             }
 
-            int statusCode = connection.getResponseCode();
+            statusCode = connection.getResponseCode();
             cancellation.throwIfCancelled();
             rejectAuthenticatedRedirect(statusCode);
+            int responseErrorStatusCode = statusCode >= 400 ? statusCode : 0;
             long declaredResponseLength = connection.getContentLengthLong();
             if (declaredResponseLength > maxResponseBodyBytes) {
-                throw new NativeAuthHttpException("Android auth bridge response exceeds the allowed size", 0);
+                throw new NativeAuthHttpException(
+                    "Android auth bridge response exceeds the allowed size",
+                    responseErrorStatusCode
+                );
             }
             InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
             byte[] responseBody;
             if (responseStream != null) {
                 try (InputStream in = responseStream) {
                     cancellation.registerInputStream(in);
-                    responseBody = readResponseBodyBytes(in, maxResponseBodyBytes);
+                    responseBody = readResponseBodyBytes(
+                        in,
+                        maxResponseBodyBytes,
+                        responseErrorStatusCode
+                    );
                     cancellation.clearInputStream(in);
                 }
             } else {
@@ -381,9 +390,17 @@ class NativeAuthHttpClient {
             }
             return new RequestResponse(statusCode, responseBody, connection.getContentType());
         } catch (IOException exception) {
-            if (cancellation.isCancelled()
-                && !(exception instanceof NativeAuthCancelledException)) {
+            if (exception instanceof NativeAuthCancelledException) {
+                throw exception;
+            }
+            if (cancellation.isCancelled()) {
                 throw cancellation.cancelledException(exception);
+            }
+            if (statusCode >= 400) {
+                throw new NativeAuthHttpException(
+                    "Android auth request failed with status " + statusCode,
+                    statusCode
+                );
             }
             throw exception;
         } finally {
@@ -623,7 +640,11 @@ class NativeAuthHttpClient {
         return challengeId.trim();
     }
 
-    static byte[] readResponseBodyBytes(InputStream inputStream, int maximumBytes)
+    static byte[] readResponseBodyBytes(
+        InputStream inputStream,
+        int maximumBytes,
+        int responseErrorStatusCode
+    )
         throws IOException, NativeAuthHttpException {
         if (inputStream == null) {
             return new byte[0];
@@ -637,7 +658,7 @@ class NativeAuthHttpClient {
                 if (bytesRead > maximumBytes - outputStream.size()) {
                     throw new NativeAuthHttpException(
                         "Android auth bridge response exceeds the allowed size",
-                        0
+                        responseErrorStatusCode
                     );
                 }
                 outputStream.write(buffer, 0, bytesRead);
