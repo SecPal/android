@@ -41,6 +41,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
     private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
     private static final String ANDROID_PUSH_TOKEN_ERROR_EVENT = "androidPushTokenError";
+    private static final String NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT =
+        "nativeAuthLifecycleChanged";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_MESSAGE =
         "Android offline vault root keys cannot be bridged into WebView JavaScript";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE =
@@ -112,14 +114,20 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @Override
     protected void handleOnPause() {
-        taskExecutor.pauseAuthenticated();
+        pauseAuthenticatedForLifecycle(
+            taskExecutor,
+            (event, payload) -> notifyListeners(event, payload, true)
+        );
         super.handleOnPause();
     }
 
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
-        taskExecutor.resumeAuthenticated();
+        resumeAuthenticatedForLifecycle(
+            taskExecutor,
+            (event, payload) -> notifyListeners(event, payload, true)
+        );
     }
 
     @PluginMethod
@@ -1269,8 +1277,36 @@ public class SecPalNativeAuthPlugin extends Plugin {
         boolean isDestroyed();
     }
 
-    interface PushEventNotifier {
+    interface RetainedEventNotifier {
         void notifyRetained(String event, JSObject payload);
+    }
+
+    static void pauseAuthenticatedForLifecycle(
+        NativeAuthTaskExecutor taskExecutor,
+        RetainedEventNotifier notifier
+    ) {
+        notifier.notifyRetained(
+            NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT,
+            buildNativeAuthLifecyclePayload(false)
+        );
+        taskExecutor.pauseAuthenticated();
+    }
+
+    static void resumeAuthenticatedForLifecycle(
+        NativeAuthTaskExecutor taskExecutor,
+        RetainedEventNotifier notifier
+    ) {
+        taskExecutor.resumeAuthenticated();
+        notifier.notifyRetained(
+            NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT,
+            buildNativeAuthLifecyclePayload(true)
+        );
+    }
+
+    private static JSObject buildNativeAuthLifecyclePayload(boolean foreground) {
+        JSObject payload = new JSObject();
+        payload.put("foreground", foreground);
+        return payload;
     }
 
     static boolean isVaultRootKeyBridgeEnabledForWebView() {
@@ -1311,7 +1347,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     static AndroidPushRuntimeManager.MessagingListener buildAndroidPushMessagingListener(
         DestroyedCheck destroyedCheck,
-        PushEventNotifier notifier
+        RetainedEventNotifier notifier
     ) {
         return new AndroidPushRuntimeManager.MessagingListener() {
             @Override

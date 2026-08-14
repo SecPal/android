@@ -128,7 +128,12 @@ headers, signal, and body source at invocation so later caller mutation cannot
 change the request, but postpones runtime restoration and bounded body-stream
 reading until the operation owns the active slot. Public, health, Sanctum, and
 foreign-origin routes bypass this scheduler and remain independent from a slow
-or saturated bearer request lane.
+or saturated bearer request lane. The total lifetime starts at fetch invocation,
+includes time spent in the WebView queue, and scales only to the 12 MiB upload
+limit. Queue saturation fails with `NATIVE_AUTH_BUSY`; deadline expiry fails
+with `REQUEST_TIMEOUT`. Completion checks the absolute deadline independently
+of timer callback ordering, so main-thread delays cannot publish an expired
+result.
 
 Admission validates the complete method, target, media contract, request size,
 and bridge call shape before token access or connection creation. Cancellation,
@@ -141,7 +146,14 @@ revalidates that binding before sending a passkey assertion or persisting
 credentials, so logout, credential replacement, and tenant changes still fail
 closed. Local session mutations pass an atomic generation gate so a timeout
 cannot publish or apply a stale result later. Foregrounding only reopens
-admission; cancelled broker and session work is never resumed or retried.
+admission; cancelled broker and session work is never resumed or retried. The
+WebView fetch generation is invalidated before logout or runtime mutation can
+activate different credentials or routing state. Older queued operations and
+late completions fail with `SESSION_INVALIDATED` and cannot fall through to the
+browser transport. Password and passkey credential replacement close WebView
+admission before the native login begins. Android background notification
+invalidates WebView work before native cancellation; foreground notification
+only reopens admission and never resumes the invalidated queue.
 
 The broker parses path and query components before matching. It rejects dot
 segments, nested or invalid percent encoding, invalid UTF-8, encoded separators,

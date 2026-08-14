@@ -6,6 +6,7 @@
 
   const fallbackApiOrigin = "https://runtime-bootstrap-required.secpal.dev";
   const nativeAuthLogoutEventName = "secpal:native-auth-logout";
+  const nativeAuthLifecycleChangedEventName = "nativeAuthLifecycleChanged";
   const authVaultStateStorageKey = "auth_vault_state";
   const runtimeResetPendingStorageKey =
     "secpal-android-runtime-reset-pending";
@@ -16,9 +17,22 @@
   const maxNativeAuthRequestBodyBytes = 12 * 1024 * 1024;
   const maxNativeAuthRequestBodyBase64Characters =
     Math.ceil(maxNativeAuthRequestBodyBytes / 3) * 4;
+  const baseNativeAuthRequestLifetimeMillis = 30_000;
+  const minimumNativeAuthUploadBytesPerSecond = 64 * 1024;
+  const nativeAuthUploadDeadlineOverheadMillis = 15_000;
+  const nativeAuthReadTimeoutMillis = 15_000;
+  const nativeAuthTotalDeadlineOverheadMillis = 5_000;
   const maxQueuedNativeFetches = 8;
   const queuedNativeFetches = [];
-  let nativeFetchActive = false;
+  let activeNativeFetch = null;
+  let nativeFetchSessionTransitions = 0;
+  let nativeFetchBackgrounded = false;
+  const nativeSetTimeout = globalThis.setTimeout?.bind(globalThis);
+  const nativeClearTimeout = globalThis.clearTimeout?.bind(globalThis);
+  const nativeNow = Date.now.bind(Date);
+  if (!nativeSetTimeout || !nativeClearTimeout) {
+    throw new Error("Android native auth requires WebView timer support.");
+  }
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
@@ -136,6 +150,11 @@
 
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
   globalThis.__SecPalNativeAuthState = authState;
+  authState.nativeFetchGeneration = Number.isSafeInteger(
+    authState.nativeFetchGeneration
+  )
+    ? authState.nativeFetchGeneration
+    : 0;
   const runtimeState = globalThis.__SecPalRuntimeDiscoveryState ?? {
     configured: false,
     bootstrap: null,
@@ -738,6 +757,7 @@
   };
 
   const beginRuntimeBootstrapMutation = () => {
+    invalidateScheduledNativeFetches();
     runtimeState.bootstrapEpoch += 1;
     return runtimeState.bootstrapEpoch;
   };
@@ -1007,6 +1027,91 @@
     return error;
   };
 
+  const createNativeAuthLifecycleError = (code) => {
+    const message =
+      code === "REQUEST_TIMEOUT"
+        ? "Android authenticated request exceeded its lifetime limit"
+        : code === "APP_BACKGROUNDED"
+          ? "Android authenticated request was cancelled in the background"
+          : "Android authenticated request belongs to an expired session";
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  };
+
+  const resolveNativeAuthRequestLifetimeMillis = (requestBodyBytes) => {
+    if (requestBodyBytes <= 0) {
+      return baseNativeAuthRequestLifetimeMillis;
+    }
+    const transferMillis = Math.ceil(
+      (requestBodyBytes * 1000) / minimumNativeAuthUploadBytesPerSecond
+    );
+    const writeTimeoutMillis = Math.max(
+      15_000,
+      transferMillis + nativeAuthUploadDeadlineOverheadMillis
+    );
+    return Math.max(
+      baseNativeAuthRequestLifetimeMillis,
+      writeTimeoutMillis +
+        nativeAuthReadTimeoutMillis +
+        nativeAuthTotalDeadlineOverheadMillis
+    );
+  };
+
+  const utf8ByteLength = (value) => {
+    let bytes = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit < 0x80) {
+        bytes += 1;
+      } else if (codeUnit < 0x800) {
+        bytes += 2;
+      } else if (
+        codeUnit >= 0xd800 &&
+        codeUnit <= 0xdbff &&
+        index + 1 < value.length &&
+        value.charCodeAt(index + 1) >= 0xdc00 &&
+        value.charCodeAt(index + 1) <= 0xdfff
+      ) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    }
+    return bytes;
+  };
+
+  const getKnownRequestBodyBytes = (request, init) => {
+    if (request.method === "GET" || request.method === "HEAD" || !request.body) {
+      return 0;
+    }
+    const declaredLengthHeader = request.headers.get("Content-Length");
+    if (declaredLengthHeader !== null && declaredLengthHeader.trim() !== "") {
+      const declaredLength = Number(declaredLengthHeader);
+      if (Number.isSafeInteger(declaredLength) && declaredLength >= 0) {
+        return Math.min(declaredLength, maxNativeAuthRequestBodyBytes);
+      }
+    }
+    const body = init?.body;
+    if (typeof body === "string") {
+      return utf8ByteLength(body);
+    }
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+      return body.byteLength;
+    }
+    if (typeof globalThis.Blob === "function" && body instanceof globalThis.Blob) {
+      return body.size;
+    }
+    if (
+      typeof globalThis.URLSearchParams === "function" &&
+      body instanceof globalThis.URLSearchParams
+    ) {
+      return utf8ByteLength(body.toString());
+    }
+    return null;
+  };
+
   const throwIfAborted = (signal) => {
     if (signal?.aborted) {
       throw createAbortError();
@@ -1038,45 +1143,189 @@
     });
   };
 
-  const scheduleNativeFetch = (operation, signal) => {
-    throwIfAborted(signal);
+  const scheduleNativeFetch = (
+    operation,
+    callerSignal,
+    submittedGeneration,
+    initialLifetimeMillis
+  ) => {
+    throwIfAborted(callerSignal);
     return new Promise((resolve, reject) => {
-      const entry = { start: undefined };
-      const abortQueued = () => {
-        const index = queuedNativeFetches.indexOf(entry);
-        if (index < 0) {
+      const startedAt = nativeNow();
+      const lifecycleListeners = new Set();
+      let lifecycleAborted = false;
+      let deadline;
+      let deadlineAt;
+      let settled = false;
+      const lifecycleSignal = {
+        get aborted() {
+          return lifecycleAborted;
+        },
+        addEventListener(type, listener) {
+          if (type === "abort" && typeof listener === "function") {
+            lifecycleListeners.add(listener);
+          }
+        },
+        removeEventListener(type, listener) {
+          if (type === "abort") {
+            lifecycleListeners.delete(listener);
+          }
+        },
+      };
+      const abortOperation = () => {
+        if (lifecycleAborted) {
           return;
         }
-        queuedNativeFetches.splice(index, 1);
-        reject(createAbortError());
+        lifecycleAborted = true;
+        for (const listener of lifecycleListeners) {
+          try {
+            listener.call(lifecycleSignal, { type: "abort" });
+          } catch {
+            // Cancellation must continue through every registered listener.
+          }
+        }
+        lifecycleListeners.clear();
       };
-      entry.start = () => {
-        signal?.removeEventListener?.("abort", abortQueued);
-        nativeFetchActive = true;
-        Promise.resolve()
-          .then(operation)
-          .then(resolve, reject)
-          .finally(() => {
-            nativeFetchActive = false;
-            queuedNativeFetches.shift()?.start();
-          });
+      const clearDeadline = () => {
+        if (deadline !== undefined && nativeClearTimeout) {
+          nativeClearTimeout(deadline);
+        }
+        deadline = undefined;
       };
+      const removeQueuedEntry = () => {
+        const index = queuedNativeFetches.indexOf(entry);
+        if (index >= 0) {
+          queuedNativeFetches.splice(index, 1);
+        }
+      };
+      const settle = (callback, value) => {
+        if (settled) {
+          return false;
+        }
+        settled = true;
+        clearDeadline();
+        callerSignal?.removeEventListener?.("abort", abortForCaller);
+        callback(value);
+        return true;
+      };
+      const cancel = (error) => {
+        if (settled) {
+          return;
+        }
+        removeQueuedEntry();
+        abortOperation();
+        settle(reject, error);
+      };
+      const abortForCaller = () => cancel(createAbortError());
+      const armDeadline = (lifetimeMillis) => {
+        clearDeadline();
+        deadlineAt = startedAt + lifetimeMillis;
+        const remainingMillis = deadlineAt - nativeNow();
+        if (remainingMillis <= 0) {
+          cancel(createNativeAuthLifecycleError("REQUEST_TIMEOUT"));
+          return;
+        }
+        if (nativeSetTimeout) {
+          deadline = nativeSetTimeout(
+            () => cancel(createNativeAuthLifecycleError("REQUEST_TIMEOUT")),
+            remainingMillis
+          );
+        }
+      };
+      const entry = {
+        cancelForLifecycle(reasonCode) {
+          cancel(createNativeAuthLifecycleError(reasonCode));
+        },
+        start() {
+          if (
+            settled ||
+            submittedGeneration !== authState.nativeFetchGeneration
+          ) {
+            entry.cancelForLifecycle("SESSION_INVALIDATED");
+            return;
+          }
+          if (nativeNow() >= deadlineAt) {
+            cancel(createNativeAuthLifecycleError("REQUEST_TIMEOUT"));
+            return;
+          }
+          activeNativeFetch = entry;
+          Promise.resolve()
+            .then(() =>
+              operation({
+                signal: lifecycleSignal,
+                updateRequestBodyBytes(requestBodyBytes) {
+                  armDeadline(
+                    resolveNativeAuthRequestLifetimeMillis(requestBodyBytes)
+                  );
+                  throwIfAborted(lifecycleSignal);
+                },
+              })
+            )
+            .then(
+              (value) => {
+                if (nativeNow() >= deadlineAt) {
+                  cancel(createNativeAuthLifecycleError("REQUEST_TIMEOUT"));
+                  return;
+                }
+                settle(resolve, value);
+              },
+              (error) => {
+                if (nativeNow() >= deadlineAt) {
+                  cancel(createNativeAuthLifecycleError("REQUEST_TIMEOUT"));
+                  return;
+                }
+                settle(reject, error);
+              }
+            )
+            .finally(() => {
+              if (activeNativeFetch === entry) {
+                activeNativeFetch = null;
+                queuedNativeFetches.shift()?.start();
+              }
+            });
+        },
+      };
+      callerSignal?.addEventListener?.("abort", abortForCaller, { once: true });
+      armDeadline(initialLifetimeMillis);
 
-      if (!nativeFetchActive) {
+      if (settled) {
+        return;
+      }
+      if (!activeNativeFetch) {
         entry.start();
         return;
       }
       if (queuedNativeFetches.length >= maxQueuedNativeFetches) {
-        reject(createNativeAuthBusyError());
+        cancel(createNativeAuthBusyError());
         return;
       }
-      signal?.addEventListener?.("abort", abortQueued, { once: true });
       queuedNativeFetches.push(entry);
     });
   };
 
-  const readBoundedRequestBody = async (request) => {
-    const signal = request.signal;
+  const invalidateScheduledNativeFetches = (
+    reasonCode = "SESSION_INVALIDATED"
+  ) => {
+    authState.nativeFetchGeneration += 1;
+    activeNativeFetch?.cancelForLifecycle(reasonCode);
+    for (const entry of [...queuedNativeFetches]) {
+      entry.cancelForLifecycle(reasonCode);
+    }
+  };
+
+  const beginNativeFetchSessionTransition = () => {
+    nativeFetchSessionTransitions += 1;
+    invalidateScheduledNativeFetches();
+  };
+
+  const endNativeFetchSessionTransition = () => {
+    nativeFetchSessionTransitions = Math.max(
+      0,
+      nativeFetchSessionTransitions - 1
+    );
+  };
+
+  const readBoundedRequestBody = async (request, signal = request.signal) => {
     throwIfAborted(signal);
     const declaredLength = Number(request.headers.get("Content-Length"));
     if (Number.isFinite(declaredLength) && declaredLength > maxNativeAuthRequestBodyBytes) {
@@ -1828,8 +2077,12 @@
 
   const setAuthActive = (nextActive) => {
     const wasActive = authState.active === true;
+    const willBeActive = nextActive === true;
 
-    authState.active = nextActive === true;
+    authState.active = willBeActive;
+    if (wasActive && !willBeActive) {
+      invalidateScheduledNativeFetches();
+    }
 
     if (!wasActive && authState.active && androidPushSyncState.suspended !== true) {
       queueAndroidPushSync();
@@ -2017,6 +2270,36 @@
     );
   };
 
+  const installNativeAuthLifecycleListener = () => {
+    const plugin = getPlugin();
+
+    if (typeof plugin.addListener !== "function") {
+      return;
+    }
+
+    const handleOrPromise = plugin.addListener(
+      nativeAuthLifecycleChangedEventName,
+      (payload) => {
+        if (!payload || typeof payload !== "object") {
+          return;
+        }
+        if (payload.foreground === false) {
+          nativeFetchBackgrounded = true;
+          invalidateScheduledNativeFetches("APP_BACKGROUNDED");
+        } else if (payload.foreground === true) {
+          nativeFetchBackgrounded = false;
+        }
+      }
+    );
+    Promise.resolve(handleOrPromise)
+      .then((handle) => {
+        authState.nativeAuthLifecycleHandle = handle ?? null;
+      })
+      .catch(() => {
+        authState.nativeAuthLifecycleHandle = null;
+      });
+  };
+
   const buildPath = (url) => url.pathname + url.search;
   const fallbackApiHost = new URL(fallbackApiOrigin).hostname;
   const originalFetch =
@@ -2153,13 +2436,19 @@
 
   restorePersistedBootstrap();
   installAndroidPushListeners();
+  installNativeAuthLifecycleListener();
 
   const bridge = {
     async login(credentials) {
       await ensureRuntimeConfigured();
-      const result = await getPlugin().login(credentials);
-      setAuthActive(true);
-      return result;
+      beginNativeFetchSessionTransition();
+      try {
+        const result = await getPlugin().login(credentials);
+        setAuthActive(true);
+        return result;
+      } finally {
+        endNativeFetchSessionTransition();
+      }
     },
     async logout() {
       await ensureRuntimeConfigured();
@@ -2251,9 +2540,14 @@
     bridge.loginWithPasskey = async () => {
       await ensureRuntimeConfigured();
       await requirePasskeyCapabilities();
-      const result = await getPlugin().loginWithPasskey();
-      setAuthActive(true);
-      return result;
+      beginNativeFetchSessionTransition();
+      try {
+        const result = await getPlugin().loginWithPasskey();
+        setAuthActive(true);
+        return result;
+      } finally {
+        endNativeFetchSessionTransition();
+      }
     };
   }
 
@@ -2340,11 +2634,12 @@
         return originalFetch(input, init);
       }
 
-      const dispatchRequest = async () => {
+      const dispatchRequest = async (scheduledContext) => {
+        const requestSignal = scheduledContext?.signal ?? request.signal;
         const url = new URL(request.url, candidateUrl);
         if (isApiPath(url.pathname)) {
           try {
-            await awaitWithAbort(runtimeState.nativeConfigPromise, request.signal);
+            await awaitWithAbort(runtimeState.nativeConfigPromise, requestSignal);
           } catch (error) {
             if (error?.name === "AbortError") {
               throw error;
@@ -2355,11 +2650,22 @@
 
         const rewrittenUrl = rewriteApiRequestUrl(url);
 
-        if (authState.active && isNativeApiRequest(rewrittenUrl)) {
+        if (scheduledContext) {
+          if (
+            !authState.active ||
+            scheduledContext.submittedGeneration !==
+              authState.nativeFetchGeneration ||
+            !isNativeApiRequest(rewrittenUrl)
+          ) {
+            throw createNativeAuthLifecycleError("SESSION_INVALIDATED");
+          }
           const requestBody =
             request.method === "GET" || request.method === "HEAD"
               ? undefined
-              : await readBoundedRequestBody(request);
+              : await readBoundedRequestBody(request, requestSignal);
+          scheduledContext.updateRequestBodyBytes(
+            requestBody?.byteLength ?? 0
+          );
           const nativeResponse = await bridge.request({
             method: request.method,
             path: buildPath(rewrittenUrl),
@@ -2369,7 +2675,7 @@
                 : undefined,
             contentType: request.headers.get("Content-Type") ?? undefined,
             accept: request.headers.get("Accept") ?? undefined,
-            signal: request.signal,
+            signal: requestSignal,
           });
           const headers = new Headers();
           if (nativeResponse.contentType) {
@@ -2388,9 +2694,33 @@
         return originalFetch(new Request(rewrittenUrl.toString(), request));
       };
 
-      return authState.active && isNativeApiCandidate(candidateUrl)
-        ? scheduleNativeFetch(dispatchRequest, request.signal)
-        : dispatchRequest();
+      if (
+        isNativeApiCandidate(candidateUrl) &&
+        (authState.active || nativeFetchSessionTransitions > 0)
+      ) {
+        if (nativeFetchBackgrounded) {
+          throw createNativeAuthLifecycleError("APP_BACKGROUNDED");
+        }
+        if (nativeFetchSessionTransitions > 0) {
+          throw createNativeAuthLifecycleError("SESSION_INVALIDATED");
+        }
+        const submittedGeneration = authState.nativeFetchGeneration;
+        const knownRequestBodyBytes = getKnownRequestBodyBytes(request, init);
+        const initialLifetimeMillis = resolveNativeAuthRequestLifetimeMillis(
+          knownRequestBodyBytes ?? maxNativeAuthRequestBodyBytes
+        );
+        return scheduleNativeFetch(
+          (context) =>
+            dispatchRequest({
+              ...context,
+              submittedGeneration,
+            }),
+          request.signal,
+          submittedGeneration,
+          initialLifetimeMillis
+        );
+      }
+      return dispatchRequest();
     };
   }
 

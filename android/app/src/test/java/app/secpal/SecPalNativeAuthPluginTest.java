@@ -116,6 +116,54 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void lifecycleNotificationInvalidatesWebViewBeforeNativeBackgroundCancellation()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch requestStarted = new CountDownLatch(1);
+        List<String> events = new ArrayList<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "background-ordering",
+                    0,
+                    () -> {
+                        requestStarted.countDown();
+                        try {
+                            Thread.sleep(10_000L);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> events.add("cancel:" + reason)
+                )
+            );
+            assertTrue(requestStarted.await(2, TimeUnit.SECONDS));
+
+            SecPalNativeAuthPlugin.pauseAuthenticatedForLifecycle(
+                taskExecutor,
+                (event, payload) -> events.add(
+                    event + ":" + payload.getBool("foreground")
+                )
+            );
+
+            assertEquals("nativeAuthLifecycleChanged:false", events.get(0));
+            assertEquals("cancel:APP_BACKGROUNDED", events.get(1));
+
+            SecPalNativeAuthPlugin.resumeAuthenticatedForLifecycle(
+                taskExecutor,
+                (event, payload) -> events.add(
+                    event + ":" + payload.getBool("foreground")
+                )
+            );
+            assertEquals("nativeAuthLifecycleChanged:true", events.get(2));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void obsoleteApiBaseUrlMutationIsNotExportedToJavascript() {
         Set<String> exportedMethods = new java.util.HashSet<>();
         for (Method method : SecPalNativeAuthPlugin.class.getDeclaredMethods()) {
