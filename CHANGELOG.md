@@ -83,9 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact commit object, and deduplicate repeated evidence (issue #563).
 - Kept the CodeQL initialization and analysis actions on the same release to
   prevent configuration-version failures in the security workflow.
-- Overrode the vulnerable transitive `nanoid` dependency to 3.3.18, preventing
-  custom generators from looping indefinitely when invoked with a zero size
-  (issue #539).
+- Removed the explicit transitive `nanoid` 3.3.18 security override; PostCSS
+  now resolves compatible patched releases without blocking future fixes
+  (issues #539 and #583).
 - Aligned the local Prettier pre-commit hook with `format:check`, including
   TypeScript, JavaScript, MJS, CSS, and HTML, and added a regression guard for
   future scope drift (issue #525).
