@@ -503,7 +503,7 @@
     try {
       restored = await loadPersistedBootstrap();
     } catch {
-      return false;
+      restored = await loadPersistedBootstrap();
     }
 
     if (runtimeState.bootstrapEpoch !== bootstrapEpoch) {

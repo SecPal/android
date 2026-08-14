@@ -36,9 +36,6 @@ final class NativeAuthRequestPolicy {
     private static final Set<String> NO_QUERY = Collections.emptySet();
     private static final Set<RequestContentKind> NO_CONTENT = Collections.singleton(RequestContentKind.NONE);
     private static final Set<RequestContentKind> JSON_CONTENT = Collections.singleton(RequestContentKind.JSON);
-    private static final Set<RequestContentKind> OPTIONAL_JSON_CONTENT = Collections.unmodifiableSet(
-        new HashSet<>(Arrays.asList(RequestContentKind.NONE, RequestContentKind.JSON))
-    );
     private static final Set<RequestContentKind> MULTIPART_CONTENT = Collections.singleton(RequestContentKind.MULTIPART);
     private static final Pattern MULTIPART_BOUNDARY = Pattern.compile(
         "^[A-Za-z0-9'()+_,./:=?-]{1,70}$"
@@ -137,13 +134,11 @@ final class NativeAuthRequestPolicy {
         add(routes, "GET", "/v1/addresses/de/streets", keys("name", "postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/localities", keys("postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
 
-        add(routes, "GET", "/v1/organizational-units", keys("type", "parent_id", "is_active", "is_assignable", "per_page", "page"), OPTIONAL_JSON_CONTENT, ResponseKind.JSON);
+        add(routes, "GET", "/v1/organizational-units", keys("type", "parent_id", "is_active", "is_assignable", "per_page", "page"), JSON_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/organizational-units", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "GET", "/v1/organizational-units/" + ID, NO_QUERY, OPTIONAL_JSON_CONTENT, ResponseKind.JSON);
+        add(routes, "GET", "/v1/organizational-units/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "PATCH", "/v1/organizational-units/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "DELETE", "/v1/organizational-units/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "GET", "/v1/organizational-units/" + ID + "/descendants", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "GET", "/v1/organizational-units/" + ID + "/ancestors", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/organizational-units/" + ID + "/parent", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "DELETE", "/v1/organizational-units/" + ID + "/parent/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
 
@@ -193,7 +188,6 @@ final class NativeAuthRequestPolicy {
             "organizational_unit_id", "causer_type", "causer_id", "subject_type",
             "subject_id", "include_verification"
         ), NO_CONTENT, ResponseKind.JSON);
-        add(routes, "GET", "/v1/activity-logs/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/activity-logs/" + ID + "/verify", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
 
         return Collections.unmodifiableList(routes);

@@ -4142,6 +4142,64 @@ describe("native auth bridge bootstrap injection", () => {
     expect(sessionStorage.getItem("tenant-session")).toBeNull();
   });
 
+  it("retries interrupted-reset recovery before leaving the recovery path", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      getRuntimeBootstrap: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("transient native read failure"))
+        .mockResolvedValue({ configured: false }),
+    };
+    const localStorage = createMockStorage({
+      [runtimeResetPendingStorageKey]: "1",
+      "secpal-locale": "de",
+      "tenant-cache": "customer-a-cache",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(),
+      "tenant-session": "customer-a-session",
+    });
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      document: new MockDocument(),
+      localStorage,
+      sessionStorage,
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      setTimeout,
+      clearTimeout,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/login", reload: vi.fn() },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+      sandbox
+    );
+
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      nativeConfigPromise: Promise<void>;
+    };
+    await expect(runtimeState.nativeConfigPromise).resolves.toBeUndefined();
+
+    expect(plugin.getRuntimeBootstrap).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(runtimeResetPendingStorageKey)).toBeNull();
+    expect(localStorage.getItem("secpal-locale")).toBe("de");
+    expect(localStorage.getItem("tenant-cache")).toBeNull();
+    expect(sessionStorage.getItem(runtimeBootstrapStorageKey)).toBeNull();
+    expect(sessionStorage.getItem("tenant-session")).toBeNull();
+  });
+
   it("contains interrupted-reset cleanup failure without a startup reload loop", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {

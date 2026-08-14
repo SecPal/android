@@ -59,8 +59,6 @@ public class NativeAuthRequestPolicyTest {
             { "GET", "/v1/organizational-units/unit-1", "application/json", 0 },
             { "PATCH", "/v1/organizational-units/unit-1", "application/json", 2 },
             { "DELETE", "/v1/organizational-units/unit-1", "application/json", 0 },
-            { "GET", "/v1/organizational-units/unit-1/descendants", "application/json", 0 },
-            { "GET", "/v1/organizational-units/unit-1/ancestors", "application/json", 0 },
             { "POST", "/v1/organizational-units/unit-1/parent", "application/json", 2 },
             { "DELETE", "/v1/organizational-units/unit-1/parent/unit-2", "application/json", 0 },
             { "GET", "/v1/lookups/legal-entities", null, 0 },
@@ -100,7 +98,6 @@ public class NativeAuthRequestPolicyTest {
             { "DELETE", "/v1/onboarding/submissions/submission-1/files/file-1", null, 0 },
             { "POST", "/v1/onboarding-review/employees/employee-1/confirm", "application/json", 2 },
             { "GET", "/v1/activity-logs?page=1&per_page=25&from_date=2026-01-01&to_date=2026-01-31&log_name=default&search=updated&organizational_unit_id=unit-1&causer_type=user&causer_id=user-1&subject_type=employee&subject_id=employee-1&include_verification=1", null, 0 },
-            { "GET", "/v1/activity-logs/activity-1", null, 0 },
             { "GET", "/v1/activity-logs/activity-1/verify", null, 0 },
         };
 
@@ -136,6 +133,9 @@ public class NativeAuthRequestPolicyTest {
             { "GET", "/v1/android-enrollment-sessions?per_page=15", null, 0 },
             { "POST", "/v1/android-enrollment-sessions", "application/json", 2 },
             { "POST", "/v1/android-enrollment-sessions/session-1/revoke", "application/json", 2 },
+            { "GET", "/v1/activity-logs/activity-1", null, 0 },
+            { "GET", "/v1/organizational-units/unit-1/ancestors", "application/json", 0 },
+            { "GET", "/v1/organizational-units/unit-1/descendants", "application/json", 0 },
         };
 
         for (Object[] request : requests) {

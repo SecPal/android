@@ -439,11 +439,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
     ) {
         try {
             String tokenForServerRevocation = readStoredTokenForRuntimeMutation(tokenStorage);
+            JSObject previousBootstrap = getPersistedRuntimeBootstrap();
+            AndroidPushRuntimeMetadata previousPushRuntime = previousBootstrap == null
+                ? null
+                : AndroidPushRuntimeMetadata.fromBootstrap(
+                    previousBootstrap.optJSONObject("androidPush")
+                );
             if (!clearRuntimeBootstrapStateWithPushRollback(
                 getNativeAuthPreferences(),
                 tokenStorage,
                 tokenForServerRevocation,
-                () -> androidPushRuntimeManager.apply(null)
+                androidPushRuntimeManager,
+                previousPushRuntime
             )) {
                 call.reject(
                     "Failed to clear Android runtime bootstrap state",
@@ -1130,6 +1137,21 @@ public class SecPalNativeAuthPlugin extends Plugin {
         tokenStorage.clearToken();
 
         return true;
+    }
+
+    static boolean clearRuntimeBootstrapStateWithPushRollback(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        String previousToken,
+        AndroidPushRuntimeManager androidPushRuntimeManager,
+        AndroidPushRuntimeMetadata previousPushRuntime
+    ) throws TokenStorageException {
+        return clearRuntimeBootstrapStateWithPushRollback(
+            preferences,
+            tokenStorage,
+            previousToken,
+            () -> androidPushRuntimeManager.applyWithRollback(null, previousPushRuntime)
+        );
     }
 
     static boolean clearRuntimeBootstrapStateWithPushRollback(

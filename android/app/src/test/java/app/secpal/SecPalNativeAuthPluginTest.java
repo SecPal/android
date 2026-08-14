@@ -1057,6 +1057,45 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void clearRuntimeBootstrapStateRestoresPushRuntimeWhenResetFails() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        ResetFailingFirebaseBackend firebaseBackend = new ResetFailingFirebaseBackend();
+        AndroidPushRuntimeManager pushRuntimeManager = new AndroidPushRuntimeManager(firebaseBackend);
+        AndroidPushRuntimeMetadata previousPushRuntime = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        try {
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                tokenStorage.token,
+                pushRuntimeManager,
+                previousPushRuntime
+            );
+            fail("Expected push reset failure");
+        } catch (RuntimeException thrown) {
+            assertEquals("push-reset-failed", thrown.getMessage());
+        }
+
+        assertEquals(
+            "{\"apiOrigin\":\"https://tenant-a.example\"}",
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertEquals(1, firebaseBackend.initializeCallCount);
+        assertEquals(previousPushRuntime, firebaseBackend.lastInitializedMetadata);
+        assertEquals(1, firebaseBackend.ensureMessagingCallCount);
+    }
+
+    @Test
     public void clearRuntimeBootstrapStateKeepsCredentialClearedWhenRollbackFails()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -1332,6 +1371,58 @@ public class SecPalNativeAuthPluginTest {
         @Override
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             fail("ensureMessaging should not run after initialization fails");
+        }
+    }
+
+    private static final class ResetFailingFirebaseBackend
+        implements AndroidPushRuntimeManager.FirebaseBackend {
+        private AndroidPushRuntimeManager.FirebaseAppHandle existingApp = new AndroidPushRuntimeManager.FirebaseAppHandle() {
+            @Override
+            public String getName() {
+                return "secpal-runtime-push";
+            }
+
+            @Override
+            public void delete() {
+                existingApp = null;
+                throw new IllegalStateException("push-reset-failed");
+            }
+        };
+        private int initializeCallCount;
+        private int ensureMessagingCallCount;
+        private AndroidPushRuntimeMetadata lastInitializedMetadata;
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+            return existingApp;
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle initialize(
+            AndroidPushRuntimeMetadata metadata
+        ) {
+            initializeCallCount += 1;
+            lastInitializedMetadata = metadata;
+            existingApp = new AndroidPushRuntimeManager.FirebaseAppHandle() {
+                @Override
+                public String getName() {
+                    return "secpal-runtime-push";
+                }
+
+                @Override
+                public void delete() {
+                    existingApp = null;
+                }
+            };
+            return existingApp;
+        }
+
+        @Override
+        public void cancelPendingTokenRequest() {}
+
+        @Override
+        public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            ensureMessagingCallCount += 1;
         }
     }
 

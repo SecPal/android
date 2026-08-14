@@ -78,9 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rebinding clears even orphaned or unreadable credentials unless the existing
   canonical origin is identical, and parity coverage keeps retired Android enrollment-session
   operations and other uncalled service routes outside the least-privilege
-  inventory. The Android smoke build now runs the generated-caller parity suite
-  after packaging and fails closed when packaged JavaScript assets are
-  unavailable instead of silently skipping its assertions (issue #408).
+  inventory. The generated-caller parity suite now compares complete method,
+  route-template, query-key, and request-media-type contracts, removing stale
+  activity-log and organizational-tree grants; a failed push reset also restores
+  the previous deployment's push runtime together with its bootstrap and
+  credential. Interrupted-reset startup recovery retries one transient native
+  bootstrap read and remains blocked when native runtime state is still unknown.
+  The Android smoke build runs this suite after packaging and fails closed when
+  packaged JavaScript assets are unavailable instead of silently skipping its
+  assertions (issue #408).
 
 - Allowed one additional bounded API 37 recovery when the PackageManager
   service disappears on two consecutive zero-test installation attempts,
