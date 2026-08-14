@@ -599,6 +599,7 @@ exit 1
         | "split-install-broken-pipe-always"
         | "split-install-broken-pipe-then-test"
         | "missing-package-service"
+        | "missing-package-service-always"
         | "install-write"
         | "install-write-always"
         | "install-write-with-tests"
@@ -606,6 +607,7 @@ exit 1
         | "instrumentation-crash-always"
         | "instrumentation-crash-then-install-write"
         | "instrumentation-crash-then-missing-package-service"
+        | "instrumentation-crash-then-missing-package-service-twice"
         | "instrumentation-crash-then-missing-package-service-then-test"
         | "command-error"
         | "command-error-always"
@@ -669,6 +671,8 @@ elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
 elif [[ "${failureMode}" == instrumentation-crash-then-missing-package-service* ]]; then
   if [[ "$attempt" == "1" ]]; then
     attempt_failure_mode="instrumentation-crash"
+  elif [[ "${failureMode}" == *-twice && "$attempt" -le 3 ]]; then
+    attempt_failure_mode="missing-package-service"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="missing-package-service"
   elif [[ "${failureMode}" == *-then-test && "$attempt" == "3" ]]; then
@@ -722,7 +726,7 @@ if [[ -n "$attempt_failure_mode" ]]; then
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
-  elif [[ "$attempt_failure_mode" == "missing-package-service" ]]; then
+  elif [[ "$attempt_failure_mode" == missing-package-service* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
     printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
     printf '%s\n' "Unknown failure: cmd: Can't find service: package"
@@ -916,6 +920,21 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
 
+    const persistentMissingPackageService = runScenario(
+      37,
+      "missing-package-service-always"
+    );
+    expect(persistentMissingPackageService.result.status).toBe(1);
+    expect(persistentMissingPackageService.attempts).toBe(3);
+    expect(persistentMissingPackageService.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(persistentMissingPackageService.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
     const repeatedApi37Failure = runScenario(37, "package-manager-always");
     expect(repeatedApi37Failure.result.status).toBe(1);
     expect(repeatedApi37Failure.attempts).toBe(2);
@@ -1087,6 +1106,41 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "reboot:adb -s emulator-5570 reboot",
       "wait:emulator-5570 60",
       "attempt:3",
+    ]);
+
+    const repeatedPackageServiceFailureAfterInstrumentationCrash = runScenario(
+      37,
+      "instrumentation-crash-then-missing-package-service-twice"
+    );
+    expect(
+      repeatedPackageServiceFailureAfterInstrumentationCrash.result.status
+    ).toBe(0);
+    expect(
+      repeatedPackageServiceFailureAfterInstrumentationCrash.attempts
+    ).toBe(4);
+    expect(
+      repeatedPackageServiceFailureAfterInstrumentationCrash.reboots
+    ).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(
+      repeatedPackageServiceFailureAfterInstrumentationCrash.waits
+    ).toEqual(["emulator-5570 60", "emulator-5570 60", "emulator-5570 60"]);
+    expect(
+      repeatedPackageServiceFailureAfterInstrumentationCrash.recoveryEvents
+    ).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:4",
     ]);
 
     const testFailureAfterInfrastructureRecovery = runScenario(
