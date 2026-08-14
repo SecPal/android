@@ -1138,6 +1138,180 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(response.text()).resolves.toBe('{"status":"ready"}');
   });
 
+  it("does not queue browser-only API routes behind an active native request", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    let rejectNativeRequest: ((error: Error) => void) | undefined;
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectNativeRequest = reject;
+          })
+      ),
+      cancelRequest: vi.fn().mockImplementation(() => {
+        rejectNativeRequest?.(
+          Object.assign(new Error("cancelled"), {
+            code: "REQUEST_CANCELLED",
+          })
+        );
+        return Promise.resolve({ cancelled: true });
+      }),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue({
+          apiOrigin: "https://api.secpal.dev",
+          rawApiBaseUrl: "https://api.secpal.dev/v1",
+        }),
+      }),
+    };
+    const browserFetch = vi.fn().mockResolvedValue(
+      new Response('{"status":"ready"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      sessionStorage: createMockStorage(),
+      fetch: browserFetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+    await flushMicrotasks();
+    (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
+    const nativeAbort = new AbortController();
+    const activeNativeFetch = (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/me",
+      { signal: nativeAbort.signal }
+    );
+    void activeNativeFetch.catch(() => undefined);
+    await vi.waitFor(() => expect(plugin.request).toHaveBeenCalledTimes(1));
+
+    const publicResponse = await Promise.race([
+      (sandbox.fetch as typeof fetch)("https://api.secpal.dev/v1/bootstrap"),
+      new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), 100)
+      ),
+    ]);
+
+    expect(publicResponse).not.toBe("timeout");
+    expect(browserFetch).toHaveBeenCalledTimes(1);
+    nativeAbort.abort();
+    await Promise.allSettled([activeNativeFetch]);
+  });
+
+  it("snapshots intercepted fetch inputs before waiting in the native queue", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const pendingNativeRequests = new Map<
+      string,
+      { reject: (error: Error) => void }
+    >();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn().mockImplementation(
+        ({ requestId }: { requestId: string }) =>
+          new Promise((_resolve, reject) => {
+            pendingNativeRequests.set(requestId, { reject });
+          })
+      ),
+      cancelRequest: vi
+        .fn()
+        .mockImplementation(({ requestId }: { requestId: string }) => {
+          pendingNativeRequests.get(requestId)?.reject(
+            Object.assign(new Error("cancelled"), {
+              code: "REQUEST_CANCELLED",
+            })
+          );
+          return Promise.resolve({ cancelled: true });
+        }),
+      getRuntimeBootstrap: vi.fn().mockResolvedValue({
+        configured: true,
+        bootstrap: buildRuntimeBootstrapValue({
+          apiOrigin: "https://api.secpal.dev",
+          rawApiBaseUrl: "https://api.secpal.dev/v1",
+        }),
+      }),
+    };
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      sessionStorage: createMockStorage(),
+      fetch: vi.fn(),
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+    await flushMicrotasks();
+    (sandbox.__SecPalNativeAuthState as { active: boolean }).active = true;
+    const activeAbort = new AbortController();
+    const queuedAbort = new AbortController();
+    const activeNativeFetch = (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/me",
+      { signal: activeAbort.signal }
+    );
+    void activeNativeFetch.catch(() => undefined);
+    await vi.waitFor(() => expect(plugin.request).toHaveBeenCalledTimes(1));
+    const headers = new Headers({ "Content-Type": "application/json" });
+    const body = new Uint8Array([1, 2, 3]);
+    const queuedNativeFetch = (sandbox.fetch as typeof fetch)(
+      "https://api.secpal.dev/v1/customers/import",
+      {
+        method: "POST",
+        headers,
+        body,
+        signal: queuedAbort.signal,
+      }
+    );
+    void queuedNativeFetch.catch(() => undefined);
+
+    headers.set("Content-Type", "text/plain");
+    body[0] = 9;
+    activeAbort.abort();
+    await vi.waitFor(() => expect(plugin.request).toHaveBeenCalledTimes(2));
+
+    expect(plugin.request.mock.calls[1][0]).toMatchObject({
+      contentType: "application/json",
+      bodyBase64: Buffer.from([1, 2, 3]).toString("base64"),
+    });
+    queuedAbort.abort();
+    await Promise.allSettled([activeNativeFetch, queuedNativeFetch]);
+  });
+
   it("cancels an in-flight native fetch when its AbortSignal fires", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     let rejectNativeRequest: ((error: Error) => void) | undefined;

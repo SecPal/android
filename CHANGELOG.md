@@ -57,9 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries are removed immediately instead of accumulating in scheduler queues.
   Route and payload validation now occurs before admission or credential access,
   queued bridge objects have explicit size and key-shape limits, and the WebView
-  streams request bodies into a bounded buffer while observing aborts. Web
-  requests also re-check abort state after native completion so a late abort
-  cannot surface a stale success. Native passkey interaction keeps a distinct
+  snapshots fetch inputs before queueing and streams request bodies into a
+  bounded buffer while observing aborts. Public and otherwise browser-only API
+  routes bypass the native scheduler, so native saturation cannot delay or
+  reject them. Web requests also re-check abort state after native completion so
+  a late abort cannot surface a stale success. Native passkey interaction keeps a distinct
   session binding across the expected system-UI pause while still failing
   closed on logout, credential replacement, or tenant changes (issue #412).
 - Constrained the bearer-authenticated Android request broker to a reviewed

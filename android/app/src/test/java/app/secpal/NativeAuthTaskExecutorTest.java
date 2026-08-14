@@ -830,40 +830,47 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
-    public void backgroundCancelsAQueuedSessionTransitionAndReleasesItsGate()
+    public void backgroundCancelsARunningSessionTransitionAndReleasesItsGate()
         throws InterruptedException {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
-        CountDownLatch blockerStarted = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        CountDownLatch transitionFinished = new CountDownLatch(1);
         CountDownLatch transitionCancelled = new CountDownLatch(1);
 
         try {
-            assertTrue(taskExecutor.submit(() -> {
-                blockerStarted.countDown();
-                try {
-                    releaseBlocker.await();
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                }
-            }));
-            assertTrue(blockerStarted.await(2, TimeUnit.SECONDS));
             assertEquals(
                 NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
                 taskExecutor.submitSessionTransition(
-                    "queued-runtime-reset",
+                    "running-runtime-reset",
                     0,
-                    () -> {},
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            while (releaseTransition.getCount() > 0) {
+                                try {
+                                    releaseTransition.await();
+                                } catch (InterruptedException ignored) {
+                                    // Keep the transition open until the cancellation is observed.
+                                }
+                            }
+                        } finally {
+                            transitionFinished.countDown();
+                        }
+                    },
                     reason -> {
                         assertEquals("APP_BACKGROUNDED", reason);
                         transitionCancelled.countDown();
                     }
                 )
             );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
 
             taskExecutor.pauseAuthenticated();
 
             assertTrue(transitionCancelled.await(2, TimeUnit.SECONDS));
-            releaseBlocker.countDown();
+            releaseTransition.countDown();
+            assertTrue(transitionFinished.await(2, TimeUnit.SECONDS));
             taskExecutor.resumeAuthenticated();
             assertEquals(
                 NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
@@ -875,7 +882,7 @@ public class NativeAuthTaskExecutorTest {
                 )
             );
         } finally {
-            releaseBlocker.countDown();
+            releaseTransition.countDown();
             taskExecutor.shutdownNow();
         }
     }

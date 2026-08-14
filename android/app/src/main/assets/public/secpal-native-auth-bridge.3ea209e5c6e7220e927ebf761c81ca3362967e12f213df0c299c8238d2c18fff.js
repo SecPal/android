@@ -2041,40 +2041,47 @@
     );
   };
 
-  const rewriteApiRequestUrl = (url) => {
-    if (!runtimeState.configured || !runtimeState.apiOrigin || !isApiPath(url.pathname)) {
-      return url;
-    }
-
-    const locationHost =
-      globalThis.location && typeof globalThis.location.hostname === "string"
-        ? globalThis.location.hostname
-        : undefined;
-    const matchesFallback = url.hostname === fallbackApiHost;
-    const matchesLocation = locationHost !== undefined && url.hostname === locationHost;
-    const matchesActive = url.hostname === getActiveApiHost();
-
-    if (!matchesFallback && !matchesLocation && !matchesActive) {
-      return url;
-    }
-
-    return new URL(url.pathname + url.search, runtimeState.apiOrigin);
-  };
-
   const publicApiPaths = new Set([
     "/v1/bootstrap",
     "/v1/release",
     "/v1/onboarding/validate-token",
     "/v1/onboarding/complete",
   ]);
-  const isNativeApiRequest = (url) => {
-    const publicPath = publicApiPaths.has(url.pathname);
+  const isNativeApiPath = (pathname) =>
+    !publicApiPaths.has(pathname) &&
+    (pathname === "/v1" || pathname.startsWith("/v1/"));
+  const isRoutableApiHost = (url) => {
+    const locationHost =
+      globalThis.location && typeof globalThis.location.hostname === "string"
+        ? globalThis.location.hostname
+        : undefined;
     return (
-      !publicPath &&
-      (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) &&
+      url.hostname === fallbackApiHost ||
+      (locationHost !== undefined && url.hostname === locationHost) ||
       url.hostname === getActiveApiHost()
     );
   };
+
+  const rewriteApiRequestUrl = (url) => {
+    if (!runtimeState.configured || !runtimeState.apiOrigin || !isApiPath(url.pathname)) {
+      return url;
+    }
+
+    if (!isRoutableApiHost(url)) {
+      return url;
+    }
+
+    return new URL(url.pathname + url.search, runtimeState.apiOrigin);
+  };
+
+  const isNativeApiRequest = (url) => {
+    return (
+      isNativeApiPath(url.pathname) &&
+      url.hostname === getActiveApiHost()
+    );
+  };
+  const isNativeApiCandidate = (url) =>
+    isNativeApiPath(url.pathname) && isRoutableApiHost(url);
 
   let runtimeResetBusy = false;
 
@@ -2319,23 +2326,21 @@
 
   if (originalFetch) {
     globalThis.fetch = async (input, init) => {
+      let request;
       let candidateUrl;
 
       try {
+        request = new Request(input, init);
         const locationHref =
           globalThis.location && typeof globalThis.location.href === "string"
             ? globalThis.location.href
             : fallbackApiOrigin;
-        candidateUrl = new URL(
-          input instanceof Request ? input.url : input,
-          locationHref
-        );
+        candidateUrl = new URL(request.url, locationHref);
       } catch {
         return originalFetch(input, init);
       }
 
       const dispatchRequest = async () => {
-        const request = new Request(input, init);
         const url = new URL(request.url, candidateUrl);
         if (isApiPath(url.pathname)) {
           try {
@@ -2383,9 +2388,8 @@
         return originalFetch(new Request(rewrittenUrl.toString(), request));
       };
 
-      const requestSignal = init?.signal ?? input?.signal;
-      return authState.active && isApiPath(candidateUrl.pathname)
-        ? scheduleNativeFetch(dispatchRequest, requestSignal)
+      return authState.active && isNativeApiCandidate(candidateUrl)
+        ? scheduleNativeFetch(dispatchRequest, request.signal)
         : dispatchRequest();
     };
   }

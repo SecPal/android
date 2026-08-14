@@ -123,9 +123,12 @@ operations have a 30-second base total lifetime that scales only for the maximum
 bounded upload at the documented minimum transfer rate.
 
 The injected fetch adapter admits one native-bound fetch at a time and keeps at
-most eight lightweight queued operations. It performs this admission before it
-constructs a new `Request`, waits for runtime restoration, or reads a body
-stream, so overload cannot multiply the adapter's bounded upload buffers.
+most eight queued operations. It snapshots each native-bound fetch's URL,
+headers, signal, and body source at invocation so later caller mutation cannot
+change the request, but postpones runtime restoration and bounded body-stream
+reading until the operation owns the active slot. Public, health, Sanctum, and
+foreign-origin routes bypass this scheduler and remain independent from a slow
+or saturated bearer request lane.
 
 Admission validates the complete method, target, media contract, request size,
 and bridge call shape before token access or connection creation. Cancellation,
