@@ -24,8 +24,12 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
@@ -41,6 +45,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
         "Android offline vault root keys cannot be bridged into WebView JavaScript";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_CODE =
         "VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED";
+    private static final int MAX_LOGIN_EMAIL_CHARACTERS = 320;
+    private static final int MAX_LOGIN_PASSWORD_CHARACTERS = 4 * 1024;
+    static final int MAX_RUNTIME_DISPLAY_NAME_CHARACTERS = 256;
+    static final int MAX_RUNTIME_URL_CHARACTERS = 2 * 1024;
+    private static final int MAX_RUNTIME_METADATA_CHARACTERS = 64 * 1024;
+    static final int MAX_PASSKEY_OPTIONS_CHARACTERS = 1024 * 1024;
+    private static final int MAX_PUSH_INSTALLATION_ID_CHARACTERS = 256;
 
     @FunctionalInterface
     interface AndroidPushRegistrationRevoker {
@@ -63,7 +74,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     private final NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
     private final AtomicBoolean runtimeMutationConfirmationPending = new AtomicBoolean(false);
     private volatile boolean destroyed = false;
-    private String apiBaseUrl;
+    private volatile String apiBaseUrl;
 
     @Override
     public void load() {
@@ -113,29 +124,39 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void login(PluginCall call) {
-        String email = requireValue(call, "email");
-        String password = requireValue(call, "password");
+        if (!requireOnlyKeys(call, "email", "password")) {
+            return;
+        }
+        String email = requireValue(call, "email", MAX_LOGIN_EMAIL_CHARACTERS);
+        String password = requireValue(call, "password", MAX_LOGIN_PASSWORD_CHARACTERS);
 
         if (email == null || password == null) {
             return;
         }
-
+        long loginGeneration = taskExecutor.captureGeneration();
+        String loginApiBaseUrl = apiBaseUrl;
         runAsync(call, () -> {
             try {
                 requireNetworkConnection();
-                NativeAuthHttpClient.LoginResponse response = httpClient.login(apiBaseUrl, email, password);
-                taskExecutor.beginSessionTransition();
-                try {
-                    tokenStorage.saveToken(response.getToken());
-                } finally {
-                    taskExecutor.endSessionTransition();
-                }
-
+                NativeAuthHttpClient.LoginResponse response = httpClient.login(
+                    loginApiBaseUrl,
+                    email,
+                    password
+                );
                 JSObject payload = new JSObject();
                 payload.put("user", response.getUser());
-                call.resolve(payload);
+                if (!taskExecutor.completeCredentialReplacement(
+                    loginGeneration,
+                    () -> tokenStorage.saveToken(response.getToken()),
+                    () -> call.resolve(payload)
+                )) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                }
             } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
-                rejectCall(call, exception);
+                rejectSessionBoundCall(call, loginGeneration, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
@@ -144,12 +165,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void loginWithPasskey(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
 
         if (!requirePasskeyCapability(call, capability)) {
             return;
         }
 
+        long loginGeneration = taskExecutor.captureSessionGeneration();
+        String loginApiBaseUrl = apiBaseUrl;
         runAsync(call, () -> {
             try {
                 Activity activity = getActivity();
@@ -165,7 +191,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 requireNetworkConnection();
 
                 NativeAuthHttpClient.PasskeyChallenge challenge = httpClient.startTokenPasskeyAuthenticationChallenge(
-                    apiBaseUrl,
+                    loginApiBaseUrl,
                     NativeAuthHttpClient.buildDeviceName(Build.MANUFACTURER, Build.MODEL)
                 );
                 String requestJson = PasskeyAuthenticationJson.buildAuthenticationRequestJson(challenge.getPublicKey());
@@ -174,25 +200,35 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     requestJson,
                     capability
                 );
+                requireBoundedPasskeyResult(authenticationResponseJson);
                 JSObject credential = PasskeyAuthenticationJson.buildAuthenticationVerificationCredential(
                     authenticationResponseJson
                 );
+                if (!taskExecutor.isSessionGenerationCurrent(loginGeneration)) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                    return;
+                }
                 NativeAuthHttpClient.LoginResponse response = httpClient.verifyTokenPasskeyAuthenticationChallenge(
-                    apiBaseUrl,
+                    loginApiBaseUrl,
                     challenge.getChallengeId(),
                     credential
                 );
 
-                taskExecutor.beginSessionTransition();
-                try {
-                    tokenStorage.saveToken(response.getToken());
-                } finally {
-                    taskExecutor.endSessionTransition();
-                }
-
                 JSObject payload = new JSObject();
                 payload.put("user", response.getUser());
-                call.resolve(payload);
+                if (!taskExecutor.completeSessionCredentialReplacement(
+                    loginGeneration,
+                    () -> tokenStorage.saveToken(response.getToken()),
+                    () -> call.resolve(payload)
+                )) {
+                    call.reject(
+                        cancellationMessage("SESSION_INVALIDATED"),
+                        "SESSION_INVALIDATED"
+                    );
+                }
             } catch (
                 IOException
                 | JSONException
@@ -200,7 +236,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 | NetworkUnavailableException
                 | PasskeyAuthenticationException exception
             ) {
-                rejectCall(call, exception);
+                rejectPasskeySessionBoundCall(call, loginGeneration, exception);
             } catch (TokenStorageException exception) {
                 call.reject("Failed to persist Android auth token", "TOKEN_STORAGE_ERROR", exception);
             }
@@ -209,6 +245,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void createPasskeyAttestation(PluginCall call) {
+        if (!requireOnlyKeys(call, "publicKey")) {
+            return;
+        }
         NativePasskeyCapability capability = NativePasskeyCapability.forCurrentDevice();
 
         if (!requirePasskeyCapability(call, capability)) {
@@ -219,6 +258,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         if (publicKey == null) {
             call.reject("Missing required value: publicKey", "INVALID_INPUT");
+            return;
+        }
+        if (!isBoundedJsonObject(publicKey, MAX_PASSKEY_OPTIONS_CHARACTERS)) {
+            call.reject("Android passkey options exceed the allowed size", "INVALID_INPUT");
             return;
         }
 
@@ -240,6 +283,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     requestJson,
                     capability
                 );
+                requireBoundedPasskeyResult(registrationResponseJson);
                 JSObject credential = PasskeyAuthenticationJson.buildRegistrationVerificationCredential(
                     registrationResponseJson
                 );
@@ -255,6 +299,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getCurrentUser(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         String requestId = UUID.randomUUID().toString();
         AtomicBoolean settled = new AtomicBoolean(false);
         NativeAuthHttpClient.CancellationSignal cancellation =
@@ -362,9 +409,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void confirmRuntimeBootstrap(PluginCall call) {
-        String instanceDisplayName = requireValue(call, "instanceDisplayName");
-        String apiOrigin = requireValue(call, "apiOrigin");
-        String rawApiBaseUrl = requireValue(call, "rawApiBaseUrl");
+        if (!requireOnlyKeys(
+            call,
+            "instanceDisplayName",
+            "apiOrigin",
+            "rawApiBaseUrl",
+            "androidPush",
+            "features"
+        )) {
+            return;
+        }
+        String instanceDisplayName = requireValue(
+            call,
+            "instanceDisplayName",
+            MAX_RUNTIME_DISPLAY_NAME_CHARACTERS
+        );
+        String apiOrigin = requireValue(call, "apiOrigin", MAX_RUNTIME_URL_CHARACTERS);
+        String rawApiBaseUrl = requireValue(
+            call,
+            "rawApiBaseUrl",
+            MAX_RUNTIME_URL_CHARACTERS
+        );
         JSObject androidPush = call.getObject("androidPush");
         JSObject features = call.getObject("features");
 
@@ -373,33 +438,42 @@ public class SecPalNativeAuthPlugin extends Plugin {
             || rawApiBaseUrl == null) {
             return;
         }
+        if (!isBoundedJsonObject(androidPush, MAX_RUNTIME_METADATA_CHARACTERS)
+            || !isBoundedJsonObject(features, MAX_RUNTIME_METADATA_CHARACTERS)) {
+            call.reject("Android runtime bootstrap exceeds the allowed size", "INVALID_INPUT");
+            return;
+        }
+
+        final JSObject bootstrap;
+        try {
+            bootstrap = buildRuntimeBootstrap(
+                instanceDisplayName,
+                apiOrigin,
+                rawApiBaseUrl,
+                androidPush,
+                features
+            );
+        } catch (RuntimeException exception) {
+            rejectRuntimeBootstrap(call, exception);
+            return;
+        } catch (JSONException exception) {
+            rejectInvalidRuntimeBootstrap(call, exception);
+            return;
+        }
 
         runAsync(call, () -> {
-            try {
-                JSObject bootstrap = buildRuntimeBootstrap(
-                    instanceDisplayName,
-                    apiOrigin,
-                    rawApiBaseUrl,
-                    androidPush,
-                    features
-                );
-                String canonicalApiOrigin = bootstrap.getString("apiOrigin");
-                String confirmationMessage = formatRuntimeConfirmationMessage(
-                    getContext().getString(R.string.runtime_confirmation_switch_message),
-                    canonicalApiOrigin
-                );
+            String canonicalApiOrigin = bootstrap.getString("apiOrigin");
+            String confirmationMessage = formatRuntimeConfirmationMessage(
+                getContext().getString(R.string.runtime_confirmation_switch_message),
+                canonicalApiOrigin
+            );
 
-                confirmNativeRuntimeMutation(
-                    call,
-                    R.string.runtime_confirmation_switch_title,
-                    confirmationMessage,
-                    () -> applyConfirmedRuntimeBootstrap(call, bootstrap)
-                );
-            } catch (RuntimeException exception) {
-                rejectRuntimeBootstrap(call, exception);
-            } catch (JSONException exception) {
-                rejectInvalidRuntimeBootstrap(call, exception);
-            }
+            confirmNativeRuntimeMutation(
+                call,
+                R.string.runtime_confirmation_switch_title,
+                confirmationMessage,
+                () -> applyConfirmedRuntimeBootstrap(call, bootstrap)
+            );
         });
     }
 
@@ -432,23 +506,33 @@ public class SecPalNativeAuthPlugin extends Plugin {
                             previousBootstrap.optJSONObject("androidPush")
                         );
 
-                    if (!replaceRuntimeBootstrapStateWithRollback(
-                        apiBaseUrl,
-                        nextApiBaseUrl,
-                        tokenStorage,
-                        () -> persistRuntimeBootstrap(bootstrap),
-                        () -> restoreRuntimeBootstrapPersistenceSynchronously(
-                            preferences,
-                            previousRuntimeBootstrap,
-                            previousApiBaseUrl
-                        ),
-                        () -> androidPushRuntimeManager.applyWithRollback(
-                            AndroidPushRuntimeMetadata.fromBootstrap(
-                                bootstrap.optJSONObject("androidPush")
+                    AtomicBoolean replacementSucceeded = new AtomicBoolean(false);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        replacementSucceeded.set(replaceRuntimeBootstrapStateWithRollback(
+                            apiBaseUrl,
+                            nextApiBaseUrl,
+                            tokenStorage,
+                            () -> persistRuntimeBootstrap(bootstrap),
+                            () -> restoreRuntimeBootstrapPersistenceSynchronously(
+                                preferences,
+                                previousRuntimeBootstrap,
+                                previousApiBaseUrl
                             ),
-                            previousPushRuntime
-                        )
-                    )) {
+                            () -> androidPushRuntimeManager.applyWithRollback(
+                                AndroidPushRuntimeMetadata.fromBootstrap(
+                                    bootstrap.optJSONObject("androidPush")
+                                ),
+                                previousPushRuntime
+                            )
+                        ));
+                        if (replacementSucceeded.get()) {
+                            apiBaseUrl = nextApiBaseUrl;
+                            runtimeApplied.set(true);
+                        }
+                    })) {
+                        return;
+                    }
+                    if (!replacementSucceeded.get()) {
                         taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
                             settled,
                             () -> call.reject(
@@ -459,8 +543,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         return;
                     }
 
-                    apiBaseUrl = nextApiBaseUrl;
-                    runtimeApplied.set(true);
                     JSObject payload = new JSObject();
                     payload.put("bootstrap", bootstrap);
                     taskExecutor.completeAuthenticated(
@@ -500,6 +582,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void getRuntimeBootstrap(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         runAsync(call, () -> {
             JSObject payload = buildRuntimeBootstrapPayload(getPersistedRuntimeBootstrap());
             call.resolve(payload);
@@ -508,6 +593,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void confirmRuntimeReset(PluginCall call) {
+        if (!requireOnlyKeys(call, "androidPushInstallationId")) {
+            return;
+        }
+        String androidPushInstallationId = call.getString("androidPushInstallationId");
+        if (androidPushInstallationId != null
+            && (!isBoundedValue(
+                androidPushInstallationId,
+                MAX_PUSH_INSTALLATION_ID_CHARACTERS
+            ) || !androidPushInstallationId.matches("[A-Za-z0-9][A-Za-z0-9._~-]*"))) {
+            call.reject("Android push installation id is invalid", "INVALID_INPUT");
+            return;
+        }
         runAsync(call, () -> {
             JSObject persistedBootstrap = getPersistedRuntimeBootstrap();
             String currentApiOrigin = apiBaseUrl;
@@ -528,7 +625,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 getContext().getString(R.string.runtime_confirmation_reset_message),
                 confirmedApiOrigin
             );
-            String androidPushInstallationId = call.getString("androidPushInstallationId");
             confirmNativeRuntimeMutation(
                 call,
                 R.string.runtime_confirmation_reset_title,
@@ -564,13 +660,23 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         : AndroidPushRuntimeMetadata.fromBootstrap(
                             previousBootstrap.optJSONObject("androidPush")
                         );
-                    if (!clearRuntimeBootstrapStateWithPushRollback(
-                        getNativeAuthPreferences(),
-                        tokenStorage,
-                        tokenForServerRevocation,
-                        androidPushRuntimeManager,
-                        previousPushRuntime
-                    )) {
+                    AtomicBoolean clearSucceeded = new AtomicBoolean(false);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        clearSucceeded.set(clearRuntimeBootstrapStateWithPushRollback(
+                            getNativeAuthPreferences(),
+                            tokenStorage,
+                            tokenForServerRevocation,
+                            androidPushRuntimeManager,
+                            previousPushRuntime
+                        ));
+                        if (clearSucceeded.get()) {
+                            apiBaseUrl = null;
+                            localRuntimeCleared.set(true);
+                        }
+                    })) {
+                        return;
+                    }
+                    if (!clearSucceeded.get()) {
                         taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
                             settled,
                             () -> call.reject(
@@ -580,8 +686,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         ));
                         return;
                     }
-                    apiBaseUrl = null;
-                    localRuntimeCleared.set(true);
                     revokeServerStateAfterRuntimeClear(
                         tokenForServerRevocation,
                         confirmedApiOrigin,
@@ -667,6 +771,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void logout(PluginCall call) {
+        if (!requireOnlyKeys(call)) {
+            return;
+        }
         String requestId = "logout-" + UUID.randomUUID();
         AtomicBoolean settled = new AtomicBoolean(false);
         AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
@@ -689,8 +796,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         return;
                     }
 
-                    tokenStorage.clearToken();
-                    localCredentialCleared.set(true);
+                    if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        tokenStorage.clearToken();
+                        localCredentialCleared.set(true);
+                    })) {
+                        return;
+                    }
                     try {
                         httpClient.logout(apiBaseUrl, token, cancellation);
                     } catch (IOException | JSONException | NativeAuthHttpException exception) {
@@ -742,8 +853,27 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void request(PluginCall call) {
-        String method = requireValue(call, "method");
-        String path = requireValue(call, "path");
+        if (!requireOnlyKeys(
+            call,
+            "requestId",
+            "method",
+            "path",
+            "bodyBase64",
+            "contentType",
+            "accept"
+        )) {
+            return;
+        }
+        String method = requireValue(
+            call,
+            "method",
+            NativeAuthRequestPolicy.MAX_METHOD_CHARACTERS
+        );
+        String path = requireValue(
+            call,
+            "path",
+            NativeAuthRequestPolicy.MAX_REQUEST_TARGET_CHARACTERS
+        );
 
         if (method == null || path == null) {
             return;
@@ -758,8 +888,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
         final int requestBodyBytes;
+        final NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest;
         try {
             requestBodyBytes = NativeAuthHttpClient.decodedRequestBodyLength(bodyBase64);
+            authorizedRequest = NativeAuthRequestPolicy.authorize(
+                method,
+                path,
+                contentType,
+                accept,
+                requestBodyBytes
+            );
         } catch (NativeAuthHttpException exception) {
             rejectCall(call, exception);
             return;
@@ -786,14 +924,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     }
 
                     requireNetworkConnection();
-                    JSObject response = httpClient.request(
+                    JSObject response = httpClient.requestAuthorized(
                         apiBaseUrl,
                         token,
-                        method,
-                        path,
+                        authorizedRequest,
                         bodyBase64,
-                        contentType,
-                        accept,
                         cancellation
                     );
 
@@ -852,6 +987,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void cancelRequest(PluginCall call) {
+        if (!requireOnlyKeys(call, "requestId")) {
+            return;
+        }
         String requestId = normalizeRequiredRequestId(call.getString("requestId"));
         if (requestId == null) {
             call.reject("Android auth request id is invalid", "INVALID_INPUT");
@@ -880,7 +1018,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 "Android native auth operation failed unexpectedly",
                 "NATIVE_AUTH_INTERNAL_ERROR",
                 exception
-            )
+            ),
+            reasonCode -> call.reject(cancellationMessage(reasonCode), reasonCode)
         )) {
             if (destroyed) {
                 call.reject("Android native auth plugin is unavailable", "PLUGIN_SHUTDOWN");
@@ -890,6 +1029,36 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return false;
         }
         return true;
+    }
+
+    private void rejectSessionBoundCall(
+        PluginCall call,
+        long expectedGeneration,
+        Exception exception
+    ) {
+        if (!taskExecutor.isGenerationCurrent(expectedGeneration)) {
+            call.reject(
+                cancellationMessage("SESSION_INVALIDATED"),
+                "SESSION_INVALIDATED"
+            );
+            return;
+        }
+        rejectCall(call, exception);
+    }
+
+    private void rejectPasskeySessionBoundCall(
+        PluginCall call,
+        long expectedGeneration,
+        Exception exception
+    ) {
+        if (!taskExecutor.isSessionGenerationCurrent(expectedGeneration)) {
+            call.reject(
+                cancellationMessage("SESSION_INVALIDATED"),
+                "SESSION_INVALIDATED"
+            );
+            return;
+        }
+        rejectCall(call, exception);
     }
 
     static String normalizeRequiredRequestId(String requestId) {
@@ -1194,15 +1363,62 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return payload;
     }
 
-    private String requireValue(PluginCall call, String key) {
+    private String requireValue(PluginCall call, String key, int maximumCharacters) {
         String value = call.getString(key);
 
-        if (value == null || value.trim().isEmpty()) {
+        if (value == null) {
+            call.reject("Missing required value: " + key, "INVALID_INPUT");
+            return null;
+        }
+        if (value.length() > maximumCharacters) {
+            call.reject("Android native auth value exceeds the allowed size", "INVALID_INPUT");
+            return null;
+        }
+
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
             call.reject("Missing required value: " + key, "INVALID_INPUT");
             return null;
         }
 
-        return value.trim();
+        return normalized;
+    }
+
+    private boolean requireOnlyKeys(PluginCall call, String... allowedKeys) {
+        if (hasOnlyKeys(call.getData(), allowedKeys)) {
+            return true;
+        }
+        call.reject("Android native auth call contains unsupported input", "INVALID_INPUT");
+        return false;
+    }
+
+    static boolean hasOnlyKeys(JSObject data, String... allowedKeys) {
+        Set<String> allowed = new HashSet<>(Arrays.asList(allowedKeys));
+        Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            if (!allowed.contains(keys.next())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isBoundedValue(String value, int maximumCharacters) {
+        return value != null && value.length() <= maximumCharacters;
+    }
+
+    static boolean isBoundedJsonObject(JSONObject value, int maximumCharacters) {
+        return value == null || value.toString().length() <= maximumCharacters;
+    }
+
+    private static void requireBoundedPasskeyResult(String value)
+        throws PasskeyAuthenticationException {
+        if (!isBoundedValue(value, MAX_PASSKEY_OPTIONS_CHARACTERS)) {
+            throw new PasskeyAuthenticationException(
+                "Android passkey response exceeds the allowed size.",
+                "INVALID_INPUT"
+            );
+        }
     }
 
     private void rejectCall(PluginCall call, Exception exception) {
@@ -1219,6 +1435,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static String resolveErrorCode(Exception exception) {
         if (exception instanceof NetworkUnavailableException) {
             return "NETWORK_OFFLINE";
+        }
+
+        if (exception instanceof NativeAuthHttpClient.NativeAuthCancelledException) {
+            return ((NativeAuthHttpClient.NativeAuthCancelledException) exception)
+                .getReasonCode();
         }
 
         if (exception instanceof PasskeyAuthenticationException) {
@@ -1732,6 +1953,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
             firstNonBlank(bootstrap.optString("rawApiBaseUrl", null), bootstrap.optString("apiOrigin", null)),
             "Android runtime bootstrap requires a raw API base URL"
         );
+        if (!isBoundedValue(instanceDisplayName, MAX_RUNTIME_DISPLAY_NAME_CHARACTERS)
+            || !isBoundedValue(rawApiBaseUrl, MAX_RUNTIME_URL_CHARACTERS)) {
+            throw new InvalidRuntimeBootstrapException(
+                "Android runtime bootstrap exceeds the allowed size",
+                "RUNTIME_BOOTSTRAP_INVALID"
+            );
+        }
         String canonicalApiOrigin = resolveCanonicalBootstrapApiOrigin(
             firstNonBlank(bootstrap.optString("apiOrigin", null), rawApiBaseUrl)
         );
@@ -1790,12 +2018,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             NativeAuthHttpException httpException = (NativeAuthHttpException) exception;
 
             if (httpException.getStatusCode() == 401) {
-                taskExecutor.beginSessionTransition();
-                try {
-                    tokenStorage.clearToken();
-                } finally {
-                    taskExecutor.endSessionTransition();
-                }
+                taskExecutor.invalidateAndRunSessionMutation(tokenStorage::clearToken);
             }
         }
     }

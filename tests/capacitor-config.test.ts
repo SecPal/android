@@ -222,6 +222,22 @@ describe("capacitor Android wrapper configuration", () => {
     });
   });
 
+  it("rejects oversized encoded bodies before native submission", async () => {
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const requestsBefore = pluginMocks.request.mock.calls.length;
+
+    await expect(
+      createNativeAuthBridge().request({
+        method: "POST",
+        path: "/v1/customers/import",
+        bodyBase64: "A".repeat(16 * 1024 * 1024 + 1),
+        contentType: "application/json",
+      })
+    ).rejects.toMatchObject({ code: "NATIVE_AUTH_REQUEST_TOO_LARGE" });
+    expect(pluginMocks.request).toHaveBeenCalledTimes(requestsBefore);
+  });
+
   it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
     const { createNativeAuthBridge } =
       await import("../src/secpal/native-auth-bridge");

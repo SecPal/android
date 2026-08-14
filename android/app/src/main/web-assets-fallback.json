@@ -8,11 +8,11 @@
     },
     {
       "path": "index.html",
-      "sha256": "f5df6fdfa07312f26120910b901e432f0b2972ad7e314dd85342245f3e8fe8c4"
+      "sha256": "b346af0d94c1b36d736fe813cd200ec9646d6f31da169ddef96ac5b8ecc19b0d"
     },
     {
-      "path": "secpal-native-auth-bridge.c6883dead8df6f2e18d1eaf9f599d1ed84e524e890740312f6d6062ffc121ca5.js",
-      "sha256": "c6883dead8df6f2e18d1eaf9f599d1ed84e524e890740312f6d6062ffc121ca5"
+      "path": "secpal-native-auth-bridge.d42d8d3fbe8a0d4ff9fca9fa5b52dc05d8e70ce1df850024cf019cda537cb038.js",
+      "sha256": "d42d8d3fbe8a0d4ff9fca9fa5b52dc05d8e70ce1df850024cf019cda537cb038"
     }
   ]
 }

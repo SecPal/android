@@ -35,10 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Bounded the Android bearer-authenticated request broker to one in-flight and
-  up to eight queued small operations with a 128 MiB aggregate native working-
+  up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
-  bridge-serialization reservations, plus 12 MiB upload, 8 MiB download,
-  15-second base connect/read/write and 30-second base total-lifetime limits.
+  bridge-serialization reservations, plus 12 MiB upload, 8 MiB broker download,
+  256 KiB dedicated authentication/session JSON responses, 15-second base
+  connect/read/write and 30-second base total-lifetime limits.
   Fixed-length request streaming now makes the write deadline cover the actual
   network upload, while request-size-aware write and total deadlines allow the
   supported 12 MiB body at a bounded minimum transfer rate.
@@ -49,12 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   managed lifetime policy, and atomic single-terminal generation guards prevent
   old results from crossing logout, credential replacement, runtime changes,
   plugin teardown, or background/foreground transitions. Destructive session
-  transitions now evict queued ordinary work instead of being rejected by a
-  full shared queue, report transition-time admission as temporary busy rather
-  than backgrounded, defer cancellation settlement until a running local
-  mutation reaches a safe terminal state, and settle unexpected managed-task
-  failures. Web requests also re-check abort state after native completion so a
-  late abort cannot surface a stale success (issue #412).
+  transitions use an independent zero-queue lane, evict queued ordinary work,
+  atomically gate irreversible local mutations against timeout and lifecycle
+  invalidation, report transition-time admission as temporary busy rather than
+  backgrounded, and settle unexpected managed-task failures. Cancelled deadline
+  entries are removed immediately instead of accumulating in scheduler queues.
+  Route and payload validation now occurs before admission or credential access,
+  queued bridge objects have explicit size and key-shape limits, and the WebView
+  streams request bodies into a bounded buffer while observing aborts. Web
+  requests also re-check abort state after native completion so a late abort
+  cannot surface a stale success. Native passkey interaction keeps a distinct
+  session binding across the expected system-UI pause while still failing
+  closed on logout, credential replacement, or tenant changes (issue #412).
 - Constrained the bearer-authenticated Android request broker to a reviewed
   method, canonical route, query-key, request-media-type, and response-kind
   inventory; ambiguous encodings, credential/bootstrap routes, unknown

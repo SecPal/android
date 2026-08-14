@@ -10,16 +10,18 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /** Bounded scheduling and cancellation policy for native authenticated work. */
@@ -30,13 +32,19 @@ class NativeAuthTaskExecutor {
         NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(
             NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES
         );
-    static final int MAX_AGGREGATE_BUFFERED_BYTES = 128 * 1024 * 1024;
+    static final int MAX_AGGREGATE_BUFFERED_BYTES = 144 * 1024 * 1024;
     // One response can be assembled at a time. Ten decoded-body equivalents conservatively
     // cover three raw-buffer copies, four equivalents for Base64 bytes plus the UTF-16 Java
     // string, and three equivalents for JSON/bridge serialization.
     static final int RESPONSE_WORKING_SET_MULTIPLIER = 10;
     static final int MAX_RESPONSE_WORKING_SET_BYTES =
         NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES * RESPONSE_WORKING_SET_MULTIPLIER;
+    // The ordinary, authenticated-request, and session-transition lanes can each briefly own
+    // one dedicated JSON response while a lifecycle cancellation is propagating.
+    static final int MAX_AUXILIARY_RESPONSE_WORKING_SET_BYTES =
+        NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES
+            * RESPONSE_WORKING_SET_MULTIPLIER
+            * 3;
     static final int MIN_TASK_RESERVATION_BYTES = 64 * 1024;
 
     enum SubmitResult {
@@ -49,29 +57,32 @@ class NativeAuthTaskExecutor {
         DUPLICATE_ID
     }
 
-    private final ExecutorService executorService;
+    private final ExecutorService ordinaryExecutorService;
+    private final ExecutorService authenticatedExecutorService;
+    private final ExecutorService sessionExecutorService;
     private final ScheduledExecutorService lifetimeScheduler;
     private final long taskLifetimeMillis;
     private final Map<String, ManagedTask> authenticatedTasks = new ConcurrentHashMap<>();
     private final Object generationLock = new Object();
     private final AtomicLong generation = new AtomicLong();
+    private final AtomicLong sessionGeneration = new AtomicLong();
     private final AtomicInteger reservedBufferedBytes = new AtomicInteger();
     private final AtomicInteger sessionTransitions = new AtomicInteger();
     private volatile boolean authenticatedWorkPaused;
 
     NativeAuthTaskExecutor() {
         this(
+            newBoundedExecutor("secpal-native-auth-ordinary"),
+            newBoundedExecutor("secpal-native-auth-request"),
             new ThreadPoolExecutor(
-                MAX_CONCURRENT_TASKS,
-                MAX_CONCURRENT_TASKS,
+                1,
+                1,
                 0L,
                 TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(MAX_QUEUED_TASKS),
-                namedDaemonThreadFactory("secpal-native-auth")
+                new SynchronousQueue<>(),
+                namedDaemonThreadFactory("secpal-native-auth-session")
             ),
-            Executors.newSingleThreadScheduledExecutor(
-                namedDaemonThreadFactory("secpal-native-auth-deadline")
-            ),
+            newDeadlineScheduler("secpal-native-auth-deadline"),
             0L
         );
     }
@@ -79,9 +90,9 @@ class NativeAuthTaskExecutor {
     NativeAuthTaskExecutor(ExecutorService executorService) {
         this(
             executorService,
-            Executors.newSingleThreadScheduledExecutor(
-                namedDaemonThreadFactory("secpal-native-auth-deadline")
-            ),
+            executorService,
+            executorService,
+            newDeadlineScheduler("secpal-native-auth-deadline"),
             MAX_TASK_LIFETIME_MILLIS
         );
     }
@@ -91,11 +102,30 @@ class NativeAuthTaskExecutor {
         ScheduledExecutorService lifetimeScheduler,
         long taskLifetimeMillis
     ) {
+        this(
+            executorService,
+            executorService,
+            executorService,
+            lifetimeScheduler,
+            taskLifetimeMillis
+        );
+    }
+
+    NativeAuthTaskExecutor(
+        ExecutorService ordinaryExecutorService,
+        ExecutorService authenticatedExecutorService,
+        ExecutorService sessionExecutorService,
+        ScheduledExecutorService lifetimeScheduler,
+        long taskLifetimeMillis
+    ) {
         if (taskLifetimeMillis < 0) {
             throw new IllegalArgumentException("Authenticated task lifetime must not be negative");
         }
-        this.executorService = executorService;
+        this.ordinaryExecutorService = ordinaryExecutorService;
+        this.authenticatedExecutorService = authenticatedExecutorService;
+        this.sessionExecutorService = sessionExecutorService;
         this.lifetimeScheduler = lifetimeScheduler;
+        configureDeadlineScheduler(lifetimeScheduler);
         this.taskLifetimeMillis = taskLifetimeMillis;
     }
 
@@ -104,16 +134,28 @@ class NativeAuthTaskExecutor {
     }
 
     boolean submit(Runnable job, Consumer<RuntimeException> failureHandler) {
+        return submit(job, failureHandler, reason -> {});
+    }
+
+    boolean submit(
+        Runnable job,
+        Consumer<RuntimeException> failureHandler,
+        Consumer<String> cancellationHandler
+    ) {
         synchronized (generationLock) {
-            if (executorService.isShutdown()
+            if (ordinaryExecutorService.isShutdown()
                 || authenticatedWorkPaused
                 || sessionTransitions.get() > 0) {
                 return false;
             }
 
-            OrdinaryTask task = new OrdinaryTask(job, failureHandler);
+            OrdinaryTask task = new OrdinaryTask(
+                job,
+                failureHandler,
+                cancellationHandler
+            );
             try {
-                executorService.execute(task);
+                ordinaryExecutorService.execute(task);
             } catch (RejectedExecutionException ignored) {
                 return false;
             }
@@ -145,7 +187,7 @@ class NativeAuthTaskExecutor {
         Consumer<RuntimeException> failureHandler
     ) {
         synchronized (generationLock) {
-            if (executorService.isShutdown()) {
+            if (authenticatedExecutorService.isShutdown()) {
                 return SubmitResult.SHUTDOWN;
             }
             if (authenticatedWorkPaused) {
@@ -207,7 +249,7 @@ class NativeAuthTaskExecutor {
         Consumer<RuntimeException> failureHandler
     ) {
         synchronized (generationLock) {
-            if (executorService.isShutdown()) {
+            if (sessionExecutorService.isShutdown()) {
                 return SubmitResult.SHUTDOWN;
             }
             if (authenticatedWorkPaused) {
@@ -227,7 +269,7 @@ class NativeAuthTaskExecutor {
             }
 
             sessionTransitions.incrementAndGet();
-            evictQueuedOrdinaryTasksLocked();
+            evictQueuedOrdinaryTasksLocked("SESSION_INVALIDATED");
             invalidateAuthenticatedLocked("SESSION_INVALIDATED");
             SubmitResult result = enqueueManagedLocked(
                 requestId,
@@ -254,11 +296,26 @@ class NativeAuthTaskExecutor {
     boolean completeAuthenticated(String requestId, Runnable completion) {
         synchronized (generationLock) {
             ManagedTask task = authenticatedTasks.get(requestId);
-            if (task == null || task.cancelled.get()
+            if (task == null || task.isCancelled()
                 || task.submittedGeneration != generation.get()) {
                 return false;
             }
             completion.run();
+            return true;
+        }
+    }
+
+    <E extends Exception> boolean completeAuthenticatedMutation(
+        String requestId,
+        CheckedMutation<E> mutation
+    ) throws E {
+        synchronized (generationLock) {
+            ManagedTask task = authenticatedTasks.get(requestId);
+            if (task == null || task.isCancelled()
+                || task.submittedGeneration != generation.get()) {
+                return false;
+            }
+            mutation.run();
             return true;
         }
     }
@@ -272,6 +329,7 @@ class NativeAuthTaskExecutor {
     void pauseAuthenticated() {
         synchronized (generationLock) {
             authenticatedWorkPaused = true;
+            evictQueuedOrdinaryTasksLocked("APP_BACKGROUNDED");
             invalidateAuthenticatedLocked("APP_BACKGROUNDED");
         }
     }
@@ -282,13 +340,97 @@ class NativeAuthTaskExecutor {
         }
     }
 
-    void beginSessionTransition() {
-        sessionTransitions.incrementAndGet();
-        invalidateAuthenticated("SESSION_INVALIDATED");
+    long captureGeneration() {
+        synchronized (generationLock) {
+            return generation.get();
+        }
     }
 
-    void endSessionTransition() {
-        sessionTransitions.updateAndGet(value -> Math.max(0, value - 1));
+    boolean isGenerationCurrent(long expectedGeneration) {
+        synchronized (generationLock) {
+            return !authenticatedWorkPaused
+                && sessionTransitions.get() == 0
+                && generation.get() == expectedGeneration;
+        }
+    }
+
+    long captureSessionGeneration() {
+        synchronized (generationLock) {
+            return sessionGeneration.get();
+        }
+    }
+
+    boolean isSessionGenerationCurrent(long expectedGeneration) {
+        synchronized (generationLock) {
+            return !ordinaryExecutorService.isShutdown()
+                && sessionTransitions.get() == 0
+                && sessionGeneration.get() == expectedGeneration;
+        }
+    }
+
+    <E extends Exception> boolean completeCredentialReplacement(
+        long expectedGeneration,
+        CheckedMutation<E> mutation,
+        Runnable completion
+    ) throws E {
+        return completeCredentialReplacement(
+            expectedGeneration,
+            false,
+            mutation,
+            completion
+        );
+    }
+
+    <E extends Exception> boolean completeSessionCredentialReplacement(
+        long expectedSessionGeneration,
+        CheckedMutation<E> mutation,
+        Runnable completion
+    ) throws E {
+        return completeCredentialReplacement(
+            expectedSessionGeneration,
+            true,
+            mutation,
+            completion
+        );
+    }
+
+    private <E extends Exception> boolean completeCredentialReplacement(
+        long expectedGeneration,
+        boolean sessionOnly,
+        CheckedMutation<E> mutation,
+        Runnable completion
+    ) throws E {
+        synchronized (generationLock) {
+            if (ordinaryExecutorService.isShutdown()
+                || sessionTransitions.get() > 0
+                || (sessionOnly
+                    ? sessionGeneration.get() != expectedGeneration
+                    : authenticatedWorkPaused || generation.get() != expectedGeneration)) {
+                return false;
+            }
+            sessionTransitions.incrementAndGet();
+            try {
+                invalidateAuthenticatedLocked("SESSION_INVALIDATED");
+                mutation.run();
+                completion.run();
+                return true;
+            } finally {
+                endSessionTransition();
+            }
+        }
+    }
+
+    <E extends Exception> void invalidateAndRunSessionMutation(CheckedMutation<E> mutation)
+        throws E {
+        synchronized (generationLock) {
+            sessionTransitions.incrementAndGet();
+            try {
+                invalidateAuthenticatedLocked("SESSION_INVALIDATED");
+                mutation.run();
+            } finally {
+                endSessionTransition();
+            }
+        }
     }
 
     int getReservedBufferedBytesForTest() {
@@ -299,11 +441,13 @@ class NativeAuthTaskExecutor {
         synchronized (generationLock) {
             authenticatedWorkPaused = true;
             invalidateAuthenticatedLocked("PLUGIN_SHUTDOWN");
-            for (Runnable droppedTask : executorService.shutdownNow()) {
+            for (Runnable droppedTask : ordinaryExecutorService.shutdownNow()) {
                 if (droppedTask instanceof OrdinaryTask) {
                     ((OrdinaryTask) droppedTask).rejectForPluginShutdown();
                 }
             }
+            shutdownDistinctExecutor(authenticatedExecutorService, ordinaryExecutorService);
+            shutdownDistinctExecutor(sessionExecutorService, ordinaryExecutorService, authenticatedExecutorService);
             lifetimeScheduler.shutdownNow();
         }
     }
@@ -312,7 +456,8 @@ class NativeAuthTaskExecutor {
         while (true) {
             int current = reservedBufferedBytes.get();
             int requestBudgetBytes = MAX_AGGREGATE_BUFFERED_BYTES
-                - MAX_RESPONSE_WORKING_SET_BYTES;
+                - MAX_RESPONSE_WORKING_SET_BYTES
+                - MAX_AUXILIARY_RESPONSE_WORKING_SET_BYTES;
             if (bytes > requestBudgetBytes - current) {
                 return false;
             }
@@ -327,20 +472,20 @@ class NativeAuthTaskExecutor {
     }
 
     private void removeQueuedTask(ManagedTask task) {
-        if (executorService instanceof ThreadPoolExecutor) {
-            ((ThreadPoolExecutor) executorService).remove(task);
+        if (task.executorService instanceof ThreadPoolExecutor) {
+            ((ThreadPoolExecutor) task.executorService).remove(task);
         }
     }
 
-    private void evictQueuedOrdinaryTasksLocked() {
-        if (!(executorService instanceof ThreadPoolExecutor)) {
+    private void evictQueuedOrdinaryTasksLocked(String reasonCode) {
+        if (!(ordinaryExecutorService instanceof ThreadPoolExecutor)) {
             return;
         }
 
-        ThreadPoolExecutor threadPool = (ThreadPoolExecutor) executorService;
+        ThreadPoolExecutor threadPool = (ThreadPoolExecutor) ordinaryExecutorService;
         for (Runnable queuedTask : new ArrayList<>(threadPool.getQueue())) {
             if (queuedTask instanceof OrdinaryTask && threadPool.remove(queuedTask)) {
-                ((OrdinaryTask) queuedTask).rejectForSessionTransition();
+                ((OrdinaryTask) queuedTask).cancel(reasonCode);
             }
         }
     }
@@ -405,6 +550,7 @@ class NativeAuthTaskExecutor {
             bufferReservationBytes,
             generation.get(),
             sessionTransition,
+            sessionTransition ? sessionExecutorService : authenticatedExecutorService,
             job,
             cancellationAction,
             cancellationHandler,
@@ -420,13 +566,13 @@ class NativeAuthTaskExecutor {
 
         try {
             task.armDeadline();
-            executorService.execute(task);
+            task.executorService.execute(task);
             return SubmitResult.ACCEPTED;
         } catch (RejectedExecutionException ignored) {
             authenticatedTasks.remove(requestId, task);
             task.cancelDeadline();
             task.releaseReservation();
-            return executorService.isShutdown()
+            return task.executorService.isShutdown()
                 ? SubmitResult.SHUTDOWN
                 : SubmitResult.OVERLOADED;
         }
@@ -434,6 +580,9 @@ class NativeAuthTaskExecutor {
 
     private void invalidateAuthenticatedLocked(String reasonCode) {
         generation.incrementAndGet();
+        if ("SESSION_INVALIDATED".equals(reasonCode)) {
+            sessionGeneration.incrementAndGet();
+        }
         for (ManagedTask task : new ArrayList<>(authenticatedTasks.values())) {
             task.cancel(reasonCode);
         }
@@ -448,14 +597,87 @@ class NativeAuthTaskExecutor {
         };
     }
 
-    private final class OrdinaryTask implements Runnable {
+    private static ThreadPoolExecutor newBoundedExecutor(String threadName) {
+        return new ThreadPoolExecutor(
+            MAX_CONCURRENT_TASKS,
+            MAX_CONCURRENT_TASKS,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(MAX_QUEUED_TASKS),
+            namedDaemonThreadFactory(threadName)
+        );
+    }
+
+    private static ScheduledThreadPoolExecutor newDeadlineScheduler(String threadName) {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(
+            1,
+            namedDaemonThreadFactory(threadName)
+        );
+        configureDeadlineScheduler(scheduler);
+        return scheduler;
+    }
+
+    private static void configureDeadlineScheduler(ScheduledExecutorService scheduler) {
+        if (scheduler instanceof ScheduledThreadPoolExecutor) {
+            ScheduledThreadPoolExecutor threadPool = (ScheduledThreadPoolExecutor) scheduler;
+            threadPool.setRemoveOnCancelPolicy(true);
+            threadPool.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        }
+    }
+
+    private static void shutdownDistinctExecutor(
+        ExecutorService executor,
+        ExecutorService... previousExecutors
+    ) {
+        for (ExecutorService previous : previousExecutors) {
+            if (executor == previous) {
+                return;
+            }
+        }
+        executor.shutdownNow();
+    }
+
+    boolean awaitIdleForTest(long timeout, TimeUnit unit) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + unit.toNanos(timeout);
+        while (System.nanoTime() < deadlineNanos) {
+            if (authenticatedTasks.isEmpty()
+                && executorIsIdle(ordinaryExecutorService)
+                && executorIsIdle(authenticatedExecutorService)
+                && executorIsIdle(sessionExecutorService)) {
+                return true;
+            }
+            Thread.sleep(1L);
+        }
+        return false;
+    }
+
+    private static boolean executorIsIdle(ExecutorService executor) {
+        if (!(executor instanceof ThreadPoolExecutor)) {
+            return true;
+        }
+        ThreadPoolExecutor threadPool = (ThreadPoolExecutor) executor;
+        return threadPool.getActiveCount() == 0 && threadPool.getQueue().isEmpty();
+    }
+
+    @FunctionalInterface
+    interface CheckedMutation<E extends Exception> {
+        void run() throws E;
+    }
+
+    private static final class OrdinaryTask implements Runnable {
         private final Runnable job;
         private final Consumer<RuntimeException> failureHandler;
+        private final Consumer<String> cancellationHandler;
         private final AtomicBoolean claimed = new AtomicBoolean();
 
-        OrdinaryTask(Runnable job, Consumer<RuntimeException> failureHandler) {
+        OrdinaryTask(
+            Runnable job,
+            Consumer<RuntimeException> failureHandler,
+            Consumer<String> cancellationHandler
+        ) {
             this.job = job;
             this.failureHandler = failureHandler;
+            this.cancellationHandler = cancellationHandler;
         }
 
         @Override
@@ -470,19 +692,19 @@ class NativeAuthTaskExecutor {
             }
         }
 
-        void rejectForSessionTransition() {
-            reject("Native auth work was superseded by a session transition");
-        }
-
         void rejectForPluginShutdown() {
-            reject("Native auth work was cancelled during plugin shutdown");
+            cancel("PLUGIN_SHUTDOWN");
         }
 
-        private void reject(String message) {
+        void cancel(String reasonCode) {
             if (!claimed.compareAndSet(false, true)) {
                 return;
             }
-            notifyFailure(new RejectedExecutionException(message));
+            try {
+                cancellationHandler.accept(reasonCode);
+            } catch (RuntimeException ignored) {
+                // The executor must remain available if callback settlement fails.
+            }
         }
 
         private void notifyFailure(RuntimeException exception) {
@@ -499,24 +721,25 @@ class NativeAuthTaskExecutor {
         private final int reservedBytes;
         private final long submittedGeneration;
         private final boolean sessionTransition;
+        private final ExecutorService executorService;
         private final Runnable job;
         private final Consumer<String> cancellationAction;
         private final Consumer<String> cancellationHandler;
         private final Consumer<RuntimeException> failureHandler;
         private final long deadlineMillis;
-        private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final AtomicReference<String> cancellationReason = new AtomicReference<>();
         private final AtomicBoolean cancellationNotified = new AtomicBoolean();
         private final AtomicBoolean reservationReleased = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
         private volatile Thread runner;
         private volatile ScheduledFuture<?> deadline;
-        private volatile String cancellationReason;
 
         ManagedTask(
             String requestId,
             int reservedBytes,
             long submittedGeneration,
             boolean sessionTransition,
+            ExecutorService executorService,
             Runnable job,
             Consumer<String> cancellationAction,
             Consumer<String> cancellationHandler,
@@ -527,6 +750,7 @@ class NativeAuthTaskExecutor {
             this.reservedBytes = reservedBytes;
             this.submittedGeneration = submittedGeneration;
             this.sessionTransition = sessionTransition;
+            this.executorService = executorService;
             this.job = job;
             this.cancellationAction = cancellationAction;
             this.cancellationHandler = cancellationHandler;
@@ -536,7 +760,7 @@ class NativeAuthTaskExecutor {
 
         @Override
         public void run() {
-            if (cancelled.get() || submittedGeneration != generation.get()) {
+            if (isCancelled() || submittedGeneration != generation.get()) {
                 cancelDeadline();
                 finish();
                 return;
@@ -544,11 +768,11 @@ class NativeAuthTaskExecutor {
 
             runner = Thread.currentThread();
             try {
-                if (!cancelled.get() && submittedGeneration == generation.get()) {
+                if (!isCancelled() && submittedGeneration == generation.get()) {
                     job.run();
                 }
             } catch (RuntimeException exception) {
-                if (!cancelled.get()) {
+                if (!isCancelled()) {
                     try {
                         completeAuthenticated(
                             requestId,
@@ -581,10 +805,15 @@ class NativeAuthTaskExecutor {
         }
 
         boolean cancel(String reasonCode) {
-            if (!cancelled.compareAndSet(false, true)) {
+            synchronized (generationLock) {
+                return cancelLocked(reasonCode);
+            }
+        }
+
+        private boolean cancelLocked(String reasonCode) {
+            if (!cancellationReason.compareAndSet(null, reasonCode)) {
                 return false;
             }
-            cancellationReason = reasonCode;
             try {
                 cancellationAction.accept(reasonCode);
             } catch (RuntimeException ignored) {
@@ -593,9 +822,7 @@ class NativeAuthTaskExecutor {
                 cancelDeadline();
                 Thread runningThread = runner;
                 if (runningThread != null) {
-                    if (!sessionTransition) {
-                        notifyCancellation();
-                    }
+                    notifyCancellation();
                     runningThread.interrupt();
                 } else {
                     notifyCancellation();
@@ -610,7 +837,7 @@ class NativeAuthTaskExecutor {
             if (!finished.compareAndSet(false, true)) {
                 return;
             }
-            if (cancelled.get()) {
+            if (isCancelled()) {
                 notifyCancellation();
             }
             authenticatedTasks.remove(requestId, this);
@@ -625,7 +852,7 @@ class NativeAuthTaskExecutor {
                 return;
             }
             try {
-                cancellationHandler.accept(cancellationReason);
+                cancellationHandler.accept(cancellationReason.get());
             } catch (RuntimeException ignored) {
                 // Cancellation cleanup must continue if callback settlement fails.
             }
@@ -636,5 +863,13 @@ class NativeAuthTaskExecutor {
                 releaseBufferedBytes(reservedBytes);
             }
         }
+
+        private boolean isCancelled() {
+            return cancellationReason.get() != null;
+        }
+    }
+
+    private void endSessionTransition() {
+        sessionTransitions.updateAndGet(value -> Math.max(0, value - 1));
     }
 }

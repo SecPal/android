@@ -37,6 +37,56 @@ import org.json.JSONObject;
 public class SecPalNativeAuthPluginTest {
 
     @Test
+    public void bridgeCallShapeRejectsUnexpectedRetainedPayloads() {
+        JSObject data = new JSObject();
+        data.put("method", "GET");
+        data.put("path", "/v1/me");
+        data.put("unexpected", "x");
+
+        assertFalse(SecPalNativeAuthPlugin.hasOnlyKeys(data, "method", "path"));
+        data.remove("unexpected");
+        assertTrue(SecPalNativeAuthPlugin.hasOnlyKeys(data, "method", "path"));
+    }
+
+    @Test
+    public void boundedBridgeValuesRejectQueueRetainedCredentialPayloads() {
+        assertTrue(SecPalNativeAuthPlugin.isBoundedValue("worker@secpal.dev", 320));
+        assertFalse(SecPalNativeAuthPlugin.isBoundedValue("x".repeat(321), 320));
+    }
+
+    @Test
+    public void boundedBridgeObjectsRejectQueueRetainedRuntimeAndPasskeyPayloads() {
+        JSObject bounded = new JSObject();
+        bounded.put("challenge", "x".repeat(128));
+        JSObject oversized = new JSObject();
+        oversized.put(
+            "challenge",
+            "x".repeat(SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS)
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.isBoundedJsonObject(
+            bounded,
+            SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS
+        ));
+        assertFalse(SecPalNativeAuthPlugin.isBoundedJsonObject(
+            oversized,
+            SecPalNativeAuthPlugin.MAX_PASSKEY_OPTIONS_CHARACTERS
+        ));
+    }
+
+    @Test
+    public void runtimeBootstrapRejectsOversizedIdentityAndOriginValues() throws Exception {
+        assertRuntimeBootstrapInvalid(
+            "x".repeat(SecPalNativeAuthPlugin.MAX_RUNTIME_DISPLAY_NAME_CHARACTERS + 1),
+            "https://tenant.example/v1"
+        );
+        assertRuntimeBootstrapInvalid(
+            "Tenant",
+            "https://" + "x".repeat(SecPalNativeAuthPlugin.MAX_RUNTIME_URL_CHARACTERS)
+        );
+    }
+
+    @Test
     public void terminalSettlementRunsOnlyOnceAcrossCompletionAndCancellation() throws Exception {
         AtomicBoolean settled = new AtomicBoolean(false);
         AtomicInteger callbacks = new AtomicInteger();
@@ -513,6 +563,19 @@ public class SecPalNativeAuthPluginTest {
         assertEquals(
             "VALIDATION_ERROR",
             SecPalNativeAuthPlugin.resolveErrorCode(new NativeAuthHttpException("Invalid", 0))
+        );
+    }
+
+    @Test
+    public void resolveErrorCodePreservesStableTransportTimeout() {
+        assertEquals(
+            "REQUEST_TIMEOUT",
+            SecPalNativeAuthPlugin.resolveErrorCode(
+                new NativeAuthHttpClient.NativeAuthCancelledException(
+                    "REQUEST_TIMEOUT",
+                    null
+                )
+            )
         );
     }
 
@@ -1359,6 +1422,22 @@ public class SecPalNativeAuthPluginTest {
         );
 
         assertTrue(logoutCalled.get());
+    }
+
+    private static void assertRuntimeBootstrapInvalid(
+        String instanceDisplayName,
+        String rawApiBaseUrl
+    ) throws Exception {
+        try {
+            SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+                new JSONObject()
+                    .put("instanceDisplayName", instanceDisplayName)
+                    .put("rawApiBaseUrl", rawApiBaseUrl)
+            );
+            fail("Expected InvalidRuntimeBootstrapException");
+        } catch (SecPalNativeAuthPlugin.InvalidRuntimeBootstrapException expected) {
+            assertEquals("RUNTIME_BOOTSTRAP_INVALID", expected.getErrorCode());
+        }
     }
 
     private static final class FakeTokenStorage implements TokenStorage {

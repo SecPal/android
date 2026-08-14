@@ -6,6 +6,7 @@
 import { registerPlugin } from "@capacitor/core";
 
 const NATIVE_AUTH_LOGOUT_EVENT_NAME = "secpal:native-auth-logout";
+const MAX_NATIVE_AUTH_REQUEST_BODY_BASE64_CHARACTERS = 16 * 1024 * 1024;
 
 export interface NativePasskeyCredentialParameter {
   type: "public-key";
@@ -141,6 +142,13 @@ function createAbortError(): DOMException {
   );
 }
 
+function createRequestTooLargeError(): Error & { code: string } {
+  return Object.assign(
+    new Error("The authenticated request exceeds the allowed size."),
+    { code: "NATIVE_AUTH_REQUEST_TOO_LARGE" }
+  );
+}
+
 function createEmptyAndroidPushRegistrationState(): AndroidPushRegistrationState {
   return {
     disabledError: null,
@@ -178,6 +186,13 @@ export function createNativeAuthBridge(): NativeAuthBridge {
       const signal = request.signal;
       if (signal?.aborted) {
         throw createAbortError();
+      }
+      if (
+        typeof request.bodyBase64 === "string" &&
+        request.bodyBase64.length >
+          MAX_NATIVE_AUTH_REQUEST_BODY_BASE64_CHARACTERS
+      ) {
+        throw createRequestTooLargeError();
       }
 
       const cancel = () => {

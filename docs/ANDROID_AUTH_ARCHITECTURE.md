@@ -110,6 +110,36 @@ dormant frontend service exports are not authorized. Public bootstrap and
 release metadata plus onboarding invitation validation and completion stay on
 the unauthenticated browser transport and never enter the bearer broker.
 
+The native scheduler separates ordinary interactive auth work, broker requests,
+and destructive session transitions. Each worker lane has one thread; ordinary
+and broker lanes admit at most eight queued calls, while session transitions use
+a zero-capacity queue and fail immediately when another transition is active.
+Broker uploads are limited to 12 MiB, broker responses to 8 MiB, and dedicated
+authentication/session JSON responses to 256 KiB. A 144 MiB aggregate working-
+set budget reserves conservative space for Base64 and bridge serialization as
+well as the response buffers that can briefly coexist while cancellation
+propagates. Connect, read, and write deadlines start at 15 seconds, and broker
+operations have a 30-second base total lifetime that scales only for the maximum
+bounded upload at the documented minimum transfer rate.
+
+The injected fetch adapter admits one native-bound fetch at a time and keeps at
+most eight lightweight queued operations. It performs this admission before it
+constructs a new `Request`, waits for runtime restoration, or reads a body
+stream, so overload cannot multiply the adapter's bounded upload buffers.
+
+Admission validates the complete method, target, media contract, request size,
+and bridge call shape before token access or connection creation. Cancellation,
+backgrounding, logout, credential replacement, runtime reset, runtime switch,
+and plugin teardown invalidate older generations, disconnect active broker and
+session transports, remove queued work and cancelled deadlines, and allow at
+most one terminal callback. Multi-step sign-in keeps its invocation-time origin
+and a distinct session binding across the expected system passkey UI pause. It
+revalidates that binding before sending a passkey assertion or persisting
+credentials, so logout, credential replacement, and tenant changes still fail
+closed. Local session mutations pass an atomic generation gate so a timeout
+cannot publish or apply a stale result later. Foregrounding only reopens
+admission; cancelled broker and session work is never resumed or retried.
+
 The broker parses path and query components before matching. It rejects dot
 segments, nested or invalid percent encoding, invalid UTF-8, encoded separators,
 backslashes, fragments, authority-like paths, duplicate or unlisted query keys,

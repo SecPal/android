@@ -171,6 +171,12 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
   const currentBootstrapVersion = "v1";
   const currentBootstrapSchemaVersion = 4;
   const maxAndroidPushMetadataRevision = 2147483647;
+  const maxNativeAuthRequestBodyBytes = 12 * 1024 * 1024;
+  const maxNativeAuthRequestBodyBase64Characters =
+    Math.ceil(maxNativeAuthRequestBodyBytes / 3) * 4;
+  const maxQueuedNativeFetches = 8;
+  const queuedNativeFetches = [];
+  let nativeFetchActive = false;
   const androidPushInstallationIdStorageKeyPrefix =
     "secpal-android-push-installation:";
   const androidPushTokenStorageKeyPrefix = "secpal-android-push-token:";
@@ -1141,6 +1147,139 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     return runtimeState.apiOrigin;
   };
 
+  const createAbortError = () => {
+    const error = new Error("The authenticated request was aborted.");
+    error.name = "AbortError";
+    return error;
+  };
+
+  const createRequestTooLargeError = () => {
+    const error = new Error("The authenticated request exceeds the allowed size.");
+    error.code = "NATIVE_AUTH_REQUEST_TOO_LARGE";
+    return error;
+  };
+
+  const createNativeAuthBusyError = () => {
+    const error = new Error("Android native auth is temporarily busy");
+    error.code = "NATIVE_AUTH_BUSY";
+    return error;
+  };
+
+  const throwIfAborted = (signal) => {
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
+  };
+
+  const awaitWithAbort = (promise, signal) => {
+    throwIfAborted(signal);
+    if (!signal?.addEventListener) {
+      return Promise.resolve(promise);
+    }
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (callback, value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        signal.removeEventListener?.("abort", abort);
+        callback(value);
+      };
+      const abort = () => finish(reject, createAbortError());
+      signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve(promise).then(
+        (value) => finish(resolve, value),
+        (error) => finish(reject, error)
+      );
+    });
+  };
+
+  const scheduleNativeFetch = (operation, signal) => {
+    throwIfAborted(signal);
+    return new Promise((resolve, reject) => {
+      const entry = { start: undefined };
+      const abortQueued = () => {
+        const index = queuedNativeFetches.indexOf(entry);
+        if (index < 0) {
+          return;
+        }
+        queuedNativeFetches.splice(index, 1);
+        reject(createAbortError());
+      };
+      entry.start = () => {
+        signal?.removeEventListener?.("abort", abortQueued);
+        nativeFetchActive = true;
+        Promise.resolve()
+          .then(operation)
+          .then(resolve, reject)
+          .finally(() => {
+            nativeFetchActive = false;
+            queuedNativeFetches.shift()?.start();
+          });
+      };
+
+      if (!nativeFetchActive) {
+        entry.start();
+        return;
+      }
+      if (queuedNativeFetches.length >= maxQueuedNativeFetches) {
+        reject(createNativeAuthBusyError());
+        return;
+      }
+      signal?.addEventListener?.("abort", abortQueued, { once: true });
+      queuedNativeFetches.push(entry);
+    });
+  };
+
+  const readBoundedRequestBody = async (request) => {
+    const signal = request.signal;
+    throwIfAborted(signal);
+    const declaredLength = Number(request.headers.get("Content-Length"));
+    if (Number.isFinite(declaredLength) && declaredLength > maxNativeAuthRequestBodyBytes) {
+      throw createRequestTooLargeError();
+    }
+    if (!request.body) {
+      return undefined;
+    }
+
+    const reader = request.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    const cancelReader = () => {
+      const cancellation = reader.cancel(createAbortError());
+      cancellation?.catch?.(() => {});
+    };
+    signal?.addEventListener?.("abort", cancelReader, { once: true });
+    try {
+      while (true) {
+        const { done, value } = await awaitWithAbort(reader.read(), signal);
+        if (done) {
+          break;
+        }
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+        if (chunk.byteLength > maxNativeAuthRequestBodyBytes - totalBytes) {
+          await reader.cancel().catch(() => {});
+          throw createRequestTooLargeError();
+        }
+        chunks.push(chunk);
+        totalBytes += chunk.byteLength;
+      }
+    } finally {
+      signal?.removeEventListener?.("abort", cancelReader);
+      reader.releaseLock();
+    }
+
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return body;
+  };
+
   const encodeBase64 = (bytes) => {
     let binary = "";
     const chunkSize = 32768;
@@ -1859,14 +1998,15 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
     request,
     { markAuthenticatedOnSuccess = true, signal } = {}
   ) => {
-    await ensureRuntimeConfigured();
-
     const requestSignal = signal ?? request?.signal;
-    if (requestSignal?.aborted) {
-      const error = new Error("The authenticated request was aborted.");
-      error.name = "AbortError";
-      throw error;
+    throwIfAborted(requestSignal);
+    if (
+      typeof request?.bodyBase64 === "string" &&
+      request.bodyBase64.length > maxNativeAuthRequestBodyBase64Characters
+    ) {
+      throw createRequestTooLargeError();
     }
+    await awaitWithAbort(ensureRuntimeConfigured(), requestSignal);
     authState.nativeRequestSequence =
       Number.isSafeInteger(authState.nativeRequestSequence)
         ? authState.nativeRequestSequence + 1
@@ -1891,9 +2031,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       response = await getPlugin().request(nativeRequest);
     } catch (error) {
       if (requestSignal?.aborted) {
-        const abortError = new Error("The authenticated request was aborted.");
-        abortError.name = "AbortError";
-        throw abortError;
+        throw createAbortError();
       }
       const code = error && typeof error === "object" ? error.code : undefined;
       if (code === "HTTP_401" || code === "NO_STORED_TOKEN") {
@@ -1904,9 +2042,7 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
       requestSignal?.removeEventListener?.("abort", cancel);
     }
     if (requestSignal?.aborted) {
-      const abortError = new Error("The authenticated request was aborted.");
-      abortError.name = "AbortError";
-      throw abortError;
+      throw createAbortError();
     }
     const status =
       response && typeof response === "object" ? Number(response.status) : Number.NaN;
@@ -2341,60 +2477,74 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
 
   if (originalFetch) {
     globalThis.fetch = async (input, init) => {
-      const request = new Request(input, init);
-      let url;
+      let candidateUrl;
 
       try {
         const locationHref =
           globalThis.location && typeof globalThis.location.href === "string"
             ? globalThis.location.href
             : fallbackApiOrigin;
-        url = new URL(request.url, locationHref);
-      } catch {
-        return originalFetch(request);
-      }
-
-      if (isApiPath(url.pathname)) {
-        try {
-          await runtimeState.nativeConfigPromise;
-        } catch {
-          // Keep the original request path when runtime bootstrap restore fails.
-        }
-      }
-
-      const rewrittenUrl = rewriteApiRequestUrl(url);
-
-      if (authState.active && isNativeApiRequest(rewrittenUrl)) {
-        const requestBody =
-          request.method === "GET" || request.method === "HEAD"
-            ? undefined
-            : await request.arrayBuffer();
-        const nativeResponse = await bridge.request({
-          method: request.method,
-          path: buildPath(rewrittenUrl),
-          bodyBase64:
-            requestBody && requestBody.byteLength > 0
-              ? encodeBase64(new Uint8Array(requestBody))
-              : undefined,
-          contentType: request.headers.get("Content-Type") ?? undefined,
-          accept: request.headers.get("Accept") ?? undefined,
-          signal: request.signal,
-        });
-        const headers = new Headers();
-        if (nativeResponse.contentType) {
-          headers.set("Content-Type", nativeResponse.contentType);
-        }
-        return new Response(
-          nativeResponse.bodyBase64 ? decodeBase64(nativeResponse.bodyBase64) : undefined,
-          { status: nativeResponse.status, headers }
+        candidateUrl = new URL(
+          input instanceof Request ? input.url : input,
+          locationHref
         );
+      } catch {
+        return originalFetch(input, init);
       }
 
-      if (rewrittenUrl.toString() === request.url) {
-        return originalFetch(request);
-      }
+      const dispatchRequest = async () => {
+        const request = new Request(input, init);
+        const url = new URL(request.url, candidateUrl);
+        if (isApiPath(url.pathname)) {
+          try {
+            await awaitWithAbort(runtimeState.nativeConfigPromise, request.signal);
+          } catch (error) {
+            if (error?.name === "AbortError") {
+              throw error;
+            }
+            // Keep the original request path when runtime bootstrap restore fails.
+          }
+        }
 
-      return originalFetch(new Request(rewrittenUrl.toString(), request));
+        const rewrittenUrl = rewriteApiRequestUrl(url);
+
+        if (authState.active && isNativeApiRequest(rewrittenUrl)) {
+          const requestBody =
+            request.method === "GET" || request.method === "HEAD"
+              ? undefined
+              : await readBoundedRequestBody(request);
+          const nativeResponse = await bridge.request({
+            method: request.method,
+            path: buildPath(rewrittenUrl),
+            bodyBase64:
+              requestBody && requestBody.byteLength > 0
+                ? encodeBase64(requestBody)
+                : undefined,
+            contentType: request.headers.get("Content-Type") ?? undefined,
+            accept: request.headers.get("Accept") ?? undefined,
+            signal: request.signal,
+          });
+          const headers = new Headers();
+          if (nativeResponse.contentType) {
+            headers.set("Content-Type", nativeResponse.contentType);
+          }
+          return new Response(
+            nativeResponse.bodyBase64 ? decodeBase64(nativeResponse.bodyBase64) : undefined,
+            { status: nativeResponse.status, headers }
+          );
+        }
+
+        if (rewrittenUrl.toString() === request.url) {
+          return originalFetch(request);
+        }
+
+        return originalFetch(new Request(rewrittenUrl.toString(), request));
+      };
+
+      const requestSignal = init?.signal ?? input?.signal;
+      return authState.active && isApiPath(candidateUrl.pathname)
+        ? scheduleNativeFetch(dispatchRequest, requestSignal)
+        : dispatchRequest();
     };
   }
 

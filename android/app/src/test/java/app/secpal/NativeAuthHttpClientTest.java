@@ -158,6 +158,31 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void oversizedBase64IsRejectedBeforeDecoding() {
+        assertDecodeErrorMessage(
+            "Android auth bridge request exceeds the allowed size",
+            "A".repeat(NativeAuthHttpClient.MAX_REQUEST_BODY_BASE64_CHARACTERS + 4)
+        );
+    }
+
+    @Test
+    public void transportTimeoutReasonCannotBeOverwrittenByLaterCancellation()
+        throws Exception {
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+
+        cancellation.cancelForTimeout();
+        cancellation.cancel();
+
+        try {
+            cancellation.throwIfCancelled();
+            throw new AssertionError("Expected cancellation to throw");
+        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            assertEquals("REQUEST_TIMEOUT", exception.getReasonCode());
+        }
+    }
+
+    @Test
     public void authenticatedRedirectStatusesAlwaysFailClosed() {
         int[] redirectStatuses = { 301, 302, 303, 307, 308 };
 
@@ -389,6 +414,90 @@ public class NativeAuthHttpClientTest {
             NativeAuthHttpClient.TOTAL_REQUEST_LIFETIME_MILLIS,
             NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(0)
         );
+    }
+
+    @Test
+    public void completedUploadsDoNotAccumulateCancelledWriteDeadlines()
+        throws Exception {
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                "{}".getBytes(StandardCharsets.UTF_8),
+                "application/json"
+            )
+        );
+
+        for (int index = 0; index < 32; index++) {
+            client.request(
+                "https://api.secpal.dev",
+                "native-secret",
+                "POST",
+                "/v1/customers",
+                "e30=",
+                "application/json",
+                "application/json"
+            );
+        }
+
+        assertEquals(0, NativeAuthHttpClient.getPendingWriteDeadlineCountForTest());
+    }
+
+    @Test
+    public void oversizedDedicatedJsonRequestFailsBeforeOpeningAConnection()
+        throws Exception {
+        AtomicInteger openedConnections = new AtomicInteger();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            openedConnections.incrementAndGet();
+            return new StubHttpURLConnection(url, 200, null);
+        });
+        String oversizedPassword = "x".repeat(
+            NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES
+        );
+
+        try {
+            client.login(
+                "https://api.secpal.dev",
+                "worker@secpal.dev",
+                oversizedPassword
+            );
+            throw new AssertionError("Expected oversized login body to fail closed");
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(0, expected.getStatusCode());
+        }
+
+        assertEquals(0, openedConnections.get());
+    }
+
+    @Test
+    public void dedicatedAuthJsonResponseUsesItsSmallerBufferLimit() throws Exception {
+        byte[] oversizedResponse = new byte[
+            NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                oversizedResponse,
+                "application/json"
+            )
+        );
+
+        try {
+            client.login(
+                "https://api.secpal.dev",
+                "worker@secpal.dev",
+                "correct horse battery staple"
+            );
+            throw new AssertionError("Expected oversized auth JSON response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(
+                "Android auth bridge response exceeds the allowed size",
+                exception.getMessage()
+            );
+        }
     }
 
     @Test

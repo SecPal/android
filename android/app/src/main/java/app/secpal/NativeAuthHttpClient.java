@@ -24,9 +24,8 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +35,9 @@ class NativeAuthHttpClient {
     static final int READ_TIMEOUT_MILLIS = 15_000;
     static final int WRITE_TIMEOUT_MILLIS = 15_000;
     static final int TOTAL_REQUEST_LIFETIME_MILLIS = 30_000;
+    static final int MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES = 256 * 1024;
+    static final int MAX_REQUEST_BODY_BASE64_CHARACTERS =
+        ((NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES + 2) / 3) * 4;
     private static final int MIN_UPLOAD_BYTES_PER_SECOND = 64 * 1024;
     private static final int UPLOAD_DEADLINE_OVERHEAD_MILLIS = 15_000;
     private static final int TOTAL_DEADLINE_OVERHEAD_MILLIS = 5_000;
@@ -45,12 +47,19 @@ class NativeAuthHttpClient {
     private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
         "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
     );
-    private static final ScheduledExecutorService WRITE_DEADLINE_SCHEDULER =
-        Executors.newSingleThreadScheduledExecutor(runnable -> {
+    private static final ScheduledThreadPoolExecutor WRITE_DEADLINE_SCHEDULER =
+        createWriteDeadlineScheduler();
+
+    private static ScheduledThreadPoolExecutor createWriteDeadlineScheduler() {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             Thread thread = new Thread(runnable, "secpal-native-auth-write-deadline");
             thread.setDaemon(true);
             return thread;
         });
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
+    }
     private final ConnectionFactory connectionFactory;
 
     NativeAuthHttpClient() {
@@ -181,6 +190,38 @@ class NativeAuthHttpClient {
             accept,
             requestBody == null ? 0 : requestBody.length
         );
+        return requestAuthorized(
+            baseUrl,
+            token,
+            authorizedRequest,
+            requestBody,
+            cancellation
+        );
+    }
+
+    JSObject requestAuthorized(
+        String baseUrl,
+        String token,
+        NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest,
+        String requestBodyBase64,
+        CancellationSignal cancellation
+    ) throws IOException, NativeAuthHttpException {
+        return requestAuthorized(
+            baseUrl,
+            token,
+            authorizedRequest,
+            decodeRequestBody(requestBodyBase64),
+            cancellation
+        );
+    }
+
+    private JSObject requestAuthorized(
+        String baseUrl,
+        String token,
+        NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest,
+        byte[] requestBody,
+        CancellationSignal cancellation
+    ) throws IOException, NativeAuthHttpException {
         RequestResponse response = sendRequest(
             baseUrl,
             authorizedRequest.getCanonicalPathAndQuery(),
@@ -191,6 +232,7 @@ class NativeAuthHttpClient {
             authorizedRequest.getAccept(),
             false,
             authorizedRequest.getResponseKind(),
+            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES,
             cancellation
         );
 
@@ -236,6 +278,7 @@ class NativeAuthHttpClient {
             "application/json",
             true,
             NativeAuthRequestPolicy.ResponseKind.JSON,
+            MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES,
             cancellation
         );
 
@@ -253,36 +296,18 @@ class NativeAuthHttpClient {
         String contentType,
         String accept,
         boolean throwOnError,
-        NativeAuthRequestPolicy.ResponseKind responseKind
-    )
-        throws IOException, NativeAuthHttpException {
-        return sendRequest(
-            baseUrl,
-            path,
-            method,
-            requestBody,
-            bearerToken,
-            contentType,
-            accept,
-            throwOnError,
-            responseKind,
-            new CancellationSignal()
-        );
-    }
-
-    private RequestResponse sendRequest(
-        String baseUrl,
-        String path,
-        String method,
-        byte[] requestBody,
-        String bearerToken,
-        String contentType,
-        String accept,
-        boolean throwOnError,
         NativeAuthRequestPolicy.ResponseKind responseKind,
+        int maxResponseBodyBytes,
         CancellationSignal cancellation
     )
         throws IOException, NativeAuthHttpException {
+        if (requestBody != null
+            && requestBody.length > NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES) {
+            throw new NativeAuthHttpException(
+                "Android auth bridge request exceeds the allowed size",
+                0
+            );
+        }
         cancellation.throwIfCancelled();
         HttpURLConnection connection = connectionFactory.open(
             new URL(normalizeBaseUrl(baseUrl) + path)
@@ -311,7 +336,7 @@ class NativeAuthHttpClient {
                 connection.setDoOutput(true);
                 connection.setFixedLengthStreamingMode(requestBody.length);
                 ScheduledFuture<?> writeDeadline = WRITE_DEADLINE_SCHEDULER.schedule(
-                    cancellation::cancel,
+                    cancellation::cancelForTimeout,
                     resolveWriteTimeoutMillis(requestBody.length),
                     TimeUnit.MILLISECONDS
                 );
@@ -331,7 +356,7 @@ class NativeAuthHttpClient {
             cancellation.throwIfCancelled();
             rejectAuthenticatedRedirect(statusCode);
             long declaredResponseLength = connection.getContentLengthLong();
-            if (declaredResponseLength > NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES) {
+            if (declaredResponseLength > maxResponseBodyBytes) {
                 throw new NativeAuthHttpException("Android auth bridge response exceeds the allowed size", 0);
             }
             InputStream responseStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
@@ -339,7 +364,7 @@ class NativeAuthHttpClient {
             if (responseStream != null) {
                 try (InputStream in = responseStream) {
                     cancellation.registerInputStream(in);
-                    responseBody = readResponseBodyBytes(in, NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES);
+                    responseBody = readResponseBodyBytes(in, maxResponseBodyBytes);
                     cancellation.clearInputStream(in);
                 }
             } else {
@@ -354,8 +379,13 @@ class NativeAuthHttpClient {
                     statusCode
                 );
             }
-
             return new RequestResponse(statusCode, responseBody, connection.getContentType());
+        } catch (IOException exception) {
+            if (cancellation.isCancelled()
+                && !(exception instanceof NativeAuthCancelledException)) {
+                throw cancellation.cancelledException(exception);
+            }
+            throw exception;
         } finally {
             cancellation.clearConnection(connection);
             connection.disconnect();
@@ -399,6 +429,10 @@ class NativeAuthHttpClient {
                 + READ_TIMEOUT_MILLIS
                 + TOTAL_DEADLINE_OVERHEAD_MILLIS
         );
+    }
+
+    static int getPendingWriteDeadlineCountForTest() {
+        return WRITE_DEADLINE_SCHEDULER.getQueue().size();
     }
 
     private static boolean isCurrentUserBootstrapRequest(String method, String path) {
@@ -618,13 +652,11 @@ class NativeAuthHttpClient {
             return;
         }
 
+        if (requestBodyBase64.length() > MAX_REQUEST_BODY_BASE64_CHARACTERS) {
+            throw new NativeAuthHttpException("Android auth bridge request exceeds the allowed size", 0);
+        }
         if (!REQUEST_BODY_BASE64_PATTERN.matcher(requestBodyBase64).matches()) {
             throw new NativeAuthHttpException("Android auth bridge received an invalid Base64 request body", 0);
-        }
-
-        int maximumEncodedLength = ((NativeAuthRequestPolicy.MAX_REQUEST_BODY_BYTES + 2) / 3) * 4;
-        if (requestBodyBase64.length() > maximumEncodedLength) {
-            throw new NativeAuthHttpException("Android auth bridge request exceeds the allowed size", 0);
         }
     }
 
@@ -700,13 +732,13 @@ class NativeAuthHttpClient {
     }
 
     static final class CancellationSignal {
-        private boolean cancelled;
+        private String reasonCode;
         private HttpURLConnection connection;
         private InputStream inputStream;
         private OutputStream outputStream;
 
         synchronized void registerConnection(HttpURLConnection value) {
-            if (cancelled) {
+            if (isCancelled()) {
                 value.disconnect();
                 return;
             }
@@ -720,7 +752,7 @@ class NativeAuthHttpClient {
         }
 
         synchronized void registerInputStream(InputStream value) throws IOException {
-            if (cancelled) {
+            if (isCancelled()) {
                 value.close();
                 throw cancelledException();
             }
@@ -734,7 +766,7 @@ class NativeAuthHttpClient {
         }
 
         synchronized void registerOutputStream(OutputStream value) throws IOException {
-            if (cancelled) {
+            if (isCancelled()) {
                 value.close();
                 throw cancelledException();
             }
@@ -748,20 +780,28 @@ class NativeAuthHttpClient {
         }
 
         synchronized void throwIfCancelled() throws InterruptedIOException {
-            if (cancelled) {
+            if (isCancelled()) {
                 throw cancelledException();
             }
         }
 
         synchronized boolean isCancelled() {
-            return cancelled;
+            return reasonCode != null;
         }
 
         synchronized void cancel() {
-            if (cancelled) {
+            cancel("REQUEST_CANCELLED");
+        }
+
+        synchronized void cancelForTimeout() {
+            cancel("REQUEST_TIMEOUT");
+        }
+
+        private void cancel(String reason) {
+            if (reasonCode != null) {
                 return;
             }
-            cancelled = true;
+            reasonCode = reason;
             closeQuietly(outputStream);
             closeQuietly(inputStream);
             if (connection != null) {
@@ -772,8 +812,12 @@ class NativeAuthHttpClient {
             connection = null;
         }
 
-        private static InterruptedIOException cancelledException() {
-            return new InterruptedIOException("Android authenticated request was cancelled");
+        private NativeAuthCancelledException cancelledException() {
+            return new NativeAuthCancelledException(reasonCode, null);
+        }
+
+        private NativeAuthCancelledException cancelledException(IOException cause) {
+            return new NativeAuthCancelledException(reasonCode, cause);
         }
 
         private static void closeQuietly(Closeable closeable) {
@@ -785,6 +829,26 @@ class NativeAuthHttpClient {
             } catch (IOException ignored) {
                 // The connection is disconnected below as the final cancellation mechanism.
             }
+        }
+    }
+
+    static final class NativeAuthCancelledException extends InterruptedIOException {
+        private final String reasonCode;
+
+        NativeAuthCancelledException(String reasonCode, IOException cause) {
+            super(
+                "REQUEST_TIMEOUT".equals(reasonCode)
+                    ? "Android authenticated request exceeded its lifetime limit"
+                    : "Android authenticated request was cancelled"
+            );
+            this.reasonCode = reasonCode;
+            if (cause != null) {
+                initCause(cause);
+            }
+        }
+
+        String getReasonCode() {
+            return reasonCode;
         }
     }
 
