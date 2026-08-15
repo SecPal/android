@@ -241,11 +241,19 @@ final class AndroidPushRuntimeManager {
             FirebaseMessaging messaging = resolveMessaging(appName);
             messaging
                 .deleteToken()
-                .addOnSuccessListener(ignored -> messaging
-                    .getToken()
-                    .addOnSuccessListener(listener::onTokenReceived)
-                    .addOnFailureListener(listener::onTokenError)
-                )
+                .continueWithTask(deletion -> {
+                    if (!deletion.isSuccessful()) {
+                        Exception failure = deletion.getException();
+                        if (failure != null) {
+                            throw failure;
+                        }
+                        throw new IllegalStateException(
+                            "Failed to delete the previous Android push token"
+                        );
+                    }
+                    return messaging.getToken();
+                })
+                .addOnSuccessListener(listener::onTokenReceived)
                 .addOnFailureListener(listener::onTokenError);
         }
 

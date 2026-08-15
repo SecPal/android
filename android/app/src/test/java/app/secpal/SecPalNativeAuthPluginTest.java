@@ -1839,6 +1839,26 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void deferredPushCleanupStillRevokesNativeAuthentication() {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
+            () -> {
+                events.add("push-cleanup-deferred");
+                return false;
+            },
+            "auth-token",
+            "https://tenant-a.example",
+            (apiOrigin, token) -> events.add("server-logout")
+        );
+
+        assertEquals(
+            Arrays.asList("push-cleanup-deferred", "server-logout"),
+            events
+        );
+    }
+
+    @Test
     public void completedNativeRuntimeClearIgnoresBestEffortAuthenticationRevocationFailure() {
         AtomicBoolean logoutCalled = new AtomicBoolean(false);
 

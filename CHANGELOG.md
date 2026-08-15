@@ -83,7 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retention now preserves both the restored runtime and browser migration state
   for retry. Cold-start revocation work is deferred from plugin initialization,
   and loss of protected identity state durably requires deleting the previous
-  FCM token before a replacement installation can register. It fails fast when
+  FCM token before a replacement installation can register. A confirmed runtime
+  reset now attempts authentication revocation even while push cleanup remains
+  pending. It fails fast when
   its required native push contract is incomplete, removes its lifecycle
   listener on page teardown, disables Capacitor bridge-payload logging in every
   build type, and no longer publishes token events, registration payloads, or a

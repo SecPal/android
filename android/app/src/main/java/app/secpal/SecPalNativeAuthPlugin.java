@@ -866,21 +866,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         ));
                         return;
                     }
-                    boolean pushCleanupComplete =
-                        androidPushRegistrationManager.clearRuntime(
+                    revokeServerStateAfterRuntimeClear(
+                        () -> androidPushRegistrationManager.clearRuntime(
                             tokenForServerRevocation
-                        );
-                    if (pushCleanupComplete) {
-                        revokeNativeAuthenticationAfterRuntimeClear(
-                            tokenForServerRevocation,
-                            confirmedApiOrigin,
-                            (apiOrigin, token) -> httpClient.logout(
-                                apiOrigin,
-                                token,
-                                cancellation
-                            )
-                        );
-                    }
+                        ),
+                        tokenForServerRevocation,
+                        confirmedApiOrigin,
+                        (apiOrigin, token) -> httpClient.logout(
+                            apiOrigin,
+                            token,
+                            cancellation
+                        )
+                    );
                     taskExecutor.completeAuthenticated(
                         requestId,
                         () -> settleOnce(settled, call::resolve)
@@ -2284,6 +2281,23 @@ public class SecPalNativeAuthPlugin extends Plugin {
             revoker.revoke(normalizedApiOrigin, token);
         } catch (IOException | JSONException | NativeAuthHttpException | RuntimeException ignored) {
             // Runtime reset remains available offline; server logout is best-effort.
+        }
+    }
+
+    static void revokeServerStateAfterRuntimeClear(
+        BooleanSupplier pushCleanup,
+        String token,
+        String apiOrigin,
+        NativeAuthenticationRevoker authenticationRevoker
+    ) {
+        try {
+            pushCleanup.getAsBoolean();
+        } finally {
+            revokeNativeAuthenticationAfterRuntimeClear(
+                token,
+                apiOrigin,
+                authenticationRevoker
+            );
         }
     }
 
