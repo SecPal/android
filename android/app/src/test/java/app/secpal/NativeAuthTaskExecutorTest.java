@@ -15,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -131,6 +132,88 @@ public class NativeAuthTaskExecutorTest {
             releaseBlocker.countDown();
         } finally {
             releaseBlocker.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void generationBoundMutationFinishesBeforeSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        long generation = taskExecutor.captureGeneration();
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+
+        try {
+            assertTrue(taskExecutor.submit(() -> {
+                try {
+                    assertTrue(taskExecutor.runIfGenerationCurrent(generation, () -> {
+                        mutationStarted.countDown();
+                        releaseMutation.await();
+                    }));
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
+
+            Thread transitionSubmitter = new Thread(() -> assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "ordered-push-logout",
+                    0,
+                    transitionStarted::countDown,
+                    reason -> {}
+                )
+            ));
+            transitionSubmitter.start();
+
+            assertFalse(transitionStarted.await(100, TimeUnit.MILLISECONDS));
+            releaseMutation.countDown();
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+            transitionSubmitter.join(2_000L);
+        } finally {
+            releaseMutation.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void generationBoundMutationIsRejectedAfterSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        long generation = taskExecutor.captureGeneration();
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        AtomicBoolean mutationRan = new AtomicBoolean(false);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "reject-stale-push",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+
+            assertFalse(taskExecutor.runIfGenerationCurrent(
+                generation,
+                () -> mutationRan.set(true)
+            ));
+            assertFalse(mutationRan.get());
+        } finally {
+            releaseTransition.countDown();
             taskExecutor.shutdownNow();
         }
     }

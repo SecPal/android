@@ -1407,8 +1407,20 @@
         }
       }
     );
+    const removeLifecycleListener = () => {
+      authState.nativeAuthLifecycleDetached = true;
+      const handle = authState.nativeAuthLifecycleHandle;
+      authState.nativeAuthLifecycleHandle = null;
+      Promise.resolve(handle?.remove?.()).catch(() => {});
+    };
+    globalThis.addEventListener?.("pagehide", removeLifecycleListener, {
+      once: true,
+    });
     Promise.resolve(handleOrPromise)
       .then((handle) => {
+        if (authState.nativeAuthLifecycleDetached) {
+          return Promise.resolve(handle?.remove?.()).catch(() => {});
+        }
         authState.nativeAuthLifecycleHandle = handle ?? null;
       })
       .catch(() => {
@@ -1580,17 +1592,10 @@
       return result && typeof result === "object" ? result.available === true : result === true;
     },
     async getAndroidPushRegistrationState() {
-      const result = await getPlugin().getAndroidPushRegistrationState?.();
-      return result && typeof result === "object"
-        ? result
-        : { state: "unavailable", configured: false, retryable: false };
+      return getPlugin().getAndroidPushRegistrationState();
     },
     async retryAndroidPushRegistration() {
-      const plugin = getPlugin();
-      if (typeof plugin.retryAndroidPushRegistration !== "function") {
-        throw new Error("Android push registration retry is unavailable.");
-      }
-      return plugin.retryAndroidPushRegistration();
+      return getPlugin().retryAndroidPushRegistration();
     },
     async getRuntimeInfo() {
       return getPlugin().getRuntimeInfo();

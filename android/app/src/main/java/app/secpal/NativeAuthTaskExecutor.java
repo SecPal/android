@@ -354,6 +354,22 @@ class NativeAuthTaskExecutor {
         }
     }
 
+    <E extends Exception> boolean runIfGenerationCurrent(
+        long expectedGeneration,
+        CheckedMutation<E> mutation
+    ) throws E {
+        synchronized (generationLock) {
+            if (ordinaryExecutorService.isShutdown()
+                || authenticatedWorkPaused
+                || sessionTransitions.get() > 0
+                || generation.get() != expectedGeneration) {
+                return false;
+            }
+            mutation.run();
+            return true;
+        }
+    }
+
     long captureSessionGeneration() {
         synchronized (generationLock) {
             return sessionGeneration.get();

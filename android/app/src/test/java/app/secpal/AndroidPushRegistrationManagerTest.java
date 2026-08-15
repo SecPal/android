@@ -10,6 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import android.content.SharedPreferences;
 import android.util.Base64;
@@ -125,6 +126,63 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void changedAuthenticationCredentialRegistersForTheNewPrincipal()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend,
+            "1.5.0",
+            10500
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "first-user-auth-token"
+        );
+
+        manager.onAuthenticated("second-user-auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("credential_rotated", backend.lifecycleEvents.get(1));
+    }
+
+    @Test
+    public void appUpgradeRefreshesRegistrationMetadataWithAnUnchangedToken()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager firstVersion =
+            new AndroidPushRegistrationManager(
+                createStorage(preferences, cipher, ids),
+                backend,
+                "1.5.0",
+                10500
+            );
+        firstVersion.bindRuntime(API_ORIGIN, pushMetadata(3));
+        firstVersion.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+
+        AndroidPushRegistrationManager upgraded = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend,
+            "1.6.0",
+            10600
+        );
+        upgraded.bindRuntime(API_ORIGIN, pushMetadata(3));
+        upgraded.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("credential_rotated", backend.lifecycleEvents.get(1));
+    }
+
+    @Test
     public void coldStartRestoresTheRegisteredAbstractStatus() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         MemoryCipher cipher = new MemoryCipher();
@@ -182,6 +240,26 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void staleTokenErrorCannotOverwriteLoggedOutStatus() throws Exception {
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        manager.onLogout("auth-token");
+
+        manager.onTokenError(AndroidPushRegistrationManager.RUNTIME_APP_NAME);
+
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+        assertFalse(manager.getStatus().getBool("retryable"));
+    }
+
+    @Test
     public void disabledRuntimeRemainsDisabledAcrossAuthenticationAndLogout()
         throws Exception {
         AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
@@ -232,6 +310,132 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals("awaiting_token", manager.getStatus().getString("state"));
         assertFalse(manager.getStatus().has("apiOrigin"));
         assertFalse(manager.getStatus().has("metadataRevision"));
+    }
+
+    @Test
+    public void tokenErrorDuringRebindRemainsRetryableAfterPreviousRevocation()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+
+        manager.onTokenError(AndroidPushRegistrationManager.RUNTIME_APP_NAME);
+        manager.revokePrevious(rebind, "auth-token");
+
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(
+            "TOKEN_UNAVAILABLE",
+            manager.getStatus().getString("failureCode")
+        );
+    }
+
+    @Test
+    public void rejectedPreviousRevocationFailsTheRebindAndAllowsRollback()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        backend.unregisterStatus = 500;
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        String originalInstallationId = storage.load().installationId();
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+
+        try {
+            manager.revokePrevious(rebind, "auth-token");
+            fail("Expected rejected previous registration revocation");
+        } catch (IllegalStateException expected) {
+            manager.rollbackRebind(rebind);
+        }
+
+        assertEquals(originalInstallationId, storage.load().installationId());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void interruptedRebindRetainsPreviousRevocationForColdStartRetry()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        backend.unregisterStatus = 500;
+        AndroidPushRegistrationManager.RebindResult interrupted = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+        try {
+            manager.revokePrevious(interrupted, "auth-token");
+            fail("Expected rejected previous registration revocation");
+        } catch (IllegalStateException expected) {
+            // Simulate process termination before the in-memory rollback can run.
+        }
+
+        backend.unregisterStatus = 204;
+        AndroidPushRegistrationManager restarted = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        restarted.bindRuntime("https://tenant-b.example", pushMetadata(4));
+        restarted.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.unregisterCount);
+        assertEquals("awaiting_token", restarted.getStatus().getString("state"));
+    }
+
+    @Test
+    public void corruptPushStateCannotPreventLogoutCleanup() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushIdentityStorage storage = createStorage(preferences);
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        preferences.edit()
+            .putString(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY, "corrupt")
+            .putString(AndroidPushIdentityStorage.STATE_IV_KEY, "corrupt")
+            .commit();
+
+        manager.onLogout("auth-token");
+
+        assertEquals("unconfigured", manager.getStatus().getString("state"));
+        assertFalse(preferences.contains(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY));
+        assertFalse(preferences.contains(AndroidPushIdentityStorage.STATE_IV_KEY));
     }
 
     @Test
@@ -415,6 +619,7 @@ public class AndroidPushRegistrationManagerTest {
         implements AndroidPushRegistrationManager.Backend {
         final List<String> lifecycleEvents = new ArrayList<>();
         int unregisterCount;
+        int unregisterStatus = 204;
         boolean offline;
 
         @Override
@@ -441,7 +646,7 @@ public class AndroidPushRegistrationManagerTest {
             String installationId
         ) {
             unregisterCount += 1;
-            return 204;
+            return unregisterStatus;
         }
     }
 

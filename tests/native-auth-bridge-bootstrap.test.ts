@@ -2410,6 +2410,34 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.retryAndroidPushRegistration).toHaveBeenCalledWith();
   });
 
+  it("fails fast when the packaged native push contract is incomplete", async () => {
+    const { bridge, plugin } = await createAndroidPushLifecycleSandbox();
+
+    Reflect.deleteProperty(plugin, "getAndroidPushRegistrationState");
+    await expect(bridge.getAndroidPushRegistrationState()).rejects.toThrow(
+      /not a function/i
+    );
+
+    Reflect.deleteProperty(plugin, "retryAndroidPushRegistration");
+    await expect(bridge.retryAndroidPushRegistration()).rejects.toThrow(
+      /not a function/i
+    );
+  });
+
+  it("removes the native auth lifecycle listener when the WebView page is hidden", async () => {
+    const { handles, sandbox } = await createAndroidPushLifecycleSandbox();
+
+    expect(handles).toHaveLength(1);
+    expect(handles[0]?.remove).not.toHaveBeenCalled();
+
+    (sandbox.dispatchEvent as (event: { type: string }) => boolean)({
+      type: "pagehide",
+    });
+    await flushMicrotasks();
+
+    expect(handles[0]?.remove).toHaveBeenCalledOnce();
+  });
+
   it("does not reactivate auth state after a successful direct bridge request", async () => {
     const { bridge, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox();

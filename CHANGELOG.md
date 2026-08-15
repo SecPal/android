@@ -45,11 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covers runtime discovery, native confirmation, login, abstract push status,
   and logout. Disabled runtimes now remain stably disabled across authentication
   callbacks and failed rebind rollbacks, and pending runtime-confirmation
-  dialogs are released on Activity destruction. React can read only abstract
-  registration state or request an input-free retry. The packaged bridge invalidates the obsolete
-  browser-storage keys without reading or migrating their values and no longer
-  publishes token events, registration payloads, or a push-sync global (issue
-  #411, part of #402).
+  dialogs are released on Activity destruction. Push callbacks are now ordered
+  against logout and runtime transitions, failed previous-installation cleanup
+  remains encrypted and retryable across restarts, corrupt auxiliary push state
+  cannot retain the bearer during logout, and registration idempotency includes
+  the authenticated credential and installed app version. React can read only
+  abstract registration state or request an input-free retry that refreshes the
+  Firebase token. The packaged bridge invalidates the obsolete browser-storage
+  keys without reading or migrating their values, fails fast when its required
+  native push contract is incomplete, removes its lifecycle listener on page
+  teardown, and no longer publishes token events, registration payloads, or a
+  push-sync global (issue #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

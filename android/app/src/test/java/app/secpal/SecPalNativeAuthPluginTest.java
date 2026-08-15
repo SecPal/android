@@ -1220,6 +1220,98 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void rejectedNativePushSubmissionMarksRegistrationForRetry()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        AtomicInteger retries = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "push-submit-rejection",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+
+            assertFalse(SecPalNativeAuthPlugin.submitNativePushTask(
+                taskExecutor,
+                () -> fail("Push task must not run during logout"),
+                retries::incrementAndGet
+            ));
+            assertEquals(1, retries.get());
+        } finally {
+            releaseTransition.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void logoutClearsCredentialAfterPushCleanupEvenWhenPushStateIsCorrupt()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+            "https://tenant-a.example",
+            "auth-token",
+            token -> {
+                events.add("push-logout");
+                throw new TokenStorageException(
+                    "corrupt push state",
+                    new IllegalStateException("corrupt")
+                );
+            },
+            tokenStorage,
+            localCredentialCleared,
+            mutation -> {
+                mutation.run();
+                return true;
+            },
+            (apiOrigin, token) -> events.add("server-logout")
+        ));
+
+        assertEquals(
+            Arrays.asList("push-logout", "clear-token", "server-logout"),
+            events
+        );
+        assertTrue(localCredentialCleared.get());
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void explicitPushRetryRefreshesFirebaseBeforeSynchronizingStoredState()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.retryAndroidPushRegistrationNow(
+            () -> events.add("refresh-token"),
+            () -> events.add("sync-registration")
+        );
+
+        assertEquals(
+            Arrays.asList("refresh-token", "sync-registration"),
+            events
+        );
+    }
+
+    @Test
     public void shouldClearStoredTokenUnlessRuntimeOriginIsAlreadyBoundToSameTenant() {
         assertTrue(
             SecPalNativeAuthPlugin.shouldClearStoredToken(
