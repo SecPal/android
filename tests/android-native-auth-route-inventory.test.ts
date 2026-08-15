@@ -31,7 +31,6 @@ const protectedRouteFamilies = [
   "/v1/lookups/",
   "/v1/me",
   "/v1/me/mfa",
-  "/v1/me/notification-installations/",
   "/v1/me/passkeys",
   "/v1/onboarding/",
   "/v1/onboarding-review/employees/",
@@ -39,6 +38,7 @@ const protectedRouteFamilies = [
   "/v1/sites",
 ];
 const browserOnlyRoutesWithinProtectedFamilies = new Set([
+  "/v1/me/notification-installations/{id}",
   "/v1/onboarding/complete",
   "/v1/onboarding/validate-token",
 ]);
@@ -58,6 +58,16 @@ function compareRouteContracts(left: RouteContract, right: RouteContract) {
 }
 
 function parseNativeRouteContracts(source: string): RouteContract[] {
+  const webViewRouteStart = source.indexOf(
+    "private static List<RouteSpec> buildWebViewRoutes()"
+  );
+  const webViewRouteEnd = source.indexOf(
+    "private static List<RouteSpec> buildAndroidPushRoutes()"
+  );
+  if (webViewRouteStart === -1 || webViewRouteEnd <= webViewRouteStart) {
+    throw new Error("Android WebView route inventory is unavailable");
+  }
+  const webViewSource = source.slice(webViewRouteStart, webViewRouteEnd);
   const routePattern =
     /add\(routes,\s*"([A-Z]+)",\s*(.*?),\s*(NO_QUERY|keys\(.*?\)),\s*(NO_CONTENT|JSON_CONTENT|MULTIPART_CONTENT),\s*ResponseKind\.JSON\s*\);/gs;
   const contentTypesByPolicy = {
@@ -67,7 +77,7 @@ function parseNativeRouteContracts(source: string): RouteContract[] {
   } as const;
   const contracts: RouteContract[] = [];
 
-  for (const match of source.matchAll(routePattern)) {
+  for (const match of webViewSource.matchAll(routePattern)) {
     const [, method, pathExpression, queryExpression, contentPolicy] = match;
     const path = [...pathExpression.matchAll(/"([^"]*)"|\bID\b/g)]
       .map((part) => (part[0] === "ID" ? "{id}" : part[1]))
@@ -455,6 +465,14 @@ describe("Android native-auth route inventory", () => {
 
   it("keeps removed Android provisioning requests out of the native policy", () => {
     expect(nativePolicy).not.toContain("/v1/android-enrollment-sessions");
+  });
+
+  it("keeps notification installation mutations out of the WebView inventory", () => {
+    expect(
+      parseNativeRouteContracts(nativePolicy).some((contract) =>
+        contract.path.startsWith("/v1/me/notification-installations/")
+      )
+    ).toBe(false);
   });
 
   it("does not retain route families that have no packaged Android caller", () => {

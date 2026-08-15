@@ -103,46 +103,69 @@ public class LiveNativeAuthInstrumentedTest {
                 "\"login-started\"",
                 awaitJavascriptResult(scenario, buildSubmitLoginScript(email, password))
             );
-            assertEquals(
-                "\"login-complete\"",
-                awaitJavascriptResult(
-                    scenario,
-                    "(function () {" +
-                    "var error = document.getElementById('login-error');" +
-                    "if (error && error.innerText.trim()) { return 'login-error'; }" +
-                    "return window.__SecPalNativeAuthState && " +
-                    "window.__SecPalNativeAuthState.active === true ? 'login-complete' : null;" +
-                    "})()"
-                )
+            String loginResult = awaitJavascriptResult(
+                scenario,
+                "(function () {" +
+                "var error = document.getElementById('login-error');" +
+                "if (error && error.innerText.trim()) { return 'login-error'; }" +
+                "return window.__SecPalNativeAuthState && " +
+                "window.__SecPalNativeAuthState.active === true ? 'login-complete' : null;" +
+                "})()"
             );
-            assertEquals(
-                "\"push:registered,true,true,none\"",
-                awaitAbstractPushStatus(scenario, "registered")
-            );
+            boolean loginCompleted = "\"login-complete\"".equals(loginResult);
+            assertEquals("\"login-complete\"", loginResult);
+            try {
+                assertEquals(
+                    "\"push:registered,true,true,none\"",
+                    awaitAbstractPushStatus(scenario, "registered")
+                );
 
-            assertEquals(
-                "\"logout-started\"",
-                awaitJavascriptResult(
-                    scenario,
-                    "(function () {" +
-                    "window.__secpalLiveLogout = null;" +
-                    "Promise.resolve(window.SecPalNativeAuthBridge.logout())" +
-                    ".then(function () { window.__secpalLiveLogout = 'logout-complete'; })" +
-                    ".catch(function () { window.__secpalLiveLogout = 'logout-error'; });" +
-                    "return 'logout-started';" +
-                    "})()"
-                )
-            );
-            assertEquals(
-                "\"logout-complete\"",
-                awaitJavascriptResult(scenario, "window.__secpalLiveLogout")
-            );
-            assertEquals(
-                "\"push:awaiting_auth,true,true,none\"",
-                awaitAbstractPushStatus(scenario, "awaiting_auth")
-            );
+                assertEquals(
+                    "\"logout-started\"",
+                    awaitJavascriptResult(
+                        scenario,
+                        startLogoutScript()
+                    )
+                );
+                assertEquals(
+                    "\"logout-complete\"",
+                    awaitJavascriptResult(scenario, "window.__secpalLiveLogout")
+                );
+                loginCompleted = false;
+                assertEquals(
+                    "\"push:awaiting_auth,true,true,none\"",
+                    awaitAbstractPushStatus(scenario, "awaiting_auth")
+                );
+            } finally {
+                if (loginCompleted) {
+                    bestEffortLogout(scenario);
+                }
+            }
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
+    private static String startLogoutScript() {
+        return "(function () {" +
+            "window.__secpalLiveLogout = null;" +
+            "Promise.resolve(window.SecPalNativeAuthBridge.logout())" +
+            ".then(function () { window.__secpalLiveLogout = 'logout-complete'; })" +
+            ".catch(function () { window.__secpalLiveLogout = 'logout-error'; });" +
+            "return 'logout-started';" +
+            "})()";
+    }
+
+    private static void bestEffortLogout(
+        ActivityScenario<MainActivity> scenario
+    ) {
+        try {
+            awaitJavascriptResult(scenario, startLogoutScript());
+            awaitJavascriptResult(scenario, "window.__secpalLiveLogout");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException | AssertionError ignored) {
+            // Preserve the original test failure while attempting session cleanup.
+        }
     }
 
     private static String buildSetControlAndClickScript(

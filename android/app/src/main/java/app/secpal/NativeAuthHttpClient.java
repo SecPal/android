@@ -229,7 +229,7 @@ class NativeAuthHttpClient {
     ) throws IOException, NativeAuthHttpException {
         byte[] requestBody = decodeRequestBody(requestBodyBase64);
         NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest =
-            NativeAuthRequestPolicy.authorize(
+            NativeAuthRequestPolicy.authorizeAndroidPush(
                 method,
                 path,
                 contentType,

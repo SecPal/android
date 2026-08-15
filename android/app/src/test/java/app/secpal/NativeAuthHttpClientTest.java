@@ -668,14 +668,15 @@ public class NativeAuthHttpClientTest {
                 });
 
                 try {
-                    client.request(
+                    client.requestAuxiliaryJson(
                         "https://api.secpal.dev",
                         "native-secret",
                         "PUT",
                         "/v1/me/notification-installations/device-1",
                         "e30=",
                         "application/json",
-                        "application/json"
+                        "application/json",
+                        new NativeAuthHttpClient.CancellationSignal()
                     );
                 } catch (NativeAuthHttpException expected) {
                     assertEquals(status, expected.getStatusCode());
@@ -719,14 +720,15 @@ public class NativeAuthHttpClientTest {
                 }) {
                     sourceServer.setRedirect(status, location);
                     try {
-                        client.request(
+                        client.requestAuxiliaryJson(
                             "https://127.0.0.1:" + sourcePort,
                             "native-secret",
                             "PUT",
                             "/v1/me/notification-installations/device-1",
                             "e30=",
                             "application/json",
-                            "application/json"
+                            "application/json",
+                            new NativeAuthHttpClient.CancellationSignal()
                         );
                     } catch (NativeAuthHttpException expected) {
                         assertEquals(status, expected.getStatusCode());

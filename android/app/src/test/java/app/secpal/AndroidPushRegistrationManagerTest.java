@@ -309,6 +309,56 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void cancelledCredentialReplacementRestoresThePreviousPushRegistration()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushIdentityStorage storage = createStorage(preferences);
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "first-user-auth-token"
+        );
+        String previousInstallationId = storage.load().installationId();
+
+        NativeCredentialRollback rollback = manager.prepareCredentialReplacement(
+            "first-user-auth-token",
+            "second-user-auth-token"
+        );
+        assertTrue(storage.load().hasPendingRevocation());
+
+        rollback.rollback();
+
+        assertEquals(previousInstallationId, storage.load().installationId());
+        assertTrue(storage.load().hasServerRegistration());
+        assertFalse(storage.load().hasPendingRevocation());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void protectedStateSnapshotRestoresTheTokenRotationMarker()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushIdentityStorage storage = createStorage(preferences);
+        storage.bindRuntime(API_ORIGIN, 3);
+        preferences.edit()
+            .putBoolean(AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY, true)
+            .commit();
+        AndroidPushIdentityStorage.Snapshot snapshot = storage.snapshot();
+
+        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        assertFalse(storage.requiresTokenRotation());
+
+        storage.restore(snapshot);
+
+        assertTrue(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void credentialReplacementWithoutOldAuthorityRequiresTokenRotation()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -1630,6 +1680,36 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals(TOKEN_ONE, storage.load().token());
         assertEquals("registered", manager.getStatus().getString("state"));
         assertEquals(0, backend.unregisterCount);
+    }
+
+    @Test
+    public void failedRuntimeApplyRestoresTheTokenRotationRequirement()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+        assertTrue(manager.requiresTokenRotation());
+
+        manager.rollbackRebind(rebind);
+
+        assertFalse(manager.requiresTokenRotation());
+        assertTrue(storage.load().hasServerRegistration());
     }
 
     @Test

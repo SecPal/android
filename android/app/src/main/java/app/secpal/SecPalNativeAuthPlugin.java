@@ -66,7 +66,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @FunctionalInterface
     interface AndroidPushCredentialReplacement {
-        void prepare(String previousToken, String nextToken)
+        NativeCredentialRollback prepare(String previousToken, String nextToken)
             throws TokenStorageException;
     }
 
@@ -190,6 +190,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
         long loginGeneration = taskExecutor.captureGeneration();
         String loginApiBaseUrl = apiBaseUrl;
+        AtomicReference<NativeCredentialRollback> credentialRollback =
+            new AtomicReference<>(NativeCredentialRollback.NO_OP);
         runAsync(call, () -> {
             try {
                 requireNetworkConnection();
@@ -202,12 +204,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 payload.put("user", response.getUser());
                 if (!taskExecutor.completeCredentialReplacement(
                     loginGeneration,
-                    () -> replaceStoredCredential(
-                        tokenStorage,
-                        response.getToken(),
-                        androidPushRegistrationManager::prepareCredentialReplacement
+                    () -> credentialRollback.set(
+                        replaceStoredCredential(
+                            tokenStorage,
+                            response.getToken(),
+                            androidPushRegistrationManager::prepareCredentialReplacement
+                        )
                     ),
-                    tokenStorage::clearToken,
+                    () -> credentialRollback.get().rollback(),
                     () -> call.resolve(payload)
                 )) {
                     call.reject(
@@ -246,6 +250,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
         long loginGeneration = taskExecutor.captureSessionGeneration();
         String loginApiBaseUrl = apiBaseUrl;
+        AtomicReference<NativeCredentialRollback> credentialRollback =
+            new AtomicReference<>(NativeCredentialRollback.NO_OP);
         runAsync(call, () -> {
             try {
                 Activity activity = getActivity();
@@ -291,12 +297,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 payload.put("user", response.getUser());
                 if (!taskExecutor.completeSessionCredentialReplacement(
                     loginGeneration,
-                    () -> replaceStoredCredential(
-                        tokenStorage,
-                        response.getToken(),
-                        androidPushRegistrationManager::prepareCredentialReplacement
+                    () -> credentialRollback.set(
+                        replaceStoredCredential(
+                            tokenStorage,
+                            response.getToken(),
+                            androidPushRegistrationManager::prepareCredentialReplacement
+                        )
                     ),
-                    tokenStorage::clearToken,
+                    () -> credentialRollback.get().rollback(),
                     () -> call.resolve(payload)
                 )) {
                     call.reject(
@@ -1868,7 +1876,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
-    static void replaceStoredCredential(
+    static NativeCredentialRollback replaceStoredCredential(
         TokenStorage tokenStorage,
         String nextToken,
         AndroidPushCredentialReplacement pushPreparation
@@ -1880,8 +1888,61 @@ public class SecPalNativeAuthPlugin extends Plugin {
             tokenStorage.clearToken();
             previousToken = null;
         }
-        pushPreparation.prepare(previousToken, nextToken);
-        tokenStorage.saveToken(nextToken);
+        NativeCredentialRollback pushRollback = Objects.requireNonNull(
+            pushPreparation.prepare(previousToken, nextToken),
+            "pushRollback"
+        );
+        NativeCredentialRollback rollback = oneShotCredentialRollback(
+            tokenStorage,
+            previousToken,
+            pushRollback
+        );
+        try {
+            tokenStorage.saveToken(nextToken);
+        } catch (TokenStorageException exception) {
+            try {
+                rollback.rollback();
+            } catch (TokenStorageException rollbackException) {
+                exception.addSuppressed(rollbackException);
+            }
+            throw exception;
+        }
+        return rollback;
+    }
+
+    private static NativeCredentialRollback oneShotCredentialRollback(
+        TokenStorage tokenStorage,
+        String previousToken,
+        NativeCredentialRollback pushRollback
+    ) {
+        AtomicBoolean pending = new AtomicBoolean(true);
+        return () -> {
+            if (!pending.compareAndSet(true, false)) {
+                return;
+            }
+            TokenStorageException failure = null;
+            try {
+                pushRollback.rollback();
+            } catch (TokenStorageException exception) {
+                failure = exception;
+            }
+            try {
+                if (previousToken == null) {
+                    tokenStorage.clearToken();
+                } else {
+                    tokenStorage.saveToken(previousToken);
+                }
+            } catch (TokenStorageException exception) {
+                if (failure == null) {
+                    failure = exception;
+                } else {
+                    failure.addSuppressed(exception);
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        };
     }
 
     static void logoutAndroidPush(

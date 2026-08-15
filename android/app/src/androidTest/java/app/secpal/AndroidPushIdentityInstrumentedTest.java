@@ -45,9 +45,17 @@ public class AndroidPushIdentityInstrumentedTest {
             AndroidPushIdentityStorage.STATE_IV_KEY,
             null
         );
+        boolean previousRotationMarkerPresent = preferences.contains(
+            AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY
+        );
+        boolean previousRotationMarker = preferences.getBoolean(
+            AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY,
+            false
+        );
         assertTrue(preferences.edit()
             .remove(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY)
             .remove(AndroidPushIdentityStorage.STATE_IV_KEY)
+            .remove(AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY)
             .commit());
 
         try {
@@ -99,6 +107,16 @@ public class AndroidPushIdentityInstrumentedTest {
                 restore.putString(
                     AndroidPushIdentityStorage.STATE_IV_KEY,
                     previousInitializationVector
+                );
+            }
+            if (previousRotationMarkerPresent) {
+                restore.putBoolean(
+                    AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY,
+                    previousRotationMarker
+                );
+            } else {
+                restore.remove(
+                    AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY
                 );
             }
             assertTrue(restore.commit());

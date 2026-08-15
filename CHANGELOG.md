@@ -61,7 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retrying server cleanup. Credential replacement now deletes the previous
   principal's installation with its original authority before registering a
   fresh identity, or rotates the FCM token when that authority is unavailable
-  or rejected.
+  or rejected. Cancelled credential replacement now restores both the previous
+  bearer and exact protected push state, including the token-rotation marker.
+  The generic WebView request broker can no longer authorize notification-
+  installation writes or deletions; those routes are restricted to the native
+  push client. Device instrumentation restores the complete protected-state
+  marker set, and the live login scenario performs best-effort logout after a
+  post-login assertion failure.
   Successful server deletion cannot be rolled back as
   a still-registered local fingerprint when protected cleanup persistence fails.
   Only the two documented notification-runtime conflict codes produce the

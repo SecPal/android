@@ -1434,13 +1434,14 @@ public class SecPalNativeAuthPluginTest {
             events
         );
 
-        SecPalNativeAuthPlugin.replaceStoredCredential(
+        NativeCredentialRollback rollback = SecPalNativeAuthPlugin.replaceStoredCredential(
             tokenStorage,
             "second-user-auth-token",
             (previousToken, nextToken) -> {
                 assertEquals("first-user-auth-token", previousToken);
                 assertEquals("second-user-auth-token", nextToken);
                 events.add("prepare-push-replacement");
+                return () -> events.add("rollback-push-replacement");
             }
         );
 
@@ -1453,6 +1454,20 @@ public class SecPalNativeAuthPluginTest {
             events
         );
         assertEquals("second-user-auth-token", tokenStorage.token);
+
+        rollback.rollback();
+
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save-token",
+                "rollback-push-replacement",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("first-user-auth-token", tokenStorage.token);
     }
 
     @Test
@@ -1486,6 +1501,7 @@ public class SecPalNativeAuthPluginTest {
             (previousToken, nextToken) -> {
                 assertNull(previousToken);
                 events.add("prepare:" + nextToken);
+                return () -> {};
             }
         );
 
@@ -1495,6 +1511,64 @@ public class SecPalNativeAuthPluginTest {
                 "clear",
                 "prepare:replacement-token",
                 "save:replacement-token"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void failedCredentialSaveRestoresPushStateAndPreviousBearer()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        String[] storedToken = { "first-user-auth-token" };
+        TokenStorage tokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) throws TokenStorageException {
+                events.add("save:" + token);
+                if ("second-user-auth-token".equals(token)) {
+                    throw new TokenStorageException(
+                        "failed to persist replacement token",
+                        new IllegalStateException("test failure")
+                    );
+                }
+                storedToken[0] = token;
+            }
+
+            @Override
+            public String getToken() {
+                events.add("read-token");
+                return storedToken[0];
+            }
+
+            @Override
+            public void clearToken() {
+                events.add("clear-token");
+                storedToken[0] = null;
+            }
+        };
+
+        try {
+            SecPalNativeAuthPlugin.replaceStoredCredential(
+                tokenStorage,
+                "second-user-auth-token",
+                (previousToken, nextToken) -> {
+                    events.add("prepare-push-replacement");
+                    return () -> events.add("rollback-push-replacement");
+                }
+            );
+            fail("Expected replacement bearer persistence to fail");
+        } catch (TokenStorageException expected) {
+            assertEquals("failed to persist replacement token", expected.getMessage());
+        }
+
+        assertEquals("first-user-auth-token", storedToken[0]);
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save:second-user-auth-token",
+                "rollback-push-replacement",
+                "save:first-user-auth-token"
             ),
             events
         );

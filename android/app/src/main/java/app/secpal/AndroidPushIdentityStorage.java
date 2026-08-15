@@ -211,6 +211,24 @@ final class AndroidPushIdentityStorage {
         }
     }
 
+    static final class Snapshot {
+        private final State state;
+        private final boolean tokenRotationRequired;
+
+        Snapshot(State state, boolean tokenRotationRequired) {
+            this.state = state;
+            this.tokenRotationRequired = tokenRotationRequired;
+        }
+
+        State state() {
+            return state;
+        }
+
+        Snapshot withState(State replacementState) {
+            return new Snapshot(replacementState, tokenRotationRequired);
+        }
+    }
+
     private final SharedPreferences preferences;
     private final TokenCipher cipher;
     private final InstallationIdFactory installationIdFactory;
@@ -803,6 +821,10 @@ final class AndroidPushIdentityStorage {
         return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
     }
 
+    synchronized Snapshot snapshot() throws TokenStorageException {
+        return new Snapshot(load(), requiresTokenRotation());
+    }
+
     synchronized void clear() {
         preferences.edit()
             .remove(STATE_CIPHERTEXT_KEY)
@@ -817,6 +839,37 @@ final class AndroidPushIdentityStorage {
             return;
         }
         save(state);
+    }
+
+    synchronized void restore(Snapshot snapshot) throws TokenStorageException {
+        if (snapshot == null) {
+            throw new TokenStorageException(
+                "Android push identity snapshot is unavailable",
+                new IllegalArgumentException("snapshot")
+            );
+        }
+        if (snapshot.state == null) {
+            SharedPreferences.Editor editor = preferences.edit()
+                .remove(STATE_CIPHERTEXT_KEY)
+                .remove(STATE_IV_KEY);
+            if (snapshot.tokenRotationRequired) {
+                editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
+            } else {
+                editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
+            }
+            if (!editor.commit()) {
+                throw new TokenStorageException(
+                    "Failed to restore Android push identity",
+                    new IllegalStateException("SharedPreferences commit failed")
+                );
+            }
+            return;
+        }
+        save(
+            snapshot.state,
+            !snapshot.tokenRotationRequired,
+            snapshot.tokenRotationRequired
+        );
     }
 
     private void save(State state) throws TokenStorageException {
