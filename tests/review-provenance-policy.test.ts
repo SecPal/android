@@ -57,4 +57,29 @@ describe("review provenance policy", () => {
       "Deduplicate provenance evidence by exact commit SHA and violated invariant before assigning priority. Repeated evidence must produce one finding."
     );
   });
+
+  it.each([
+    "AGENTS.md",
+    ".github/copilot-instructions.md",
+    ".github/instructions/org-shared.instructions.md",
+  ])(
+    "keeps the project-wide licensing contract canonical in %s",
+    (filename) => {
+      const instructions = readFileSync(resolve(repoRoot, filename), "utf8");
+      const normalizedInstructions = instructions.replace(/\s+/g, " ");
+
+      expect(normalizedInstructions).toContain(
+        "Use `AGPL-3.0-or-later` for SecPal-owned material intentionally covered by the AGPL."
+      );
+      expect(normalizedInstructions).toContain(
+        "Never add or restore `LicenseRef-SecPal-Attribution` after the licensing rollout."
+      );
+      expect(instructions).not.toContain(
+        "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+      );
+      expect(instructions).not.toContain(
+        "existing repository-declared licenses preserved elsewhere until explicitly migrated"
+      );
+    }
+  );
 });
