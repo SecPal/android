@@ -10,6 +10,23 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
+function expectCanonicalLicensingContract(instructions: string) {
+  const normalizedInstructions = instructions.replace(/\s+/g, " ");
+
+  expect(normalizedInstructions).toContain(
+    "Use `AGPL-3.0-or-later` for SecPal-owned material intentionally covered by the AGPL."
+  );
+  expect(normalizedInstructions).toContain(
+    "Never add or restore `LicenseRef-SecPal-Attribution` after the licensing rollout."
+  );
+  expect(normalizedInstructions).not.toContain(
+    "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+  );
+  expect(normalizedInstructions).not.toContain(
+    "existing repository-declared licenses preserved elsewhere until explicitly migrated"
+  );
+}
+
 function extractSection(markdown: string, heading: string) {
   const lines = markdown.split(/\r?\n/);
   const start = lines.indexOf(`## ${heading}`);
@@ -66,20 +83,17 @@ describe("review provenance policy", () => {
     "keeps the project-wide licensing contract canonical in %s",
     (filename) => {
       const instructions = readFileSync(resolve(repoRoot, filename), "utf8");
-      const normalizedInstructions = instructions.replace(/\s+/g, " ");
 
-      expect(normalizedInstructions).toContain(
-        "Use `AGPL-3.0-or-later` for SecPal-owned material intentionally covered by the AGPL."
-      );
-      expect(normalizedInstructions).toContain(
-        "Never add or restore `LicenseRef-SecPal-Attribution` after the licensing rollout."
-      );
-      expect(instructions).not.toContain(
-        "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
-      );
-      expect(instructions).not.toContain(
-        "existing repository-declared licenses preserved elsewhere until explicitly migrated"
-      );
+      expectCanonicalLicensingContract(instructions);
     }
   );
+
+  it("rejects obsolete licensing phrases with wrapped whitespace", () => {
+    const instructions = readFileSync(resolve(repoRoot, "AGENTS.md"), "utf8");
+    const wrappedObsoletePolicy = `${instructions}\nAGPL-3.0-or-later AND\nLicenseRef-SecPal-Attribution`;
+
+    expect(() =>
+      expectCanonicalLicensingContract(wrappedObsoletePolicy)
+    ).toThrow();
+  });
 });

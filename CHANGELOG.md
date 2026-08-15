@@ -310,6 +310,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Stabilized the Android JVM lifecycle regression test by waiting for a
+  cancelled session transition to release its gate before asserting that
+  foreground authentication work is accepted.
 - Migrated the authoritative AI instruction files to plain
   `AGPL-3.0-or-later` metadata, aligned their licensing, REUSE, copyright, and
   SecPal-branding safeguards, and made the project-wide prohibition against
