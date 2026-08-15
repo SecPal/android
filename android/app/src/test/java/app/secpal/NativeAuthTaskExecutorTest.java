@@ -872,21 +872,15 @@ public class NativeAuthTaskExecutorTest {
             releaseTransition.countDown();
             assertTrue(transitionFinished.await(2, TimeUnit.SECONDS));
             taskExecutor.resumeAuthenticated();
-            long transitionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            NativeAuthTaskExecutor.SubmitResult result;
-            do {
-                result = taskExecutor.submitAuthenticated(
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
                     "foreground-after-reset-cancel",
                     0,
                     () -> {},
                     reason -> {}
-                );
-                if (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS) {
-                    Thread.yield();
-                }
-            } while (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
-                && System.nanoTime() < transitionDeadline);
-            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
+                )
+            );
         } finally {
             releaseTransition.countDown();
             taskExecutor.shutdownNow();

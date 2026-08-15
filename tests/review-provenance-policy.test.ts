@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2026 SecPal Contributors
- * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { readFileSync } from "node:fs";
@@ -10,19 +10,22 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-function expectCanonicalLicensingContract(instructions: string) {
-  const normalizedInstructions = instructions.replace(/\s+/g, " ");
+function expectCanonicalLicensingContract(content: string) {
+  const normalizedContent = content.replace(/\s+/g, " ");
 
-  expect(normalizedInstructions).toContain(
+  expect(normalizedContent).toContain(
     "Use `AGPL-3.0-or-later` for SecPal-owned material intentionally covered by the AGPL."
   );
-  expect(normalizedInstructions).toContain(
+  expect(normalizedContent).toContain(
     "Never add or restore `LicenseRef-SecPal-Attribution` after the licensing rollout."
   );
-  expect(normalizedInstructions).not.toContain(
+  expect(normalizedContent).toContain(
+    "Preserve deliberately different licenses, including `CC0-1.0`, `MIT`, `Apache-2.0`, third-party and generated-file licenses, and unrelated custom license references. Do not rewrite third-party copyright or license metadata."
+  );
+  expect(normalizedContent).not.toContain(
     "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
   );
-  expect(normalizedInstructions).not.toContain(
+  expect(normalizedContent).not.toContain(
     "existing repository-declared licenses preserved elsewhere until explicitly migrated"
   );
 }
@@ -79,6 +82,7 @@ describe("review provenance policy", () => {
     "AGENTS.md",
     ".github/copilot-instructions.md",
     ".github/instructions/org-shared.instructions.md",
+    "CONTRIBUTING.md",
   ])(
     "keeps the project-wide licensing contract canonical in %s",
     (filename) => {

@@ -26,7 +26,9 @@ This file auto-applies to all files in this repo so strict SecPal governance sta
 - Apply the baseline licensing and REUSE rules. Use `AGPL-3.0-or-later` for
   SecPal-owned material intentionally covered by the AGPL. Never add or restore
   `LicenseRef-SecPal-Attribution` after the licensing rollout. Preserve
-  deliberately different licenses and third-party metadata, use
+  deliberately different licenses, including `CC0-1.0`, `MIT`, `Apache-2.0`,
+  third-party and generated-file licenses, and unrelated custom license
+  references. Do not rewrite third-party copyright or license metadata. Use
   `SecPal Contributors` where the project convention applies, retain and extend
   first-publication years when required, and run relevant license validation
   after metadata changes.

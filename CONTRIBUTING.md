@@ -1,6 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2025-2026 SecPal
-SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
 # Contributing to SecPal
@@ -378,41 +378,45 @@ gpg --armor --export <YOUR_KEY_ID>
 
 All files must include SPDX license headers. **SecPal uses different licenses depending on file type:**
 
+Use `AGPL-3.0-or-later` for SecPal-owned material intentionally covered by the AGPL. Never add or restore `LicenseRef-SecPal-Attribution` after the licensing rollout.
+
+Preserve deliberately different licenses, including `CC0-1.0`, `MIT`, `Apache-2.0`, third-party and generated-file licenses, and unrelated custom license references. Do not rewrite third-party copyright or license metadata.
+
 ### License Selection Guide
 
-| File Type            | License                                               | Use For                                                  |
-| -------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
-| **Application Code** | `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution` | PHP, TypeScript, JavaScript, React components            |
-| **Configuration**    | `CC0-1.0`                                             | YAML, JSON, TOML, `.gitignore`, `.editorconfig`          |
-| **Helper Scripts**   | `MIT`                                                 | Standalone shell/setup utilities and small build helpers |
-| **Documentation**    | `CC0-1.0`                                             | Markdown files (except LICENSE itself)                   |
+| File Type            | License             | Use For                                                  |
+| -------------------- | ------------------- | -------------------------------------------------------- |
+| **Application Code** | `AGPL-3.0-or-later` | PHP, TypeScript, JavaScript, React components            |
+| **Configuration**    | `CC0-1.0`           | YAML, JSON, TOML, `.gitignore`, `.editorconfig`          |
+| **Helper Scripts**   | `MIT`               | Standalone shell/setup utilities and small build helpers |
+| **Documentation**    | `CC0-1.0`           | Markdown files (except LICENSE itself)                   |
 
-Most repository helper scripts remain MIT. Scripts that ship, inject, or generate application runtime behavior remain application code and use `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`, even when they live under `scripts/`.
+Most repository helper scripts remain MIT. Scripts that ship, inject, or generate application runtime behavior remain application code and use `AGPL-3.0-or-later`, even when they live under `scripts/`.
 
 ### SPDX Header Examples
 
-**For application code (AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution):**
+**For application code (AGPL-3.0-or-later):**
 
 ```php
 <?php
-// SPDX-FileCopyrightText: 2025 SecPal Contributors
-// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
 ```javascript
-// SPDX-FileCopyrightText: 2025 SecPal Contributors
-// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
 ```typescript
-// SPDX-FileCopyrightText: 2025 SecPal Contributors
-// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
 **For configuration files (CC0-1.0):**
 
 ```yaml
-# SPDX-FileCopyrightText: 2025 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal
 # SPDX-License-Identifier: CC0-1.0
 ```
 
@@ -420,7 +424,7 @@ Most repository helper scripts remain MIT. Scripts that ship, inject, or generat
 
 ```json
 {
-  "_comment": "SPDX-FileCopyrightText: 2025 SecPal",
+  "_comment": "SPDX-FileCopyrightText: 2026 SecPal",
   "_license": "SPDX-License-Identifier: CC0-1.0"
 }
 ```
@@ -431,7 +435,7 @@ Most repository helper scripts remain MIT. Scripts that ship, inject, or generat
 
 ```bash
 #!/bin/bash
-# SPDX-FileCopyrightText: 2025 SecPal Contributors
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: MIT
 ```
 
@@ -439,7 +443,7 @@ Most repository helper scripts remain MIT. Scripts that ship, inject, or generat
 
 ```markdown
 <!--
-SPDX-FileCopyrightText: 2025 SecPal
+SPDX-FileCopyrightText: 2026 SecPal
 SPDX-License-Identifier: CC0-1.0
 -->
 ```
@@ -453,7 +457,7 @@ Run `reuse lint` before committing to verify compliance:
 reuse lint
 
 # Add headers to new files automatically
-reuse annotate --license "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution" --copyright "SecPal Contributors" path/to/file.php
+reuse annotate --license "AGPL-3.0-or-later" --copyright "SecPal Contributors" path/to/file.php
 ```
 
 ### Bulk Licensing with REUSE.toml
@@ -471,7 +475,7 @@ version = 1
 [[annotations]]
 path = "assets/images/**"
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2025 SecPal Contributors"
+SPDX-FileCopyrightText = "2026 SecPal Contributors"
 SPDX-License-Identifier = "CC0-1.0"
 
 # Example: Override licensing for vendor/third-party code
@@ -498,7 +502,7 @@ SPDX-License-Identifier = "SEE-LICENSE-IN-PACKAGE"
 - Use **"SecPal"** for organizational documentation (e.g., `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`), workflow files (e.g., `.github/workflows/*.yml`), and configuration files in the root directory (e.g., `.eslintrc.yml`, `.prettierrc`, `package.json`, `composer.json`, etc.).
 - If a configuration file is specific to a code module or contains logic contributed by individuals, use **"SecPal Contributors"**.
 - For ambiguous cases, prefer **"SecPal Contributors"** if the file is likely to be edited by multiple people over time.
-- Use the **current year** in the copyright date (e.g., 2025 for files created in 2025).
+- Use the **current year** in the copyright date (e.g., 2026 for files created in 2026).
 
 Run `reuse lint` to check compliance.
 
@@ -512,6 +516,6 @@ If you have questions or need help:
 
 ## License
 
-By contributing to SecPal, you agree that your contributions to SecPal-owned AGPL-covered material will be licensed under [AGPL-3.0-or-later](https://spdx.org/licenses/AGPL-3.0-or-later.html) with the additional section 7(b)/(c) terms in [LICENSES/LicenseRef-SecPal-Attribution.txt](LICENSES/LicenseRef-SecPal-Attribution.txt).
+By contributing to SecPal, you agree that your contributions to SecPal-owned AGPL-covered material will be licensed under [AGPL-3.0-or-later](https://spdx.org/licenses/AGPL-3.0-or-later.html). Contributions intentionally covered by another repository-declared license retain that license.
 
 Thank you for contributing to SecPal! 🎉
