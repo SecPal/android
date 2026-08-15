@@ -122,7 +122,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `awaiting_auth` state. If protected tombstone persistence fails during
   logout, native teardown now deletes the FCM token before clearing the only
   remaining bearer authority and preserves that authority when token deletion
-  also fails (issue #411, part of #402).
+  also fails. Failed persisted-runtime restoration now likewise commits both
+  server-revocation authority and pending FCM-token deletion metadata before
+  discarding the runtime bootstrap or bearer (issue #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

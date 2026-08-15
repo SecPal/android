@@ -1088,6 +1088,7 @@ public class SecPalNativeAuthPluginTest {
         tokenStorage.token = "tenant-a-token";
         ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
         List<JSObject> pushIdentityBindings = new ArrayList<>();
+        AtomicBoolean cleanupAuthorityRetained = new AtomicBoolean(false);
 
         JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
             preferences,
@@ -1097,6 +1098,12 @@ public class SecPalNativeAuthPluginTest {
             bootstrap -> {
                 pushIdentityBindings.add(bootstrap);
                 return false;
+            },
+            () -> {
+                pushIdentityBindings.add(null);
+                cleanupAuthorityRetained.set(
+                    "tenant-a-token".equals(tokenStorage.token)
+                );
             }
         );
 
@@ -1104,14 +1111,104 @@ public class SecPalNativeAuthPluginTest {
         assertNull(preferences.getString("runtime_bootstrap", null));
         assertNull(preferences.getString("api_base_url", null));
         assertNull(tokenStorage.token);
+        assertTrue(cleanupAuthorityRetained.get());
+        AndroidPushRuntimeMetadata pendingPushCleanup =
+            AndroidPushRuntimeMetadata.fromBootstrap(
+                new JSONObject(
+                    preferences.getString("pending_push_runtime_clear", null)
+                )
+            );
         assertEquals(
-            "Load-time Firebase failures should clear the persisted bootstrap asynchronously.",
-            1,
+            "secpal-demo-push",
+            pendingPushCleanup.projectId()
+        );
+        assertEquals(
+            "Load-time Firebase failures should commit cleanup metadata synchronously.",
+            0,
             preferences.applyCallCount
         );
         assertEquals(1, firebaseBackend.initializeCallCount);
         assertEquals(2, firebaseBackend.findRuntimeAppCallCount);
         assertEquals(Arrays.asList(stored, null), pushIdentityBindings);
+    }
+
+    @Test
+    public void failedRuntimeRecoveryPersistencePreservesCleanupAuthority()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+        preferences.failNextCommit = true;
+
+        try {
+            SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+                preferences,
+                tokenStorage,
+                new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
+                stored,
+                bootstrap -> false,
+                () -> {}
+            );
+            fail("Expected failed cleanup-state persistence to fail closed");
+        } catch (IllegalStateException expected) {
+            assertEquals(
+                "Failed to initialize Android push runtime from deployment metadata",
+                expected.getMessage()
+            );
+        }
+
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertEquals(
+            stored.toString(),
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals(
+            "https://tenant-a.example",
+            preferences.getString("api_base_url", null)
+        );
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void missingRuntimeBootstrapUsesExplicitCleanupRecovery() {
+        AtomicBoolean cleanupRecoveryCalled = new AtomicBoolean(false);
+
+        assertNull(SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            new InMemorySharedPreferences(),
+            new FakeTokenStorage(),
+            new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
+            null,
+            bootstrap -> {
+                fail("A missing bootstrap must not enter the binding path");
+                return false;
+            },
+            () -> cleanupRecoveryCalled.set(true)
+        ));
+
+        assertTrue(cleanupRecoveryCalled.get());
     }
 
     @Test
@@ -1198,11 +1295,11 @@ public class SecPalNativeAuthPluginTest {
             new AndroidPushRuntimeManager(firebaseBackend),
             stored,
             bootstrap -> {
-                events.add(
-                    bootstrap == null ? "binding-cleared" : "binding-restored"
-                );
+                assertNotNull(bootstrap);
+                events.add("binding-restored");
                 return false;
-            }
+            },
+            () -> fail("Cleanup recovery should not run after a successful restore")
         );
 
         assertEquals(Arrays.asList("binding-restored", "token-request"), events);

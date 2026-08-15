@@ -115,21 +115,16 @@ public class SecPalNativeAuthPlugin extends Plugin {
             createAndroidPushMessagingListener()
         );
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
-        final boolean pendingPushTokenCleanup;
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
-            pendingPushTokenCleanup = hasPendingPushRuntimeClear(
-                getNativeAuthPreferences()
-            );
-        } else {
-            pendingPushTokenCleanup = false;
         }
         persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
             getNativeAuthPreferences(),
             tokenStorage,
             androidPushRuntimeManager,
             persistedRuntimeBootstrap,
-            this::restoreAndroidPushIdentityBinding
+            this::restoreAndroidPushIdentityBinding,
+            this::retainAndroidPushCleanupAuthority
         );
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
@@ -137,7 +132,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         networkState = new NetworkState();
         passkeyAuthenticator = new NativePasskeyAuthenticator();
-        if (pendingRuntimeCleanupOnLoad || pendingPushTokenCleanup) {
+        if (pendingRuntimeCleanupOnLoad
+            || (persistedRuntimeBootstrap == null
+                && hasPendingPushRuntimeClear(getNativeAuthPreferences()))) {
             submitNativePushTaskWithoutRetryMarker(
                 taskExecutor,
                 this::finishPendingRuntimeCleanup
@@ -2355,33 +2352,56 @@ public class SecPalNativeAuthPlugin extends Plugin {
         TokenStorage tokenStorage,
         AndroidPushRuntimeManager androidPushRuntimeManager,
         JSObject persistedRuntimeBootstrap,
-        Function<JSObject, Boolean> pushIdentityBinder
+        Function<JSObject, Boolean> pushIdentityBinder,
+        Runnable pushIdentityCleanupRetainer
     ) {
         if (persistedRuntimeBootstrap == null) {
-            pushIdentityBinder.apply(null);
+            pushIdentityCleanupRetainer.run();
             androidPushRuntimeManager.apply(null);
             return null;
         }
 
+        AndroidPushRuntimeMetadata pushRuntime = null;
         try {
+            pushRuntime = AndroidPushRuntimeMetadata.fromBootstrap(
+                persistedRuntimeBootstrap.optJSONObject("androidPush")
+            );
             boolean tokenRotationRequired = pushIdentityBinder.apply(
                 persistedRuntimeBootstrap
             );
             androidPushRuntimeManager.apply(
-                AndroidPushRuntimeMetadata.fromBootstrap(
-                    persistedRuntimeBootstrap.optJSONObject("androidPush")
-                ),
+                pushRuntime,
                 tokenRotationRequired
             );
             return persistedRuntimeBootstrap;
         } catch (RuntimeException exception) {
-            preferences.edit()
-                .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-                .remove(API_BASE_URL_PREFERENCE_KEY)
-                .apply();
-            tokenStorage.clearToken();
-            pushIdentityBinder.apply(null);
-            androidPushRuntimeManager.apply(null);
+            try {
+                pushIdentityCleanupRetainer.run();
+                if (!clearRuntimeBootstrapState(
+                    preferences,
+                    tokenStorage,
+                    pushRuntime == null
+                        ? null
+                        : pushRuntime.toJsObject().toString(),
+                    pushRuntime != null
+                )) {
+                    exception.addSuppressed(new IllegalStateException(
+                        "Failed to persist Android push restoration cleanup"
+                    ));
+                    throw exception;
+                }
+            } catch (RuntimeException recoveryFailure) {
+                if (recoveryFailure != exception) {
+                    exception.addSuppressed(recoveryFailure);
+                }
+                throw exception;
+            }
+            try {
+                androidPushRuntimeManager.apply(null);
+            } catch (RuntimeException cleanupFailure) {
+                cleanupFailure.addSuppressed(exception);
+                throw cleanupFailure;
+            }
             return null;
         }
     }
@@ -2710,11 +2730,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     private boolean restoreAndroidPushIdentityBinding(JSObject bootstrap) {
         try {
-            if (bootstrap == null) {
-                pendingRuntimeCleanupOnLoad =
-                    androidPushRegistrationManager.restorePendingRuntimeClear();
-                return false;
-            }
             AndroidPushRegistrationManager.RebindResult rebind =
                 androidPushRegistrationManager.restoreRuntime(
                     bootstrap.getString("apiOrigin"),
@@ -2746,6 +2761,21 @@ public class SecPalNativeAuthPlugin extends Plugin {
         } catch (TokenStorageException exception) {
             throw new IllegalStateException(
                 "Failed to restore protected Android push binding",
+                exception
+            );
+        }
+    }
+
+    private void retainAndroidPushCleanupAuthority() {
+        try {
+            androidPushRegistrationManager.prepareRuntimeReset(
+                readStoredTokenForRuntimeMutation(tokenStorage)
+            );
+            pendingRuntimeCleanupOnLoad =
+                androidPushRegistrationManager.restorePendingRuntimeClear();
+        } catch (TokenStorageException exception) {
+            throw new IllegalStateException(
+                "Failed to retain Android push cleanup authority",
                 exception
             );
         }
