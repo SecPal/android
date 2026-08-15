@@ -34,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Moved Android FCM tokens, installation UUIDs, token timestamps, and
+  notification-registration binding metadata out of WebView JavaScript into a
+  dedicated Android Keystore-encrypted native store. Native code now owns
+  registration, foreground token revalidation, rotation, retry, logout
+  revocation, and runtime rebinding; startup binds protected identity before
+  Firebase can return a token, preventing an immediate callback from being
+  dropped. Release-like device instrumentation verifies the real Keystore and
+  packaged WebView boundary, while a credential-gated physical-device flow
+  covers runtime discovery, native confirmation, login, abstract push status,
+  and logout. Disabled runtimes now remain stably disabled across authentication
+  callbacks and failed rebind rollbacks, and pending runtime-confirmation
+  dialogs are released on Activity destruction. React can read only abstract
+  registration state or request an input-free retry. The packaged bridge invalidates the obsolete
+  browser-storage keys without reading or migrating their values and no longer
+  publishes token events, registration payloads, or a push-sync global (issue
+  #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

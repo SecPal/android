@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 import org.json.JSONObject;
@@ -255,6 +256,36 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(SecPalNativeAuthPlugin.isConfirmedRuntimeButton(
             DialogInterface.BUTTON_NEUTRAL
         ));
+    }
+
+    @Test
+    public void destroyDismissesAndReleasesPendingRuntimeConfirmationOnce() {
+        AtomicBoolean confirmationPending = new AtomicBoolean(true);
+        AtomicInteger dismissals = new AtomicInteger();
+        AtomicReference<DialogInterface> dialog = new AtomicReference<>(
+            new DialogInterface() {
+                @Override
+                public void cancel() {}
+
+                @Override
+                public void dismiss() {
+                    dismissals.incrementAndGet();
+                }
+            }
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.dismissRuntimeConfirmationOnDestroy(
+            dialog,
+            confirmationPending
+        ));
+        assertEquals(1, dismissals.get());
+        assertNull(dialog.get());
+        assertFalse(confirmationPending.get());
+        assertFalse(SecPalNativeAuthPlugin.dismissRuntimeConfirmationOnDestroy(
+            dialog,
+            confirmationPending
+        ));
+        assertEquals(1, dismissals.get());
     }
 
     @Test
@@ -1012,7 +1043,8 @@ public class SecPalNativeAuthPluginTest {
             preferences,
             tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
-            stored
+            stored,
+            bootstrap -> {}
         );
 
         assertNull(result);
@@ -1029,17 +1061,100 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void messagingListenerForwardsTokenEventBeforeDestroyed() {
+    public void persistedPushIdentityIsBoundBeforeFirebaseCanReturnAToken()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        List<String> events = new ArrayList<>();
+        AndroidPushRuntimeManager.FirebaseBackend firebaseBackend =
+            new AndroidPushRuntimeManager.FirebaseBackend() {
+                @Override
+                public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+                    return null;
+                }
+
+                @Override
+                public AndroidPushRuntimeManager.FirebaseAppHandle initialize(
+                    AndroidPushRuntimeMetadata metadata
+                ) {
+                    return new AndroidPushRuntimeManager.FirebaseAppHandle() {
+                        @Override
+                        public String getName() {
+                            return AndroidPushRegistrationManager.RUNTIME_APP_NAME;
+                        }
+
+                        @Override
+                        public void delete() {}
+                    };
+                }
+
+                @Override
+                public void cancelPendingTokenRequest() {}
+
+                @Override
+                public void ensureMessaging(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-request");
+                }
+            };
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("bootstrapVersion", "v1")
+                .put("schemaVersion", 4)
+                .put("metadataRevision", 1)
+                .put("instanceDisplayName", "Tenant A")
+                .put("apiOrigin", "https://tenant-a.example")
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put(
+                                    "applicationId",
+                                    "1:1234567890:android:abcdef1234567890"
+                                )
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+
+        SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            preferences,
+            tokenStorage,
+            new AndroidPushRuntimeManager(firebaseBackend),
+            stored,
+            bootstrap -> events.add(
+                bootstrap == null ? "binding-cleared" : "binding-restored"
+            )
+        );
+
+        assertEquals(Arrays.asList("binding-restored", "token-request"), events);
+    }
+
+    @Test
+    public void messagingListenerRoutesRawTokenOnlyToNativeHandler() {
         final boolean[] notified = { false };
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> false,
-                (event, payload) -> {
-                    assertEquals("androidPushTokenReceived", event);
-                    assertEquals("secpal-runtime-push", payload.getString("appName"));
-                    assertEquals("fcm", payload.getString("provider"));
-                    assertEquals("fcm-token-demo", payload.getString("token"));
-                    notified[0] = true;
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        assertEquals("secpal-runtime-push", appName);
+                        assertEquals("fcm-token-demo", token);
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        fail("Token error should not be called");
+                    }
                 }
             );
 
@@ -1054,7 +1169,17 @@ public class SecPalNativeAuthPluginTest {
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> true,
-                (event, payload) -> notified[0] = true
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        notified[0] = true;
+                    }
+                }
             );
 
         listener.onTokenReceived("secpal-runtime-push", "fcm-token-demo");
@@ -1071,7 +1196,17 @@ public class SecPalNativeAuthPluginTest {
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> true,
-                (event, payload) -> notified[0] = true
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        notified[0] = true;
+                    }
+                }
             );
 
         listener.onTokenError("secpal-runtime-push", new RuntimeException("token-failure"));
@@ -1378,82 +1513,6 @@ public class SecPalNativeAuthPluginTest {
         assertTrue(pushCleanupCalled.get());
         assertNull(preferences.getString("runtime_bootstrap", null));
         assertNull(preferences.getString("api_base_url", null));
-    }
-
-    @Test
-    public void completedNativeRuntimeClearRevokesPushRegistrationWithCapturedCredential() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                assertEquals("123e4567-e89b-42d3-a456-426614174000", installationId);
-                revocationCalled.set(true);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearIgnoresBestEffortPushRevocationFailure() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "rejected-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                revocationCalled.set(true);
-                throw new NativeAuthHttpException("Unauthenticated", 401);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearRevokesPushBeforeServerAuthentication() {
-        List<String> events = new ArrayList<>();
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("push");
-            },
-            (apiOrigin, token) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("logout");
-            }
-        );
-
-        assertEquals(Arrays.asList("push", "logout"), events);
-    }
-
-    @Test
-    public void completedNativeRuntimeClearStillRevokesAuthenticationWhenPushRevocationFails() {
-        AtomicBoolean logoutCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                throw new IOException("offline");
-            },
-            (apiOrigin, token) -> logoutCalled.set(true)
-        );
-
-        assertTrue(logoutCalled.get());
     }
 
     @Test

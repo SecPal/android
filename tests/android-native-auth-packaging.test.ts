@@ -51,6 +51,19 @@ function createFrontendBuildMetadata(
 }
 
 describe("Android native-auth packaging", () => {
+  it("keeps Android push identity out of the packaged JavaScript bridge", () => {
+    const bridge = buildNativeAuthBridgeBootstrapScript(apiBaseUrl);
+
+    expect(bridge).not.toContain("__SecPalAndroidPushSyncState");
+    expect(bridge).not.toContain("androidPushTokenReceived");
+    expect(bridge).not.toContain("androidPushTokenError");
+    expect(bridge).not.toContain("currentTokenSavedAt");
+    expect(bridge).not.toContain("installationIds");
+    expect(bridge).not.toContain(
+      "registration: {\n                push_token:"
+    );
+  });
+
   it("keeps the standalone fallback inventory aligned with every committed web asset", () => {
     const publicRoot = resolve(repoRoot, "android/app/src/main/assets/public");
     const fallback = JSON.parse(

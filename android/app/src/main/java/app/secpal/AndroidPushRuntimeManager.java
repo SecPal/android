@@ -104,6 +104,14 @@ final class AndroidPushRuntimeManager {
         }
     }
 
+    void refreshToken() {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp != null) {
+            firebaseBackend.ensureMessaging(runtimeApp);
+        }
+    }
+
     static final class DefaultFirebaseBackend implements FirebaseBackend {
         private final Context applicationContext;
         private final FirebaseMessagingClient messagingClient;

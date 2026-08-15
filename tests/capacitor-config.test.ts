@@ -19,6 +19,8 @@ const pluginMocks = vi.hoisted(
       logout: vi.fn(),
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn(),
+      getAndroidPushRegistrationState: vi.fn(),
+      retryAndroidPushRegistration: vi.fn(),
       request: vi.fn(),
       cancelRequest: vi.fn(),
       isVaultDeviceBoundWrapperAvailable: undefined,
@@ -32,6 +34,8 @@ const pluginMocks = vi.hoisted(
       logout: Mock;
       getCurrentUser: Mock;
       isNetworkAvailable: Mock;
+      getAndroidPushRegistrationState: Mock;
+      retryAndroidPushRegistration: Mock;
       request: Mock;
       cancelRequest: Mock;
       isVaultDeviceBoundWrapperAvailable: Mock | undefined;
@@ -238,14 +242,35 @@ describe("capacitor Android wrapper configuration", () => {
     expect(pluginMocks.request).toHaveBeenCalledTimes(requestsBefore);
   });
 
-  it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
+  it("returns only abstract native Android push state and exposes native retry", async () => {
+    pluginMocks.getAndroidPushRegistrationState.mockResolvedValue({
+      state: "retry_pending",
+      configured: true,
+      retryable: true,
+      failureCode: "NETWORK_UNAVAILABLE",
+    });
+    pluginMocks.retryAndroidPushRegistration.mockResolvedValue({
+      state: "registered",
+      configured: true,
+      retryable: false,
+    });
     const { createNativeAuthBridge } =
       await import("../src/secpal/native-auth-bridge");
     const bridge = createNativeAuthBridge();
 
     await expect(bridge.getAndroidPushRegistrationState()).resolves.toEqual({
-      disabledError: null,
+      state: "retry_pending",
+      configured: true,
+      retryable: true,
+      failureCode: "NETWORK_UNAVAILABLE",
     });
+    await expect(bridge.retryAndroidPushRegistration()).resolves.toEqual({
+      state: "registered",
+      configured: true,
+      retryable: false,
+    });
+    expect(pluginMocks.getAndroidPushRegistrationState).toHaveBeenCalledWith();
+    expect(pluginMocks.retryAndroidPushRegistration).toHaveBeenCalledWith();
   });
 
   it.each([

@@ -193,7 +193,7 @@ async function loadSmokeModule(): Promise<{
   assertCdpCommandSucceeded: (response: unknown, method: string) => void;
   assertFreshPreLoginSmokeState: (state: {
     nativeAuthActive?: boolean | null;
-    lastSyncedToken?: string | null;
+    registrationState?: { state?: string } | null;
   }) => void;
   readRequiredEnv: (name: string) => string;
   waitForWebSocketOpen: (
@@ -587,23 +587,23 @@ describe("WebView live auth smoke helpers", () => {
     expect(() =>
       assertFreshPreLoginSmokeState({
         nativeAuthActive: true,
-        lastSyncedToken: null,
+        registrationState: { state: "awaiting_auth" },
       })
     ).toThrow(
       "The WebView is already authenticated before the smoke login step."
     );
   });
 
-  it("rejects a smoke run that starts with an already synced push token", async () => {
+  it("rejects a smoke run that starts with an existing native push registration", async () => {
     const { assertFreshPreLoginSmokeState } = await loadSmokeModule();
 
     expect(() =>
       assertFreshPreLoginSmokeState({
         nativeAuthActive: false,
-        lastSyncedToken: "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz",
+        registrationState: { state: "registered" },
       })
     ).toThrow(
-      "Android push sync already completed before the smoke login step."
+      "Android push registration already completed before the smoke login step."
     );
   });
 });

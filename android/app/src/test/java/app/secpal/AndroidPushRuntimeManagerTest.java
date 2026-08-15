@@ -109,6 +109,32 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void refreshTokenRequestsTheCurrentRuntimeWithoutReinitializingIt() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.refreshToken();
+
+        assertEquals(0, backend.initializeCallCount);
+        assertEquals(0, backend.deleteCallCount);
+        assertEquals(1, backend.ensureMessagingCallCount);
+        assertSame(backend.existingApp, backend.lastEnsuredMessagingApp);
+    }
+
+    @Test
+    public void refreshTokenIsANoOpWithoutABoundRuntime() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.refreshToken();
+
+        assertEquals(0, backend.initializeCallCount);
+        assertEquals(0, backend.ensureMessagingCallCount);
+        assertEquals(0, backend.deleteCallCount);
+    }
+
+    @Test
     public void defaultFirebaseBackendRequestsTokenForNamedRuntimeApp() {
         FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
         FakeMessagingListener messagingListener = new FakeMessagingListener();

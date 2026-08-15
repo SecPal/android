@@ -109,20 +109,20 @@ Confirmed deployments are restored only from the structured native runtime-boots
 When a validated bootstrap enables Android push, the generic Android app uses that deployment metadata as the only source of truth for native push runtime behavior.
 
 - The app initializes the named native Firebase runtime `secpal-runtime-push` from the customer-owned metadata and does not rely on a bundled `google-services.json` file or a SecPal-owned default sender.
-- Native FCM token retrieval happens on-device, but the authenticated backend binding is created only after native login succeeds against the selected customer API origin.
-- The login flow registers `PUT /v1/me/push-devices/{installationId}` on the canonical API origin returned by bootstrap.
-- Later token refreshes update that same installation binding with `lifecycle_event=token_rotated` instead of creating a second device registration.
-- Logout revokes `DELETE /v1/me/push-devices/{installationId}` before local cleanup. A confirmed destructive instance reset captures the credential, completes native cleanup atomically, and then attempts both the push revocation and `POST /v1/auth/logout` against the exact confirmed origin before frontend teardown. Startup completes browser teardown if the process stops after native cleanup.
-- If authenticated registration returns `409 NOTIFICATION_RUNTIME_STATE_INVALID` or `409 NOTIFICATION_CHANNEL_UNSUPPORTED`, the app clears the selected runtime, logout state, and tenant-scoped browser storage before discovery resumes so stale notification metadata cannot leak across deployment switches.
-- Token or error events from any Firebase app instance other than `secpal-runtime-push` are ignored so a customer-owned runtime cannot silently fall back to a stale or foreign push configuration.
+- Native FCM retrieval, installation-ID generation, token timestamps, and server-registration metadata stay in Android Keystore-encrypted storage; WebView JavaScript receives only abstract status.
+- Native login registers `PUT /v1/me/notification-installations/{installationId}` on the canonical API origin returned by bootstrap.
+- Every foreground resume re-queries the named Firebase runtime for its current token. Later token refreshes update that same installation binding with `lifecycle_event=credential_rotated`; cached duplicate tokens are idempotent and do not repeat server registration.
+- Logout revokes `DELETE /v1/me/notification-installations/{installationId}` before local credential cleanup. A confirmed destructive instance reset attempts both push revocation and `POST /v1/auth/logout` against the exact confirmed origin before frontend teardown.
+- Runtime-origin or metadata-revision changes invalidate protected pending and persisted registration work before rebinding. A `409` response produces an abstract `reconfiguration_required` state for the intentional reset flow.
+- Token or error callbacks from any Firebase app instance other than `secpal-runtime-push` are ignored, and raw callback values are never emitted to WebView listeners, logs, analytics, or error payloads.
 
 For operator rollout validation on a real Android device, verify at least:
 
 - the bootstrap payload includes the expected `features.notification_channels.android_fcm` flag and canonical `notification_channels.android_fcm` metadata for the customer deployment
-- login triggers `PUT /v1/me/push-devices/{installationId}` on the customer API host
+- login triggers `PUT /v1/me/notification-installations/{installationId}` on the customer API host
 - a token refresh updates the same installation binding instead of creating a second registration
-- logout triggers `DELETE /v1/me/push-devices/{installationId}` before local cleanup; `Log out and switch instance` attempts it plus `POST /v1/auth/logout` against the confirmed customer origin after successful native cleanup and before frontend teardown
-- a stale or disabled Android notification channel causes the app to clear the selected runtime and require bootstrap confirmation again before another login attempt
+- logout triggers `DELETE /v1/me/notification-installations/{installationId}` before local cleanup; `Log out and switch instance` attempts it plus `POST /v1/auth/logout` against the confirmed customer origin before frontend teardown
+- a stale or disabled Android notification channel produces `reconfiguration_required` without exposing the server payload and requires an intentional runtime reset before another binding
 - no registration, rotation, or revocation request goes to a SecPal-owned API host or any other legacy push fallback path
 
 ## Rollout Notes For Replacing The Baked-In Origin Assumption

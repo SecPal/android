@@ -57,15 +57,18 @@ export interface AuthCredentials {
   password: string;
 }
 
-export interface AndroidPushRegistrationDisabledError {
-  apiOrigin: string | null;
-  code: string;
-  message: string;
-  retryable: false;
-}
-
 export interface AndroidPushRegistrationState {
-  disabledError: AndroidPushRegistrationDisabledError | null;
+  state:
+    | "disabled"
+    | "unconfigured"
+    | "awaiting_token"
+    | "awaiting_auth"
+    | "registered"
+    | "retry_pending"
+    | "reconfiguration_required";
+  configured: boolean;
+  retryable: boolean;
+  failureCode?: string;
 }
 
 export interface NativeAuthBridge {
@@ -79,6 +82,7 @@ export interface NativeAuthBridge {
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<boolean>;
   getAndroidPushRegistrationState(): Promise<AndroidPushRegistrationState>;
+  retryAndroidPushRegistration(): Promise<AndroidPushRegistrationState>;
   request(
     request: NativeAuthenticatedRequest
   ): Promise<NativeAuthenticatedResponse>;
@@ -109,6 +113,8 @@ interface SecPalNativeAuthPlugin {
   logout(): Promise<void>;
   getCurrentUser(): Promise<unknown>;
   isNetworkAvailable(): Promise<{ available?: boolean }>;
+  getAndroidPushRegistrationState(): Promise<AndroidPushRegistrationState>;
+  retryAndroidPushRegistration(): Promise<AndroidPushRegistrationState>;
   request(options: {
     requestId: string;
     method: string;
@@ -149,12 +155,6 @@ function createRequestTooLargeError(): Error & { code: string } {
   );
 }
 
-function createEmptyAndroidPushRegistrationState(): AndroidPushRegistrationState {
-  return {
-    disabledError: null,
-  };
-}
-
 export function createNativeAuthBridge(): NativeAuthBridge {
   const bridge: NativeAuthBridge = {
     login(credentials) {
@@ -175,8 +175,11 @@ export function createNativeAuthBridge(): NativeAuthBridge {
 
       return result.available === true;
     },
-    async getAndroidPushRegistrationState() {
-      return createEmptyAndroidPushRegistrationState();
+    getAndroidPushRegistrationState() {
+      return secPalNativeAuthPlugin.getAndroidPushRegistrationState();
+    },
+    retryAndroidPushRegistration() {
+      return secPalNativeAuthPlugin.retryAndroidPushRegistration();
     },
     getPasskeyCapabilities() {
       return secPalNativeAuthPlugin.getPasskeyCapabilities();
