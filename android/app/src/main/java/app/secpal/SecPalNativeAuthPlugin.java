@@ -115,12 +115,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
             createAndroidPushMessagingListener()
         );
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
-        boolean pendingPushTokenCleanup = false;
+        final boolean pendingPushTokenCleanup;
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
             pendingPushTokenCleanup = hasPendingPushRuntimeClear(
                 getNativeAuthPreferences()
             );
+        } else {
+            pendingPushTokenCleanup = false;
         }
         persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
             getNativeAuthPreferences(),
@@ -2001,12 +2003,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String authToken,
         NativeAuthHttpClient.CancellationSignal cancellation,
         AndroidPushLogout pushLogout,
-        BooleanSupplier tokenRotationRequired,
-        Runnable tokenRotation
+        BooleanSupplier tokenInvalidationRequired,
+        Runnable tokenInvalidation
     ) throws TokenStorageException {
-        pushLogout.logout(authToken, cancellation);
-        if (tokenRotationRequired.getAsBoolean()) {
-            tokenRotation.run();
+        try {
+            pushLogout.logout(authToken, cancellation);
+        } catch (TokenStorageException | RuntimeException exception) {
+            try {
+                tokenInvalidation.run();
+            } catch (RuntimeException tokenDeletionFailure) {
+                exception.addSuppressed(tokenDeletionFailure);
+                throw exception;
+            }
+            return;
+        }
+        if (tokenInvalidationRequired.getAsBoolean()) {
+            tokenInvalidation.run();
         }
     }
 
@@ -2017,11 +2029,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         TokenStorage tokenStorage,
         AtomicBoolean localCredentialCleared
     ) throws TokenStorageException {
-        try {
-            pushLogout.logout(token, cancellation);
-        } catch (TokenStorageException | RuntimeException ignored) {
-            // The encrypted push tombstone, when available, owns remote retry authority.
-        }
+        pushLogout.logout(token, cancellation);
         tokenStorage.clearToken();
         localCredentialCleared.set(true);
     }

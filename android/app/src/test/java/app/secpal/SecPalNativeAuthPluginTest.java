@@ -1413,7 +1413,7 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void logoutClearsCredentialAfterPushCleanupEvenWhenPushStateIsCorrupt()
+    public void logoutDeletesTokenAndClearsCredentialWhenPushStateIsCorrupt()
         throws Exception {
         List<String> events = new ArrayList<>();
         RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
@@ -1424,13 +1424,19 @@ public class SecPalNativeAuthPluginTest {
 
         assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
             "auth-token",
-            (token, cancellation) -> {
-                events.add("push-logout");
-                throw new TokenStorageException(
-                    "corrupt push state",
-                    new IllegalStateException("corrupt")
-                );
-            },
+            (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                token,
+                cancellation,
+                (ignoredToken, ignoredCancellation) -> {
+                    events.add("push-logout");
+                    throw new TokenStorageException(
+                        "corrupt push state",
+                        new IllegalStateException("corrupt")
+                    );
+                },
+                () -> false,
+                () -> events.add("delete-token")
+            ),
             new NativeAuthHttpClient.CancellationSignal(),
             tokenStorage,
             localCredentialCleared,
@@ -1441,7 +1447,7 @@ public class SecPalNativeAuthPluginTest {
         ));
 
         assertEquals(
-            Arrays.asList("push-logout", "clear-token"),
+            Arrays.asList("push-logout", "delete-token", "clear-token"),
             events
         );
         assertTrue(localCredentialCleared.get());
@@ -1471,6 +1477,96 @@ public class SecPalNativeAuthPluginTest {
             Arrays.asList("push-logout", "delete-token"),
             events
         );
+    }
+
+    @Test
+    public void failedPushCleanupDeletesTokenBeforeCredentialClear()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+            "auth-token",
+            (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                token,
+                cancellation,
+                (ignoredToken, ignoredCancellation) -> {
+                    events.add("push-logout");
+                    throw new TokenStorageException(
+                        "failed to persist push cleanup",
+                        new IllegalStateException("storage unavailable")
+                    );
+                },
+                () -> false,
+                () -> events.add("delete-token")
+            ),
+            new NativeAuthHttpClient.CancellationSignal(),
+            tokenStorage,
+            localCredentialCleared,
+            mutation -> {
+                mutation.run();
+                return true;
+            }
+        ));
+
+        assertEquals(
+            Arrays.asList("push-logout", "delete-token", "clear-token"),
+            events
+        );
+        assertTrue(localCredentialCleared.get());
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void failedPushCleanupAndTokenDeletionPreserveCredential()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        try {
+            SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+                "auth-token",
+                (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                    token,
+                    cancellation,
+                    (ignoredToken, ignoredCancellation) -> {
+                        events.add("push-logout");
+                        throw new TokenStorageException(
+                            "failed to persist push cleanup",
+                            new IllegalStateException("storage unavailable")
+                        );
+                    },
+                    () -> false,
+                    () -> {
+                        events.add("delete-token");
+                        throw new IllegalStateException("FCM unavailable");
+                    }
+                ),
+                new NativeAuthHttpClient.CancellationSignal(),
+                tokenStorage,
+                localCredentialCleared,
+                mutation -> {
+                    mutation.run();
+                    return true;
+                }
+            );
+            fail("Expected push cleanup to remain required");
+        } catch (TokenStorageException expected) {
+            assertEquals("failed to persist push cleanup", expected.getMessage());
+            assertEquals(1, expected.getSuppressed().length);
+        }
+
+        assertEquals(Arrays.asList("push-logout", "delete-token"), events);
+        assertFalse(localCredentialCleared.get());
+        assertEquals("auth-token", tokenStorage.token);
     }
 
     @Test
