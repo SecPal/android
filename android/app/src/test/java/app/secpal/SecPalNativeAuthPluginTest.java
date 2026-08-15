@@ -1038,13 +1038,14 @@ public class SecPalNativeAuthPluginTest {
             .commit();
         tokenStorage.token = "tenant-a-token";
         ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
+        List<JSObject> pushIdentityBindings = new ArrayList<>();
 
         JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
             preferences,
             tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
             stored,
-            bootstrap -> {}
+            pushIdentityBindings::add
         );
 
         assertNull(result);
@@ -1058,6 +1059,7 @@ public class SecPalNativeAuthPluginTest {
         );
         assertEquals(1, firebaseBackend.initializeCallCount);
         assertEquals(2, firebaseBackend.findRuntimeAppCallCount);
+        assertEquals(Arrays.asList(stored, null), pushIdentityBindings);
     }
 
     @Test

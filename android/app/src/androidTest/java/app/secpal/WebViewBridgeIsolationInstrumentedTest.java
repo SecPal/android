@@ -93,7 +93,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
             "return 'reloading';" +
             "})()";
         scenario.onActivity(activity ->
-            activity.getBridge().getWebView().evaluateJavascript(seedAndReload, ignored -> {})
+            activity.getBridge().getWebView().evaluateJavascript(seedAndReload, null)
         );
 
         String startStatusRead =
