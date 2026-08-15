@@ -23,9 +23,13 @@ final class AndroidPushRegistrationManager {
     private static final String INSTALLATION_NAME = "SecPal Android";
     private static final String BOOTSTRAP_VERSION = "v1";
     private static final int SCHEMA_VERSION = 4;
+    private static final String RUNTIME_STATE_INVALID =
+        "NOTIFICATION_RUNTIME_STATE_INVALID";
+    private static final String CHANNEL_UNSUPPORTED =
+        "NOTIFICATION_CHANNEL_UNSUPPORTED";
 
     interface Backend {
-        int register(
+        RegistrationResponse register(
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
@@ -39,6 +43,37 @@ final class AndroidPushRegistrationManager {
         ) throws IOException, NativeAuthHttpException;
     }
 
+    static final class RegistrationResponse {
+        private final int status;
+        private final String errorCode;
+
+        RegistrationResponse(int status, String errorCode) {
+            this.status = status;
+            this.errorCode = normalizeErrorCode(errorCode);
+        }
+
+        int status() {
+            return status;
+        }
+
+        String errorCode() {
+            return errorCode;
+        }
+
+        boolean requiresReconfiguration() {
+            return RUNTIME_STATE_INVALID.equals(errorCode)
+                || CHANNEL_UNSUPPORTED.equals(errorCode);
+        }
+
+        private static String normalizeErrorCode(String value) {
+            if (value == null) {
+                return null;
+            }
+            String normalized = value.trim();
+            return normalized.isEmpty() ? null : normalized;
+        }
+    }
+
     static final class RebindResult {
         private final AndroidPushIdentityStorage.State previousState;
         private final String previousBoundApiOrigin;
@@ -46,6 +81,7 @@ final class AndroidPushRegistrationManager {
         private final String previousStatus;
         private final String previousFailureCode;
         private final boolean changed;
+        private boolean previousServerRegistrationRevoked;
 
         RebindResult(
             AndroidPushIdentityStorage.State previousState,
@@ -65,6 +101,10 @@ final class AndroidPushRegistrationManager {
 
         boolean hasPreviousBindingToRevoke() {
             return changed && previousState != null;
+        }
+
+        void markPreviousServerRegistrationRevoked() {
+            previousServerRegistrationRevoked = true;
         }
     }
 
@@ -211,10 +251,20 @@ final class AndroidPushRegistrationManager {
         if (rebind == null || !rebind.changed) {
             return;
         }
-        storage.restore(rebind.previousState);
+        AndroidPushIdentityStorage.State restoredState = rebind.previousState;
+        if (rebind.previousServerRegistrationRevoked && restoredState != null) {
+            restoredState = restoredState.withoutServerRegistration();
+        }
+        storage.restore(restoredState);
         boundApiOrigin = rebind.previousBoundApiOrigin;
         boundMetadataRevision = rebind.previousBoundMetadataRevision;
-        setStatus(rebind.previousStatus, rebind.previousFailureCode);
+        if (rebind.previousServerRegistrationRevoked
+            && restoredState != null
+            && !restoredState.isReconfigurationRequired()) {
+            setStatus("retry_pending", "REGISTRATION_RETRY_REQUIRED");
+        } else {
+            setStatus(rebind.previousStatus, rebind.previousFailureCode);
+        }
     }
 
     synchronized void revokePrevious(RebindResult rebind, String authToken) {
@@ -239,6 +289,7 @@ final class AndroidPushRegistrationManager {
                     "Previous Android push registration revocation was rejected"
                 );
             }
+            rebind.markPreviousServerRegistrationRevoked();
             AndroidPushIdentityStorage.State current = storage.clearPendingRevocation(
                 rebind.previousState.apiOrigin(),
                 rebind.previousState.installationId()
@@ -280,7 +331,8 @@ final class AndroidPushRegistrationManager {
     synchronized void onTokenError(String appName) {
         if (!RUNTIME_APP_NAME.equals(appName)
             || boundApiOrigin == null
-            || "awaiting_auth".equals(status)) {
+            || "awaiting_auth".equals(status)
+            || "reconfiguration_required".equals(status)) {
             return;
         }
         setStatus("retry_pending", "TOKEN_UNAVAILABLE");
@@ -314,11 +366,17 @@ final class AndroidPushRegistrationManager {
                 // Local logout remains authoritative; retry requires a new authenticated session.
             }
         }
-        storage.clearServerRegistration();
-        setStatus(
-            disabled ? "disabled" : (state == null ? "unconfigured" : "awaiting_auth"),
-            null
-        );
+        state = storage.clearServerRegistration();
+        if (state != null && state.isReconfigurationRequired()) {
+            setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
+        } else {
+            setStatus(
+                disabled
+                    ? "disabled"
+                    : (state == null ? "unconfigured" : "awaiting_auth"),
+                null
+            );
+        }
     }
 
     synchronized void clearRuntime(String authToken) {
@@ -363,9 +421,37 @@ final class AndroidPushRegistrationManager {
     }
 
     synchronized void onProtectedStateError() {
-        if (boundApiOrigin != null && !"disabled".equals(status)) {
+        if (boundApiOrigin != null
+            && !"disabled".equals(status)
+            && !"reconfiguration_required".equals(status)) {
+            try {
+                storage.bindRuntime(boundApiOrigin, boundMetadataRevision);
+            } catch (TokenStorageException ignored) {
+                // The abstract retry state remains authoritative until storage recovers.
+            }
             setStatus("retry_pending", "PUSH_STORAGE_ERROR");
         }
+    }
+
+    synchronized void onRegistrationSchedulingError() {
+        if (boundApiOrigin != null
+            && !"disabled".equals(status)
+            && !"reconfiguration_required".equals(status)) {
+            setStatus("retry_pending", "REGISTRATION_RETRY_REQUIRED");
+        }
+    }
+
+    synchronized boolean prepareRetry() throws TokenStorageException {
+        if ("reconfiguration_required".equals(status)
+            || "disabled".equals(status)
+            || boundApiOrigin == null
+            || boundMetadataRevision <= 0) {
+            return false;
+        }
+        if (storage.load() == null) {
+            storage.bindRuntime(boundApiOrigin, boundMetadataRevision);
+        }
+        return true;
     }
 
     private void sync(
@@ -374,6 +460,10 @@ final class AndroidPushRegistrationManager {
     ) throws TokenStorageException {
         if ("disabled".equals(status)) {
             setStatus("disabled", null);
+            return;
+        }
+        if (state != null && state.isReconfigurationRequired()) {
+            setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
             return;
         }
         if (state == null || state.token() == null) {
@@ -416,12 +506,13 @@ final class AndroidPushRegistrationManager {
             ? "credential_rotated"
             : "registered";
         try {
-            int responseStatus = backend.register(
+            RegistrationResponse response = backend.register(
                 state.apiOrigin(),
                 authToken,
                 state,
                 lifecycleEvent
             );
+            int responseStatus = response.status();
             if (responseStatus == 200 || responseStatus == 201) {
                 storage.markRegistered(
                     state,
@@ -432,7 +523,8 @@ final class AndroidPushRegistrationManager {
                 setStatus("registered", null);
             } else if (responseStatus == 401) {
                 setStatus("awaiting_auth", "AUTHENTICATION_REQUIRED");
-            } else if (responseStatus == 409) {
+            } else if (responseStatus == 409 && response.requiresReconfiguration()) {
+                storage.markReconfigurationRequired(state);
                 setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
             } else {
                 setStatus("retry_pending", "REGISTRATION_REJECTED");
@@ -501,6 +593,9 @@ final class AndroidPushRegistrationManager {
     private static String statusForBoundState(
         AndroidPushIdentityStorage.State state
     ) {
+        if (state.isReconfigurationRequired()) {
+            return "reconfiguration_required";
+        }
         if (state.hasServerRegistration()) {
             return "registered";
         }
@@ -523,7 +618,7 @@ final class AndroidPushRegistrationManager {
         }
 
         @Override
-        public int register(
+        public RegistrationResponse register(
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
@@ -565,7 +660,10 @@ final class AndroidPushRegistrationManager {
                 "application/json",
                 "application/json"
             );
-            return response.optInt("status", 0);
+            return new RegistrationResponse(
+                response.optInt("status", 0),
+                decodeErrorCode(response)
+            );
         }
 
         @Override
@@ -584,6 +682,22 @@ final class AndroidPushRegistrationManager {
                 "application/json"
             );
             return response.optInt("status", 0);
+        }
+
+        private static String decodeErrorCode(JSObject response) {
+            String bodyBase64 = response.optString("bodyBase64", null);
+            if (bodyBase64 == null || bodyBase64.trim().isEmpty()) {
+                return null;
+            }
+            try {
+                String body = new String(
+                    Base64.decode(bodyBase64, Base64.DEFAULT),
+                    StandardCharsets.UTF_8
+                );
+                return new JSONObject(body).optString("code", null);
+            } catch (IllegalArgumentException | JSONException exception) {
+                return null;
+            }
         }
     }
 }

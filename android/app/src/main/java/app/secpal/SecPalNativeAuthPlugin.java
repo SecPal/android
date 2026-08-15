@@ -174,15 +174,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 payload.put("user", response.getUser());
                 if (!taskExecutor.completeCredentialReplacement(
                     loginGeneration,
-                    () -> {
-                        tokenStorage.saveToken(response.getToken());
-                        synchronizeAndroidPushAfterAuthentication(response.getToken());
-                    },
+                    () -> tokenStorage.saveToken(response.getToken()),
                     () -> call.resolve(payload)
                 )) {
                     call.reject(
                         cancellationMessage("SESSION_INVALIDATED"),
                         "SESSION_INVALIDATED"
+                    );
+                } else {
+                    scheduleAndroidPushAfterAuthentication(
+                        taskExecutor,
+                        () -> synchronizeAndroidPushAfterAuthentication(response.getToken()),
+                        androidPushRegistrationManager::onProtectedStateError,
+                        androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 }
             } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
@@ -251,15 +255,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 payload.put("user", response.getUser());
                 if (!taskExecutor.completeSessionCredentialReplacement(
                     loginGeneration,
-                    () -> {
-                        tokenStorage.saveToken(response.getToken());
-                        synchronizeAndroidPushAfterAuthentication(response.getToken());
-                    },
+                    () -> tokenStorage.saveToken(response.getToken()),
                     () -> call.resolve(payload)
                 )) {
                     call.reject(
                         cancellationMessage("SESSION_INVALIDATED"),
                         "SESSION_INVALIDATED"
+                    );
+                } else {
+                    scheduleAndroidPushAfterAuthentication(
+                        taskExecutor,
+                        () -> synchronizeAndroidPushAfterAuthentication(response.getToken()),
+                        androidPushRegistrationManager::onProtectedStateError,
+                        androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 }
             } catch (
@@ -360,15 +368,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
                     requireNetworkConnection();
                     JSObject response = httpClient.getCurrentUser(apiBaseUrl, token, cancellation);
-                    if (!taskExecutor.completeAuthenticatedMutation(
+                    if (!taskExecutor.completeAuthenticated(
                         requestId,
-                        () -> synchronizeAndroidPushAfterAuthentication(token)
+                        () -> settleOnce(settled, () -> call.resolve(response))
                     )) {
                         return;
                     }
-                    taskExecutor.completeAuthenticated(requestId, () -> {
-                        settleOnce(settled, () -> call.resolve(response));
-                    });
+                    scheduleAndroidPushAfterAuthentication(
+                        taskExecutor,
+                        () -> synchronizeAndroidPushAfterAuthentication(token),
+                        androidPushRegistrationManager::onProtectedStateError,
+                        androidPushRegistrationManager::onRegistrationSchedulingError
+                    );
                 } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
                     taskExecutor.completeAuthenticated(requestId, () -> {
                         settleOnce(settled, () -> {
@@ -439,6 +450,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 if (!retryAndroidPushRegistrationIfCurrent(
                     taskExecutor,
                     generation,
+                    androidPushRegistrationManager::prepareRetry,
                     androidPushRuntimeManager::refreshToken,
                     () -> androidPushRegistrationManager.onAuthenticated(
                         tokenStorage.getToken()
@@ -1481,6 +1493,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         submitNativePushTask(
             taskExecutor,
             task,
+            androidPushRegistrationManager::onProtectedStateError,
             () -> androidPushRegistrationManager.onTokenError(
                 AndroidPushRegistrationManager.RUNTIME_APP_NAME
             )
@@ -1509,6 +1522,15 @@ public class SecPalNativeAuthPlugin extends Plugin {
         PushTask task,
         Runnable retryMarker
     ) {
+        return submitNativePushTask(taskExecutor, task, retryMarker, retryMarker);
+    }
+
+    static boolean submitNativePushTask(
+        NativeAuthTaskExecutor taskExecutor,
+        PushTask task,
+        Runnable protectedStorageErrorMarker,
+        Runnable retryMarker
+    ) {
         long generation = taskExecutor.captureGeneration();
         boolean accepted = taskExecutor.submit(
             () -> {
@@ -1517,7 +1539,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         retryMarker.run();
                     }
                 } catch (TokenStorageException exception) {
-                    retryMarker.run();
+                    protectedStorageErrorMarker.run();
                 }
             },
             exception -> retryMarker.run(),
@@ -1534,10 +1556,45 @@ public class SecPalNativeAuthPlugin extends Plugin {
         void run() throws TokenStorageException;
     }
 
+    @FunctionalInterface
+    interface PushRetryPreparation {
+        boolean prepare() throws TokenStorageException;
+    }
+
+    static NativeAuthTaskExecutor.SubmitResult scheduleAndroidPushAfterAuthentication(
+        NativeAuthTaskExecutor taskExecutor,
+        PushTask task,
+        Runnable protectedStorageErrorMarker,
+        Runnable schedulingErrorMarker
+    ) {
+        String requestId = "android-push-auth-" + UUID.randomUUID();
+        NativeAuthTaskExecutor.SubmitResult result = taskExecutor.submitAuthenticated(
+            requestId,
+            0,
+            () -> {
+                try {
+                    task.run();
+                } catch (TokenStorageException exception) {
+                    protectedStorageErrorMarker.run();
+                }
+            },
+            reasonCode -> schedulingErrorMarker.run(),
+            exception -> schedulingErrorMarker.run()
+        );
+        if (result != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            schedulingErrorMarker.run();
+        }
+        return result;
+    }
+
     static void retryAndroidPushRegistrationNow(
+        PushRetryPreparation preparation,
         Runnable tokenRefresh,
         PushTask registrationSync
     ) throws TokenStorageException {
+        if (!preparation.prepare()) {
+            return;
+        }
         tokenRefresh.run();
         registrationSync.run();
     }
@@ -1545,12 +1602,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static boolean retryAndroidPushRegistrationIfCurrent(
         NativeAuthTaskExecutor taskExecutor,
         long generation,
+        PushRetryPreparation preparation,
         Runnable tokenRefresh,
         PushTask registrationSync
     ) throws TokenStorageException {
         return taskExecutor.runIfGenerationCurrent(
             generation,
-            () -> retryAndroidPushRegistrationNow(tokenRefresh, registrationSync)
+            () -> retryAndroidPushRegistrationNow(
+                preparation,
+                tokenRefresh,
+                registrationSync
+            )
         );
     }
 

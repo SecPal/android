@@ -1359,12 +1359,16 @@ public class SecPalNativeAuthPluginTest {
         List<String> events = new ArrayList<>();
 
         SecPalNativeAuthPlugin.retryAndroidPushRegistrationNow(
+            () -> {
+                events.add("prepare-retry");
+                return true;
+            },
             () -> events.add("refresh-token"),
             () -> events.add("sync-registration")
         );
 
         assertEquals(
-            Arrays.asList("refresh-token", "sync-registration"),
+            Arrays.asList("prepare-retry", "refresh-token", "sync-registration"),
             events
         );
     }
@@ -1381,10 +1385,80 @@ public class SecPalNativeAuthPluginTest {
             assertFalse(SecPalNativeAuthPlugin.retryAndroidPushRegistrationIfCurrent(
                 taskExecutor,
                 generation,
+                () -> {
+                    events.add("prepare-retry");
+                    return true;
+                },
                 () -> events.add("refresh-token"),
                 () -> events.add("sync-registration")
             ));
             assertTrue(events.isEmpty());
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void authenticatedPushSchedulingDoesNotBlockAuthenticationCompletion()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch pushStarted = new CountDownLatch(1);
+        CountDownLatch releasePush = new CountDownLatch(1);
+        CountDownLatch pushCompleted = new CountDownLatch(1);
+        AtomicBoolean pushFinished = new AtomicBoolean(false);
+        AtomicBoolean schedulingFailed = new AtomicBoolean(false);
+
+        try {
+            NativeAuthTaskExecutor.SubmitResult result =
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    () -> {
+                        pushStarted.countDown();
+                        try {
+                            releasePush.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new TokenStorageException(
+                                "Push scheduling test interrupted",
+                                exception
+                            );
+                        }
+                        pushFinished.set(true);
+                        pushCompleted.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available"),
+                    () -> schedulingFailed.set(true)
+                );
+
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
+            assertTrue(pushStarted.await(2, TimeUnit.SECONDS));
+            assertFalse(pushFinished.get());
+            assertFalse(schedulingFailed.get());
+        } finally {
+            releasePush.countDown();
+            pushCompleted.await(2, TimeUnit.SECONDS);
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticatedPushSchedulingPublishesRetryState() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        AtomicBoolean rejected = new AtomicBoolean(false);
+
+        try {
+            taskExecutor.pauseAuthenticated();
+
+            NativeAuthTaskExecutor.SubmitResult result =
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    () -> fail("Rejected push work must not run"),
+                    () -> fail("Protected push storage should remain available"),
+                    () -> rejected.set(true)
+                );
+
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED, result);
+            assertTrue(rejected.get());
         } finally {
             taskExecutor.shutdownNow();
         }

@@ -51,13 +51,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot retain the bearer during logout, invalidation during
   previous-registration cleanup returns safely to token acquisition, and
   registration idempotency includes the authenticated credential and installed
-  app version. Startup now recreates a validated binding after corrupt protected
-  push state, never sends a new tenant's bearer to a previous tenant, and waits
-  for an available same-tenant credential before retrying server cleanup. Push
-  synchronization and explicit retries remain ordered with authentication and
-  runtime transitions without holding the lifecycle monitor during network I/O;
-  foreground refresh admission failures no longer invent token failures, and
-  abstract status fields are published atomically. Device instrumentation now
+  app version. Startup and active-process recovery now recreate a validated
+  binding after corrupt protected push state, never send a new tenant's bearer
+  to a previous tenant, and wait for an available same-tenant credential before
+  retrying server cleanup. Successful server deletion cannot be rolled back as
+  a still-registered local fingerprint when protected cleanup persistence fails.
+  Only the two documented notification-runtime conflict codes produce the
+  durable `reconfiguration_required` state, which remains terminal across token,
+  authentication, logout, and restart events until a runtime rebind or reset.
+  Push synchronization and explicit retries remain ordered with authentication
+  and runtime transitions without delaying authentication completion or holding
+  the lifecycle monitor during network I/O; rejected post-authentication push
+  work now publishes a retryable state, foreground refresh admission failures
+  no longer invent token failures, and abstract status fields are published
+  atomically. Device instrumentation now
   preserves unrelated native preferences and any pre-existing protected push
   state. React can read only abstract registration state or request an
   input-free retry that refreshes the Firebase token. The packaged bridge

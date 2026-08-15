@@ -137,6 +137,42 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void activeProtectedStateInvalidationRecreatesBindingBeforeRetry()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushIdentityStorage storage = createStorage(preferences);
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        preferences.edit()
+            .putString(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY, "corrupt")
+            .putString(AndroidPushIdentityStorage.STATE_IV_KEY, "corrupt")
+            .commit();
+
+        try {
+            manager.onAuthenticated("auth-token");
+            fail("Expected protected storage failure");
+        } catch (TokenStorageException expected) {
+            manager.onProtectedStateError();
+        }
+
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(API_ORIGIN, storage.load().apiOrigin());
+
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+
+        assertEquals("registered", manager.getStatus().getString("state"));
+        assertEquals(1, backend.lifecycleEvents.size());
+    }
+
+    @Test
     public void duplicateAndRotatedTokensAreRegisteredIdempotently() throws Exception {
         RecordingBackend backend = new RecordingBackend();
         AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
@@ -469,6 +505,46 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void successfulRevocationWithFailedCleanupRollbackForcesReregistration()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FailNextEncryptionCipher cipher = new FailNextEncryptionCipher();
+        AndroidPushIdentityStorage storage = createStorage(
+            preferences,
+            cipher,
+            new AtomicInteger()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            API_ORIGIN,
+            pushMetadata(4)
+        );
+        backend.beforeUnregister = () -> cipher.failNextEncryption = true;
+
+        try {
+            manager.revokePrevious(rebind, "auth-token");
+            fail("Expected failed cleanup persistence");
+        } catch (IllegalStateException expected) {
+            manager.rollbackRebind(rebind);
+        }
+
+        manager.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void restartedCrossTenantBindingNeverSendsTheNewBearerToTheOldOrigin()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -645,6 +721,121 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void unrelatedRegistrationConflictRemainsRetryable() throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        backend.registrationResponse =
+            new AndroidPushRegistrationManager.RegistrationResponse(
+                409,
+                "OTHER_CONFLICT"
+            );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(
+            "REGISTRATION_REJECTED",
+            manager.getStatus().getString("failureCode")
+        );
+    }
+
+    @Test
+    public void rejectedRegistrationSchedulingRemainsRetryableUnlessTerminal()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+
+        manager.onRegistrationSchedulingError();
+
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(
+            "REGISTRATION_RETRY_REQUIRED",
+            manager.getStatus().getString("failureCode")
+        );
+
+        backend.registrationResponse =
+            new AndroidPushRegistrationManager.RegistrationResponse(
+                409,
+                "NOTIFICATION_RUNTIME_STATE_INVALID"
+            );
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        manager.onRegistrationSchedulingError();
+
+        assertEquals("reconfiguration_required", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void documentedRegistrationConflictRemainsTerminalUntilRuntimeRebind()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        RecordingBackend backend = new RecordingBackend();
+        backend.registrationResponse =
+            new AndroidPushRegistrationManager.RegistrationResponse(
+                409,
+                "NOTIFICATION_RUNTIME_STATE_INVALID"
+            );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+
+        manager.onTokenError(AndroidPushRegistrationManager.RUNTIME_APP_NAME);
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_TWO,
+            "auth-token"
+        );
+        manager.onAuthenticated("auth-token");
+        assertFalse(manager.prepareRetry());
+        manager.onProtectedStateError();
+        assertFalse(manager.prepareRetry());
+        manager.onLogout("auth-token");
+
+        assertEquals("reconfiguration_required", manager.getStatus().getString("state"));
+        assertEquals(1, backend.lifecycleEvents.size());
+
+        AndroidPushRegistrationManager restarted = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        restarted.bindRuntime(API_ORIGIN, pushMetadata(3));
+        restarted.onAuthenticated("auth-token");
+
+        assertEquals(
+            "reconfiguration_required",
+            restarted.getStatus().getString("state")
+        );
+        assertEquals(1, backend.lifecycleEvents.size());
+
+        restarted.rebindRuntime(API_ORIGIN, pushMetadata(4));
+        assertEquals("awaiting_token", restarted.getStatus().getString("state"));
+    }
+
+    @Test
     public void abstractStatusRemainsReadableWhileRegistrationIsInFlight()
         throws Exception {
         BlockingBackend backend = new BlockingBackend();
@@ -727,7 +918,12 @@ public class AndroidPushRegistrationManagerTest {
 
         assertEquals(
             201,
-            backend.register(API_ORIGIN, "auth-token", state, "registered")
+            backend.register(
+                API_ORIGIN,
+                "auth-token",
+                state,
+                "registered"
+            ).status()
         );
 
         assertEquals("PUT", client.method);
@@ -745,6 +941,32 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals(4, body.getJSONObject("runtime").getInt("schema_version"));
         assertEquals(3, body.getJSONObject("runtime").getInt("metadata_revision"));
         assertEquals("registered", body.getString("lifecycle_event"));
+    }
+
+    @Test
+    public void nativeBackendPreservesRegistrationConflictCode() throws Exception {
+        CapturingHttpClient client = new CapturingHttpClient();
+        client.responseStatus = 409;
+        client.responseBody = new JSONObject()
+            .put("code", "NOTIFICATION_CHANNEL_UNSUPPORTED")
+            .toString();
+        AndroidPushRegistrationManager.HttpBackend backend =
+            new AndroidPushRegistrationManager.HttpBackend(client, "1.5.0", 10500);
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State state = storage.bindRuntime(API_ORIGIN, 3);
+        state = storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+
+        AndroidPushRegistrationManager.RegistrationResponse response = backend.register(
+            API_ORIGIN,
+            "auth-token",
+            state,
+            "registered"
+        );
+
+        assertEquals(409, response.status());
+        assertEquals("NOTIFICATION_CHANNEL_UNSUPPORTED", response.errorCode());
     }
 
     private static AndroidPushIdentityStorage createStorage(
@@ -789,9 +1011,11 @@ public class AndroidPushRegistrationManagerTest {
         int unregisterStatus = 204;
         Runnable beforeUnregister = () -> {};
         boolean offline;
+        AndroidPushRegistrationManager.RegistrationResponse registrationResponse =
+            new AndroidPushRegistrationManager.RegistrationResponse(201, null);
 
         @Override
-        public int register(
+        public AndroidPushRegistrationManager.RegistrationResponse register(
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
@@ -806,7 +1030,7 @@ public class AndroidPushRegistrationManagerTest {
             registrationApiOrigins.add(apiOrigin);
             registrationAuthTokens.add(authToken);
             lifecycleEvents.add(lifecycleEvent);
-            return 201;
+            return registrationResponse;
         }
 
         @Override
@@ -827,7 +1051,7 @@ public class AndroidPushRegistrationManagerTest {
         final CountDownLatch allowRegistrationToFinish = new CountDownLatch(1);
 
         @Override
-        public int register(
+        public AndroidPushRegistrationManager.RegistrationResponse register(
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
@@ -842,7 +1066,7 @@ public class AndroidPushRegistrationManagerTest {
                 Thread.currentThread().interrupt();
                 throw new IOException("registration test interrupted", exception);
             }
-            return 201;
+            return new AndroidPushRegistrationManager.RegistrationResponse(201, null);
         }
 
         @Override
@@ -859,6 +1083,8 @@ public class AndroidPushRegistrationManagerTest {
         String method;
         String path;
         String bodyBase64;
+        int responseStatus = 201;
+        String responseBody;
 
         @Override
         JSObject request(
@@ -874,7 +1100,16 @@ public class AndroidPushRegistrationManagerTest {
             this.path = path;
             this.bodyBase64 = requestBodyBase64;
             JSObject response = new JSObject();
-            response.put("status", 201);
+            response.put("status", responseStatus);
+            if (responseBody != null) {
+                response.put(
+                    "bodyBase64",
+                    Base64.encodeToString(
+                        responseBody.getBytes(StandardCharsets.UTF_8),
+                        Base64.NO_WRAP
+                    )
+                );
+            }
             return response;
         }
     }
@@ -912,6 +1147,30 @@ public class AndroidPushRegistrationManagerTest {
         public EncryptedTokenPayload encrypt(String plaintext)
             throws TokenStorageException {
             if (failEncryption) {
+                throw new TokenStorageException(
+                    "encryption failed",
+                    new IllegalStateException("test failure")
+                );
+            }
+            return delegate.encrypt(plaintext);
+        }
+
+        @Override
+        public String decrypt(EncryptedTokenPayload payload)
+            throws TokenStorageException {
+            return delegate.decrypt(payload);
+        }
+    }
+
+    private static final class FailNextEncryptionCipher implements TokenCipher {
+        private final MemoryCipher delegate = new MemoryCipher();
+        boolean failNextEncryption;
+
+        @Override
+        public EncryptedTokenPayload encrypt(String plaintext)
+            throws TokenStorageException {
+            if (failNextEncryption) {
+                failNextEncryption = false;
                 throw new TokenStorageException(
                     "encryption failed",
                     new IllegalStateException("test failure")
