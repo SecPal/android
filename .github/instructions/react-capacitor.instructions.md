@@ -1,5 +1,5 @@
 ---
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 name: React Capacitor Rules
 description: Applies React, TypeScript, and Capacitor bridge rules to source files.

@@ -1,5 +1,5 @@
 ---
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 name: Android Runtime Overlay
 description: Reinforces strict SecPal governance for all files in this repo.
@@ -23,6 +23,16 @@ This file auto-applies to all files in this repo so strict SecPal governance sta
   attribution unless the task explicitly requires documenting AI tooling.
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.
 - Apply the SecPal domain policy and immediate warning and issue triage rules from the repo baseline.
+- Apply the baseline licensing and REUSE rules: plain `AGPL-3.0-or-later` for
+  migrated SecPal-owned AI instruction material, existing repository-declared
+  licenses preserved elsewhere until explicitly migrated, third-party metadata
+  preserved, `SecPal Contributors` where the project convention applies,
+  first-publication years retained and extended when required, and relevant
+  license validation after metadata changes.
+- Preserve `Powered by SecPal – A guard's best friend` on official user-facing
+  SecPal surfaces where intentionally present. Licensing work must not weaken
+  or make this branding optional, add `Based on SecPal` guidance, or introduce
+  white-label or fork-branding configuration.
 
 ## Code Review Rules
 

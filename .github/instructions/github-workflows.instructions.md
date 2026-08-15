@@ -1,5 +1,5 @@
 ---
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 name: GitHub Workflow Rules
 description: Applies workflow, action metadata, and Dependabot rules to GitHub automation files in this repo.
