@@ -1169,7 +1169,10 @@ public class SecPalNativeAuthPluginTest {
                 tokenStorage,
                 new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
                 stored,
-                bootstrap -> false,
+                bootstrap -> {
+                    assertEquals(stored.toString(), bootstrap.toString());
+                    return false;
+                },
                 () -> {}
             );
             fail("Expected failed cleanup-state persistence to fail closed");
@@ -1202,6 +1205,7 @@ public class SecPalNativeAuthPluginTest {
             new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
             null,
             bootstrap -> {
+                assertNull(bootstrap);
                 fail("A missing bootstrap must not enter the binding path");
                 return false;
             },
@@ -2051,21 +2055,16 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void legacyPushMigrationResolvesBeforeCleanupScheduling() {
+    public void legacyPushRetentionResolvesBeforeCleanupScheduling() {
         List<String> events = new ArrayList<>();
 
-        assertTrue(SecPalNativeAuthPlugin.finishLegacyPushMigration(
-            () -> {
-                events.add("persist-migration");
-                return true;
-            },
+        SecPalNativeAuthPlugin.completeLegacyPushRetention(
             () -> events.add("resolve-bridge-call"),
             () -> events.add("schedule-cleanup")
-        ));
+        );
 
         assertEquals(
             java.util.Arrays.asList(
-                "persist-migration",
                 "resolve-bridge-call",
                 "schedule-cleanup"
             ),
@@ -2074,18 +2073,11 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void failedLegacyPushMigrationPersistenceDoesNotResolveOrScheduleCleanup() {
-        AtomicBoolean resolved = new AtomicBoolean(false);
-        AtomicBoolean cleanupScheduled = new AtomicBoolean(false);
-
-        assertFalse(SecPalNativeAuthPlugin.finishLegacyPushMigration(
-            () -> false,
-            () -> resolved.set(true),
-            () -> cleanupScheduled.set(true)
-        ));
-
-        assertFalse(resolved.get());
-        assertFalse(cleanupScheduled.get());
+    public void legacyPushRetentionDoesNotUseAGlobalMigrationMarker() {
+        assertFalse(
+            Arrays.stream(SecPalNativeAuthPlugin.class.getDeclaredFields())
+                .anyMatch(field -> field.getName().contains("LEGACY_PUSH_MIGRATION"))
+        );
     }
 
     @Test

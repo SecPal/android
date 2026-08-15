@@ -130,13 +130,20 @@
   };
 
   const removeLegacyAndroidPushBrowserState = ({
-    includeInstallationIds = true,
+    installationApiOrigin = null,
+    installationId = null,
   } = {}) => {
+    const transferredInstallationKey =
+      typeof installationApiOrigin === "string"
+        ? legacyAndroidPushInstallationStorageKeyPrefix +
+          encodeURIComponent(installationApiOrigin)
+        : null;
     for (const storage of [getLocalStorage(), getSessionStorage()]) {
       if (
         !storage ||
         typeof storage.length !== "number" ||
         typeof storage.key !== "function" ||
+        typeof storage.getItem !== "function" ||
         typeof storage.removeItem !== "function"
       ) {
         continue;
@@ -145,13 +152,27 @@
         const staleKeys = [];
         for (let index = 0; index < storage.length; index += 1) {
           const key = storage.key(index);
+          if (typeof key !== "string") {
+            continue;
+          }
+          const legacyPrefix = legacyAndroidPushStorageKeyPrefixes.find(
+            (prefix) => key.startsWith(prefix)
+          );
+          if (!legacyPrefix) {
+            continue;
+          }
+          if (legacyPrefix !== legacyAndroidPushInstallationStorageKeyPrefix) {
+            staleKeys.push(key);
+            continue;
+          }
+          if (key !== transferredInstallationKey) {
+            continue;
+          }
+          const storedInstallationId = storage.getItem(key);
           if (
-            typeof key === "string" &&
-            legacyAndroidPushStorageKeyPrefixes.some((prefix) =>
-              key.startsWith(prefix) &&
-              (includeInstallationIds ||
-                prefix !== legacyAndroidPushInstallationStorageKeyPrefix)
-            )
+            installationId === null ||
+            (typeof storedInstallationId === "string" &&
+              storedInstallationId.trim() === installationId)
           ) {
             staleKeys.push(key);
           }
@@ -195,7 +216,7 @@
     const installationId = getLegacyAndroidPushInstallationId(apiOrigin);
     if (typeof plugin.retainLegacyAndroidPushInstallation !== "function") {
       if (!installationId) {
-        removeLegacyAndroidPushBrowserState();
+        removeLegacyAndroidPushBrowserState({ installationApiOrigin: apiOrigin });
         return;
       }
       throw new Error(
@@ -205,7 +226,10 @@
     await plugin.retainLegacyAndroidPushInstallation(
       installationId ? { installationId } : {}
     );
-    removeLegacyAndroidPushBrowserState();
+    removeLegacyAndroidPushBrowserState({
+      installationApiOrigin: apiOrigin,
+      installationId,
+    });
   };
 
   const hasPendingRuntimeReset = () => {
@@ -1596,7 +1620,7 @@
     }
   };
 
-  removeLegacyAndroidPushBrowserState({ includeInstallationIds: false });
+  removeLegacyAndroidPushBrowserState();
   restorePersistedBootstrap();
   installNativeAuthLifecycleListener();
 

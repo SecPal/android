@@ -2429,6 +2429,48 @@ describe("native auth bridge bootstrap injection", () => {
     expect(bridge).not.toHaveProperty("retainLegacyAndroidPushInstallation");
   });
 
+  it("removes only the legacy installation transferred to native storage", async () => {
+    const currentInstallationId = "11111111-1111-4111-8111-111111111111";
+    const otherInstallationId = "22222222-2222-4222-8222-222222222222";
+    const currentInstallationKey =
+      "secpal-android-push-installation:https%3A%2F%2Fcustomer-api.example";
+    const otherInstallationKey =
+      "secpal-android-push-installation:https%3A%2F%2Fother-api.example";
+    const localStorage = createMockStorage({
+      [currentInstallationKey]: currentInstallationId,
+      [otherInstallationKey]: otherInstallationId,
+      "secpal-android-push-token:https%3A%2F%2Fother-api.example":
+        "stale-fcm-token",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(
+        createCustomerAndroidPushBootstrap()
+      ),
+      [currentInstallationKey]: otherInstallationId,
+    });
+
+    const { plugin } = await createAndroidPushLifecycleSandbox({
+      localStorage,
+      sessionStorage,
+    });
+
+    expect(plugin.retainLegacyAndroidPushInstallation).toHaveBeenCalledWith({
+      installationId: currentInstallationId,
+    });
+    expect(localStorage.getItem(currentInstallationKey)).toBeNull();
+    expect(localStorage.getItem(otherInstallationKey)).toBe(
+      otherInstallationId
+    );
+    expect(sessionStorage.getItem(currentInstallationKey)).toBe(
+      otherInstallationId
+    );
+    expect(
+      localStorage.getItem(
+        "secpal-android-push-token:https%3A%2F%2Fother-api.example"
+      )
+    ).toBeNull();
+  });
+
   it("preserves the restored runtime when legacy push retention fails", async () => {
     const legacyInstallationId = "11111111-1111-4111-8111-111111111111";
     const localStorage = createMockStorage({

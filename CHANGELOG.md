@@ -67,7 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installation writes or deletions; those routes are restricted to the native
   push client. Device instrumentation restores the complete protected-state
   marker set, and the live login scenario performs best-effort logout after a
-  post-login assertion failure.
+  post-login assertion failure. Legacy multi-instance cleanup now removes an
+  installation UUID from browser storage only after that exact instance was
+  transferred into protected native cleanup state, and no global migration
+  marker can suppress a later instance's transfer.
   Successful server deletion cannot be rolled back as
   a still-registered local fingerprint when protected cleanup persistence fails.
   Only the two documented notification-runtime conflict codes produce the
