@@ -1046,7 +1046,10 @@ public class SecPalNativeAuthPluginTest {
             tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
             stored,
-            pushIdentityBindings::add
+            bootstrap -> {
+                pushIdentityBindings.add(bootstrap);
+                return false;
+            }
         );
 
         assertNull(result);
@@ -1100,6 +1103,13 @@ public class SecPalNativeAuthPluginTest {
                 ) {
                     events.add("token-request");
                 }
+
+                @Override
+                public void rotateMessagingToken(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-rotation");
+                }
             };
         JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
@@ -1132,9 +1142,12 @@ public class SecPalNativeAuthPluginTest {
             tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
             stored,
-            bootstrap -> events.add(
-                bootstrap == null ? "binding-cleared" : "binding-restored"
-            )
+            bootstrap -> {
+                events.add(
+                    bootstrap == null ? "binding-cleared" : "binding-restored"
+                );
+                return false;
+            }
         );
 
         assertEquals(Arrays.asList("binding-restored", "token-request"), events);
@@ -1927,6 +1940,13 @@ public class SecPalNativeAuthPluginTest {
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             fail("ensureMessaging should not run after initialization fails");
         }
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
+            fail("rotateMessagingToken should not run after initialization fails");
+        }
     }
 
     private static final class ResetFailingFirebaseBackend
@@ -1977,6 +1997,13 @@ public class SecPalNativeAuthPluginTest {
 
         @Override
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            ensureMessagingCallCount += 1;
+        }
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
             ensureMessagingCallCount += 1;
         }
     }

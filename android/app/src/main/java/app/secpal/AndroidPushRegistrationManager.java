@@ -220,7 +220,9 @@ final class AndroidPushRegistrationManager {
         try {
             return rebindRuntime(apiOrigin, metadata);
         } catch (TokenStorageException firstFailure) {
-            clearRuntime(null);
+            if (!storage.requiresTokenRotation()) {
+                throw firstFailure;
+            }
             try {
                 return rebindRuntime(apiOrigin, metadata);
             } catch (TokenStorageException retryFailure) {
@@ -228,6 +230,38 @@ final class AndroidPushRegistrationManager {
                 throw retryFailure;
             }
         }
+    }
+
+    synchronized boolean restorePendingRuntimeClear()
+        throws TokenStorageException {
+        AndroidPushIdentityStorage.State state;
+        try {
+            state = storage.load();
+        } catch (TokenStorageException exception) {
+            if (!storage.requiresTokenRotation()) {
+                throw exception;
+            }
+            boundApiOrigin = null;
+            boundMetadataRevision = 0;
+            setStatus("unconfigured", null);
+            return false;
+        }
+        boundApiOrigin = null;
+        boundMetadataRevision = 0;
+        if (state == null) {
+            setStatus("unconfigured", null);
+            return false;
+        }
+        if (!state.hasPendingRevocation() && !state.hasServerRegistration()) {
+            storage.clear();
+            setStatus("unconfigured", null);
+            return false;
+        }
+        if (!state.hasPendingRevocation()) {
+            storage.retainCurrentRegistrationForRevocation(null);
+        }
+        setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
+        return true;
     }
 
     synchronized void prepareRuntimeRebind(
@@ -571,6 +605,10 @@ final class AndroidPushRegistrationManager {
             && !"reconfiguration_required".equals(status)) {
             setStatus("retry_pending", "REGISTRATION_RETRY_REQUIRED");
         }
+    }
+
+    synchronized boolean requiresTokenRotation() {
+        return storage.requiresTokenRotation();
     }
 
     synchronized boolean prepareRetry() throws TokenStorageException {

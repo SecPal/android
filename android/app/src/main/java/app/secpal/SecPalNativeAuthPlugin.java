@@ -33,8 +33,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
@@ -85,6 +85,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         new AtomicReference<>();
     private volatile boolean destroyed = false;
     private volatile String apiBaseUrl;
+    private boolean pendingRuntimeCleanupOnLoad;
 
     @Override
     public void load() {
@@ -116,6 +117,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         networkState = new NetworkState();
         passkeyAuthenticator = new NativePasskeyAuthenticator();
+        if (pendingRuntimeCleanupOnLoad) {
+            submitNativePushTaskWithoutRetryMarker(
+                taskExecutor,
+                () -> androidPushRegistrationManager.clearRuntime(null)
+            );
+        }
     }
 
     @Override
@@ -153,7 +160,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             ),
             () -> submitForegroundPushRefresh(
                 taskExecutor,
-                androidPushRuntimeManager::refreshToken,
+                this::refreshOrRotateAndroidPushToken,
                 androidPushRegistrationManager::onRegistrationSchedulingError
             )
         );
@@ -199,7 +206,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                             response.getToken(),
                             cancellation
                         ),
-                        androidPushRegistrationManager::onProtectedStateError,
+                        this::handleAndroidPushProtectedStateError,
                         androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 }
@@ -284,7 +291,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                             response.getToken(),
                             cancellation
                         ),
-                        androidPushRegistrationManager::onProtectedStateError,
+                        SecPalNativeAuthPlugin.this::handleAndroidPushProtectedStateError,
                         androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 }
@@ -398,7 +405,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                             token,
                             pushCancellation
                         ),
-                        androidPushRegistrationManager::onProtectedStateError,
+                        this::handleAndroidPushProtectedStateError,
                         androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 } catch (IOException | JSONException | NativeAuthHttpException | NetworkUnavailableException exception) {
@@ -523,7 +530,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     taskExecutor,
                     generation,
                     androidPushRegistrationManager::prepareRetry,
-                    androidPushRuntimeManager::refreshToken,
+                    this::refreshOrRotateAndroidPushToken,
                     () -> androidPushRegistrationManager.onAuthenticated(
                         tokenStorage.getToken()
                     )
@@ -1553,7 +1560,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                                 cancellation
                             );
                         },
-                        androidPushRegistrationManager::onProtectedStateError,
+                        SecPalNativeAuthPlugin.this::handleAndroidPushProtectedStateError,
                         androidPushRegistrationManager::onRegistrationSchedulingError
                     );
                 }
@@ -1595,11 +1602,26 @@ public class SecPalNativeAuthPlugin extends Plugin {
         submitNativePushTask(
             taskExecutor,
             task,
-            androidPushRegistrationManager::onProtectedStateError,
+            this::handleAndroidPushProtectedStateError,
             () -> androidPushRegistrationManager.onTokenError(
                 AndroidPushRegistrationManager.RUNTIME_APP_NAME
             )
         );
+    }
+
+    private void handleAndroidPushProtectedStateError() {
+        androidPushRegistrationManager.onProtectedStateError();
+        if (androidPushRegistrationManager.requiresTokenRotation()) {
+            androidPushRuntimeManager.rotateToken();
+        }
+    }
+
+    private void refreshOrRotateAndroidPushToken() {
+        if (androidPushRegistrationManager.requiresTokenRotation()) {
+            androidPushRuntimeManager.rotateToken();
+        } else {
+            androidPushRuntimeManager.refreshToken();
+        }
     }
 
     static boolean submitForegroundPushRefresh(
@@ -1762,7 +1784,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         try {
             androidPushRegistrationManager.onAuthenticated(authToken, cancellation);
         } catch (TokenStorageException exception) {
-            androidPushRegistrationManager.onProtectedStateError();
+            handleAndroidPushProtectedStateError();
         }
     }
 
@@ -2110,18 +2132,23 @@ public class SecPalNativeAuthPlugin extends Plugin {
         TokenStorage tokenStorage,
         AndroidPushRuntimeManager androidPushRuntimeManager,
         JSObject persistedRuntimeBootstrap,
-        Consumer<JSObject> pushIdentityBinder
+        Function<JSObject, Boolean> pushIdentityBinder
     ) {
         if (persistedRuntimeBootstrap == null) {
-            pushIdentityBinder.accept(null);
+            pushIdentityBinder.apply(null);
             androidPushRuntimeManager.apply(null);
             return null;
         }
 
         try {
-            pushIdentityBinder.accept(persistedRuntimeBootstrap);
+            boolean tokenRotationRequired = pushIdentityBinder.apply(
+                persistedRuntimeBootstrap
+            );
             androidPushRuntimeManager.apply(
-                AndroidPushRuntimeMetadata.fromBootstrap(persistedRuntimeBootstrap.optJSONObject("androidPush"))
+                AndroidPushRuntimeMetadata.fromBootstrap(
+                    persistedRuntimeBootstrap.optJSONObject("androidPush")
+                ),
+                tokenRotationRequired
             );
             return persistedRuntimeBootstrap;
         } catch (RuntimeException exception) {
@@ -2130,7 +2157,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 .remove(API_BASE_URL_PREFERENCE_KEY)
                 .apply();
             tokenStorage.clearToken();
-            pushIdentityBinder.accept(null);
+            pushIdentityBinder.apply(null);
             androidPushRuntimeManager.apply(null);
             return null;
         }
@@ -2307,12 +2334,13 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return loadPersistedRuntimeBootstrap(getNativeAuthPreferences());
     }
 
-    private void restoreAndroidPushIdentityBinding(JSObject bootstrap) {
-        if (bootstrap == null) {
-            androidPushRegistrationManager.clearRuntime(null);
-            return;
-        }
+    private boolean restoreAndroidPushIdentityBinding(JSObject bootstrap) {
         try {
+            if (bootstrap == null) {
+                pendingRuntimeCleanupOnLoad =
+                    androidPushRegistrationManager.restorePendingRuntimeClear();
+                return false;
+            }
             AndroidPushRegistrationManager.RebindResult rebind =
                 androidPushRegistrationManager.restoreRuntime(
                     bootstrap.getString("apiOrigin"),
@@ -2329,7 +2357,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         authToken,
                         cancellation
                     ),
-                    androidPushRegistrationManager::onProtectedStateError,
+                    this::handleAndroidPushProtectedStateError,
                     androidPushRegistrationManager::onRegistrationSchedulingError
                 );
             } else if (androidPushRegistrationManager.hasPendingRevocationAuthority(
@@ -2340,8 +2368,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     () -> androidPushRegistrationManager.onAuthenticated(authToken)
                 );
             }
+            return androidPushRegistrationManager.requiresTokenRotation();
         } catch (TokenStorageException exception) {
-            androidPushRegistrationManager.clearRuntime(null);
             throw new IllegalStateException(
                 "Failed to restore protected Android push binding",
                 exception

@@ -886,7 +886,11 @@
             return;
           }
 
-          await retainLegacyAndroidPushBrowserState(restored.apiOrigin);
+          try {
+            await retainLegacyAndroidPushBrowserState(restored.apiOrigin);
+          } catch {
+            console.warn("Failed to retain legacy Android push cleanup state.");
+          }
 
           runtimeState.pendingBootstrap = null;
           runtimeState.configured = true;

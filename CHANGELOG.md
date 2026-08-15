@@ -79,7 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input-free retry that refreshes the Firebase token. The packaged bridge
   removes obsolete browser token and timestamp keys without reading their
   values, while a legacy installation UUID is transferred once into encrypted
-  native revocation state before its browser key is deleted. It fails fast when
+  native revocation state before its browser key is deleted. Failed legacy
+  retention now preserves both the restored runtime and browser migration state
+  for retry. Cold-start revocation work is deferred from plugin initialization,
+  and loss of protected identity state durably requires deleting the previous
+  FCM token before a replacement installation can register. It fails fast when
   its required native push contract is incomplete, removes its lifecycle
   listener on page teardown, disables Capacitor bridge-payload logging in every
   build type, and no longer publishes token events, registration payloads, or a

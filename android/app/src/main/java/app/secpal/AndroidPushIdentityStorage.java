@@ -19,6 +19,8 @@ import java.util.UUID;
 final class AndroidPushIdentityStorage {
     static final String STATE_CIPHERTEXT_KEY = "android_push_state_ciphertext";
     static final String STATE_IV_KEY = "android_push_state_iv";
+    static final String TOKEN_ROTATION_REQUIRED_KEY =
+        "android_push_token_rotation_required";
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
@@ -547,7 +549,7 @@ final class AndroidPushIdentityStorage {
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(updated);
+        save(updated, true);
         return updated;
     }
 
@@ -672,8 +674,15 @@ final class AndroidPushIdentityStorage {
     synchronized State load() throws TokenStorageException {
         String ciphertext = preferences.getString(STATE_CIPHERTEXT_KEY, null);
         String initializationVector = preferences.getString(STATE_IV_KEY, null);
-        if (ciphertext == null || initializationVector == null) {
+        if (ciphertext == null && initializationVector == null) {
             return null;
+        }
+        if (ciphertext == null || initializationVector == null) {
+            invalidateIdentityForTokenRotation();
+            throw new TokenStorageException(
+                "Failed to decode Android push identity",
+                new IllegalStateException("Incomplete Android push identity state")
+            );
         }
 
         try {
@@ -746,21 +755,26 @@ final class AndroidPushIdentityStorage {
                 json.optBoolean("reconfigurationRequired", false)
             );
         } catch (JSONException | IllegalArgumentException exception) {
-            clear();
+            invalidateIdentityForTokenRotation();
             throw new TokenStorageException(
                 "Failed to decode Android push identity",
                 exception
             );
         } catch (TokenStorageException exception) {
-            clear();
+            invalidateIdentityForTokenRotation();
             throw exception;
         }
+    }
+
+    synchronized boolean requiresTokenRotation() {
+        return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
     }
 
     synchronized void clear() {
         preferences.edit()
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
+            .remove(TOKEN_ROTATION_REQUIRED_KEY)
             .apply();
     }
 
@@ -773,12 +787,20 @@ final class AndroidPushIdentityStorage {
     }
 
     private void save(State state) throws TokenStorageException {
+        save(state, false);
+    }
+
+    private void save(State state, boolean completeTokenRotation)
+        throws TokenStorageException {
         try {
             EncryptedTokenPayload encrypted = cipher.encrypt(state.toJson().toString());
-            if (!preferences.edit()
+            SharedPreferences.Editor editor = preferences.edit()
                 .putString(STATE_CIPHERTEXT_KEY, encrypted.getCiphertext())
-                .putString(STATE_IV_KEY, encrypted.getInitializationVector())
-                .commit()) {
+                .putString(STATE_IV_KEY, encrypted.getInitializationVector());
+            if (completeTokenRotation) {
+                editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
+            }
+            if (!editor.commit()) {
                 throw new TokenStorageException(
                     "Failed to persist Android push identity",
                     new IllegalStateException("SharedPreferences commit failed")
@@ -788,6 +810,19 @@ final class AndroidPushIdentityStorage {
             throw new TokenStorageException(
                 "Failed to encode Android push identity",
                 exception
+            );
+        }
+    }
+
+    private void invalidateIdentityForTokenRotation() throws TokenStorageException {
+        if (!preferences.edit()
+            .remove(STATE_CIPHERTEXT_KEY)
+            .remove(STATE_IV_KEY)
+            .putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true)
+            .commit()) {
+            throw new TokenStorageException(
+                "Failed to invalidate unreadable Android push identity",
+                new IllegalStateException("SharedPreferences commit failed")
             );
         }
     }

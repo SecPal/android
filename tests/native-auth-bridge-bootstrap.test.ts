@@ -2207,6 +2207,7 @@ describe("native auth bridge bootstrap injection", () => {
   async function createAndroidPushLifecycleSandbox(
     options: {
       includeResetUi?: boolean;
+      legacyRetentionFailure?: Error;
       localStorage?: ReturnType<typeof createMockStorage>;
       sessionStorage?: ReturnType<typeof createMockStorage>;
       runtimeBootstrap?: ReturnType<typeof createCustomerAndroidPushBootstrap>;
@@ -2271,6 +2272,11 @@ describe("native auth bridge bootstrap injection", () => {
         }
       ),
     };
+    if (options.legacyRetentionFailure) {
+      plugin.retainLegacyAndroidPushInstallation.mockRejectedValue(
+        options.legacyRetentionFailure
+      );
+    }
     const document = new MockDocument();
     if (options.includeResetUi) {
       appendMockLoginFooter(document);
@@ -2402,6 +2408,43 @@ describe("native auth bridge bootstrap injection", () => {
     expect(JSON.stringify(status)).not.toContain(legacyToken);
     expect(JSON.stringify(status)).not.toContain(legacyInstallationId);
     expect(bridge).not.toHaveProperty("retainLegacyAndroidPushInstallation");
+  });
+
+  it("preserves the restored runtime when legacy push retention fails", async () => {
+    const legacyInstallationId = "11111111-1111-4111-8111-111111111111";
+    const localStorage = createMockStorage({
+      "secpal-android-push-installation:https%3A%2F%2Fcustomer-api.example":
+        legacyInstallationId,
+      "tenant-cache": "customer-a",
+    });
+    const sessionStorage = createMockStorage({
+      [runtimeBootstrapStorageKey]: buildStoredRuntimeBootstrap(
+        createCustomerAndroidPushBootstrap()
+      ),
+      "tenant-session": "customer-a-session",
+    });
+
+    const { plugin, sandbox } = await createAndroidPushLifecycleSandbox({
+      legacyRetentionFailure: new Error("protected push storage unavailable"),
+      localStorage,
+      sessionStorage,
+    });
+    const runtimeState = sandbox.__SecPalRuntimeDiscoveryState as {
+      configured: boolean;
+      apiOrigin: string | null;
+    };
+
+    expect(plugin.retainLegacyAndroidPushInstallation).toHaveBeenCalledOnce();
+    expect(plugin.confirmRuntimeReset).not.toHaveBeenCalled();
+    expect(runtimeState.configured).toBe(true);
+    expect(runtimeState.apiOrigin).toBe("https://customer-api.example");
+    expect(
+      localStorage.getItem(
+        "secpal-android-push-installation:https%3A%2F%2Fcustomer-api.example"
+      )
+    ).toBe(legacyInstallationId);
+    expect(localStorage.getItem("tenant-cache")).toBe("customer-a");
+    expect(sessionStorage.getItem("tenant-session")).toBe("customer-a-session");
   });
 
   it("exposes an intentional native retry without accepting identity input", async () => {

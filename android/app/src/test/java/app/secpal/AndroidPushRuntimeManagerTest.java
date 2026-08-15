@@ -39,6 +39,29 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void applyRotatesTokenBeforeRequestWhenProtectedIdentityWasLost() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.apply(
+            new AndroidPushRuntimeMetadata(
+                "fcm",
+                3,
+                "public-client-api-key-demo-1234567890",
+                "secpal-demo-push",
+                "1:1234567890:android:abcdef1234567890",
+                "1234567890"
+            ),
+            true
+        );
+
+        assertEquals(1, backend.initializeCallCount);
+        assertEquals(0, backend.ensureMessagingCallCount);
+        assertEquals(1, backend.rotateMessagingCallCount);
+        assertSame(backend.lastInitializedApp, backend.lastRotatedMessagingApp);
+    }
+
+    @Test
     public void applyClearsExistingRuntimeWhenDeploymentDisablesPush() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
         backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
@@ -153,6 +176,26 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void defaultFirebaseBackendRoutesRequiredTokenRotation() {
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        FakeMessagingListener messagingListener = new FakeMessagingListener();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                messagingListener
+            );
+
+        backend.rotateMessagingToken(
+            new FakeFirebaseApp(new FakeFirebaseBackend(), "secpal-runtime-push")
+        );
+
+        assertEquals("secpal-runtime-push", messagingClient.lastRotatedAppName);
+        assertEquals("fcm-token-demo", messagingListener.lastReceivedToken);
+        assertEquals("secpal-runtime-push", messagingListener.lastReceivedAppName);
+    }
+
+    @Test
     public void defaultFirebaseBackendSurfacesTokenRequestFailureToListener() {
         RuntimeException tokenFailure = new RuntimeException("token-request-failed");
         FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
@@ -224,8 +267,10 @@ public class AndroidPushRuntimeManagerTest {
         FakeFirebaseApp lastInitializedApp;
         AndroidPushRuntimeMetadata lastInitializedMetadata;
         AndroidPushRuntimeManager.FirebaseAppHandle lastEnsuredMessagingApp;
+        AndroidPushRuntimeManager.FirebaseAppHandle lastRotatedMessagingApp;
         int initializeCallCount;
         int ensureMessagingCallCount;
+        int rotateMessagingCallCount;
         int deleteCallCount;
         RuntimeException nextInitializeFailure;
 
@@ -258,6 +303,12 @@ public class AndroidPushRuntimeManagerTest {
             ensureMessagingCallCount += 1;
             lastEnsuredMessagingApp = app;
         }
+
+        @Override
+        public void rotateMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            rotateMessagingCallCount += 1;
+            lastRotatedMessagingApp = app;
+        }
     }
 
     private static class FakeFirebaseApp implements AndroidPushRuntimeManager.FirebaseAppHandle {
@@ -284,6 +335,7 @@ public class AndroidPushRuntimeManagerTest {
     private static final class FakeFirebaseMessagingClient
         implements AndroidPushRuntimeManager.FirebaseMessagingClient {
         private String lastRequestedAppName;
+        private String lastRotatedAppName;
         private RuntimeException failure;
         private RuntimeException thrownFailure;
         private boolean holdCallback;
@@ -317,6 +369,15 @@ public class AndroidPushRuntimeManagerTest {
             }
 
             listener.onTokenReceived("fcm-token-demo");
+        }
+
+        @Override
+        public void rotateToken(
+            String appName,
+            AndroidPushRuntimeManager.MessagingTokenListener listener
+        ) {
+            lastRotatedAppName = appName;
+            requestToken(appName, listener);
         }
     }
 

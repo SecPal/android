@@ -43,6 +43,8 @@ final class AndroidPushRuntimeManager {
 
     interface FirebaseMessagingClient {
         void requestToken(String appName, MessagingTokenListener listener);
+
+        void rotateToken(String appName, MessagingTokenListener listener);
     }
 
     interface FirebaseBackend {
@@ -53,6 +55,8 @@ final class AndroidPushRuntimeManager {
         void cancelPendingTokenRequest();
 
         void ensureMessaging(FirebaseAppHandle app);
+
+        void rotateMessagingToken(FirebaseAppHandle app);
     }
 
     private final FirebaseBackend firebaseBackend;
@@ -72,6 +76,13 @@ final class AndroidPushRuntimeManager {
     }
 
     void apply(AndroidPushRuntimeMetadata metadata) {
+        apply(metadata, false);
+    }
+
+    void apply(
+        AndroidPushRuntimeMetadata metadata,
+        boolean tokenRotationRequired
+    ) {
         firebaseBackend.cancelPendingTokenRequest();
 
         FirebaseAppHandle existingRuntimeApp = firebaseBackend.findRuntimeApp();
@@ -85,7 +96,11 @@ final class AndroidPushRuntimeManager {
         }
 
         FirebaseAppHandle initializedApp = firebaseBackend.initialize(metadata);
-        firebaseBackend.ensureMessaging(initializedApp);
+        if (tokenRotationRequired) {
+            firebaseBackend.rotateMessagingToken(initializedApp);
+        } else {
+            firebaseBackend.ensureMessaging(initializedApp);
+        }
     }
 
     void applyWithRollback(
@@ -109,6 +124,14 @@ final class AndroidPushRuntimeManager {
         FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
         if (runtimeApp != null) {
             firebaseBackend.ensureMessaging(runtimeApp);
+        }
+    }
+
+    void rotateToken() {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp != null) {
+            firebaseBackend.rotateMessagingToken(runtimeApp);
         }
     }
 
@@ -167,33 +190,66 @@ final class AndroidPushRuntimeManager {
 
         @Override
         public void ensureMessaging(FirebaseAppHandle app) {
+            requestMessagingToken(app, false);
+        }
+
+        @Override
+        public void rotateMessagingToken(FirebaseAppHandle app) {
+            requestMessagingToken(app, true);
+        }
+
+        private void requestMessagingToken(
+            FirebaseAppHandle app,
+            boolean rotateToken
+        ) {
             String appName = app.getName();
             int generation = requestGeneration.get();
-
-            messagingClient.requestToken(
-                appName,
-                new MessagingTokenListener() {
-                    @Override
-                    public void onTokenReceived(String token) {
-                        if (requestGeneration.get() == generation) {
-                            messagingListener.onTokenReceived(appName, token);
-                        }
-                    }
-
-                    @Override
-                    public void onTokenError(Exception exception) {
-                        if (requestGeneration.get() == generation) {
-                            messagingListener.onTokenError(appName, exception);
-                        }
+            MessagingTokenListener listener = new MessagingTokenListener() {
+                @Override
+                public void onTokenReceived(String token) {
+                    if (requestGeneration.get() == generation) {
+                        messagingListener.onTokenReceived(appName, token);
                     }
                 }
-            );
+
+                @Override
+                public void onTokenError(Exception exception) {
+                    if (requestGeneration.get() == generation) {
+                        messagingListener.onTokenError(appName, exception);
+                    }
+                }
+            };
+            if (rotateToken) {
+                messagingClient.rotateToken(appName, listener);
+            } else {
+                messagingClient.requestToken(appName, listener);
+            }
         }
     }
 
     static final class DefaultFirebaseMessagingClient implements FirebaseMessagingClient {
         @Override
         public void requestToken(String appName, MessagingTokenListener listener) {
+            resolveMessaging(appName)
+                .getToken()
+                .addOnSuccessListener(listener::onTokenReceived)
+                .addOnFailureListener(listener::onTokenError);
+        }
+
+        @Override
+        public void rotateToken(String appName, MessagingTokenListener listener) {
+            FirebaseMessaging messaging = resolveMessaging(appName);
+            messaging
+                .deleteToken()
+                .addOnSuccessListener(ignored -> messaging
+                    .getToken()
+                    .addOnSuccessListener(listener::onTokenReceived)
+                    .addOnFailureListener(listener::onTokenError)
+                )
+                .addOnFailureListener(listener::onTokenError);
+        }
+
+        private static FirebaseMessaging resolveMessaging(String appName) {
             FirebaseApp namedApp = FirebaseApp.getInstance(appName);
             FirebaseMessaging messaging = namedApp.get(FirebaseMessaging.class);
 
@@ -202,11 +258,7 @@ final class AndroidPushRuntimeManager {
                     "Failed to resolve Firebase Messaging for Android push runtime app " + appName
                 );
             }
-
-            messaging
-                .getToken()
-                .addOnSuccessListener(listener::onTokenReceived)
-                .addOnFailureListener(listener::onTokenError);
+            return messaging;
         }
     }
 

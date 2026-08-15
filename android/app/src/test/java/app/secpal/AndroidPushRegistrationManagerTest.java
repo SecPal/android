@@ -124,7 +124,9 @@ public class AndroidPushRegistrationManagerTest {
             .putString(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY, "corrupt")
             .putString(AndroidPushIdentityStorage.STATE_IV_KEY, "corrupt")
             .commit();
-        AndroidPushIdentityStorage storage = createStorage(preferences);
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        AndroidPushIdentityStorage storage = createStorage(preferences, cipher, ids);
         AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
             storage,
             new RecordingBackend()
@@ -134,7 +136,56 @@ public class AndroidPushRegistrationManagerTest {
 
         assertEquals("awaiting_token", manager.getStatus().getString("state"));
         assertTrue(manager.getStatus().getBool("configured"));
+        assertTrue(manager.requiresTokenRotation());
         assertEquals(API_ORIGIN, storage.load().apiOrigin());
+
+        AndroidPushRegistrationManager restarted = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            new RecordingBackend()
+        );
+        restarted.restoreRuntime(API_ORIGIN, pushMetadata(3));
+        assertTrue(restarted.requiresTokenRotation());
+
+        restarted.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+
+        assertFalse(restarted.requiresTokenRotation());
+    }
+
+    @Test
+    public void coldStartRestoresPendingRuntimeCleanupWithoutNetworkIo()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        manager.prepareRuntimeReset("auth-token");
+
+        AndroidPushRegistrationManager restarted = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+
+        assertTrue(restarted.restorePendingRuntimeClear());
+        assertEquals(0, backend.unregisterCount);
+        assertEquals("retry_pending", restarted.getStatus().getString("state"));
+        assertFalse(restarted.getStatus().getBool("configured"));
+
+        assertTrue(restarted.clearRuntime(null));
+        assertEquals(1, backend.unregisterCount);
     }
 
     @Test
@@ -161,6 +212,7 @@ public class AndroidPushRegistrationManagerTest {
         }
 
         assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertTrue(manager.requiresTokenRotation());
         assertEquals(API_ORIGIN, storage.load().apiOrigin());
 
         manager.onTokenReceived(
@@ -170,6 +222,7 @@ public class AndroidPushRegistrationManagerTest {
         );
 
         assertEquals("registered", manager.getStatus().getString("state"));
+        assertFalse(manager.requiresTokenRotation());
         assertEquals(1, backend.lifecycleEvents.size());
     }
 
@@ -1760,14 +1813,15 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     private static final class InMemorySharedPreferences implements SharedPreferences {
-        private final Map<String, String> values = new HashMap<>();
+        private final Map<String, Object> values = new HashMap<>();
 
         @Override
         public Map<String, ?> getAll() { return values; }
 
         @Override
         public String getString(String key, String defaultValue) {
-            return values.getOrDefault(key, defaultValue);
+            Object value = values.get(key);
+            return value instanceof String ? (String) value : defaultValue;
         }
 
         @Override
@@ -1822,7 +1876,8 @@ public class AndroidPushRegistrationManagerTest {
 
                 @Override
                 public Editor putBoolean(String key, boolean value) {
-                    throw new UnsupportedOperationException();
+                    values.put(key, value);
+                    return this;
                 }
             };
         }
@@ -1849,7 +1904,8 @@ public class AndroidPushRegistrationManagerTest {
 
         @Override
         public boolean getBoolean(String key, boolean defaultValue) {
-            throw new UnsupportedOperationException();
+            Object value = values.get(key);
+            return value instanceof Boolean ? (Boolean) value : defaultValue;
         }
 
         @Override
