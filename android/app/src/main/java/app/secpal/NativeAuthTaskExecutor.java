@@ -68,6 +68,7 @@ class NativeAuthTaskExecutor {
     private final AtomicLong sessionGeneration = new AtomicLong();
     private final AtomicInteger reservedBufferedBytes = new AtomicInteger();
     private final AtomicInteger sessionTransitions = new AtomicInteger();
+    private final AtomicInteger activeGenerationMutations = new AtomicInteger();
     private volatile boolean authenticatedWorkPaused;
 
     NativeAuthTaskExecutor() {
@@ -258,6 +259,9 @@ class NativeAuthTaskExecutor {
             if (sessionTransitions.get() > 0) {
                 return SubmitResult.TRANSITION_IN_PROGRESS;
             }
+            if (activeGenerationMutations.get() > 0) {
+                return SubmitResult.TRANSITION_IN_PROGRESS;
+            }
 
             int bufferReservationBytes = reserveManagedBytes(requestBodyBytes);
             if (bufferReservationBytes < 0) {
@@ -309,14 +313,22 @@ class NativeAuthTaskExecutor {
         String requestId,
         CheckedMutation<E> mutation
     ) throws E {
+        ManagedTask task;
         synchronized (generationLock) {
-            ManagedTask task = authenticatedTasks.get(requestId);
+            task = authenticatedTasks.get(requestId);
             if (task == null || task.isCancelled()
                 || task.submittedGeneration != generation.get()) {
                 return false;
             }
+            task.beginProtectedMutation();
+            activeGenerationMutations.incrementAndGet();
+        }
+        try {
             mutation.run();
             return true;
+        } finally {
+            activeGenerationMutations.decrementAndGet();
+            task.endProtectedMutation();
         }
     }
 
@@ -365,8 +377,13 @@ class NativeAuthTaskExecutor {
                 || generation.get() != expectedGeneration) {
                 return false;
             }
+            activeGenerationMutations.incrementAndGet();
+        }
+        try {
             mutation.run();
             return true;
+        } finally {
+            activeGenerationMutations.decrementAndGet();
         }
     }
 
@@ -425,14 +442,14 @@ class NativeAuthTaskExecutor {
                 return false;
             }
             sessionTransitions.incrementAndGet();
-            try {
-                invalidateAuthenticatedLocked("SESSION_INVALIDATED");
-                mutation.run();
-                completion.run();
-                return true;
-            } finally {
-                endSessionTransition();
-            }
+            invalidateAuthenticatedLocked("SESSION_INVALIDATED");
+        }
+        try {
+            mutation.run();
+            completion.run();
+            return true;
+        } finally {
+            endSessionTransition();
         }
     }
 
@@ -747,6 +764,7 @@ class NativeAuthTaskExecutor {
         private final AtomicBoolean cancellationNotified = new AtomicBoolean();
         private final AtomicBoolean reservationReleased = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
+        private final AtomicInteger protectedMutationDepth = new AtomicInteger();
         private volatile Thread runner;
         private volatile ScheduledFuture<?> deadline;
 
@@ -838,7 +856,9 @@ class NativeAuthTaskExecutor {
                 cancelDeadline();
                 Thread runningThread = runner;
                 if (runningThread != null) {
-                    notifyCancellation();
+                    if (!hasProtectedMutation()) {
+                        notifyCancellation();
+                    }
                     runningThread.interrupt();
                 } else {
                     notifyCancellation();
@@ -878,6 +898,20 @@ class NativeAuthTaskExecutor {
             if (reservationReleased.compareAndSet(false, true)) {
                 releaseBufferedBytes(reservedBytes);
             }
+        }
+
+        private void beginProtectedMutation() {
+            protectedMutationDepth.incrementAndGet();
+        }
+
+        private void endProtectedMutation() {
+            if (protectedMutationDepth.decrementAndGet() == 0 && isCancelled()) {
+                notifyCancellation();
+            }
+        }
+
+        private boolean hasProtectedMutation() {
+            return protectedMutationDepth.get() > 0;
         }
 
         private boolean isCancelled() {

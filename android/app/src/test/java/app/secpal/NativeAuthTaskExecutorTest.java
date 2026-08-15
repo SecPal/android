@@ -11,7 +11,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +24,142 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 public class NativeAuthTaskExecutorTest {
+
+    @Test
+    public void generationGuardDoesNotBlockLifecycleInvalidationDuringMutation()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+
+        try {
+            long generation = taskExecutor.captureGeneration();
+            Future<Boolean> guardedMutation = workers.submit(() ->
+                taskExecutor.runIfGenerationCurrent(generation, () -> {
+                    mutationStarted.countDown();
+                    releaseMutation.await();
+                })
+            );
+            assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
+
+            Future<?> pause = workers.submit(taskExecutor::pauseAuthenticated);
+            pause.get(1, TimeUnit.SECONDS);
+
+            releaseMutation.countDown();
+            assertTrue(guardedMutation.get(2, TimeUnit.SECONDS));
+        } finally {
+            releaseMutation.countDown();
+            workers.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void authenticatedMutationDoesNotBlockLifecycleInvalidation()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService lifecycle = Executors.newSingleThreadExecutor();
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        CountDownLatch taskFinished = new CountDownLatch(1);
+        CountDownLatch cancellationSettled = new CountDownLatch(1);
+        AtomicBoolean mutationCompleted = new AtomicBoolean(false);
+        AtomicBoolean cancellationObservedCompletedMutation = new AtomicBoolean(false);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitAuthenticated(
+                    "blocking-authenticated-mutation",
+                    0,
+                    () -> {
+                        try {
+                            taskExecutor.completeAuthenticatedMutation(
+                                "blocking-authenticated-mutation",
+                                () -> {
+                                    mutationStarted.countDown();
+                                    while (releaseMutation.getCount() > 0) {
+                                        try {
+                                            releaseMutation.await();
+                                        } catch (InterruptedException ignored) {
+                                            // Model a storage mutation that cannot stop midway.
+                                        }
+                                    }
+                                    mutationCompleted.set(true);
+                                }
+                            );
+                        } finally {
+                            taskFinished.countDown();
+                        }
+                    },
+                    reason -> {
+                        cancellationObservedCompletedMutation.set(
+                            mutationCompleted.get()
+                        );
+                        cancellationSettled.countDown();
+                    }
+                )
+            );
+            assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
+
+            Future<?> pause = lifecycle.submit(taskExecutor::pauseAuthenticated);
+            pause.get(1, TimeUnit.SECONDS);
+            assertFalse(cancellationSettled.await(100, TimeUnit.MILLISECONDS));
+
+            releaseMutation.countDown();
+            assertTrue(taskFinished.await(2, TimeUnit.SECONDS));
+            assertTrue(cancellationSettled.await(2, TimeUnit.SECONDS));
+            assertTrue(cancellationObservedCompletedMutation.get());
+        } finally {
+            releaseMutation.countDown();
+            lifecycle.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void credentialReplacementKeepsTransitionsClosedWithoutHoldingMonitor()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+
+        try {
+            long generation = taskExecutor.captureGeneration();
+            Future<Boolean> replacement = workers.submit(() ->
+                taskExecutor.completeCredentialReplacement(
+                    generation,
+                    () -> {
+                        replacementStarted.countDown();
+                        releaseReplacement.await();
+                    },
+                    () -> {}
+                )
+            );
+            assertTrue(replacementStarted.await(2, TimeUnit.SECONDS));
+
+            Future<NativeAuthTaskExecutor.SubmitResult> competingTransition =
+                workers.submit(() -> taskExecutor.submitSessionTransition(
+                    "competing-transition",
+                    0,
+                    () -> {},
+                    reason -> {}
+                ));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
+                competingTransition.get(1, TimeUnit.SECONDS)
+            );
+
+            releaseReplacement.countDown();
+            assertTrue(replacement.get(2, TimeUnit.SECONDS));
+        } finally {
+            releaseReplacement.countDown();
+            workers.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void memoryBudgetAccountsForBase64AndBridgeRepresentations() {
@@ -158,21 +296,28 @@ public class NativeAuthTaskExecutorTest {
             }));
             assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
 
-            Thread transitionSubmitter = new Thread(() -> assertEquals(
-                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
                 taskExecutor.submitSessionTransition(
                     "ordered-push-logout",
                     0,
                     transitionStarted::countDown,
                     reason -> {}
                 )
-            ));
-            transitionSubmitter.start();
-
+            );
             assertFalse(transitionStarted.await(100, TimeUnit.MILLISECONDS));
             releaseMutation.countDown();
+            assertTrue(taskExecutor.awaitIdleForTest(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "ordered-push-logout-retry",
+                    0,
+                    transitionStarted::countDown,
+                    reason -> {}
+                )
+            );
             assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
-            transitionSubmitter.join(2_000L);
         } finally {
             releaseMutation.countDown();
             taskExecutor.shutdownNow();

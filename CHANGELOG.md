@@ -51,7 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot retain the bearer during logout, invalidation during
   previous-registration cleanup returns safely to token acquisition, and
   registration idempotency includes the authenticated credential and installed
-  app version. React can read only abstract registration state or request an
+  app version. Startup now recreates a validated binding after corrupt protected
+  push state, never sends a new tenant's bearer to a previous tenant, and waits
+  for an available same-tenant credential before retrying server cleanup. Push
+  synchronization and explicit retries remain ordered with authentication and
+  runtime transitions without holding the lifecycle monitor during network I/O;
+  foreground refresh admission failures no longer invent token failures, and
+  abstract status fields are published atomically. Device instrumentation now
+  preserves unrelated native preferences and any pre-existing protected push
+  state. React can read only abstract registration state or request an
   input-free retry that refreshes the Firebase token. The packaged bridge
   invalidates the obsolete browser-storage
   keys without reading or migrating their values, fails fast when its required

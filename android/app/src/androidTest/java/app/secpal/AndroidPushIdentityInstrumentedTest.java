@@ -37,7 +37,18 @@ public class AndroidPushIdentityInstrumentedTest {
             PREFERENCES_NAME,
             Context.MODE_PRIVATE
         );
-        assertTrue(preferences.edit().clear().commit());
+        String previousCiphertext = preferences.getString(
+            AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY,
+            null
+        );
+        String previousInitializationVector = preferences.getString(
+            AndroidPushIdentityStorage.STATE_IV_KEY,
+            null
+        );
+        assertTrue(preferences.edit()
+            .remove(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY)
+            .remove(AndroidPushIdentityStorage.STATE_IV_KEY)
+            .commit());
 
         try {
             AndroidPushIdentityStorage storage = new AndroidPushIdentityStorage(context);
@@ -73,7 +84,24 @@ public class AndroidPushIdentityInstrumentedTest {
             assertNotEquals(initial.installationId(), replacement.installationId());
             assertNull(replacement.token());
         } finally {
-            assertTrue(preferences.edit().clear().commit());
+            SharedPreferences.Editor restore = preferences.edit();
+            if (previousCiphertext == null) {
+                restore.remove(AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY);
+            } else {
+                restore.putString(
+                    AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY,
+                    previousCiphertext
+                );
+            }
+            if (previousInitializationVector == null) {
+                restore.remove(AndroidPushIdentityStorage.STATE_IV_KEY);
+            } else {
+                restore.putString(
+                    AndroidPushIdentityStorage.STATE_IV_KEY,
+                    previousInitializationVector
+                );
+            }
+            assertTrue(restore.commit());
         }
     }
 }

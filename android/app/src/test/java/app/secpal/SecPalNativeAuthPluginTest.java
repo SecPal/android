@@ -1259,6 +1259,64 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void rejectedForegroundRefreshDoesNotInventATokenFailure()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        AtomicInteger refreshes = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "foreground-refresh-rejection",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+
+            assertFalse(SecPalNativeAuthPlugin.submitForegroundPushRefresh(
+                taskExecutor,
+                refreshes::incrementAndGet
+            ));
+            assertEquals(0, refreshes.get());
+        } finally {
+            releaseTransition.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void previousRegistrationCleanupWaitsForAnAvailableCredential() {
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            null
+        ));
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            "  "
+        ));
+        assertTrue(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            "auth-token"
+        ));
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            false,
+            "auth-token"
+        ));
+    }
+
+    @Test
     public void logoutClearsCredentialAfterPushCleanupEvenWhenPushStateIsCorrupt()
         throws Exception {
         List<String> events = new ArrayList<>();
@@ -1309,6 +1367,27 @@ public class SecPalNativeAuthPluginTest {
             Arrays.asList("refresh-token", "sync-registration"),
             events
         );
+    }
+
+    @Test
+    public void explicitPushRetryCannotCrossASessionInvalidation() throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+
+        try {
+            long generation = taskExecutor.captureGeneration();
+            taskExecutor.invalidateAuthenticated("SESSION_INVALIDATED");
+
+            assertFalse(SecPalNativeAuthPlugin.retryAndroidPushRegistrationIfCurrent(
+                taskExecutor,
+                generation,
+                () -> events.add("refresh-token"),
+                () -> events.add("sync-registration")
+            ));
+            assertTrue(events.isEmpty());
+        } finally {
+            taskExecutor.shutdownNow();
+        }
     }
 
     @Test
