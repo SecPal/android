@@ -115,7 +115,10 @@ public class LiveNativeAuthInstrumentedTest {
                     "})()"
                 )
             );
-            assertEquals("\"push:disabled,false,true\"", awaitAbstractPushStatus(scenario));
+            assertEquals(
+                "\"push:registered,true,true,none\"",
+                awaitAbstractPushStatus(scenario, "registered")
+            );
 
             assertEquals(
                 "\"logout-started\"",
@@ -134,7 +137,10 @@ public class LiveNativeAuthInstrumentedTest {
                 "\"logout-complete\"",
                 awaitJavascriptResult(scenario, "window.__secpalLiveLogout")
             );
-            assertEquals("\"push:disabled,false,true\"", awaitAbstractPushStatus(scenario));
+            assertEquals(
+                "\"push:awaiting_auth,true,true,none\"",
+                awaitAbstractPushStatus(scenario, "awaiting_auth")
+            );
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
     }
@@ -213,7 +219,8 @@ public class LiveNativeAuthInstrumentedTest {
     }
 
     private static String awaitAbstractPushStatus(
-        ActivityScenario<MainActivity> scenario
+        ActivityScenario<MainActivity> scenario,
+        String expectedState
     ) throws Exception {
         assertEquals(
             "\"push-read-started\"",
@@ -221,17 +228,27 @@ public class LiveNativeAuthInstrumentedTest {
                 scenario,
                 "(function () {" +
                 "window.__secpalLivePush = null;" +
+                "var readPushStatus = function () {" +
                 "Promise.resolve(window.SecPalNativeAuthBridge" +
-                ".getAndroidPushRegistrationState())" +
-                ".then(function (status) {" +
+                ".getAndroidPushRegistrationState()).then(function (status) {" +
+                "if (status.state !== " + JSONObject.quote(expectedState) + " &&" +
+                "status.state !== 'retry_pending' &&" +
+                "status.state !== 'reconfiguration_required' &&" +
+                "status.state !== 'disabled') {" +
+                "setTimeout(readPushStatus, 250);" +
+                "return;" +
+                "}" +
                 "var fieldsClean = Object.keys(status).every(function (key) {" +
                 "return !/(token|installation|timestamp|payload|apiOrigin|metadataRevision)/i" +
                 ".test(key);" +
                 "});" +
                 "window.__secpalLivePush = 'push:' + status.state + ',' +" +
-                "status.configured + ',' + fieldsClean;" +
+                "status.configured + ',' + fieldsClean + ',' +" +
+                "(status.failureCode || 'none');" +
                 "})" +
                 ".catch(function () { window.__secpalLivePush = 'push-error'; });" +
+                "};" +
+                "readPushStatus();" +
                 "return 'push-read-started';" +
                 "})()"
             )

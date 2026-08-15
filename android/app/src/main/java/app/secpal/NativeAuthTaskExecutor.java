@@ -187,6 +187,24 @@ class NativeAuthTaskExecutor {
         Consumer<String> cancellationHandler,
         Consumer<RuntimeException> failureHandler
     ) {
+        return submitAuthenticated(
+            requestId,
+            requestBodyBytes,
+            job,
+            reason -> {},
+            cancellationHandler,
+            failureHandler
+        );
+    }
+
+    SubmitResult submitAuthenticated(
+        String requestId,
+        int requestBodyBytes,
+        Runnable job,
+        Consumer<String> cancellationAction,
+        Consumer<String> cancellationHandler,
+        Consumer<RuntimeException> failureHandler
+    ) {
         synchronized (generationLock) {
             if (authenticatedExecutorService.isShutdown()) {
                 return SubmitResult.SHUTDOWN;
@@ -202,7 +220,7 @@ class NativeAuthTaskExecutor {
                 requestBodyBytes,
                 false,
                 job,
-                reason -> {},
+                cancellationAction,
                 cancellationHandler,
                 failureHandler
             );
@@ -408,8 +426,23 @@ class NativeAuthTaskExecutor {
     ) throws E {
         return completeCredentialReplacement(
             expectedGeneration,
+            mutation,
+            () -> {},
+            completion
+        );
+    }
+
+    <E extends Exception> boolean completeCredentialReplacement(
+        long expectedGeneration,
+        CheckedMutation<E> mutation,
+        CheckedMutation<E> rollback,
+        Runnable completion
+    ) throws E {
+        return completeCredentialReplacement(
+            expectedGeneration,
             false,
             mutation,
+            rollback,
             completion
         );
     }
@@ -423,6 +456,22 @@ class NativeAuthTaskExecutor {
             expectedSessionGeneration,
             true,
             mutation,
+            () -> {},
+            completion
+        );
+    }
+
+    <E extends Exception> boolean completeSessionCredentialReplacement(
+        long expectedSessionGeneration,
+        CheckedMutation<E> mutation,
+        CheckedMutation<E> rollback,
+        Runnable completion
+    ) throws E {
+        return completeCredentialReplacement(
+            expectedSessionGeneration,
+            true,
+            mutation,
+            rollback,
             completion
         );
     }
@@ -431,8 +480,11 @@ class NativeAuthTaskExecutor {
         long expectedGeneration,
         boolean sessionOnly,
         CheckedMutation<E> mutation,
+        CheckedMutation<E> rollback,
         Runnable completion
     ) throws E {
+        long replacementGeneration;
+        long replacementSessionGeneration;
         synchronized (generationLock) {
             if (ordinaryExecutorService.isShutdown()
                 || sessionTransitions.get() > 0
@@ -443,11 +495,24 @@ class NativeAuthTaskExecutor {
             }
             sessionTransitions.incrementAndGet();
             invalidateAuthenticatedLocked("SESSION_INVALIDATED");
+            replacementGeneration = generation.get();
+            replacementSessionGeneration = sessionGeneration.get();
         }
         try {
             mutation.run();
-            completion.run();
-            return true;
+            synchronized (generationLock) {
+                boolean replacementIsCurrent = !ordinaryExecutorService.isShutdown()
+                    && !authenticatedWorkPaused
+                    && (sessionOnly
+                        ? sessionGeneration.get() == replacementSessionGeneration
+                        : generation.get() == replacementGeneration);
+                if (replacementIsCurrent) {
+                    completion.run();
+                    return true;
+                }
+            }
+            rollback.run();
+            return false;
         } finally {
             endSessionTransition();
         }

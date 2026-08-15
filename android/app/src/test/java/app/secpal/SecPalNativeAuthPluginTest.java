@@ -1259,12 +1259,13 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void rejectedForegroundRefreshDoesNotInventATokenFailure()
+    public void rejectedForegroundRefreshPublishesGenericRetryState()
         throws Exception {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
         CountDownLatch transitionStarted = new CountDownLatch(1);
         CountDownLatch releaseTransition = new CountDownLatch(1);
         AtomicInteger refreshes = new AtomicInteger();
+        AtomicInteger retries = new AtomicInteger();
 
         try {
             assertEquals(
@@ -1287,9 +1288,11 @@ public class SecPalNativeAuthPluginTest {
 
             assertFalse(SecPalNativeAuthPlugin.submitForegroundPushRefresh(
                 taskExecutor,
-                refreshes::incrementAndGet
+                refreshes::incrementAndGet,
+                retries::incrementAndGet
             ));
             assertEquals(0, refreshes.get());
+            assertEquals(1, retries.get());
         } finally {
             releaseTransition.countDown();
             taskExecutor.shutdownNow();
@@ -1437,6 +1440,41 @@ public class SecPalNativeAuthPluginTest {
         } finally {
             releasePush.countDown();
             pushCompleted.await(2, TimeUnit.SECONDS);
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void lifecycleCancellationInterruptsAuthenticatedPushScheduling()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch pushStarted = new CountDownLatch(1);
+        CountDownLatch pushCancelled = new CountDownLatch(1);
+        CountDownLatch retryRequired = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    cancellation -> {
+                        pushStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        pushCancelled.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available"),
+                    retryRequired::countDown
+                )
+            );
+            assertTrue(pushStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.invalidateAuthenticated("SESSION_INVALIDATED");
+
+            assertTrue(pushCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(retryRequired.await(2, TimeUnit.SECONDS));
+        } finally {
             taskExecutor.shutdownNow();
         }
     }

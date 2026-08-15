@@ -515,6 +515,42 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void auxiliaryPushJsonResponseUsesTheDedicatedBufferLimit() throws Exception {
+        byte[] oversizedResponse = new byte[
+            NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                oversizedResponse,
+                "application/json"
+            )
+        );
+
+        try {
+            client.requestAuxiliaryJson(
+                "https://api.secpal.dev",
+                "auth-token",
+                "DELETE",
+                "/v1/me/notification-installations/00000000-0000-4000-8000-000000000001",
+                null,
+                null,
+                "application/json",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            throw new AssertionError("Expected oversized auxiliary response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(
+                "Android auth bridge response exceeds the allowed size",
+                exception.getMessage()
+            );
+            assertEquals(0, exception.getStatusCode());
+        }
+    }
+
+    @Test
     public void oversizedUnauthorizedResponsesPreserveAuthenticationStatus()
         throws Exception {
         byte[] oversizedDedicatedResponse = new byte[

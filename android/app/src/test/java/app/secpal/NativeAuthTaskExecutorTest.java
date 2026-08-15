@@ -162,6 +162,120 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
+    public void pausedCredentialReplacementRollsBackBeforeCompletion()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService workers = Executors.newSingleThreadExecutor();
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        AtomicBoolean rolledBack = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        try {
+            long generation = taskExecutor.captureGeneration();
+            Future<Boolean> replacement = workers.submit(() ->
+                taskExecutor.completeCredentialReplacement(
+                    generation,
+                    () -> {
+                        replacementStarted.countDown();
+                        releaseReplacement.await();
+                    },
+                    () -> rolledBack.set(true),
+                    () -> completed.set(true)
+                )
+            );
+            assertTrue(replacementStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.pauseAuthenticated();
+            releaseReplacement.countDown();
+
+            assertFalse(replacement.get(2, TimeUnit.SECONDS));
+            assertTrue(rolledBack.get());
+            assertFalse(completed.get());
+        } finally {
+            releaseReplacement.countDown();
+            workers.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void destroyedCredentialReplacementRollsBackBeforeCompletion()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService workers = Executors.newSingleThreadExecutor();
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        AtomicBoolean rolledBack = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        try {
+            long generation = taskExecutor.captureGeneration();
+            Future<Boolean> replacement = workers.submit(() ->
+                taskExecutor.completeCredentialReplacement(
+                    generation,
+                    () -> {
+                        replacementStarted.countDown();
+                        releaseReplacement.await();
+                    },
+                    () -> rolledBack.set(true),
+                    () -> completed.set(true)
+                )
+            );
+            assertTrue(replacementStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.shutdownNow();
+            releaseReplacement.countDown();
+
+            assertFalse(replacement.get(2, TimeUnit.SECONDS));
+            assertTrue(rolledBack.get());
+            assertFalse(completed.get());
+        } finally {
+            releaseReplacement.countDown();
+            workers.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void pausedSessionCredentialReplacementRollsBackBeforeCompletion()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        ExecutorService workers = Executors.newSingleThreadExecutor();
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        AtomicBoolean rolledBack = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        try {
+            long generation = taskExecutor.captureSessionGeneration();
+            Future<Boolean> replacement = workers.submit(() ->
+                taskExecutor.completeSessionCredentialReplacement(
+                    generation,
+                    () -> {
+                        replacementStarted.countDown();
+                        releaseReplacement.await();
+                    },
+                    () -> rolledBack.set(true),
+                    () -> completed.set(true)
+                )
+            );
+            assertTrue(replacementStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.pauseAuthenticated();
+            releaseReplacement.countDown();
+
+            assertFalse(replacement.get(2, TimeUnit.SECONDS));
+            assertTrue(rolledBack.get());
+            assertFalse(completed.get());
+        } finally {
+            releaseReplacement.countDown();
+            workers.shutdownNow();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void memoryBudgetAccountsForBase64AndBridgeRepresentations() {
         assertEquals(
             NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES * 10,

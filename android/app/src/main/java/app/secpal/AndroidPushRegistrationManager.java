@@ -33,13 +33,15 @@ final class AndroidPushRegistrationManager {
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
-            String lifecycleEvent
+            String lifecycleEvent,
+            NativeAuthHttpClient.CancellationSignal cancellation
         ) throws IOException, NativeAuthHttpException, JSONException;
 
         int unregister(
             String apiOrigin,
             String authToken,
-            String installationId
+            String installationId,
+            NativeAuthHttpClient.CancellationSignal cancellation
         ) throws IOException, NativeAuthHttpException;
     }
 
@@ -101,6 +103,18 @@ final class AndroidPushRegistrationManager {
 
         boolean hasPreviousBindingToRevoke() {
             return changed && previousState != null;
+        }
+
+        boolean hasPreviousRevocationAuthority(String fallbackAuthToken) {
+            return hasPreviousBindingToRevoke()
+                && (hasAuthToken(previousState.pendingRebindAuthToken())
+                    || hasAuthToken(fallbackAuthToken));
+        }
+
+        String previousRevocationAuthToken(String fallbackAuthToken) {
+            return hasAuthToken(previousState.pendingRebindAuthToken())
+                ? previousState.pendingRebindAuthToken()
+                : fallbackAuthToken;
         }
 
         void markPreviousServerRegistrationRevoked() {
@@ -173,7 +187,13 @@ final class AndroidPushRegistrationManager {
         AndroidPushRuntimeMetadata metadata
     ) throws TokenStorageException {
         if (metadata == null) {
-            storage.clear();
+            AndroidPushIdentityStorage.State current = storage.load();
+            boolean preparedDisable = current != null
+                && current.hasPendingRebind()
+                && current.pendingRebindApiOrigin().equals(apiOrigin);
+            if (!preparedDisable) {
+                storage.clear();
+            }
             boundApiOrigin = null;
             boundMetadataRevision = 0;
             setStatus("disabled", null);
@@ -210,9 +230,29 @@ final class AndroidPushRegistrationManager {
         }
     }
 
+    synchronized void prepareRuntimeRebind(
+        String nextApiOrigin,
+        String previousAuthToken
+    ) throws TokenStorageException {
+        storage.prepareRuntimeRebind(nextApiOrigin, previousAuthToken);
+    }
+
+    synchronized void cancelPreparedRuntimeRebind(String expectedApiOrigin)
+        throws TokenStorageException {
+        storage.cancelPreparedRuntimeRebind(expectedApiOrigin);
+    }
+
     synchronized RebindResult rebindRuntime(
         String apiOrigin,
         AndroidPushRuntimeMetadata metadata
+    ) throws TokenStorageException {
+        return rebindRuntime(apiOrigin, metadata, null);
+    }
+
+    synchronized RebindResult rebindRuntime(
+        String apiOrigin,
+        AndroidPushRuntimeMetadata metadata,
+        String previousAuthToken
     ) throws TokenStorageException {
         AndroidPushIdentityStorage.State current = storage.load();
         String previousBoundApiOrigin = boundApiOrigin;
@@ -228,7 +268,22 @@ final class AndroidPushRegistrationManager {
                 && current.apiOrigin().equals(requestedApiOrigin)
                 && current.metadataRevision() == metadata.metadataRevision();
         try {
-            bindRuntime(apiOrigin, metadata);
+            if (metadata == null) {
+                bindRuntime(apiOrigin, null);
+            } else {
+                AndroidPushIdentityStorage.State state = storage.bindRuntime(
+                    apiOrigin,
+                    metadata.metadataRevision(),
+                    previousAuthToken
+                );
+                boundApiOrigin = state.apiOrigin();
+                boundMetadataRevision = state.metadataRevision();
+                if (state.hasPendingRevocation()) {
+                    setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
+                } else {
+                    setStatus(statusForBoundState(state), null);
+                }
+            }
         } catch (TokenStorageException exception) {
             storage.restore(current);
             boundApiOrigin = previousBoundApiOrigin;
@@ -267,13 +322,18 @@ final class AndroidPushRegistrationManager {
         }
     }
 
-    synchronized void revokePrevious(RebindResult rebind, String authToken) {
+    synchronized void revokePrevious(
+        RebindResult rebind,
+        String authToken,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) {
         if (rebind == null
             || !rebind.hasPreviousBindingToRevoke()
             || !rebind.previousState.hasServerRegistration()) {
             return;
         }
-        if (!hasAuthToken(authToken)) {
+        String revocationAuthToken = rebind.previousRevocationAuthToken(authToken);
+        if (!hasAuthToken(revocationAuthToken)) {
             throw new IllegalStateException(
                 "Previous Android push registration requires authentication"
             );
@@ -281,8 +341,9 @@ final class AndroidPushRegistrationManager {
         try {
             int responseStatus = backend.unregister(
                 rebind.previousState.apiOrigin(),
-                authToken,
-                rebind.previousState.installationId()
+                revocationAuthToken,
+                rebind.previousState.installationId(),
+                cancellation
             );
             if (responseStatus != 200 && responseStatus != 204 && responseStatus != 404) {
                 throw new IllegalStateException(
@@ -290,12 +351,18 @@ final class AndroidPushRegistrationManager {
                 );
             }
             rebind.markPreviousServerRegistrationRevoked();
-            AndroidPushIdentityStorage.State current = storage.clearPendingRevocation(
-                rebind.previousState.apiOrigin(),
-                rebind.previousState.installationId()
-            );
-            if (!"TOKEN_UNAVAILABLE".equals(failureCode)) {
-                setStatus(statusForBoundState(current), null);
+            if (boundApiOrigin == null) {
+                storage.clear();
+                setStatus("disabled", null);
+            } else {
+                AndroidPushIdentityStorage.State current =
+                    storage.clearPendingRevocation(
+                        rebind.previousState.apiOrigin(),
+                        rebind.previousState.installationId()
+                    );
+                if (!"TOKEN_UNAVAILABLE".equals(failureCode)) {
+                    setStatus(statusForBoundState(current), null);
+                }
             }
         } catch (IOException | NativeAuthHttpException exception) {
             throw new IllegalStateException(
@@ -315,6 +382,20 @@ final class AndroidPushRegistrationManager {
         String token,
         String authToken
     ) throws TokenStorageException {
+        onTokenReceived(
+            appName,
+            token,
+            authToken,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+    }
+
+    synchronized void onTokenReceived(
+        String appName,
+        String token,
+        String authToken,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) throws TokenStorageException {
         if (!RUNTIME_APP_NAME.equals(appName)
             || boundApiOrigin == null
             || boundMetadataRevision <= 0) {
@@ -325,7 +406,7 @@ final class AndroidPushRegistrationManager {
             boundMetadataRevision,
             token
         );
-        sync(state, authToken);
+        sync(state, authToken, cancellation);
     }
 
     synchronized void onTokenError(String appName) {
@@ -339,7 +420,14 @@ final class AndroidPushRegistrationManager {
     }
 
     synchronized void onAuthenticated(String authToken) throws TokenStorageException {
-        sync(storage.load(), authToken);
+        onAuthenticated(authToken, new NativeAuthHttpClient.CancellationSignal());
+    }
+
+    synchronized void onAuthenticated(
+        String authToken,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) throws TokenStorageException {
+        sync(storage.load(), authToken, cancellation);
     }
 
     synchronized void onLogout(String authToken) throws TokenStorageException {
@@ -352,7 +440,7 @@ final class AndroidPushRegistrationManager {
             setStatus(disabled ? "disabled" : "unconfigured", null);
             return;
         }
-        if (state != null && state.hasPendingRevocation() && hasAuthToken(authToken)) {
+        if (state != null && state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, authToken);
         }
         if (state != null && hasAuthToken(authToken)) {
@@ -360,13 +448,14 @@ final class AndroidPushRegistrationManager {
                 backend.unregister(
                     state.apiOrigin(),
                     authToken,
-                    state.installationId()
+                    state.installationId(),
+                    new NativeAuthHttpClient.CancellationSignal()
                 );
             } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
                 // Local logout remains authoritative; retry requires a new authenticated session.
             }
         }
-        state = storage.clearServerRegistration();
+        state = storage.clearRegistrationAuthority();
         if (state != null && state.isReconfigurationRequired()) {
             setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
         } else {
@@ -392,7 +481,8 @@ final class AndroidPushRegistrationManager {
                     backend.unregister(
                         state.apiOrigin(),
                         authToken,
-                        state.installationId()
+                        state.installationId(),
+                        new NativeAuthHttpClient.CancellationSignal()
                     );
                 } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
                     // Runtime clearing remains available offline and after server rejection.
@@ -454,9 +544,29 @@ final class AndroidPushRegistrationManager {
         return true;
     }
 
+    synchronized boolean hasPendingRevocationAuthority(String authToken)
+        throws TokenStorageException {
+        AndroidPushIdentityStorage.State state = storage.load();
+        if (state == null || !state.hasPendingRevocation()) {
+            return false;
+        }
+        return state.pendingRevocationApiOrigin().equals(state.apiOrigin())
+            ? hasAuthToken(authToken)
+                || hasAuthToken(state.pendingRevocationAuthToken())
+            : hasAuthToken(state.pendingRevocationAuthToken());
+    }
+
     private void sync(
         AndroidPushIdentityStorage.State state,
         String authToken
+    ) throws TokenStorageException {
+        sync(state, authToken, new NativeAuthHttpClient.CancellationSignal());
+    }
+
+    private void sync(
+        AndroidPushIdentityStorage.State state,
+        String authToken,
+        NativeAuthHttpClient.CancellationSignal cancellation
     ) throws TokenStorageException {
         if ("disabled".equals(status)) {
             setStatus("disabled", null);
@@ -468,7 +578,7 @@ final class AndroidPushRegistrationManager {
         }
         if (state == null || state.token() == null) {
             if (state != null && state.hasPendingRevocation()) {
-                state = retryPendingRevocation(state, authToken);
+                state = retryPendingRevocation(state, authToken, cancellation);
                 if (state != null && state.hasPendingRevocation()) {
                     return;
                 }
@@ -481,7 +591,7 @@ final class AndroidPushRegistrationManager {
             return;
         }
         if (state.hasPendingRevocation()) {
-            state = retryPendingRevocation(state, authToken);
+            state = retryPendingRevocation(state, authToken, cancellation);
             if (state == null) {
                 setStatus(
                     boundApiOrigin == null ? "unconfigured" : "awaiting_token",
@@ -510,7 +620,8 @@ final class AndroidPushRegistrationManager {
                 state.apiOrigin(),
                 authToken,
                 state,
-                lifecycleEvent
+                lifecycleEvent,
+                cancellation
             );
             int responseStatus = response.status();
             if (responseStatus == 200 || responseStatus == 201) {
@@ -540,24 +651,38 @@ final class AndroidPushRegistrationManager {
         AndroidPushIdentityStorage.State state,
         String authToken
     ) throws TokenStorageException {
+        return retryPendingRevocation(
+            state,
+            authToken,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+    }
+
+    private AndroidPushIdentityStorage.State retryPendingRevocation(
+        AndroidPushIdentityStorage.State state,
+        String authToken,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) throws TokenStorageException {
         if (!state.hasPendingRevocation()) {
             return state;
         }
-        if (!state.pendingRevocationApiOrigin().equals(state.apiOrigin())) {
-            return storage.clearPendingRevocation(
-                state.pendingRevocationApiOrigin(),
-                state.pendingRevocationInstallationId()
-            );
-        }
-        if (!hasAuthToken(authToken)) {
+        String revocationAuthToken = state.pendingRevocationApiOrigin().equals(
+            state.apiOrigin()
+        )
+            ? (hasAuthToken(authToken)
+                ? authToken
+                : state.pendingRevocationAuthToken())
+            : state.pendingRevocationAuthToken();
+        if (!hasAuthToken(revocationAuthToken)) {
             setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
             return state;
         }
         try {
             int responseStatus = backend.unregister(
                 state.pendingRevocationApiOrigin(),
-                authToken,
-                state.pendingRevocationInstallationId()
+                revocationAuthToken,
+                state.pendingRevocationInstallationId(),
+                cancellation
             );
             if (responseStatus != 200 && responseStatus != 204 && responseStatus != 404) {
                 setStatus("retry_pending", "PREVIOUS_REGISTRATION_REJECTED");
@@ -622,7 +747,8 @@ final class AndroidPushRegistrationManager {
             String apiOrigin,
             String authToken,
             AndroidPushIdentityStorage.State state,
-            String lifecycleEvent
+            String lifecycleEvent,
+            NativeAuthHttpClient.CancellationSignal cancellation
         ) throws IOException, NativeAuthHttpException, JSONException {
             JSONObject body = new JSONObject()
                 .put("channel", CHANNEL)
@@ -651,14 +777,15 @@ final class AndroidPushRegistrationManager {
                 body.toString().getBytes(StandardCharsets.UTF_8),
                 Base64.NO_WRAP
             );
-            JSObject response = httpClient.request(
+            JSObject response = httpClient.requestAuxiliaryJson(
                 apiOrigin,
                 authToken,
                 "PUT",
                 "/v1/me/notification-installations/" + state.installationId(),
                 bodyBase64,
                 "application/json",
-                "application/json"
+                "application/json",
+                cancellation
             );
             return new RegistrationResponse(
                 response.optInt("status", 0),
@@ -670,16 +797,18 @@ final class AndroidPushRegistrationManager {
         public int unregister(
             String apiOrigin,
             String authToken,
-            String installationId
+            String installationId,
+            NativeAuthHttpClient.CancellationSignal cancellation
         ) throws IOException, NativeAuthHttpException {
-            JSObject response = httpClient.request(
+            JSObject response = httpClient.requestAuxiliaryJson(
                 apiOrigin,
                 authToken,
                 "DELETE",
                 "/v1/me/notification-installations/" + installationId,
                 null,
                 null,
-                "application/json"
+                "application/json",
+                cancellation
             );
             return response.optInt("status", 0);
         }

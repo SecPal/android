@@ -61,10 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authentication, logout, and restart events until a runtime rebind or reset.
   Push synchronization and explicit retries remain ordered with authentication
   and runtime transitions without delaying authentication completion or holding
-  the lifecycle monitor during network I/O; rejected post-authentication push
-  work now publishes a retryable state, foreground refresh admission failures
-  no longer invent token failures, and abstract status fields are published
-  atomically. Device instrumentation now
+  the lifecycle monitor during network I/O. Native push requests are lifecycle-
+  cancellable and use the bounded auxiliary JSON response budget; credential
+  replacement rechecks pause and destruction before resolving and rolls back a
+  newly persisted credential when invalidated. Rejected post-authentication or
+  foreground-refresh work now publishes a generic retryable state without
+  inventing a token failure. Runtime-rebind revocation authority is retained
+  only in encrypted native transition state until the old installation is
+  deleted, including cross-tenant and same-origin revision cold starts
+  interrupted before or after bootstrap persistence; explicit logout erases
+  that authority even when remote cleanup fails. Abstract status fields are
+  published atomically. Device instrumentation now
   preserves unrelated native preferences and any pre-existing protected push
   state. React can read only abstract registration state or request an
   input-free retry that refreshes the Firebase token. The packaged bridge
