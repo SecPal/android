@@ -418,6 +418,35 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void pendingRevocationCleanupHandlesInvalidatedProtectedState()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushIdentityStorage storage = createStorage(preferences);
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        manager.rebindRuntime("https://tenant-b.example", pushMetadata(4));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_TWO,
+            null
+        );
+        backend.beforeUnregister = storage::clear;
+
+        manager.onAuthenticated("auth-token");
+
+        assertEquals("awaiting_token", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void corruptPushStateCannotPreventLogoutCleanup() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AndroidPushIdentityStorage storage = createStorage(preferences);
@@ -620,6 +649,7 @@ public class AndroidPushRegistrationManagerTest {
         final List<String> lifecycleEvents = new ArrayList<>();
         int unregisterCount;
         int unregisterStatus = 204;
+        Runnable beforeUnregister = () -> {};
         boolean offline;
 
         @Override
@@ -646,6 +676,7 @@ public class AndroidPushRegistrationManagerTest {
             String installationId
         ) {
             unregisterCount += 1;
+            beforeUnregister.run();
             return unregisterStatus;
         }
     }

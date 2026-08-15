@@ -48,10 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dialogs are released on Activity destruction. Push callbacks are now ordered
   against logout and runtime transitions, failed previous-installation cleanup
   remains encrypted and retryable across restarts, corrupt auxiliary push state
-  cannot retain the bearer during logout, and registration idempotency includes
-  the authenticated credential and installed app version. React can read only
-  abstract registration state or request an input-free retry that refreshes the
-  Firebase token. The packaged bridge invalidates the obsolete browser-storage
+  cannot retain the bearer during logout, invalidation during
+  previous-registration cleanup returns safely to token acquisition, and
+  registration idempotency includes the authenticated credential and installed
+  app version. React can read only abstract registration state or request an
+  input-free retry that refreshes the Firebase token. The packaged bridge
+  invalidates the obsolete browser-storage
   keys without reading or migrating their values, fails fast when its required
   native push contract is incomplete, removes its lifecycle listener on page
   teardown, and no longer publishes token events, registration payloads, or a
@@ -154,6 +156,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allowed one additional bounded API 37 recovery when the PackageManager
   service disappears on two consecutive zero-test installation attempts,
   while keeping a third identical failure and real test failures fail-closed.
+- Isolated API 37 connected-test Gradle invocations from emulator recovery by
+  disabling the persistent daemon and limiting its heap, so a retained build
+  process cannot keep competing with the recovering Android system services.
 - Bounded the strict-CSP real-browser smoke with an absolute Chromium process
   deadline, forceful browser termination, a deadline for HTTP server closure,
   and reserved cleanup headroom inside the outer Vitest timeout across timeout,

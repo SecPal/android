@@ -363,7 +363,14 @@ final class AndroidPushRegistrationManager {
         }
         if (state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, authToken);
-            if (state != null && state.hasPendingRevocation()) {
+            if (state == null) {
+                status = boundApiOrigin == null
+                    ? "unconfigured"
+                    : "awaiting_token";
+                failureCode = null;
+                return;
+            }
+            if (state.hasPendingRevocation()) {
                 return;
             }
         }
