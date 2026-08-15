@@ -337,6 +337,172 @@ final class AndroidPushIdentityStorage {
         save(prepared);
     }
 
+    synchronized void prepareRuntimeReset(String authToken)
+        throws TokenStorageException {
+        State current = load();
+        if (current == null) {
+            return;
+        }
+        if (current.hasPendingRevocation()) {
+            if (current.hasServerRegistration()) {
+                throw new TokenStorageException(
+                    "Previous Android push registration cleanup is still pending",
+                    new IllegalStateException("pendingRevocation")
+                );
+            }
+            String pendingAuthToken = current.pendingRevocationAuthToken();
+            if (current.apiOrigin().equals(current.pendingRevocationApiOrigin())) {
+                String currentAuthToken = normalizePendingAuthToken(authToken);
+                if (currentAuthToken != null) {
+                    pendingAuthToken = currentAuthToken;
+                }
+            }
+            if (pendingAuthToken == null) {
+                throw new TokenStorageException(
+                    "Android push revocation authority is unavailable",
+                    new IllegalArgumentException("authToken")
+                );
+            }
+            State prepared = new State(
+                current.apiOrigin(),
+                current.metadataRevision(),
+                current.installationId(),
+                current.token(),
+                current.tokenReceivedAt(),
+                current.registeredFingerprint,
+                current.registeredAt,
+                current.pendingRevocationApiOrigin(),
+                current.pendingRevocationInstallationId(),
+                pendingAuthToken,
+                null,
+                null,
+                current.isReconfigurationRequired()
+            );
+            save(prepared);
+            return;
+        }
+        if (!current.hasServerRegistration()) {
+            return;
+        }
+        prepareRuntimeRebind(current.apiOrigin(), authToken);
+    }
+
+    synchronized void retainLegacyInstallationForRevocation(
+        String installationId,
+        String authToken
+    ) throws TokenStorageException {
+        String normalizedInstallationId = installationId == null
+            ? ""
+            : installationId.trim();
+        if (!isUuid(normalizedInstallationId)) {
+            throw new TokenStorageException(
+                "Legacy Android push installation identifier is invalid",
+                new IllegalArgumentException("installationId")
+            );
+        }
+        State current = load();
+        if (current == null) {
+            throw new TokenStorageException(
+                "Android push runtime binding is unavailable",
+                new IllegalStateException("runtimeBinding")
+            );
+        }
+        if (normalizedInstallationId.equals(current.installationId())) {
+            return;
+        }
+        if (current.hasPendingRevocation()) {
+            if (current.apiOrigin().equals(current.pendingRevocationApiOrigin())
+                && normalizedInstallationId.equals(
+                    current.pendingRevocationInstallationId()
+                )) {
+                return;
+            }
+            throw new TokenStorageException(
+                "Previous Android push registration cleanup is still pending",
+                new IllegalStateException("pendingRevocation")
+            );
+        }
+        State retained = new State(
+            current.apiOrigin(),
+            current.metadataRevision(),
+            current.installationId(),
+            current.token(),
+            current.tokenReceivedAt(),
+            current.registeredFingerprint,
+            current.registeredAt,
+            current.apiOrigin(),
+            normalizedInstallationId,
+            normalizePendingAuthToken(authToken),
+            current.pendingRebindApiOrigin(),
+            current.pendingRebindAuthToken(),
+            current.isReconfigurationRequired()
+        );
+        save(retained);
+    }
+
+    synchronized State retainCurrentRegistrationForRevocation(String authToken)
+        throws TokenStorageException {
+        State current = load();
+        if (current == null || !current.hasServerRegistration()) {
+            return current;
+        }
+        String retainedAuthToken = normalizePendingAuthToken(
+            authToken != null
+                ? authToken
+                : current.pendingRebindAuthToken()
+        );
+        if (retainedAuthToken == null) {
+            throw new TokenStorageException(
+                "Android push revocation authority is unavailable",
+                new IllegalArgumentException("authToken")
+            );
+        }
+        State retained = new State(
+            current.apiOrigin(),
+            current.metadataRevision(),
+            installationIdFactory.create(),
+            null,
+            0,
+            null,
+            0,
+            current.apiOrigin(),
+            current.installationId(),
+            retainedAuthToken,
+            null,
+            null,
+            false
+        );
+        save(retained);
+        return retained;
+    }
+
+    synchronized State rotateIdentityForPendingRuntimeClear()
+        throws TokenStorageException {
+        State current = load();
+        if (current == null
+            || !current.hasPendingRevocation()
+            || current.hasServerRegistration()) {
+            return current;
+        }
+        State retained = new State(
+            current.apiOrigin(),
+            current.metadataRevision(),
+            installationIdFactory.create(),
+            null,
+            0,
+            null,
+            0,
+            current.pendingRevocationApiOrigin(),
+            current.pendingRevocationInstallationId(),
+            current.pendingRevocationAuthToken(),
+            null,
+            null,
+            false
+        );
+        save(retained);
+        return retained;
+    }
+
     synchronized void cancelPreparedRuntimeRebind(String expectedApiOrigin)
         throws TokenStorageException {
         State current = load();

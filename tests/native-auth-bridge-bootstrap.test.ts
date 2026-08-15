@@ -2245,6 +2245,7 @@ describe("native auth bridge bootstrap injection", () => {
         configured: true,
         retryable: false,
       }),
+      retainLegacyAndroidPushInstallation: vi.fn().mockResolvedValue(undefined),
       getRuntimeInfo: vi.fn().mockResolvedValue({
         clientPlatform: "android",
         appVersion: "1.5.0",
@@ -2359,7 +2360,7 @@ describe("native auth bridge bootstrap injection", () => {
     };
   }
 
-  it("invalidates legacy browser push identity without exposing replacement identifiers", async () => {
+  it("retains legacy push identity natively before removing browser state", async () => {
     const legacyToken = "fcm-token-1234567890abcdefghijklmnopqrstuvwxyz";
     const legacyInstallationId = "11111111-1111-4111-8111-111111111111";
     const localStorage = createMockStorage({
@@ -2379,6 +2380,10 @@ describe("native auth bridge bootstrap injection", () => {
       { localStorage, sessionStorage }
     );
 
+    expect(plugin.retainLegacyAndroidPushInstallation).toHaveBeenCalledOnce();
+    expect(plugin.retainLegacyAndroidPushInstallation).toHaveBeenCalledWith({
+      installationId: legacyInstallationId,
+    });
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(sandbox).not.toHaveProperty("__SecPalAndroidPushSyncState");
@@ -2396,6 +2401,7 @@ describe("native auth bridge bootstrap injection", () => {
     });
     expect(JSON.stringify(status)).not.toContain(legacyToken);
     expect(JSON.stringify(status)).not.toContain(legacyInstallationId);
+    expect(bridge).not.toHaveProperty("retainLegacyAndroidPushInstallation");
   });
 
   it("exposes an intentional native retry without accepting identity input", async () => {

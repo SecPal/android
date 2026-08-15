@@ -107,6 +107,10 @@ describe("capacitor Android wrapper configuration", () => {
     expect(config.android?.useLegacyBridge).toBe(false);
   });
 
+  it("disables Android bridge payload logging in every build type", () => {
+    expect(config.android?.loggingBehavior).toBe("none");
+  });
+
   it("installs a native auth bridge without exposing the API origin to plugin calls", async () => {
     pluginMocks.login.mockResolvedValue({ user: { id: 1 } });
     pluginMocks.request.mockResolvedValue({

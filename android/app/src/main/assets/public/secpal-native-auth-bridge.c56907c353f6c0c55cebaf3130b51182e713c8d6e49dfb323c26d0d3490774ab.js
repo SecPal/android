@@ -39,6 +39,8 @@
     "secpal-android-push-token-app:",
     "secpal-android-push-token-saved-at:",
   ];
+  const legacyAndroidPushInstallationStorageKeyPrefix =
+    legacyAndroidPushStorageKeyPrefixes[0];
   const passkeyCapabilityUnavailableReason = "PASSKEY_CAPABILITY_UNAVAILABLE";
 
   const authState = globalThis.__SecPalNativeAuthState ?? { active: false };
@@ -127,7 +129,9 @@
     }
   };
 
-  const invalidateLegacyAndroidPushBrowserState = () => {
+  const removeLegacyAndroidPushBrowserState = ({
+    includeInstallationIds = true,
+  } = {}) => {
     for (const storage of [getLocalStorage(), getSessionStorage()]) {
       if (
         !storage ||
@@ -144,7 +148,9 @@
           if (
             typeof key === "string" &&
             legacyAndroidPushStorageKeyPrefixes.some((prefix) =>
-              key.startsWith(prefix)
+              key.startsWith(prefix) &&
+              (includeInstallationIds ||
+                prefix !== legacyAndroidPushInstallationStorageKeyPrefix)
             )
           ) {
             staleKeys.push(key);
@@ -154,9 +160,52 @@
           storage.removeItem(key);
         }
       } catch {
-        // Legacy identity state is never read or migrated into the native boundary.
+        // Cleanup retries on the next packaged bootstrap.
       }
     }
+  };
+
+  const getLegacyAndroidPushInstallationId = (apiOrigin) => {
+    const key =
+      legacyAndroidPushInstallationStorageKeyPrefix +
+      encodeURIComponent(apiOrigin);
+    for (const storage of [getLocalStorage(), getSessionStorage()]) {
+      if (!storage || typeof storage.getItem !== "function") {
+        continue;
+      }
+      try {
+        const value = storage.getItem(key);
+        if (
+          typeof value === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            value.trim()
+          )
+        ) {
+          return value.trim();
+        }
+      } catch {
+        // A protected-storage failure below keeps the identifier for retry.
+      }
+    }
+    return null;
+  };
+
+  const retainLegacyAndroidPushBrowserState = async (apiOrigin) => {
+    const plugin = getPlugin();
+    const installationId = getLegacyAndroidPushInstallationId(apiOrigin);
+    if (typeof plugin.retainLegacyAndroidPushInstallation !== "function") {
+      if (!installationId) {
+        removeLegacyAndroidPushBrowserState();
+        return;
+      }
+      throw new Error(
+        "Android legacy push registration cleanup is unavailable."
+      );
+    }
+    await plugin.retainLegacyAndroidPushInstallation(
+      installationId ? { installationId } : {}
+    );
+    removeLegacyAndroidPushBrowserState();
   };
 
   const hasPendingRuntimeReset = () => {
@@ -836,6 +885,8 @@
           if (!restored) {
             return;
           }
+
+          await retainLegacyAndroidPushBrowserState(restored.apiOrigin);
 
           runtimeState.pendingBootstrap = null;
           runtimeState.configured = true;
@@ -1539,7 +1590,7 @@
     }
   };
 
-  invalidateLegacyAndroidPushBrowserState();
+  removeLegacyAndroidPushBrowserState({ includeInstallationIds: false });
   restorePersistedBootstrap();
   installNativeAuthLifecycleListener();
 

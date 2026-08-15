@@ -178,6 +178,7 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeReset"));
+        assertTrue(exportedMethods.contains("retainLegacyAndroidPushInstallation"));
         assertTrue(exportedMethods.contains("cancelRequest"));
     }
 
@@ -1297,6 +1298,30 @@ public class SecPalNativeAuthPluginTest {
             releaseTransition.countDown();
             taskExecutor.shutdownNow();
         }
+    }
+
+    @Test
+    public void foregroundWithoutRuntimeRetriesProtectedPushCleanupOnly() {
+        AtomicInteger cleanupRetries = new AtomicInteger();
+        AtomicInteger tokenRefreshes = new AtomicInteger();
+
+        SecPalNativeAuthPlugin.resumeAndroidPushWork(
+            null,
+            cleanupRetries::incrementAndGet,
+            tokenRefreshes::incrementAndGet
+        );
+
+        assertEquals(1, cleanupRetries.get());
+        assertEquals(0, tokenRefreshes.get());
+
+        SecPalNativeAuthPlugin.resumeAndroidPushWork(
+            "https://api.secpal.dev",
+            cleanupRetries::incrementAndGet,
+            tokenRefreshes::incrementAndGet
+        );
+
+        assertEquals(1, cleanupRetries.get());
+        assertEquals(1, tokenRefreshes.get());
     }
 
     @Test

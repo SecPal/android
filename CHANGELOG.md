@@ -47,7 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callbacks and failed rebind rollbacks, and pending runtime-confirmation
   dialogs are released on Activity destruction. Push callbacks are now ordered
   against logout and runtime transitions, failed previous-installation cleanup
-  remains encrypted and retryable across restarts, corrupt auxiliary push state
+  remains encrypted and retryable across restarts, and runtime reset retains
+  its encrypted revocation authority across process death and offline recovery
+  until server cleanup succeeds. Corrupt auxiliary push state
   cannot retain the bearer during logout, invalidation during
   previous-registration cleanup returns safely to token acquisition, and
   registration idempotency includes the authenticated credential and installed
@@ -75,10 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserves unrelated native preferences and any pre-existing protected push
   state. React can read only abstract registration state or request an
   input-free retry that refreshes the Firebase token. The packaged bridge
-  invalidates the obsolete browser-storage
-  keys without reading or migrating their values, fails fast when its required
-  native push contract is incomplete, removes its lifecycle listener on page
-  teardown, and no longer publishes token events, registration payloads, or a
+  removes obsolete browser token and timestamp keys without reading their
+  values, while a legacy installation UUID is transferred once into encrypted
+  native revocation state before its browser key is deleted. It fails fast when
+  its required native push contract is incomplete, removes its lifecycle
+  listener on page teardown, disables Capacitor bridge-payload logging in every
+  build type, and no longer publishes token events, registration payloads, or a
   push-sync global (issue #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-

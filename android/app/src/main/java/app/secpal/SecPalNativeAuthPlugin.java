@@ -41,6 +41,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
+    private static final String LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY =
+        "legacy_push_migration_complete";
     private static final String NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT =
         "nativeAuthLifecycleChanged";
     private static final String VAULT_ROOT_KEY_BRIDGE_UNSUPPORTED_MESSAGE =
@@ -143,10 +145,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
             taskExecutor,
             (event, payload) -> notifyListeners(event, payload, true)
         );
-        submitForegroundPushRefresh(
-            taskExecutor,
-            androidPushRuntimeManager::refreshToken,
-            androidPushRegistrationManager::onRegistrationSchedulingError
+        resumeAndroidPushWork(
+            apiBaseUrl,
+            () -> submitNativePushTaskWithoutRetryMarker(
+                taskExecutor,
+                () -> androidPushRegistrationManager.clearRuntime(null)
+            ),
+            () -> submitForegroundPushRefresh(
+                taskExecutor,
+                androidPushRuntimeManager::refreshToken,
+                androidPushRegistrationManager::onRegistrationSchedulingError
+            )
         );
     }
 
@@ -449,6 +458,57 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return;
         }
         call.resolve(androidPushRegistrationManager.getStatus());
+    }
+
+    @PluginMethod
+    public void retainLegacyAndroidPushInstallation(PluginCall call) {
+        if (!requireOnlyKeys(call, "installationId")) {
+            return;
+        }
+        String installationId = call.getString("installationId");
+        if (installationId != null && !isBoundedValue(installationId, 36)) {
+            call.reject(
+                "Legacy Android push installation identifier is invalid",
+                "INVALID_INPUT"
+            );
+            return;
+        }
+        runAsync(call, () -> {
+            SharedPreferences preferences = getNativeAuthPreferences();
+            if (preferences.getBoolean(
+                LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY,
+                false
+            )) {
+                call.resolve();
+                return;
+            }
+            try {
+                String authToken = readStoredTokenForRuntimeMutation(tokenStorage);
+                if (installationId != null && !installationId.trim().isEmpty()) {
+                    androidPushRegistrationManager.retainLegacyInstallationForRevocation(
+                        installationId,
+                        authToken
+                    );
+                    androidPushRegistrationManager.onAuthenticated(authToken);
+                }
+                if (!preferences.edit()
+                    .putBoolean(LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY, true)
+                    .commit()) {
+                    call.reject(
+                        "Failed to persist legacy Android push cleanup state",
+                        "PUSH_STORAGE_ERROR"
+                    );
+                    return;
+                }
+                call.resolve();
+            } catch (TokenStorageException exception) {
+                call.reject(
+                    "Failed to retain legacy Android push cleanup state",
+                    "PUSH_STORAGE_ERROR",
+                    exception
+                );
+            }
+        });
     }
 
     @PluginMethod
@@ -772,6 +832,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         );
                     AtomicBoolean clearSucceeded = new AtomicBoolean(false);
                     if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
+                        androidPushRegistrationManager.prepareRuntimeReset(
+                            tokenForServerRevocation
+                        );
                         clearSucceeded.set(clearRuntimeBootstrapStateWithPushRollback(
                             getNativeAuthPreferences(),
                             tokenStorage,
@@ -796,16 +859,21 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         ));
                         return;
                     }
-                    androidPushRegistrationManager.clearRuntime(tokenForServerRevocation);
-                    revokeNativeAuthenticationAfterRuntimeClear(
-                        tokenForServerRevocation,
-                        confirmedApiOrigin,
-                        (apiOrigin, token) -> httpClient.logout(
-                            apiOrigin,
-                            token,
-                            cancellation
-                        )
-                    );
+                    boolean pushCleanupComplete =
+                        androidPushRegistrationManager.clearRuntime(
+                            tokenForServerRevocation
+                        );
+                    if (pushCleanupComplete) {
+                        revokeNativeAuthenticationAfterRuntimeClear(
+                            tokenForServerRevocation,
+                            confirmedApiOrigin,
+                            (apiOrigin, token) -> httpClient.logout(
+                                apiOrigin,
+                                token,
+                                cancellation
+                            )
+                        );
+                    }
                     taskExecutor.completeAuthenticated(
                         requestId,
                         () -> settleOnce(settled, call::resolve)
@@ -1544,6 +1612,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
             refreshToken::run,
             retryMarker
         );
+    }
+
+    static void resumeAndroidPushWork(
+        String configuredApiOrigin,
+        Runnable retryRuntimeCleanup,
+        Runnable refreshConfiguredRuntime
+    ) {
+        if (configuredApiOrigin == null || configuredApiOrigin.trim().isEmpty()) {
+            retryRuntimeCleanup.run();
+            return;
+        }
+        refreshConfiguredRuntime.run();
     }
 
     static boolean submitNativePushTaskWithoutRetryMarker(
