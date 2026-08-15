@@ -105,9 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   smoke check retries only a transient native offline snapshot during its
   protected-user read. It fails fast when
   its required native push contract is incomplete, removes its lifecycle
-  listener on page teardown, disables Capacitor bridge-payload logging in every
-  build type, and no longer publishes token events, registration payloads, or a
-  push-sync global (issue #411, part of #402).
+  listener on final page teardown while preserving it across BFCache restores,
+  disables Capacitor bridge-payload logging in every build type, and no longer
+  publishes token events, registration payloads, or a push-sync global.
+  Runtime-rebind rollback no longer restores a previous bearer after its
+  server-side logout has already succeeded, even when protected cleanup
+  persistence subsequently fails (issue #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

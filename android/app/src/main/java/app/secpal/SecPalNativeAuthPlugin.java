@@ -745,6 +745,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         );
                     String previousToken = readStoredTokenForRuntimeMutation(tokenStorage);
                     AtomicBoolean replacementSucceeded = new AtomicBoolean(false);
+                    AtomicBoolean previousCredentialRestorationAllowed =
+                        new AtomicBoolean(true);
                     if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
                         androidPushRegistrationManager.prepareRuntimeRebind(
                             nextApiBaseUrl,
@@ -761,12 +763,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                                     previousRuntimeBootstrap,
                                     previousApiBaseUrl
                                 ),
+                                previousCredentialRestorationAllowed::get,
                                 () -> applyAndroidPushRuntimeRebind(
                                     nextApiBaseUrl,
                                     nextPushRuntime,
                                     previousPushRuntime,
                                     previousToken,
-                                    cancellation
+                                    cancellation,
+                                    previousCredentialRestorationAllowed
                                 )
                             ));
                         } finally {
@@ -2178,6 +2182,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         TokenStorage tokenStorage,
         BooleanSupplier persistence,
         BooleanSupplier runtimeRollback,
+        BooleanSupplier credentialRestorationAllowed,
         Runnable pushReplacement
     ) throws TokenStorageException {
         boolean credentialMustBeRebound = shouldClearStoredToken(
@@ -2231,6 +2236,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 tokenStorage,
                 previousToken,
                 credentialMustBeRebound
+                    && credentialRestorationAllowed.getAsBoolean()
             );
             throw exception;
         }
@@ -2557,7 +2563,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
         AndroidPushRuntimeMetadata nextPushRuntime,
         AndroidPushRuntimeMetadata previousPushRuntime,
         String previousToken,
-        NativeAuthHttpClient.CancellationSignal cancellation
+        NativeAuthHttpClient.CancellationSignal cancellation,
+        AtomicBoolean previousCredentialRestorationAllowed
     ) {
         AndroidPushRegistrationManager.RebindResult rebind = null;
         boolean runtimeApplied = false;
@@ -2585,6 +2592,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 exception
             );
         } catch (RuntimeException exception) {
+            if (rebind != null && !rebind.canRestorePreviousCredential()) {
+                previousCredentialRestorationAllowed.set(false);
+            }
             if (runtimeApplied) {
                 try {
                     androidPushRuntimeManager.applyWithRollback(

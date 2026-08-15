@@ -90,6 +90,7 @@ final class AndroidPushRegistrationManager {
         private final String previousFailureCode;
         private final boolean changed;
         private boolean previousServerRegistrationRevoked;
+        private boolean previousAuthenticationRevoked;
 
         RebindResult(
             AndroidPushIdentityStorage.Snapshot previousSnapshot,
@@ -125,6 +126,14 @@ final class AndroidPushRegistrationManager {
 
         void markPreviousServerRegistrationRevoked() {
             previousServerRegistrationRevoked = true;
+        }
+
+        void markPreviousAuthenticationRevoked() {
+            previousAuthenticationRevoked = true;
+        }
+
+        boolean canRestorePreviousCredential() {
+            return !previousAuthenticationRevoked;
         }
     }
 
@@ -427,6 +436,7 @@ final class AndroidPushRegistrationManager {
                     revocationAuthToken,
                     cancellation
                 );
+                rebind.markPreviousAuthenticationRevoked();
             }
             if (boundApiOrigin == null) {
                 storage.clear();

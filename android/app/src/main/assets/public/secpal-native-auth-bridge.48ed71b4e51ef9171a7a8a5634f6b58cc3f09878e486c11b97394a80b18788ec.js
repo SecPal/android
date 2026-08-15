@@ -1462,15 +1462,17 @@
         }
       }
     );
-    const removeLifecycleListener = () => {
+    const removeLifecycleListener = (event) => {
+      if (event?.persisted === true) {
+        return;
+      }
+      globalThis.removeEventListener?.("pagehide", removeLifecycleListener);
       authState.nativeAuthLifecycleDetached = true;
       const handle = authState.nativeAuthLifecycleHandle;
       authState.nativeAuthLifecycleHandle = null;
       Promise.resolve(handle?.remove?.()).catch(() => {});
     };
-    globalThis.addEventListener?.("pagehide", removeLifecycleListener, {
-      once: true,
-    });
+    globalThis.addEventListener?.("pagehide", removeLifecycleListener);
     Promise.resolve(handleOrPromise)
       .then((handle) => {
         if (authState.nativeAuthLifecycleDetached) {

@@ -309,6 +309,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
         assertEquals(
@@ -343,6 +344,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
 
@@ -381,6 +383,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return false;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             );
             fail("Expected failed runtime rollback to fail closed");
@@ -423,6 +426,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> {
                     events.add("apply-push");
                     throw pushFailure;
@@ -448,6 +452,45 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void runtimeRebindDoesNotRestoreARevokedPreviousCredential()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+        RuntimeException cleanupFailure = new RuntimeException("cleanup-failed");
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> true,
+                () -> {
+                    events.add("restore-runtime");
+                    return true;
+                },
+                () -> false,
+                () -> { throw cleanupFailure; }
+            );
+            fail("Expected push cleanup failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(cleanupFailure, thrown);
+        }
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "restore-runtime"
+            ),
+            events
+        );
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
     public void runtimeRebindKeepsCredentialClearedWhenRuntimeRollbackFails()
         throws Exception {
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
@@ -461,6 +504,7 @@ public class SecPalNativeAuthPluginTest {
                 tokenStorage,
                 () -> true,
                 () -> false,
+                () -> true,
                 () -> { throw pushFailure; }
             );
             fail("Expected push replacement failure");
@@ -500,6 +544,7 @@ public class SecPalNativeAuthPluginTest {
                 unrestorableTokenStorage,
                 () -> true,
                 () -> true,
+                () -> true,
                 () -> { throw pushFailure; }
             );
             fail("Expected token restoration failure");
@@ -531,6 +576,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             );
             fail("Expected persistence failure");
@@ -571,6 +617,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
 
@@ -616,6 +663,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             )
         );

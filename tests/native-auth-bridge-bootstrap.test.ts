@@ -2336,6 +2336,17 @@ describe("native auth bridge bootstrap injection", () => {
         registeredListeners.push(listener);
         windowEventListeners.set(eventName, registeredListeners);
       },
+      removeEventListener(
+        eventName: string,
+        listener: (event: { type: string }) => void
+      ) {
+        windowEventListeners.set(
+          eventName,
+          (windowEventListeners.get(eventName) ?? []).filter(
+            (registeredListener) => registeredListener !== listener
+          )
+        );
+      },
       dispatchEvent(event: { type: string }) {
         for (const listener of windowEventListeners.get(event.type) ?? []) {
           listener(event);
@@ -2505,6 +2516,36 @@ describe("native auth bridge bootstrap injection", () => {
     expect(handles[0]?.remove).not.toHaveBeenCalled();
 
     resolveLifecycleHandle?.();
+    await flushMicrotasks();
+
+    expect(handles[0]?.remove).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the native auth lifecycle listener through BFCache restoration", async () => {
+    const { handles, sandbox } = await createAndroidPushLifecycleSandbox();
+
+    (
+      sandbox.dispatchEvent as (event: {
+        type: string;
+        persisted?: boolean;
+      }) => boolean
+    )({
+      type: "pagehide",
+      persisted: true,
+    });
+    await flushMicrotasks();
+
+    expect(handles[0]?.remove).not.toHaveBeenCalled();
+
+    (
+      sandbox.dispatchEvent as (event: {
+        type: string;
+        persisted?: boolean;
+      }) => boolean
+    )({
+      type: "pagehide",
+      persisted: false,
+    });
     await flushMicrotasks();
 
     expect(handles[0]?.remove).toHaveBeenCalledOnce();

@@ -25,6 +25,27 @@ import org.junit.Test;
 
 public class NativeAuthTaskExecutorTest {
 
+    private static NativeAuthTaskExecutor.SubmitResult awaitSessionTransitionRelease(
+        NativeAuthTaskExecutor taskExecutor,
+        String requestId
+    ) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        NativeAuthTaskExecutor.SubmitResult result;
+        do {
+            result = taskExecutor.submitAuthenticated(
+                requestId,
+                0,
+                () -> {},
+                reason -> {}
+            );
+            if (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS) {
+                Thread.yield();
+            }
+        } while (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
+            && System.nanoTime() < deadline);
+        return result;
+    }
+
     @Test
     public void generationGuardDoesNotBlockLifecycleInvalidationDuringMutation()
         throws Exception {
@@ -1141,21 +1162,10 @@ public class NativeAuthTaskExecutorTest {
             );
 
             releaseTransition.countDown();
-            long transitionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            NativeAuthTaskExecutor.SubmitResult result;
-            do {
-                result = taskExecutor.submitAuthenticated(
-                    "new-session",
-                    0,
-                    () -> {},
-                    reason -> {}
-                );
-                if (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS) {
-                    Thread.yield();
-                }
-            } while (result == NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS
-                && System.nanoTime() < transitionDeadline);
-            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                awaitSessionTransitionRelease(taskExecutor, "new-session")
+            );
         } finally {
             releaseTransition.countDown();
             taskExecutor.shutdownNow();
@@ -1207,11 +1217,9 @@ public class NativeAuthTaskExecutorTest {
             taskExecutor.resumeAuthenticated();
             assertEquals(
                 NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
-                taskExecutor.submitAuthenticated(
-                    "foreground-after-reset-cancel",
-                    0,
-                    () -> {},
-                    reason -> {}
+                awaitSessionTransitionRelease(
+                    taskExecutor,
+                    "foreground-after-reset-cancel"
                 )
             );
         } finally {

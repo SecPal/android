@@ -810,6 +810,48 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void successfulPreviousLogoutPreventsCredentialRestorationAfterCleanupFailure()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FailNextEncryptionCipher cipher = new FailNextEncryptionCipher();
+        AndroidPushIdentityStorage storage = createStorage(
+            preferences,
+            cipher,
+            new AtomicInteger()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4),
+            "old-tenant-auth-token"
+        );
+        backend.beforeUnregister = () -> cipher.failNextEncryption = true;
+
+        try {
+            manager.revokePrevious(
+                rebind,
+                "old-tenant-auth-token",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            fail("Expected failed cleanup persistence");
+        } catch (IllegalStateException expected) {
+            assertEquals(1, backend.logoutCount);
+        }
+
+        assertFalse(rebind.canRestorePreviousCredential());
+    }
+
+    @Test
     public void restartedCrossTenantBindingNeverSendsTheNewBearerToTheOldOrigin()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
