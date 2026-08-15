@@ -2116,6 +2116,48 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void deferredRuntimeCleanupIsCancelledByASessionTransition()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch cleanupCancelled = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    cancellation -> {
+                        cleanupStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        cleanupCancelled.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available")
+                )
+            );
+            assertTrue(cleanupStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-after-startup-cleanup",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(cleanupCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void rejectedAuthenticatedPushSchedulingPublishesRetryState() {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
         AtomicBoolean rejected = new AtomicBoolean(false);

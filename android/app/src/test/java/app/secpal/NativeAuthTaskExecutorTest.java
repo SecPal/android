@@ -451,6 +451,45 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
+    public void sessionTransitionCompletionRunsAfterTheTransitionGateReopens()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        AtomicReference<NativeAuthTaskExecutor.SubmitResult> followUpResult =
+            new AtomicReference<>();
+        CountDownLatch followUpCompleted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-with-push-refresh",
+                    0,
+                    () -> {},
+                    reason -> {},
+                    reason -> {},
+                    exception -> {},
+                    () -> {
+                        followUpResult.set(taskExecutor.submitAuthenticated(
+                            "post-runtime-push-refresh",
+                            0,
+                            followUpCompleted::countDown,
+                            reason -> {}
+                        ));
+                    }
+                )
+            );
+
+            assertTrue(followUpCompleted.await(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                followUpResult.get()
+            );
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void generationBoundMutationIsRejectedAfterSessionTransitionStarts()
         throws Exception {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();

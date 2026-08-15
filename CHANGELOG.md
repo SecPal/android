@@ -127,7 +127,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remaining bearer authority and preserves that authority when token deletion
   also fails. Failed persisted-runtime restoration now likewise commits both
   server-revocation authority and pending FCM-token deletion metadata before
-  discarding the runtime bootstrap or bearer (issue #411, part of #402).
+  discarding the runtime bootstrap or bearer. Startup cleanup and restored
+  revocation work now share the cancellable authenticated task lane, runtime
+  transitions reschedule Firebase refresh only after their gate reopens, and a
+  legacy tombstone without its original authority forces identity and token
+  rotation instead of borrowing a future login's bearer (issue #411, part of
+  #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
@@ -310,8 +315,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Android 14+ and the vulnerable Play services FIDO path remains forbidden
   (issue #465).
 - Updated Android device readiness polling to perform one immediate probe, cap
-  retry sleeps to the remaining timeout, and stop polling when the deadline is
-  exhausted (issue #497).
+  retry sleeps to the remaining timeout, stop polling when the deadline is
+  exhausted, and reject API 37's successful-but-unusable `settings` provider
+  response until it returns a real provisioning value (issue #497).
 - Made local and hosted pull-request size reporting advisory at 600 changed
   lines, removing the override file, approval label, and size-triggered push
   failure while preserving every non-size validation gate.

@@ -133,9 +133,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (pendingRuntimeCleanupOnLoad
             || (persistedRuntimeBootstrap == null
                 && hasPendingPushRuntimeClear(getNativeAuthPreferences()))) {
-            submitNativePushTaskWithoutRetryMarker(
+            schedulePendingRuntimeCleanup(
                 taskExecutor,
-                this::finishPendingRuntimeCleanup
+                this::finishPendingRuntimeCleanup,
+                this::handleAndroidPushProtectedStateError
             );
         }
     }
@@ -169,9 +170,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         );
         resumeAndroidPushWork(
             apiBaseUrl,
-            () -> submitNativePushTaskWithoutRetryMarker(
+            () -> schedulePendingRuntimeCleanup(
                 taskExecutor,
-                this::finishPendingRuntimeCleanup
+                this::finishPendingRuntimeCleanup,
+                this::handleAndroidPushProtectedStateError
             ),
             () -> submitForegroundPushRefresh(
                 taskExecutor,
@@ -820,7 +822,20 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 } else {
                     call.reject(cancellationMessage(reasonCode), reasonCode);
                 }
-            })
+            }),
+            exception -> settleOnce(
+                settled,
+                () -> rejectRuntimeBootstrap(call, exception)
+            ),
+            () -> {
+                if (runtimeApplied.get()) {
+                    submitForegroundPushRefresh(
+                        taskExecutor,
+                        this::refreshOrRotateAndroidPushToken,
+                        androidPushRegistrationManager::onRegistrationSchedulingError
+                    );
+                }
+            }
         );
         if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
             settleOnce(settled, () -> rejectSubmission(call, submitResult));
@@ -1710,11 +1725,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
         refreshConfiguredRuntime.run();
     }
 
-    static boolean submitNativePushTaskWithoutRetryMarker(
+    static NativeAuthTaskExecutor.SubmitResult schedulePendingRuntimeCleanup(
         NativeAuthTaskExecutor taskExecutor,
-        PushTask task
+        CancellablePushTask cleanup,
+        Runnable protectedStorageErrorMarker
     ) {
-        return submitNativePushTask(taskExecutor, task, () -> {});
+        return scheduleAndroidPushAfterAuthentication(
+            taskExecutor,
+            cleanup,
+            protectedStorageErrorMarker,
+            () -> {}
+        );
     }
 
     static boolean submitNativePushTask(
@@ -2574,11 +2595,26 @@ public class SecPalNativeAuthPlugin extends Plugin {
         SharedPreferences preferences,
         AndroidPushRuntimeManager androidPushRuntimeManager
     ) {
+        return recoverPendingPushRuntimeClear(
+            preferences,
+            androidPushRuntimeManager,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+    }
+
+    static boolean recoverPendingPushRuntimeClear(
+        SharedPreferences preferences,
+        AndroidPushRuntimeManager androidPushRuntimeManager,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) {
         String rawMetadata = preferences.getString(
             PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
             null
         );
         if (rawMetadata == null || rawMetadata.trim().isEmpty()) {
+            return false;
+        }
+        if (cancellation.isCancelled()) {
             return false;
         }
         try {
@@ -2589,6 +2625,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
             try {
                 androidPushRuntimeManager.deleteToken(metadata);
             } catch (RuntimeException exception) {
+                return false;
+            }
+            if (cancellation.isCancelled()) {
                 return false;
             }
             preferences.edit()
@@ -2611,12 +2650,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
         return rawMetadata != null && !rawMetadata.trim().isEmpty();
     }
 
-    private void finishPendingRuntimeCleanup() throws TokenStorageException {
+    private void finishPendingRuntimeCleanup(
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) throws TokenStorageException {
         recoverPendingPushRuntimeClear(
             getNativeAuthPreferences(),
-            androidPushRuntimeManager
+            androidPushRuntimeManager,
+            cancellation
         );
-        androidPushRegistrationManager.clearRuntime(null);
+        if (!cancellation.isCancelled()) {
+            androidPushRegistrationManager.clearRuntime(null, cancellation);
+        }
     }
 
     static String readStoredTokenForRuntimeMutation(TokenStorage tokenStorage) {
@@ -2723,12 +2767,15 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     this::handleAndroidPushProtectedStateError,
                     androidPushRegistrationManager::onRegistrationSchedulingError
                 );
-            } else if (androidPushRegistrationManager.hasPendingRevocationAuthority(
-                authToken
-            )) {
-                submitNativePushTaskWithoutRetryMarker(
+            } else if (androidPushRegistrationManager.hasPendingRevocationAuthority()) {
+                scheduleAndroidPushAfterAuthentication(
                     taskExecutor,
-                    () -> androidPushRegistrationManager.onAuthenticated(authToken)
+                    cancellation -> androidPushRegistrationManager.onAuthenticated(
+                        authToken,
+                        cancellation
+                    ),
+                    this::handleAndroidPushProtectedStateError,
+                    androidPushRegistrationManager::onRegistrationSchedulingError
                 );
             }
             return androidPushRegistrationManager.requiresTokenRotation();

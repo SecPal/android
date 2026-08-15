@@ -255,7 +255,8 @@ class NativeAuthTaskExecutor {
             job,
             cancellationAction,
             cancellationHandler,
-            exception -> {}
+            exception -> {},
+            () -> {}
         );
     }
 
@@ -266,6 +267,26 @@ class NativeAuthTaskExecutor {
         Consumer<String> cancellationAction,
         Consumer<String> cancellationHandler,
         Consumer<RuntimeException> failureHandler
+    ) {
+        return submitSessionTransition(
+            requestId,
+            requestBodyBytes,
+            job,
+            cancellationAction,
+            cancellationHandler,
+            failureHandler,
+            () -> {}
+        );
+    }
+
+    SubmitResult submitSessionTransition(
+        String requestId,
+        int requestBodyBytes,
+        Runnable job,
+        Consumer<String> cancellationAction,
+        Consumer<String> cancellationHandler,
+        Consumer<RuntimeException> failureHandler,
+        Runnable transitionSettledHandler
     ) {
         synchronized (generationLock) {
             if (sessionExecutorService.isShutdown()) {
@@ -302,7 +323,8 @@ class NativeAuthTaskExecutor {
                 orderedJob,
                 cancellationAction,
                 cancellationHandler,
-                failureHandler
+                failureHandler,
+                transitionSettledHandler
             );
             if (result != SubmitResult.ACCEPTED) {
                 endSessionTransition();
@@ -643,7 +665,8 @@ class NativeAuthTaskExecutor {
             job,
             cancellationAction,
             cancellationHandler,
-            failureHandler
+            failureHandler,
+            () -> {}
         );
     }
 
@@ -662,7 +685,8 @@ class NativeAuthTaskExecutor {
         Runnable job,
         Consumer<String> cancellationAction,
         Consumer<String> cancellationHandler,
-        Consumer<RuntimeException> failureHandler
+        Consumer<RuntimeException> failureHandler,
+        Runnable transitionSettledHandler
     ) {
 
         ManagedTask task = new ManagedTask(
@@ -675,6 +699,7 @@ class NativeAuthTaskExecutor {
             cancellationAction,
             cancellationHandler,
             failureHandler,
+            transitionSettledHandler,
             taskLifetimeMillis > 0
                 ? taskLifetimeMillis
                 : NativeAuthHttpClient.resolveTotalRequestLifetimeMillis(requestBodyBytes)
@@ -846,6 +871,7 @@ class NativeAuthTaskExecutor {
         private final Consumer<String> cancellationAction;
         private final Consumer<String> cancellationHandler;
         private final Consumer<RuntimeException> failureHandler;
+        private final Runnable transitionSettledHandler;
         private final long deadlineMillis;
         private final AtomicReference<String> cancellationReason = new AtomicReference<>();
         private final AtomicBoolean cancellationNotified = new AtomicBoolean();
@@ -865,6 +891,7 @@ class NativeAuthTaskExecutor {
             Consumer<String> cancellationAction,
             Consumer<String> cancellationHandler,
             Consumer<RuntimeException> failureHandler,
+            Runnable transitionSettledHandler,
             long deadlineMillis
         ) {
             this.requestId = requestId;
@@ -876,6 +903,7 @@ class NativeAuthTaskExecutor {
             this.cancellationAction = cancellationAction;
             this.cancellationHandler = cancellationHandler;
             this.failureHandler = failureHandler;
+            this.transitionSettledHandler = transitionSettledHandler;
             this.deadlineMillis = deadlineMillis;
         }
 
@@ -967,6 +995,11 @@ class NativeAuthTaskExecutor {
             releaseReservation();
             if (sessionTransition) {
                 endSessionTransition();
+                try {
+                    transitionSettledHandler.run();
+                } catch (RuntimeException ignored) {
+                    // The session gate must remain released if follow-up scheduling fails.
+                }
             }
         }
 

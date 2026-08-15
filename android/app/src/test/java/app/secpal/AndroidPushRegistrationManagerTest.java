@@ -754,7 +754,7 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
-    public void interruptedRebindRetainsPreviousRevocationForColdStartRetry()
+    public void interruptedRebindWithoutRetainedAuthorityRotatesOnColdStart()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         MemoryCipher cipher = new MemoryCipher();
@@ -794,7 +794,8 @@ public class AndroidPushRegistrationManagerTest {
         restarted.bindRuntime(API_ORIGIN, pushMetadata(4));
         restarted.onAuthenticated("auth-token");
 
-        assertEquals(2, backend.unregisterCount);
+        assertEquals(1, backend.unregisterCount);
+        assertTrue(restarted.requiresTokenRotation());
         assertEquals("awaiting_token", restarted.getStatus().getString("state"));
     }
 
@@ -1465,6 +1466,60 @@ public class AndroidPushRegistrationManagerTest {
             backend.unregistrationAuthTokens.get(0)
         );
         assertFalse(storage.load().hasPendingRevocation());
+    }
+
+    @Test
+    public void legacyInstallationWithoutOriginalAuthorityRotatesBeforeFutureLogin()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        backend.unregisterStatus = 404;
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.retainLegacyInstallationForRevocation(
+            "11111111-1111-4111-8111-111111111111",
+            null
+        );
+
+        manager.onAuthenticated("future-user-auth-token");
+
+        assertEquals(0, backend.unregisterCount);
+        assertTrue(manager.requiresTokenRotation());
+        assertFalse(storage.load().hasPendingRevocation());
+        assertEquals("awaiting_token", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void cancelledLegacyCleanupLeavesProtectedStateForTheTransition()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.retainLegacyInstallationForRevocation(
+            "11111111-1111-4111-8111-111111111111",
+            null
+        );
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        cancellation.cancel();
+
+        manager.onAuthenticated("future-user-auth-token", cancellation);
+
+        assertEquals(0, backend.unregisterCount);
+        assertFalse(manager.requiresTokenRotation());
+        assertTrue(storage.load().hasPendingRevocation());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
     }
 
     @Test
