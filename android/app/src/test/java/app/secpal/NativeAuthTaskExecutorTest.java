@@ -411,7 +411,7 @@ public class NativeAuthTaskExecutorTest {
             assertTrue(mutationStarted.await(2, TimeUnit.SECONDS));
 
             assertEquals(
-                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
                 taskExecutor.submitSessionTransition(
                     "ordered-push-logout",
                     0,
@@ -421,17 +421,8 @@ public class NativeAuthTaskExecutorTest {
             );
             assertFalse(transitionStarted.await(100, TimeUnit.MILLISECONDS));
             releaseMutation.countDown();
-            assertTrue(taskExecutor.awaitIdleForTest(2, TimeUnit.SECONDS));
-            assertEquals(
-                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
-                taskExecutor.submitSessionTransition(
-                    "ordered-push-logout-retry",
-                    0,
-                    transitionStarted::countDown,
-                    reason -> {}
-                )
-            );
             assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+            assertTrue(taskExecutor.awaitIdleForTest(2, TimeUnit.SECONDS));
         } finally {
             releaseMutation.countDown();
             taskExecutor.shutdownNow();

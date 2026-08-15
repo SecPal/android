@@ -10,6 +10,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.junit.Test;
 
 public class AndroidPushRuntimeManagerTest {
@@ -132,6 +136,64 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void applyWithRollbackDeletesTheOrphanedTokenBeforeReplacingItsRuntime() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        FakeFirebaseApp previousApp = new FakeFirebaseApp(
+            backend,
+            "secpal-runtime-push"
+        );
+        backend.existingApp = previousApp;
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+        AndroidPushRuntimeMetadata previousMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 2, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        AndroidPushRuntimeMetadata nextMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "new-api-key", "new-project", "new-app", "new-sender"
+        );
+
+        manager.applyWithRollback(nextMetadata, previousMetadata, true);
+
+        assertEquals(1, backend.initializeCallCount);
+        assertEquals(1, backend.ensureMessagingCallCount);
+        assertEquals(0, backend.rotateMessagingCallCount);
+        assertEquals(1, backend.deleteMessagingTokenCallCount);
+        assertSame(previousApp, backend.lastDeletedMessagingTokenApp);
+        assertSame(backend.lastInitializedApp, backend.lastEnsuredMessagingApp);
+        assertEquals(
+            Arrays.asList("delete-token", "delete-app", "initialize", "ensure"),
+            backend.events
+        );
+    }
+
+    @Test
+    public void runtimeResetDeletesTheOrphanedTokenBeforeDeletingItsFirebaseApp() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        FakeFirebaseApp previousApp = new FakeFirebaseApp(
+            backend,
+            "secpal-runtime-push"
+        );
+        backend.existingApp = previousApp;
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.applyWithRollback(
+            null,
+            new AndroidPushRuntimeMetadata(
+                "fcm", 2, "old-api-key", "old-project", "old-app", "old-sender"
+            ),
+            true
+        );
+
+        assertEquals(1, backend.deleteMessagingTokenCallCount);
+        assertSame(previousApp, backend.lastDeletedMessagingTokenApp);
+        assertEquals(1, backend.deleteCallCount);
+        assertEquals(0, backend.initializeCallCount);
+        assertEquals(
+            Arrays.asList("delete-token", "delete-app"),
+            backend.events
+        );
+    }
+
+    @Test
     public void refreshTokenRequestsTheCurrentRuntimeWithoutReinitializingIt() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
         backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
@@ -155,6 +217,23 @@ public class AndroidPushRuntimeManagerTest {
         assertEquals(0, backend.initializeCallCount);
         assertEquals(0, backend.ensureMessagingCallCount);
         assertEquals(0, backend.deleteCallCount);
+    }
+
+    @Test
+    public void deleteTokenSynchronouslyTargetsTheBoundRuntime() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        FakeFirebaseApp runtimeApp = new FakeFirebaseApp(
+            backend,
+            "secpal-runtime-push"
+        );
+        backend.existingApp = runtimeApp;
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.deleteToken();
+
+        assertEquals(1, backend.deleteMessagingTokenCallCount);
+        assertSame(runtimeApp, backend.lastDeletedMessagingTokenApp);
+        assertEquals(Arrays.asList("delete-token"), backend.events);
     }
 
     @Test
@@ -193,6 +272,24 @@ public class AndroidPushRuntimeManagerTest {
         assertEquals("secpal-runtime-push", messagingClient.lastRotatedAppName);
         assertEquals("fcm-token-demo", messagingListener.lastReceivedToken);
         assertEquals("secpal-runtime-push", messagingListener.lastReceivedAppName);
+    }
+
+    @Test
+    public void defaultFirebaseBackendDeletesTokenFromTheNamedPreviousRuntime() {
+        FakeFirebaseMessagingClient messagingClient = new FakeFirebaseMessagingClient();
+        AndroidPushRuntimeManager.DefaultFirebaseBackend backend =
+            new AndroidPushRuntimeManager.DefaultFirebaseBackend(
+                null,
+                messagingClient,
+                new FakeMessagingListener()
+            );
+
+        backend.deleteMessagingToken(
+            new FakeFirebaseApp(new FakeFirebaseBackend(), "previous-runtime")
+        );
+
+        assertEquals("previous-runtime", messagingClient.lastDeletedAppName);
+        assertNull(messagingClient.lastRotatedAppName);
     }
 
     @Test
@@ -268,11 +365,14 @@ public class AndroidPushRuntimeManagerTest {
         AndroidPushRuntimeMetadata lastInitializedMetadata;
         AndroidPushRuntimeManager.FirebaseAppHandle lastEnsuredMessagingApp;
         AndroidPushRuntimeManager.FirebaseAppHandle lastRotatedMessagingApp;
+        AndroidPushRuntimeManager.FirebaseAppHandle lastDeletedMessagingTokenApp;
         int initializeCallCount;
         int ensureMessagingCallCount;
         int rotateMessagingCallCount;
+        int deleteMessagingTokenCallCount;
         int deleteCallCount;
         RuntimeException nextInitializeFailure;
+        final List<String> events = new ArrayList<>();
 
         @Override
         public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
@@ -284,6 +384,7 @@ public class AndroidPushRuntimeManagerTest {
             AndroidPushRuntimeMetadata metadata
         ) {
             initializeCallCount += 1;
+            events.add("initialize");
             lastInitializedMetadata = metadata;
             if (nextInitializeFailure != null) {
                 RuntimeException failure = nextInitializeFailure;
@@ -301,13 +402,22 @@ public class AndroidPushRuntimeManagerTest {
         @Override
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             ensureMessagingCallCount += 1;
+            events.add("ensure");
             lastEnsuredMessagingApp = app;
         }
 
         @Override
         public void rotateMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             rotateMessagingCallCount += 1;
+            events.add("rotate");
             lastRotatedMessagingApp = app;
+        }
+
+        @Override
+        public void deleteMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            deleteMessagingTokenCallCount += 1;
+            events.add("delete-token");
+            lastDeletedMessagingTokenApp = app;
         }
     }
 
@@ -328,6 +438,7 @@ public class AndroidPushRuntimeManagerTest {
         @Override
         public void delete() {
             owner.deleteCallCount += 1;
+            owner.events.add("delete-app");
             owner.existingApp = null;
         }
     }
@@ -336,6 +447,7 @@ public class AndroidPushRuntimeManagerTest {
         implements AndroidPushRuntimeManager.FirebaseMessagingClient {
         private String lastRequestedAppName;
         private String lastRotatedAppName;
+        private String lastDeletedAppName;
         private RuntimeException failure;
         private RuntimeException thrownFailure;
         private boolean holdCallback;
@@ -378,6 +490,11 @@ public class AndroidPushRuntimeManagerTest {
         ) {
             lastRotatedAppName = appName;
             requestToken(appName, listener);
+        }
+
+        @Override
+        public void deleteToken(String appName) {
+            lastDeletedAppName = appName;
         }
     }
 

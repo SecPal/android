@@ -277,10 +277,6 @@ class NativeAuthTaskExecutor {
             if (sessionTransitions.get() > 0) {
                 return SubmitResult.TRANSITION_IN_PROGRESS;
             }
-            if (activeGenerationMutations.get() > 0) {
-                return SubmitResult.TRANSITION_IN_PROGRESS;
-            }
-
             int bufferReservationBytes = reserveManagedBytes(requestBodyBytes);
             if (bufferReservationBytes < 0) {
                 return SubmitResult.BUFFER_LIMIT;
@@ -293,12 +289,17 @@ class NativeAuthTaskExecutor {
             sessionTransitions.incrementAndGet();
             evictQueuedOrdinaryTasksLocked("SESSION_INVALIDATED");
             invalidateAuthenticatedLocked("SESSION_INVALIDATED");
+            Runnable orderedJob = () -> {
+                if (awaitActiveGenerationMutations()) {
+                    job.run();
+                }
+            };
             SubmitResult result = enqueueManagedLocked(
                 requestId,
                 requestBodyBytes,
                 bufferReservationBytes,
                 true,
-                job,
+                orderedJob,
                 cancellationAction,
                 cancellationHandler,
                 failureHandler
@@ -345,7 +346,7 @@ class NativeAuthTaskExecutor {
             mutation.run();
             return true;
         } finally {
-            activeGenerationMutations.decrementAndGet();
+            endGenerationMutation();
             task.endProtectedMutation();
         }
     }
@@ -401,7 +402,28 @@ class NativeAuthTaskExecutor {
             mutation.run();
             return true;
         } finally {
+            endGenerationMutation();
+        }
+    }
+
+    private boolean awaitActiveGenerationMutations() {
+        synchronized (generationLock) {
+            while (activeGenerationMutations.get() > 0) {
+                try {
+                    generationLock.wait();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return !sessionExecutorService.isShutdown();
+        }
+    }
+
+    private void endGenerationMutation() {
+        synchronized (generationLock) {
             activeGenerationMutations.decrementAndGet();
+            generationLock.notifyAll();
         }
     }
 

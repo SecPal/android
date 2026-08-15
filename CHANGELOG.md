@@ -49,14 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against logout and runtime transitions, failed previous-installation cleanup
   remains encrypted and retryable across restarts, and runtime reset retains
   its encrypted revocation authority across process death and offline recovery
-  until server cleanup succeeds. Corrupt auxiliary push state
-  cannot retain the bearer during logout, invalidation during
+  until server cleanup succeeds. Disabled or corrupt auxiliary push state no
+  longer skips authentication revocation during logout, and corrupt state
+  synchronously deletes the orphaned FCM token before local credential removal.
+  Invalidation during
   previous-registration cleanup returns safely to token acquisition, and
   registration idempotency includes the authenticated credential and installed
   app version. Startup and active-process recovery now recreate a validated
   binding after corrupt protected push state, never send a new tenant's bearer
   to a previous tenant, and wait for an available same-tenant credential before
-  retrying server cleanup. Successful server deletion cannot be rolled back as
+  retrying server cleanup. Credential replacement now deletes the previous
+  principal's installation with its original authority before registering a
+  fresh identity, or rotates the FCM token when that authority is unavailable
+  or rejected.
+  Successful server deletion cannot be rolled back as
   a still-registered local fingerprint when protected cleanup persistence fails.
   Only the two documented notification-runtime conflict codes produce the
   durable `reconfiguration_required` state, which remains terminal across token,
@@ -71,9 +77,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inventing a token failure. Runtime-rebind revocation authority is retained
   only in encrypted native transition state until the old installation is
   deleted, including cross-tenant and same-origin revision cold starts
-  interrupted before or after bootstrap persistence; explicit logout erases
-  that authority even when remote cleanup fails. Abstract status fields are
-  published atomically. Device instrumentation now
+  interrupted before or after bootstrap persistence. Explicit logout and
+  runtime reset now retain that encrypted authority until push deletion and
+  authentication logout complete in order, and the whole remote teardown uses
+  the managed lifecycle cancellation signal. An unreadable authentication
+  token no longer traps the user on the current runtime: native state is
+  invalidated locally and the replacement FCM identity is rotated. Abstract
+  status fields are published atomically. Device instrumentation now
   preserves unrelated native preferences and any pre-existing protected push
   state. React can read only abstract registration state or request an
   input-free retry that refreshes the Firebase token. The packaged bridge
@@ -83,9 +93,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retention now preserves both the restored runtime and browser migration state
   for retry. Cold-start revocation work is deferred from plugin initialization,
   and loss of protected identity state durably requires deleting the previous
-  FCM token before a replacement installation can register. A confirmed runtime
-  reset now attempts authentication revocation even while push cleanup remains
-  pending. It fails fast when
+  FCM token before a replacement installation can register. The live Android
+  smoke check retries only a transient native offline snapshot during its
+  protected-user read. It fails fast when
   its required native push contract is incomplete, removes its lifecycle
   listener on page teardown, disables Capacitor bridge-payload logging in every
   build type, and no longer publishes token events, registration payloads, or a
@@ -188,9 +198,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allowed one additional bounded API 37 recovery when the PackageManager
   service disappears on two consecutive zero-test installation attempts,
   while keeping a third identical failure and real test failures fail-closed.
-- Isolated API 37 connected-test Gradle invocations from emulator recovery by
-  disabling the persistent daemon and limiting its heap, so a retained build
-  process cannot keep competing with the recovering Android system services.
 - Bounded the strict-CSP real-browser smoke with an absolute Chromium process
   deadline, forceful browser termination, a deadline for HTTP server closure,
   and reserved cleanup headroom inside the outer Vitest timeout across timeout,

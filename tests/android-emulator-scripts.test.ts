@@ -622,7 +622,6 @@ exit 1
       const androidRoot = join(tempRoot, "android");
       const scriptsRoot = join(tempRoot, "scripts");
       const attemptPath = join(tempRoot, "attempts");
-      const gradleArgsPath = join(tempRoot, "gradle-args");
       const rebootPath = join(tempRoot, "reboots");
       const waitPath = join(tempRoot, "waits");
       const recoveryEventPath = join(tempRoot, "recovery-events");
@@ -640,7 +639,6 @@ fi
 attempt=$((attempt + 1))
 printf '%s' "$attempt" > "${attemptPath}"
 printf 'attempt:%s\n' "$attempt" >> "${recoveryEventPath}"
-printf '%s\n' "$*" >> "${gradleArgsPath}"
 attempt_failure_mode=""
 if [[ "${failureMode}" == "maven-403-then-package-manager" ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -799,9 +797,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
         return {
           result,
           attempts: Number.parseInt(readFileSync(attemptPath, "utf8"), 10),
-          gradleInvocations: readFileSync(gradleArgsPath, "utf8")
-            .trim()
-            .split("\n"),
           reboots: existsSync(rebootPath)
             ? readFileSync(rebootPath, "utf8").trim().split("\n")
             : [],
@@ -820,10 +815,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     const recoverableMavenCentralFailure = runScenario(29, "maven-403");
     expect(recoverableMavenCentralFailure.result.status).toBe(0);
     expect(recoverableMavenCentralFailure.attempts).toBe(2);
-    expect(recoverableMavenCentralFailure.gradleInvocations).toEqual([
-      ":app:connectedCtRegressionAndroidTest",
-      ":app:connectedCtRegressionAndroidTest",
-    ]);
     expect(recoverableMavenCentralFailure.reboots).toEqual([]);
     expect(recoverableMavenCentralFailure.waits).toEqual([]);
     expect(recoverableMavenCentralFailure.result.stdout).toContain(
@@ -905,10 +896,6 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     const recoverableApi37Failure = runScenario(37, "package-manager");
     expect(recoverableApi37Failure.result.status).toBe(0);
     expect(recoverableApi37Failure.attempts).toBe(2);
-    expect(recoverableApi37Failure.gradleInvocations).toEqual([
-      "--no-daemon -Dorg.gradle.jvmargs=-Xmx768m :app:connectedCtRegressionAndroidTest",
-      "--no-daemon -Dorg.gradle.jvmargs=-Xmx768m :app:connectedCtRegressionAndroidTest",
-    ]);
     expect(recoverableApi37Failure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
     ]);

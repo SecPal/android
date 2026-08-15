@@ -46,19 +46,9 @@ attempt_log="$(mktemp "${TMPDIR:-/tmp}/secpal-android-connected-test.XXXXXX.log"
 trap 'rm -f "$attempt_log"' EXIT
 
 run_connected_test() {
-    local gradle_runtime_args=()
-
-    if (( api_level == 37 )); then
-        gradle_runtime_args=(
-            --no-daemon
-            -Dorg.gradle.jvmargs=-Xmx768m
-        )
-    fi
     (
         cd "${repo_root}/android"
-        ANDROID_SERIAL="$serial" ./gradlew \
-            "${gradle_runtime_args[@]}" \
-            "${gradle_args[@]}"
+        ANDROID_SERIAL="$serial" ./gradlew "${gradle_args[@]}"
     )
 }
 

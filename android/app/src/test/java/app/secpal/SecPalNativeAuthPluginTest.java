@@ -1110,6 +1110,13 @@ public class SecPalNativeAuthPluginTest {
                 ) {
                     events.add("token-rotation");
                 }
+
+                @Override
+                public void deleteMessagingToken(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-deletion");
+                }
             };
         JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
             new JSONObject()
@@ -1368,30 +1375,148 @@ public class SecPalNativeAuthPluginTest {
         AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
 
         assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
-            "https://tenant-a.example",
             "auth-token",
-            token -> {
+            (token, cancellation) -> {
                 events.add("push-logout");
                 throw new TokenStorageException(
                     "corrupt push state",
                     new IllegalStateException("corrupt")
                 );
             },
+            new NativeAuthHttpClient.CancellationSignal(),
             tokenStorage,
             localCredentialCleared,
             mutation -> {
                 mutation.run();
                 return true;
-            },
-            (apiOrigin, token) -> events.add("server-logout")
+            }
         ));
 
         assertEquals(
-            Arrays.asList("push-logout", "clear-token", "server-logout"),
+            Arrays.asList("push-logout", "clear-token"),
             events
         );
         assertTrue(localCredentialCleared.get());
         assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void logoutDeletesInvalidatedPushTokenBeforeCredentialClear()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+
+        SecPalNativeAuthPlugin.logoutAndroidPush(
+            "auth-token",
+            cancellation,
+            (token, suppliedCancellation) -> {
+                assertEquals("auth-token", token);
+                assertEquals(cancellation, suppliedCancellation);
+                events.add("push-logout");
+            },
+            () -> true,
+            () -> events.add("delete-token")
+        );
+
+        assertEquals(
+            Arrays.asList("push-logout", "delete-token"),
+            events
+        );
+    }
+
+    @Test
+    public void credentialReplacementRetainsThePreviousAuthorityBeforeSaving()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "first-user-auth-token",
+            events
+        );
+
+        SecPalNativeAuthPlugin.replaceStoredCredential(
+            tokenStorage,
+            "second-user-auth-token",
+            (previousToken, nextToken) -> {
+                assertEquals("first-user-auth-token", previousToken);
+                assertEquals("second-user-auth-token", nextToken);
+                events.add("prepare-push-replacement");
+            }
+        );
+
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("second-user-auth-token", tokenStorage.token);
+    }
+
+    @Test
+    public void unreadablePreviousCredentialCannotBlockReplacement()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        TokenStorage tokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) {
+                events.add("save:" + token);
+            }
+
+            @Override
+            public String getToken() throws TokenStorageException {
+                events.add("read");
+                throw new TokenStorageException(
+                    "unreadable token",
+                    new IllegalStateException("invalidated")
+                );
+            }
+
+            @Override
+            public void clearToken() {
+                events.add("clear");
+            }
+        };
+
+        SecPalNativeAuthPlugin.replaceStoredCredential(
+            tokenStorage,
+            "replacement-token",
+            (previousToken, nextToken) -> {
+                assertNull(previousToken);
+                events.add("prepare:" + nextToken);
+            }
+        );
+
+        assertEquals(
+            Arrays.asList(
+                "read",
+                "clear",
+                "prepare:replacement-token",
+                "save:replacement-token"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void authenticationSyncRotatesAnInvalidatedPrincipalTokenAfterStateCheck() {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.synchronizeAndroidPushAfterAuthentication(
+            "second-user-auth-token",
+            new NativeAuthHttpClient.CancellationSignal(),
+            (token, cancellation) -> events.add("sync:" + token),
+            () -> true,
+            () -> events.add("rotate-token"),
+            () -> fail("Protected storage should remain available")
+        );
+
+        assertEquals(
+            Arrays.asList("sync:second-user-auth-token", "rotate-token"),
+            events
+        );
     }
 
     @Test
@@ -1838,42 +1963,6 @@ public class SecPalNativeAuthPluginTest {
         assertNull(preferences.getString("api_base_url", null));
     }
 
-    @Test
-    public void deferredPushCleanupStillRevokesNativeAuthentication() {
-        List<String> events = new ArrayList<>();
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            () -> {
-                events.add("push-cleanup-deferred");
-                return false;
-            },
-            "auth-token",
-            "https://tenant-a.example",
-            (apiOrigin, token) -> events.add("server-logout")
-        );
-
-        assertEquals(
-            Arrays.asList("push-cleanup-deferred", "server-logout"),
-            events
-        );
-    }
-
-    @Test
-    public void completedNativeRuntimeClearIgnoresBestEffortAuthenticationRevocationFailure() {
-        AtomicBoolean logoutCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeNativeAuthenticationAfterRuntimeClear(
-            "rejected-token",
-            "https://tenant-a.example",
-            (apiOrigin, token) -> {
-                logoutCalled.set(true);
-                throw new NativeAuthHttpException("Unauthenticated", 401);
-            }
-        );
-
-        assertTrue(logoutCalled.get());
-    }
-
     private static void assertRuntimeBootstrapInvalid(
         String instanceDisplayName,
         String rawApiBaseUrl
@@ -1967,6 +2056,13 @@ public class SecPalNativeAuthPluginTest {
         ) {
             fail("rotateMessagingToken should not run after initialization fails");
         }
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
+            fail("deleteMessagingToken should not run without an existing runtime");
+        }
     }
 
     private static final class ResetFailingFirebaseBackend
@@ -2026,6 +2122,11 @@ public class SecPalNativeAuthPluginTest {
         ) {
             ensureMessagingCallCount += 1;
         }
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {}
     }
 
     private static final class InMemorySharedPreferences implements SharedPreferences {

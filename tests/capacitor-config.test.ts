@@ -348,7 +348,13 @@ describe("capacitor Android wrapper configuration", () => {
   });
 
   it("dispatches the native logout event after a successful typed bridge logout", async () => {
-    pluginMocks.logout.mockResolvedValue(undefined);
+    const deferredLogout: { resolve?: () => void } = {};
+    pluginMocks.logout.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolvePromise) => {
+          deferredLogout.resolve = resolvePromise;
+        })
+    );
     const dispatched: Event[] = [];
     const originalDispatch = globalThis.dispatchEvent;
     try {
@@ -361,7 +367,13 @@ describe("capacitor Android wrapper configuration", () => {
         await import("../src/secpal/native-auth-bridge");
       const bridge = createNativeAuthBridge();
 
-      await bridge.logout();
+      const logout = bridge.logout();
+      await Promise.resolve();
+
+      expect(dispatched).toHaveLength(0);
+
+      deferredLogout.resolve?.();
+      await logout;
 
       expect(dispatched).toHaveLength(1);
       expect(dispatched[0]?.type).toBe("secpal:native-auth-logout");

@@ -2211,6 +2211,7 @@ describe("native auth bridge bootstrap injection", () => {
       localStorage?: ReturnType<typeof createMockStorage>;
       sessionStorage?: ReturnType<typeof createMockStorage>;
       runtimeBootstrap?: ReturnType<typeof createCustomerAndroidPushBootstrap>;
+      deferLifecycleHandle?: boolean;
     } = {}
   ) {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
@@ -2226,6 +2227,7 @@ describe("native auth bridge bootstrap injection", () => {
       nativeAuthLifecycleChanged: [],
     };
     const handles: Array<{ remove: ReturnType<typeof vi.fn> }> = [];
+    const deferredLifecycleHandle: { resolve?: () => void } = {};
     const plugin = {
       login: vi.fn().mockResolvedValue({ user: { id: 7 } }),
       logout: vi.fn().mockResolvedValue(undefined),
@@ -2268,7 +2270,12 @@ describe("native auth bridge bootstrap injection", () => {
           }
           const handle = { remove: vi.fn() };
           handles.push(handle);
-          return handle;
+          if (!options.deferLifecycleHandle) {
+            return handle;
+          }
+          return new Promise<typeof handle>((resolveHandle) => {
+            deferredLifecycleHandle.resolve = () => resolveHandle(handle);
+          });
         }
       ),
     };
@@ -2361,6 +2368,7 @@ describe("native auth bridge bootstrap injection", () => {
       listeners,
       localStorage,
       plugin,
+      resolveLifecycleHandle: () => deferredLifecycleHandle.resolve?.(),
       sandbox,
       sessionStorage,
     };
@@ -2487,6 +2495,21 @@ describe("native auth bridge bootstrap injection", () => {
     expect(handles[0]?.remove).toHaveBeenCalledOnce();
   });
 
+  it("removes a promised native auth lifecycle handle that resolves after pagehide", async () => {
+    const { handles, resolveLifecycleHandle, sandbox } =
+      await createAndroidPushLifecycleSandbox({ deferLifecycleHandle: true });
+
+    (sandbox.dispatchEvent as (event: { type: string }) => boolean)({
+      type: "pagehide",
+    });
+    expect(handles[0]?.remove).not.toHaveBeenCalled();
+
+    resolveLifecycleHandle?.();
+    await flushMicrotasks();
+
+    expect(handles[0]?.remove).toHaveBeenCalledOnce();
+  });
+
   it("does not reactivate auth state after a successful direct bridge request", async () => {
     const { bridge, plugin, sandbox } =
       await createAndroidPushLifecycleSandbox();
@@ -2589,8 +2612,16 @@ describe("native auth bridge bootstrap injection", () => {
   });
 
   it("dispatches a native logout event after the bridge completes logout", async () => {
-    const { bridge, sandbox } = await createAndroidPushLifecycleSandbox();
+    const { bridge, plugin, sandbox } =
+      await createAndroidPushLifecycleSandbox();
     const logoutListener = vi.fn();
+    const deferredLogout: { resolve?: () => void } = {};
+    plugin.logout.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolvePromise) => {
+          deferredLogout.resolve = resolvePromise;
+        })
+    );
 
     (
       sandbox as {
@@ -2603,7 +2634,13 @@ describe("native auth bridge bootstrap injection", () => {
       logoutListener(event);
     });
 
-    await bridge.logout();
+    const logout = bridge.logout();
+    await flushMicrotasks();
+
+    expect(logoutListener).not.toHaveBeenCalled();
+
+    deferredLogout.resolve?.();
+    await logout;
     await flushMicrotasks();
 
     expect(logoutListener).toHaveBeenCalledOnce();
