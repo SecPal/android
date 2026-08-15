@@ -510,23 +510,44 @@ public class SecPalNativeAuthPlugin extends Plugin {
             }
             try {
                 String authToken = readStoredTokenForRuntimeMutation(tokenStorage);
-                if (installationId != null && !installationId.trim().isEmpty()) {
+                boolean cleanupRequired = installationId != null
+                    && !installationId.trim().isEmpty();
+                if (cleanupRequired) {
                     androidPushRegistrationManager.retainLegacyInstallationForRevocation(
                         installationId,
                         authToken
                     );
-                    androidPushRegistrationManager.onAuthenticated(authToken);
                 }
-                if (!preferences.edit()
-                    .putBoolean(LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY, true)
-                    .commit()) {
+                if (!finishLegacyPushMigration(
+                    () -> preferences.edit()
+                        .putBoolean(
+                            LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY,
+                            true
+                        )
+                        .commit(),
+                    call::resolve,
+                    () -> {
+                        if (!cleanupRequired
+                            || authToken == null
+                            || authToken.trim().isEmpty()) {
+                            return;
+                        }
+                        scheduleAndroidPushAfterAuthentication(
+                            taskExecutor,
+                            cancellation -> androidPushRegistrationManager.onAuthenticated(
+                                authToken,
+                                cancellation
+                            ),
+                            this::handleAndroidPushProtectedStateError,
+                            androidPushRegistrationManager::onRegistrationSchedulingError
+                        );
+                    }
+                )) {
                     call.reject(
                         "Failed to persist legacy Android push cleanup state",
                         "PUSH_STORAGE_ERROR"
                     );
-                    return;
                 }
-                call.resolve();
             } catch (TokenStorageException exception) {
                 call.reject(
                     "Failed to retain legacy Android push cleanup state",
@@ -535,6 +556,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 );
             }
         });
+    }
+
+    static boolean finishLegacyPushMigration(
+        BooleanSupplier persistence,
+        Runnable completion,
+        Runnable cleanupScheduling
+    ) {
+        if (!persistence.getAsBoolean()) {
+            return false;
+        }
+        completion.run();
+        cleanupScheduling.run();
+        return true;
     }
 
     @PluginMethod

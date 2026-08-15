@@ -673,14 +673,13 @@ final class AndroidPushRegistrationManager {
                 return true;
             }
             String revocationAuthToken = runtimeClearAuthToken(state, authToken);
-            boolean authenticationRevoked = state != null
-                && state.hasPendingRevocation()
+            boolean authenticationRevoked = state.hasPendingRevocation()
                 && state.pendingRevocationRequiresAuthenticationLogout()
                 && sameAuthToken(
                     state.pendingRevocationAuthToken(),
                     revocationAuthToken
                 );
-            if (state != null && state.hasPendingRevocation()) {
+            if (state.hasPendingRevocation()) {
                 if (!hasAuthToken(revocationAuthToken)) {
                     storage.invalidateIdentityForTokenRotation();
                     clearRuntimeBinding(true);

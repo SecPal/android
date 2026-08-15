@@ -1608,6 +1608,44 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void legacyPushMigrationResolvesBeforeCleanupScheduling() {
+        List<String> events = new ArrayList<>();
+
+        assertTrue(SecPalNativeAuthPlugin.finishLegacyPushMigration(
+            () -> {
+                events.add("persist-migration");
+                return true;
+            },
+            () -> events.add("resolve-bridge-call"),
+            () -> events.add("schedule-cleanup")
+        ));
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "persist-migration",
+                "resolve-bridge-call",
+                "schedule-cleanup"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void failedLegacyPushMigrationPersistenceDoesNotResolveOrScheduleCleanup() {
+        AtomicBoolean resolved = new AtomicBoolean(false);
+        AtomicBoolean cleanupScheduled = new AtomicBoolean(false);
+
+        assertFalse(SecPalNativeAuthPlugin.finishLegacyPushMigration(
+            () -> false,
+            () -> resolved.set(true),
+            () -> cleanupScheduled.set(true)
+        ));
+
+        assertFalse(resolved.get());
+        assertFalse(cleanupScheduled.get());
+    }
+
+    @Test
     public void lifecycleCancellationInterruptsAuthenticatedPushScheduling()
         throws Exception {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
