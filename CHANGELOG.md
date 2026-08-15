@@ -112,8 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server-side logout has already succeeded, even when protected cleanup
   persistence subsequently fails. Explicit registration retries now use a
   lifecycle-managed cancellation signal, so logout and runtime reset cancel
-  slow push network requests before teardown proceeds (issue #411, part of
-  #402).
+  slow push network requests before teardown proceeds. Interrupted runtime
+  resets atomically retain only the native FCM runtime metadata needed to
+  finish token deletion, retry that deletion after offline restarts, and remove
+  the recovery state once deletion succeeds. Explicit retries now reconcile
+  protected revocation state before choosing token refresh or rotation;
+  already-revoked authentication sessions are treated as idempotent cleanup
+  success, and rejected stale token work cannot overwrite the logged-out
+  `awaiting_auth` state (issue #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

@@ -194,6 +194,21 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void coldStartTokenDeletionRecreatesThePersistedRuntime() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 2, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+
+        manager.deleteToken(metadata);
+
+        assertSame(metadata, backend.lastInitializedMetadata);
+        assertEquals(1, backend.deleteMessagingTokenCallCount);
+        assertEquals(1, backend.deleteCallCount);
+    }
+
+    @Test
     public void refreshTokenRequestsTheCurrentRuntimeWithoutReinitializingIt() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
         backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");

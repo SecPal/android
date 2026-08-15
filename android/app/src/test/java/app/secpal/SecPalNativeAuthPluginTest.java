@@ -1642,7 +1642,7 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void explicitPushRetryRefreshesFirebaseBeforeSynchronizingStoredState()
+    public void explicitPushRetrySynchronizesStoredStateBeforeRefreshingFirebase()
         throws Exception {
         List<String> events = new ArrayList<>();
 
@@ -1656,9 +1656,104 @@ public class SecPalNativeAuthPluginTest {
         );
 
         assertEquals(
-            Arrays.asList("prepare-retry", "refresh-token", "sync-registration"),
+            Arrays.asList("prepare-retry", "sync-registration", "refresh-token"),
             events
         );
+    }
+
+    @Test
+    public void explicitPushRetryUsesThePostSynchronizationRotationState()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        AtomicBoolean rotationRequired = new AtomicBoolean(false);
+
+        SecPalNativeAuthPlugin.retryAndroidPushRegistrationNow(
+            () -> true,
+            () -> events.add(
+                rotationRequired.get() ? "rotate-token" : "refresh-token"
+            ),
+            () -> rotationRequired.set(true)
+        );
+
+        assertEquals(Arrays.asList("rotate-token"), events);
+    }
+
+    @Test
+    public void runtimeResetPersistsPushMetadataBeforeDeletingTheToken()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, true);
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        assertTrue(
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                tokenStorage.token,
+                new AndroidPushRuntimeManager(backend),
+                metadata,
+                true
+            )
+        );
+
+        assertTrue(backend.metadataWasPersisted);
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void coldStartFinishesPersistedPushTokenDeletion() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, false);
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+
+        assertTrue(
+            SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                preferences,
+                new AndroidPushRuntimeManager(backend)
+            )
+        );
+
+        assertEquals("old-project", backend.initializedMetadata.projectId());
+        assertTrue(backend.tokenDeleted);
+        assertTrue(backend.appDeleted);
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void offlineColdStartRetainsPushTokenDeletionForRetry() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, true);
+        backend.deletionFailure = new IllegalStateException("offline");
+
+        assertFalse(
+            SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                preferences,
+                new AndroidPushRuntimeManager(backend)
+            )
+        );
+
+        assertTrue(preferences.contains("pending_push_runtime_clear"));
     }
 
     @Test
@@ -2320,6 +2415,82 @@ public class SecPalNativeAuthPluginTest {
         public void deleteMessagingToken(
             AndroidPushRuntimeManager.FirebaseAppHandle app
         ) {}
+    }
+
+    private static final class RuntimeCleanupFirebaseBackend
+        implements AndroidPushRuntimeManager.FirebaseBackend {
+        private final InMemorySharedPreferences preferences;
+        private AndroidPushRuntimeManager.FirebaseAppHandle runtimeApp;
+        private AndroidPushRuntimeMetadata initializedMetadata;
+        private RuntimeException deletionFailure;
+        private boolean metadataWasPersisted;
+        private boolean tokenDeleted;
+        private boolean appDeleted;
+
+        RuntimeCleanupFirebaseBackend(
+            InMemorySharedPreferences preferences,
+            boolean runtimeExists
+        ) {
+            this.preferences = preferences;
+            if (runtimeExists) {
+                runtimeApp = createRuntimeApp();
+            }
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+            return runtimeApp;
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle initialize(
+            AndroidPushRuntimeMetadata metadata
+        ) {
+            initializedMetadata = metadata;
+            runtimeApp = createRuntimeApp();
+            return runtimeApp;
+        }
+
+        @Override
+        public void cancelPendingTokenRequest() {}
+
+        @Override
+        public void ensureMessaging(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {}
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {}
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {
+            metadataWasPersisted = preferences.contains(
+                "pending_push_runtime_clear"
+            );
+            if (deletionFailure != null) {
+                throw deletionFailure;
+            }
+            tokenDeleted = true;
+        }
+
+        private AndroidPushRuntimeManager.FirebaseAppHandle createRuntimeApp() {
+            return new AndroidPushRuntimeManager.FirebaseAppHandle() {
+                @Override
+                public String getName() {
+                    return AndroidPushRegistrationManager.RUNTIME_APP_NAME;
+                }
+
+                @Override
+                public void delete() {
+                    appDeleted = true;
+                    runtimeApp = null;
+                }
+            };
+        }
     }
 
     private static final class InMemorySharedPreferences implements SharedPreferences {

@@ -168,6 +168,22 @@ final class AndroidPushRuntimeManager {
         }
     }
 
+    void deleteToken(AndroidPushRuntimeMetadata metadata) {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp == null && metadata != null) {
+            runtimeApp = firebaseBackend.initialize(metadata);
+        }
+        if (runtimeApp == null) {
+            return;
+        }
+        try {
+            firebaseBackend.deleteMessagingToken(runtimeApp);
+        } finally {
+            runtimeApp.delete();
+        }
+    }
+
     static final class DefaultFirebaseBackend implements FirebaseBackend {
         private final Context applicationContext;
         private final FirebaseMessagingClient messagingClient;

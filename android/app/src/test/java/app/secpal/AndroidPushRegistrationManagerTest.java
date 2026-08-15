@@ -649,6 +649,39 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void alreadyRevokedAuthenticationCompletesRuntimeRebind()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+        backend.logoutStatus = 401;
+
+        manager.revokePrevious(
+            rebind,
+            "old-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertFalse(storage.load().hasPendingRevocation());
+        assertEquals("awaiting_token", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void tokenErrorDuringRebindRemainsRetryableAfterPreviousRevocation()
         throws Exception {
         RecordingBackend backend = new RecordingBackend();
@@ -1177,6 +1210,57 @@ public class AndroidPushRegistrationManagerTest {
         assertTrue(storage.load().hasPendingRevocation());
         assertTrue(storage.load().pendingRevocationRequiresAuthenticationLogout());
         assertEquals("old-auth-token", storage.load().pendingRevocationAuthToken());
+    }
+
+    @Test
+    public void alreadyRevokedAuthenticationCompletesLogoutCleanup()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        backend.logoutStatus = 401;
+
+        manager.onLogout("old-auth-token");
+
+        assertFalse(storage.load().hasPendingRevocation());
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void alreadyRevokedAuthenticationCompletesRuntimeReset()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        manager.prepareRuntimeReset("old-auth-token");
+        backend.logoutStatus = 403;
+
+        assertTrue(manager.clearRuntime("old-auth-token"));
+
+        assertNull(storage.load());
+        assertEquals("unconfigured", manager.getStatus().getString("state"));
     }
 
     @Test
@@ -1859,6 +1943,38 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void rejectedTokenCallbackCannotOverwriteLoggedOutStatus()
+        throws Exception {
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onLogout("auth-token");
+
+        manager.onRegistrationSchedulingError();
+
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+        assertFalse(manager.getStatus().getBool("retryable"));
+    }
+
+    @Test
+    public void protectedStateFailureCannotOverwriteLoggedOutStatus()
+        throws Exception {
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onLogout("auth-token");
+
+        manager.onProtectedStateError();
+
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+        assertFalse(manager.getStatus().getBool("retryable"));
+    }
+
+    @Test
     public void documentedRegistrationConflictRemainsTerminalUntilRuntimeRebind()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -2102,6 +2218,7 @@ public class AndroidPushRegistrationManagerTest {
         boolean offline;
         boolean offlineUnregistration;
         boolean offlineLogout;
+        int logoutStatus = 204;
         AndroidPushRegistrationManager.RegistrationResponse registrationResponse =
             new AndroidPushRegistrationManager.RegistrationResponse(201, null);
 
@@ -2149,13 +2266,16 @@ public class AndroidPushRegistrationManagerTest {
             String apiOrigin,
             String authToken,
             NativeAuthHttpClient.CancellationSignal cancellation
-        ) throws IOException {
+        ) throws IOException, NativeAuthHttpException {
             logoutCount += 1;
             teardownEvents.add("logout");
             logoutAuthTokens.add(authToken);
             logoutCancellations.add(cancellation);
             if (offlineLogout) {
                 throw new IOException("offline");
+            }
+            if (logoutStatus >= 400) {
+                throw new NativeAuthHttpException("logout rejected", logoutStatus);
             }
         }
     }

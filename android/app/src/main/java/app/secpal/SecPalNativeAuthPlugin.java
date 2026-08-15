@@ -42,6 +42,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
+    private static final String PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY =
+        "pending_push_runtime_clear";
     private static final String LEGACY_PUSH_MIGRATION_COMPLETE_PREFERENCE_KEY =
         "legacy_push_migration_complete";
     private static final String NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT =
@@ -113,8 +115,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
             createAndroidPushMessagingListener()
         );
         JSObject persistedRuntimeBootstrap = getPersistedRuntimeBootstrap();
+        boolean pendingPushTokenCleanup = false;
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
+            pendingPushTokenCleanup = hasPendingPushRuntimeClear(
+                getNativeAuthPreferences()
+            );
         }
         persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
             getNativeAuthPreferences(),
@@ -129,10 +135,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         networkState = new NetworkState();
         passkeyAuthenticator = new NativePasskeyAuthenticator();
-        if (pendingRuntimeCleanupOnLoad) {
+        if (pendingRuntimeCleanupOnLoad || pendingPushTokenCleanup) {
             submitNativePushTaskWithoutRetryMarker(
                 taskExecutor,
-                () -> androidPushRegistrationManager.clearRuntime(null)
+                this::finishPendingRuntimeCleanup
             );
         }
     }
@@ -168,7 +174,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             apiBaseUrl,
             () -> submitNativePushTaskWithoutRetryMarker(
                 taskExecutor,
-                () -> androidPushRegistrationManager.clearRuntime(null)
+                this::finishPendingRuntimeCleanup
             ),
             () -> submitForegroundPushRefresh(
                 taskExecutor,
@@ -1839,8 +1845,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (!preparation.prepare()) {
             return;
         }
-        tokenRefresh.run();
         registrationSync.run();
+        tokenRefresh.run();
     }
 
     static NativeAuthTaskExecutor.SubmitResult submitAndroidPushRegistrationRetry(
@@ -2376,15 +2382,44 @@ public class SecPalNativeAuthPlugin extends Plugin {
         SharedPreferences preferences,
         TokenStorage tokenStorage
     ) {
+        return clearRuntimeBootstrapState(
+            preferences,
+            tokenStorage,
+            null,
+            false
+        );
+    }
+
+    private static boolean clearRuntimeBootstrapState(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        String pendingPushRuntimeClear,
+        boolean managePendingPushRuntimeClear
+    ) {
         String previousRuntimeBootstrap = preferences.getString(
             RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
             null
         );
         String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
-        boolean persisted = preferences.edit()
+        String previousPendingPushRuntimeClear = preferences.getString(
+            PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+            null
+        );
+        SharedPreferences.Editor editor = preferences.edit()
             .remove(RUNTIME_BOOTSTRAP_PREFERENCE_KEY)
-            .remove(API_BASE_URL_PREFERENCE_KEY)
-            .commit();
+            .remove(API_BASE_URL_PREFERENCE_KEY);
+        if (managePendingPushRuntimeClear) {
+            if (pendingPushRuntimeClear == null
+                || pendingPushRuntimeClear.trim().isEmpty()) {
+                editor.remove(PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY);
+            } else {
+                editor.putString(
+                    PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+                    pendingPushRuntimeClear
+                );
+            }
+        }
+        boolean persisted = editor.commit();
 
         if (!persisted) {
             final boolean persistenceRestored;
@@ -2392,7 +2427,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
                     preferences,
                     previousRuntimeBootstrap,
-                    previousApiBaseUrl
+                    previousApiBaseUrl,
+                    previousPendingPushRuntimeClear,
+                    managePendingPushRuntimeClear
                 );
             } catch (RuntimeException rollbackFailure) {
                 tokenStorage.clearToken();
@@ -2442,7 +2479,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 null,
                 previousPushRuntime,
                 oldRuntimeTokenDeletionRequired
-            )
+            ),
+            oldRuntimeTokenDeletionRequired && previousPushRuntime != null
+                ? previousPushRuntime.toJsObject().toString()
+                : null,
+            true
         );
     }
 
@@ -2452,17 +2493,49 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String previousToken,
         Runnable pushCleanup
     ) throws TokenStorageException {
+        return clearRuntimeBootstrapStateWithPushRollback(
+            preferences,
+            tokenStorage,
+            previousToken,
+            pushCleanup,
+            null,
+            false
+        );
+    }
+
+    private static boolean clearRuntimeBootstrapStateWithPushRollback(
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        String previousToken,
+        Runnable pushCleanup,
+        String pendingPushRuntimeClear,
+        boolean managePendingPushRuntimeClear
+    ) throws TokenStorageException {
         String previousRuntimeBootstrap = preferences.getString(
             RUNTIME_BOOTSTRAP_PREFERENCE_KEY,
             null
         );
         String previousApiBaseUrl = preferences.getString(API_BASE_URL_PREFERENCE_KEY, null);
-        if (!clearRuntimeBootstrapState(preferences, tokenStorage)) {
+        String previousPendingPushRuntimeClear = preferences.getString(
+            PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+            null
+        );
+        if (!clearRuntimeBootstrapState(
+            preferences,
+            tokenStorage,
+            pendingPushRuntimeClear,
+            managePendingPushRuntimeClear
+        )) {
             return false;
         }
 
         try {
             pushCleanup.run();
+            if (managePendingPushRuntimeClear) {
+                preferences.edit()
+                    .remove(PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY)
+                    .commit();
+            }
             return true;
         } catch (RuntimeException exception) {
             final boolean persistenceRestored;
@@ -2470,7 +2543,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 persistenceRestored = restoreRuntimeBootstrapPersistenceSynchronously(
                     preferences,
                     previousRuntimeBootstrap,
-                    previousApiBaseUrl
+                    previousApiBaseUrl,
+                    previousPendingPushRuntimeClear,
+                    managePendingPushRuntimeClear
                 );
             } catch (RuntimeException rollbackException) {
                 exception.addSuppressed(rollbackException);
@@ -2493,6 +2568,55 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
+    static boolean recoverPendingPushRuntimeClear(
+        SharedPreferences preferences,
+        AndroidPushRuntimeManager androidPushRuntimeManager
+    ) {
+        String rawMetadata = preferences.getString(
+            PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+            null
+        );
+        if (rawMetadata == null || rawMetadata.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            AndroidPushRuntimeMetadata metadata =
+                AndroidPushRuntimeMetadata.fromBootstrap(
+                    new JSONObject(rawMetadata)
+                );
+            try {
+                androidPushRuntimeManager.deleteToken(metadata);
+            } catch (RuntimeException exception) {
+                return false;
+            }
+            preferences.edit()
+                .remove(PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY)
+                .commit();
+            return true;
+        } catch (JSONException | InvalidRuntimeBootstrapException exception) {
+            throw new IllegalStateException(
+                "Failed to restore pending Android push runtime cleanup",
+                exception
+            );
+        }
+    }
+
+    static boolean hasPendingPushRuntimeClear(SharedPreferences preferences) {
+        String rawMetadata = preferences.getString(
+            PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+            null
+        );
+        return rawMetadata != null && !rawMetadata.trim().isEmpty();
+    }
+
+    private void finishPendingRuntimeCleanup() throws TokenStorageException {
+        recoverPendingPushRuntimeClear(
+            getNativeAuthPreferences(),
+            androidPushRuntimeManager
+        );
+        androidPushRegistrationManager.clearRuntime(null);
+    }
+
     static String readStoredTokenForRuntimeMutation(TokenStorage tokenStorage) {
         try {
             return tokenStorage.getToken();
@@ -2506,6 +2630,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String previousRuntimeBootstrap,
         String previousApiBaseUrl
     ) {
+        return restoreRuntimeBootstrapPersistenceSynchronously(
+            preferences,
+            previousRuntimeBootstrap,
+            previousApiBaseUrl,
+            null,
+            false
+        );
+    }
+
+    private static boolean restoreRuntimeBootstrapPersistenceSynchronously(
+        SharedPreferences preferences,
+        String previousRuntimeBootstrap,
+        String previousApiBaseUrl,
+        String previousPendingPushRuntimeClear,
+        boolean restorePendingPushRuntimeClear
+    ) {
         SharedPreferences.Editor editor = preferences.edit();
 
         if (previousRuntimeBootstrap == null || previousRuntimeBootstrap.trim().isEmpty()) {
@@ -2518,6 +2658,17 @@ public class SecPalNativeAuthPlugin extends Plugin {
         } else {
             editor.putString(API_BASE_URL_PREFERENCE_KEY, previousApiBaseUrl);
         }
+        if (restorePendingPushRuntimeClear) {
+            if (previousPendingPushRuntimeClear == null
+                || previousPendingPushRuntimeClear.trim().isEmpty()) {
+                editor.remove(PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY);
+            } else {
+                editor.putString(
+                    PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY,
+                    previousPendingPushRuntimeClear
+                );
+            }
+        }
 
         return editor.commit();
     }
@@ -2527,6 +2678,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
             .edit()
             .putString(RUNTIME_BOOTSTRAP_PREFERENCE_KEY, bootstrap.toString())
             .remove(API_BASE_URL_PREFERENCE_KEY)
+            .remove(PENDING_PUSH_RUNTIME_CLEAR_PREFERENCE_KEY)
             .commit();
     }
 
