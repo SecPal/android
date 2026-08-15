@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
@@ -584,33 +585,44 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (!requireOnlyKeys(call)) {
             return;
         }
-        long generation = taskExecutor.captureGeneration();
-        runAsync(call, () -> {
-            try {
-                if (!retryAndroidPushRegistrationIfCurrent(
-                    taskExecutor,
-                    generation,
-                    androidPushRegistrationManager::prepareRetry,
-                    this::refreshOrRotateAndroidPushToken,
-                    () -> androidPushRegistrationManager.onAuthenticated(
-                        tokenStorage.getToken()
+        AtomicBoolean settled = new AtomicBoolean(false);
+        NativeAuthTaskExecutor.SubmitResult submitResult =
+            submitAndroidPushRegistrationRetry(
+                taskExecutor,
+                androidPushRegistrationManager::prepareRetry,
+                this::refreshOrRotateAndroidPushToken,
+                cancellation -> androidPushRegistrationManager.onAuthenticated(
+                    tokenStorage.getToken(),
+                    cancellation
+                ),
+                () -> settleOnce(
+                    settled,
+                    () -> call.resolve(androidPushRegistrationManager.getStatus())
+                ),
+                exception -> settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Failed to access protected Android push state",
+                        "PUSH_STORAGE_ERROR",
+                        exception
                     )
-                )) {
-                    call.reject(
-                        cancellationMessage("SESSION_INVALIDATED"),
-                        "SESSION_INVALIDATED"
-                    );
-                    return;
-                }
-                call.resolve(androidPushRegistrationManager.getStatus());
-            } catch (TokenStorageException exception) {
-                call.reject(
-                    "Failed to access protected Android push state",
-                    "PUSH_STORAGE_ERROR",
-                    exception
-                );
-            }
-        });
+                ),
+                reasonCode -> settleOnce(
+                    settled,
+                    () -> call.reject(cancellationMessage(reasonCode), reasonCode)
+                ),
+                exception -> settleOnce(
+                    settled,
+                    () -> call.reject(
+                        "Android native auth operation failed unexpectedly",
+                        "NATIVE_AUTH_INTERNAL_ERROR",
+                        exception
+                    )
+                )
+            );
+        if (submitResult != NativeAuthTaskExecutor.SubmitResult.ACCEPTED) {
+            settleOnce(settled, () -> rejectSubmission(call, submitResult));
+        }
     }
 
     @PluginMethod
@@ -1831,20 +1843,50 @@ public class SecPalNativeAuthPlugin extends Plugin {
         registrationSync.run();
     }
 
-    static boolean retryAndroidPushRegistrationIfCurrent(
+    static NativeAuthTaskExecutor.SubmitResult submitAndroidPushRegistrationRetry(
         NativeAuthTaskExecutor taskExecutor,
-        long generation,
         PushRetryPreparation preparation,
         Runnable tokenRefresh,
-        PushTask registrationSync
-    ) throws TokenStorageException {
-        return taskExecutor.runIfGenerationCurrent(
-            generation,
-            () -> retryAndroidPushRegistrationNow(
-                preparation,
-                tokenRefresh,
-                registrationSync
-            )
+        CancellablePushTask registrationSync,
+        Runnable completion,
+        Consumer<TokenStorageException> protectedStorageErrorHandler,
+        Consumer<String> cancellationHandler,
+        Consumer<RuntimeException> failureHandler
+    ) {
+        String requestId = "android-push-retry-" + UUID.randomUUID();
+        long generation = taskExecutor.captureGeneration();
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        return taskExecutor.submitAuthenticated(
+            requestId,
+            0,
+            () -> {
+                try {
+                    if (!taskExecutor.runIfGenerationCurrent(
+                        generation,
+                        () -> retryAndroidPushRegistrationNow(
+                            preparation,
+                            tokenRefresh,
+                            () -> registrationSync.run(cancellation)
+                        )
+                    )) {
+                        taskExecutor.completeAuthenticated(
+                            requestId,
+                            () -> cancellationHandler.accept("SESSION_INVALIDATED")
+                        );
+                        return;
+                    }
+                    taskExecutor.completeAuthenticated(requestId, completion);
+                } catch (TokenStorageException exception) {
+                    taskExecutor.completeAuthenticated(
+                        requestId,
+                        () -> protectedStorageErrorHandler.accept(exception)
+                    );
+                }
+            },
+            reasonCode -> cancellation.cancel(),
+            cancellationHandler,
+            failureHandler
         );
     }
 

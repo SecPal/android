@@ -1662,25 +1662,58 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void explicitPushRetryCannotCrossASessionInvalidation() throws Exception {
+    public void lifecycleCancellationStopsExplicitPushRetryBeforeSessionTeardown()
+        throws Exception {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
-        List<String> events = new ArrayList<>();
+        CountDownLatch retryStarted = new CountDownLatch(1);
+        CountDownLatch retryCancelled = new CountDownLatch(1);
+        CountDownLatch teardownCompleted = new CountDownLatch(1);
+        AtomicBoolean retryCompleted = new AtomicBoolean(false);
+        AtomicReference<String> cancellationReason = new AtomicReference<>();
+        AtomicReference<NativeAuthHttpClient.CancellationSignal> retryCancellation =
+            new AtomicReference<>();
 
         try {
-            long generation = taskExecutor.captureGeneration();
-            taskExecutor.invalidateAuthenticated("SESSION_INVALIDATED");
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.submitAndroidPushRegistrationRetry(
+                    taskExecutor,
+                    () -> true,
+                    () -> {},
+                    cancellation -> {
+                        retryCancellation.set(cancellation);
+                        retryStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        retryCancelled.countDown();
+                    },
+                    () -> retryCompleted.set(true),
+                    exception -> fail("Protected push storage should remain available"),
+                    cancellationReason::set,
+                    exception -> fail("Explicit push retry should not fail")
+                )
+            );
+            assertTrue(retryStarted.await(2, TimeUnit.SECONDS));
 
-            assertFalse(SecPalNativeAuthPlugin.retryAndroidPushRegistrationIfCurrent(
-                taskExecutor,
-                generation,
-                () -> {
-                    events.add("prepare-retry");
-                    return true;
-                },
-                () -> events.add("refresh-token"),
-                () -> events.add("sync-registration")
-            ));
-            assertTrue(events.isEmpty());
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-reset-after-push-retry",
+                    0,
+                    () -> {
+                        assertTrue(retryCancellation.get().isCancelled());
+                        assertEquals(0L, retryCancelled.getCount());
+                        teardownCompleted.countDown();
+                    },
+                    reason -> {}
+                )
+            );
+
+            assertTrue(retryCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(teardownCompleted.await(2, TimeUnit.SECONDS));
+            assertEquals("SESSION_INVALIDATED", cancellationReason.get());
+            assertFalse(retryCompleted.get());
         } finally {
             taskExecutor.shutdownNow();
         }

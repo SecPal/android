@@ -110,7 +110,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishes token events, registration payloads, or a push-sync global.
   Runtime-rebind rollback no longer restores a previous bearer after its
   server-side logout has already succeeded, even when protected cleanup
-  persistence subsequently fails (issue #411, part of #402).
+  persistence subsequently fails. Explicit registration retries now use a
+  lifecycle-managed cancellation signal, so logout and runtime reset cancel
+  slow push network requests before teardown proceeds (issue #411, part of
+  #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
