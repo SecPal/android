@@ -497,9 +497,8 @@ final class AndroidPushIdentityStorage {
                 new IllegalStateException("pendingRevocation")
             );
         }
-        String retainedAuthToken = current.pendingRebindAuthToken() != null
-            ? current.pendingRebindAuthToken()
-            : normalizePendingAuthToken(authToken);
+        String retainedAuthToken =
+            current.resolveCurrentRegistrationRevocationAuthToken(authToken);
         if (retainedAuthToken == null) {
             throw new TokenStorageException(
                 "Android push revocation authority is unavailable",

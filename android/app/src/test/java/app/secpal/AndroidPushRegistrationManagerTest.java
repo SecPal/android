@@ -494,6 +494,41 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void credentialReplacementCannotClaimUnboundCrossTenantAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        String installationId = storage.load().installationId();
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+
+        try {
+            manager.prepareCredentialReplacement(
+                "old-tenant-auth-token",
+                "new-tenant-auth-token"
+            );
+            fail("Expected unbound cross-tenant authority to be rejected");
+        } catch (TokenStorageException expected) {
+            AndroidPushIdentityStorage.State unchanged = storage.load();
+            assertEquals(installationId, unchanged.installationId());
+            assertTrue(unchanged.hasServerRegistration());
+            assertTrue(unchanged.hasPendingRebind());
+            assertFalse(unchanged.hasPendingRevocation());
+            assertEquals("registered", manager.getStatus().getString("state"));
+        }
+    }
+
+    @Test
     public void rejectedPreviousPrincipalAuthorityFallsBackToTokenRotation()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(

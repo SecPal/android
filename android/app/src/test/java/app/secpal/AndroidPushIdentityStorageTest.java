@@ -370,6 +370,31 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void crossTenantFallbackCannotBecomeRevocationAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(
+            storage
+        );
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, null);
+
+        try {
+            storage.retainCurrentRegistrationForRevocation(
+                "new-tenant-auth-token"
+            );
+            fail("Expected cross-tenant fallback authority to be rejected");
+        } catch (TokenStorageException expected) {
+            AndroidPushIdentityStorage.State unchanged = storage.load();
+            assertEquals(registered.installationId(), unchanged.installationId());
+            assertTrue(unchanged.hasServerRegistration());
+            assertTrue(unchanged.hasPendingRebind());
+            assertFalse(unchanged.hasPendingRevocation());
+        }
+    }
+
+    @Test
     public void runtimeRebindPreparationDefersMissingAuthorityUntilApply()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
