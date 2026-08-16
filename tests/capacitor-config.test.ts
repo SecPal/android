@@ -19,6 +19,8 @@ const pluginMocks = vi.hoisted(
       logout: vi.fn(),
       getCurrentUser: vi.fn(),
       isNetworkAvailable: vi.fn(),
+      getAndroidPushRegistrationState: vi.fn(),
+      retryAndroidPushRegistration: vi.fn(),
       request: vi.fn(),
       cancelRequest: vi.fn(),
       isVaultDeviceBoundWrapperAvailable: undefined,
@@ -32,6 +34,8 @@ const pluginMocks = vi.hoisted(
       logout: Mock;
       getCurrentUser: Mock;
       isNetworkAvailable: Mock;
+      getAndroidPushRegistrationState: Mock;
+      retryAndroidPushRegistration: Mock;
       request: Mock;
       cancelRequest: Mock;
       isVaultDeviceBoundWrapperAvailable: Mock | undefined;
@@ -101,6 +105,10 @@ describe("capacitor Android wrapper configuration", () => {
 
   it("disables Capacitor's legacy Android bridge mode", () => {
     expect(config.android?.useLegacyBridge).toBe(false);
+  });
+
+  it("disables Android bridge payload logging in every build type", () => {
+    expect(config.android?.loggingBehavior).toBe("none");
   });
 
   it("installs a native auth bridge without exposing the API origin to plugin calls", async () => {
@@ -238,14 +246,35 @@ describe("capacitor Android wrapper configuration", () => {
     expect(pluginMocks.request).toHaveBeenCalledTimes(requestsBefore);
   });
 
-  it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
+  it("returns only abstract native Android push state and exposes native retry", async () => {
+    pluginMocks.getAndroidPushRegistrationState.mockResolvedValue({
+      state: "retry_pending",
+      configured: true,
+      retryable: true,
+      failureCode: "NETWORK_UNAVAILABLE",
+    });
+    pluginMocks.retryAndroidPushRegistration.mockResolvedValue({
+      state: "registered",
+      configured: true,
+      retryable: false,
+    });
     const { createNativeAuthBridge } =
       await import("../src/secpal/native-auth-bridge");
     const bridge = createNativeAuthBridge();
 
     await expect(bridge.getAndroidPushRegistrationState()).resolves.toEqual({
-      disabledError: null,
+      state: "retry_pending",
+      configured: true,
+      retryable: true,
+      failureCode: "NETWORK_UNAVAILABLE",
     });
+    await expect(bridge.retryAndroidPushRegistration()).resolves.toEqual({
+      state: "registered",
+      configured: true,
+      retryable: false,
+    });
+    expect(pluginMocks.getAndroidPushRegistrationState).toHaveBeenCalledWith();
+    expect(pluginMocks.retryAndroidPushRegistration).toHaveBeenCalledWith();
   });
 
   it.each([
@@ -319,7 +348,13 @@ describe("capacitor Android wrapper configuration", () => {
   });
 
   it("dispatches the native logout event after a successful typed bridge logout", async () => {
-    pluginMocks.logout.mockResolvedValue(undefined);
+    const deferredLogout: { resolve?: () => void } = {};
+    pluginMocks.logout.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolvePromise) => {
+          deferredLogout.resolve = resolvePromise;
+        })
+    );
     const dispatched: Event[] = [];
     const originalDispatch = globalThis.dispatchEvent;
     try {
@@ -332,7 +367,13 @@ describe("capacitor Android wrapper configuration", () => {
         await import("../src/secpal/native-auth-bridge");
       const bridge = createNativeAuthBridge();
 
-      await bridge.logout();
+      const logout = bridge.logout();
+      await Promise.resolve();
+
+      expect(dispatched).toHaveLength(0);
+
+      deferredLogout.resolve?.();
+      await logout;
 
       expect(dispatched).toHaveLength(1);
       expect(dispatched[0]?.type).toBe("secpal:native-auth-logout");

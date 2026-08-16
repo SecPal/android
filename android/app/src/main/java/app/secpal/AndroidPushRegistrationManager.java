@@ -317,17 +317,6 @@ final class AndroidPushRegistrationManager {
         storage.prepareRuntimeReset(authToken);
     }
 
-    synchronized void retainLegacyInstallationForRevocation(
-        String installationId,
-        String authToken
-    ) throws TokenStorageException {
-        storage.retainLegacyInstallationForRevocation(installationId, authToken);
-        AndroidPushIdentityStorage.State state = storage.load();
-        if (state != null && state.hasPendingRevocation()) {
-            setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
-        }
-    }
-
     synchronized void cancelPreparedRuntimeRebind(String expectedApiOrigin)
         throws TokenStorageException {
         storage.cancelPreparedRuntimeRebind(expectedApiOrigin);

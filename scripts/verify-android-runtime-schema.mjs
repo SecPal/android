@@ -316,24 +316,30 @@ function assertCanonicalSchema4Registration(runtimeBridge, sourceLabel) {
   visit(sourceFile);
 
   const [schemaDeclaration] = schemaDeclarations;
-  const [schemaAssignment] = schemaAssignments;
   const declaresSchema4 =
     schemaDeclarations.length === 1 &&
     (schemaDeclaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
     ts.isNumericLiteral(schemaDeclaration.initializer) &&
     schemaDeclaration.initializer.text === "4";
-  const registersSchemaConstant =
-    schemaAssignments.length === 1 &&
-    ts.isIdentifier(schemaAssignment.initializer) &&
-    schemaAssignment.initializer.text === "currentBootstrapSchemaVersion";
+  const forbiddenPushIdentityMarkers = [
+    "__SecPalAndroidPushSyncState",
+    "androidPushTokenReceived",
+    "androidPushTokenError",
+    "push_token",
+  ];
+  const keepsRegistrationNative =
+    schemaAssignments.length === 0 &&
+    forbiddenPushIdentityMarkers.every(
+      (marker) => !runtimeBridge.includes(marker)
+    );
 
   if (
     sourceFile.parseDiagnostics.length > 0 ||
     !declaresSchema4 ||
-    !registersSchemaConstant
+    !keepsRegistrationNative
   ) {
     throw new Error(
-      `${sourceLabel} must declare schema 4 independently and assign it to notification registration.`
+      `${sourceLabel} must declare schema 4 independently and keep notification registration identity out of JavaScript.`
     );
   }
 }

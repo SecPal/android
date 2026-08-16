@@ -335,7 +335,11 @@ final class AndroidPushIdentityStorage {
             null,
             false
         );
-        save(replacement, false, registrationAuthorityUnavailable);
+        save(
+            replacement,
+            false,
+            current == null || registrationAuthorityUnavailable
+        );
         return replacement;
     }
 
@@ -418,60 +422,6 @@ final class AndroidPushIdentityStorage {
             return;
         }
         prepareRuntimeRebind(current.apiOrigin(), authToken);
-    }
-
-    synchronized void retainLegacyInstallationForRevocation(
-        String installationId,
-        String authToken
-    ) throws TokenStorageException {
-        String normalizedInstallationId = installationId == null
-            ? ""
-            : installationId.trim();
-        if (!isUuid(normalizedInstallationId)) {
-            throw new TokenStorageException(
-                "Legacy Android push installation identifier is invalid",
-                new IllegalArgumentException("installationId")
-            );
-        }
-        State current = load();
-        if (current == null) {
-            throw new TokenStorageException(
-                "Android push runtime binding is unavailable",
-                new IllegalStateException("runtimeBinding")
-            );
-        }
-        if (normalizedInstallationId.equals(current.installationId())) {
-            return;
-        }
-        if (current.hasPendingRevocation()) {
-            if (current.apiOrigin().equals(current.pendingRevocationApiOrigin())
-                && normalizedInstallationId.equals(
-                    current.pendingRevocationInstallationId()
-                )) {
-                return;
-            }
-            throw new TokenStorageException(
-                "Previous Android push registration cleanup is still pending",
-                new IllegalStateException("pendingRevocation")
-            );
-        }
-        State retained = new State(
-            current.apiOrigin(),
-            current.metadataRevision(),
-            current.installationId(),
-            current.token(),
-            current.tokenReceivedAt(),
-            current.registeredFingerprint,
-            current.registeredAt,
-            current.apiOrigin(),
-            normalizedInstallationId,
-            normalizePendingAuthToken(authToken),
-            false,
-            current.pendingRebindApiOrigin(),
-            current.pendingRebindAuthToken(),
-            current.isReconfigurationRequired()
-        );
-        save(retained);
     }
 
     synchronized State retainCurrentRegistrationForRevocation(

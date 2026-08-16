@@ -178,7 +178,7 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeReset"));
-        assertTrue(exportedMethods.contains("retainLegacyAndroidPushInstallation"));
+        assertFalse(exportedMethods.contains("retainLegacyAndroidPushInstallation"));
         assertTrue(exportedMethods.contains("cancelRequest"));
     }
 
@@ -2188,24 +2188,6 @@ public class SecPalNativeAuthPluginTest {
             pushCompleted.await(2, TimeUnit.SECONDS);
             taskExecutor.shutdownNow();
         }
-    }
-
-    @Test
-    public void legacyPushRetentionResolvesBeforeCleanupScheduling() {
-        List<String> events = new ArrayList<>();
-
-        SecPalNativeAuthPlugin.completeLegacyPushRetention(
-            () -> events.add("resolve-bridge-call"),
-            () -> events.add("schedule-cleanup")
-        );
-
-        assertEquals(
-            java.util.Arrays.asList(
-                "resolve-bridge-call",
-                "schedule-cleanup"
-            ),
-            events
-        );
     }
 
     @Test

@@ -16,6 +16,7 @@ const config: CapacitorConfig = {
     ? join(frontendDirectory, "dist")
     : "../frontend/dist",
   android: {
+    loggingBehavior: "none",
     minWebViewVersion: 83,
     useLegacyBridge: false,
   },

@@ -1153,11 +1153,11 @@ system("sh", "-eu", "-c", script, exception: true)
         /must declare schema 4 independently/i
       );
       await expectInvalidArtifact(
-        "hardcoded-schema",
+        "javascript-push-identity",
         buildAndroidRuntimeIndexHtml(
           canonicalRuntimeBridge.replace(
-            "schema_version: currentBootstrapSchemaVersion",
-            "schema_version: 4"
+            "const currentBootstrapSchemaVersion = 4;",
+            'const currentBootstrapSchemaVersion = 4;\n  const leakedRegistration = { push_token: "raw" };'
           )
         ),
         /must declare schema 4 independently/i

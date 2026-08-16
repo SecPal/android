@@ -128,8 +128,9 @@ public class AndroidPushIdentityStorageTest {
     public void aFreshTokenCompletesRequiredRotation() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AndroidPushIdentityStorage storage = createStorage(preferences);
-        storage.invalidateIdentityForTokenRotation();
         storage.bindRuntime(API_ORIGIN, 3);
+
+        assertTrue(storage.requiresTokenRotation());
 
         storage.recordToken(API_ORIGIN, 3, TOKEN);
 

@@ -503,67 +503,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void retainLegacyAndroidPushInstallation(PluginCall call) {
-        if (!requireOnlyKeys(call, "installationId")) {
-            return;
-        }
-        String installationId = call.getString("installationId");
-        if (installationId != null && !isBoundedValue(installationId, 36)) {
-            call.reject(
-                "Legacy Android push installation identifier is invalid",
-                "INVALID_INPUT"
-            );
-            return;
-        }
-        runAsync(call, () -> {
-            try {
-                String authToken = readStoredTokenForRuntimeMutation(tokenStorage);
-                boolean cleanupRequired = installationId != null
-                    && !installationId.trim().isEmpty();
-                if (cleanupRequired) {
-                    androidPushRegistrationManager.retainLegacyInstallationForRevocation(
-                        installationId,
-                        authToken
-                    );
-                }
-                completeLegacyPushRetention(
-                    call::resolve,
-                    () -> {
-                        if (!cleanupRequired
-                            || authToken == null
-                            || authToken.trim().isEmpty()) {
-                            return;
-                        }
-                        scheduleAndroidPushAfterAuthentication(
-                            taskExecutor,
-                            cancellation -> synchronizeAndroidPushAfterAuthentication(
-                                authToken,
-                                cancellation
-                            ),
-                            this::handleAndroidPushProtectedStateError,
-                            androidPushRegistrationManager::onRegistrationSchedulingError
-                        );
-                    }
-                );
-            } catch (TokenStorageException exception) {
-                call.reject(
-                    "Failed to retain legacy Android push cleanup state",
-                    "PUSH_STORAGE_ERROR",
-                    exception
-                );
-            }
-        });
-    }
-
-    static void completeLegacyPushRetention(
-        Runnable completion,
-        Runnable cleanupScheduling
-    ) {
-        completion.run();
-        cleanupScheduling.run();
-    }
-
-    @PluginMethod
     public void retryAndroidPushRegistration(PluginCall call) {
         if (!requireOnlyKeys(call)) {
             return;

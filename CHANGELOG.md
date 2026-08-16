@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed FCM tokens, installation identifiers, token timestamps, registration
+  payloads, and legacy compatibility methods from the packaged WebView
+  contract. Legacy browser keys are deleted without reading or transferring
+  their values, and React receives only abstract status and lifecycle events
+  (issue #600).
 - Unified rejected native bearer handling across routed API requests and push
   registration: the initiating task is no longer self-interrupted, push
   identity and FCM state are invalidated before the bearer is cleared, and the
