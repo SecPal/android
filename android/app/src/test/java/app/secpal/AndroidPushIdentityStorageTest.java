@@ -33,6 +33,46 @@ public class AndroidPushIdentityStorageTest {
         "fcm-token-one-1234567890abcdefghijklmnopqrstuvwxyz";
 
     @Test
+    public void runtimeOriginRequiresCanonicalBareHttpsOrigin() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+
+        AndroidPushIdentityStorage.State bound = storage.bindRuntime(
+            " HTTPS://Tenant-A.Example:443 ",
+            3
+        );
+
+        assertEquals(API_ORIGIN, bound.apiOrigin());
+        assertEquals(
+            "https://tenant-a.example:8443",
+            createStorage(new InMemorySharedPreferences())
+                .bindRuntime("https://Tenant-A.Example:8443", 3)
+                .apiOrigin()
+        );
+
+        String[] invalidOrigins = {
+            null,
+            "http://tenant-a.example",
+            "https://tenant-a.example/",
+            "https://tenant-a.example/v1",
+            "https://tenant-a.example?tenant=a",
+            "https://tenant-a.example#tenant-a",
+            "https://user@tenant-a.example",
+            "tenant-a.example"
+        };
+        for (String invalidOrigin : invalidOrigins) {
+            try {
+                createStorage(new InMemorySharedPreferences())
+                    .bindRuntime(invalidOrigin, 3);
+                fail("Expected invalid Android push runtime origin failure");
+            } catch (TokenStorageException expected) {
+                assertTrue(expected.getCause() instanceof IllegalArgumentException);
+            }
+        }
+    }
+
+    @Test
     public void protectedStateNeverPersistsRawIdentityValues() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AndroidPushIdentityStorage storage = createStorage(preferences);
@@ -409,6 +449,61 @@ public class AndroidPushIdentityStorageTest {
         assertTrue(registered.needsRegistration("other-token", "1.2.3", 7));
         assertTrue(registered.needsRegistration(AUTH_TOKEN, "1.2.4", 7));
         assertTrue(registered.needsRegistration(AUTH_TOKEN, "1.2.3", 8));
+    }
+
+    @Test
+    public void registrationFingerprintNormalizesNullableInputsWithoutMissingAuth()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
+        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+            API_ORIGIN,
+            3,
+            bound.installationId(),
+            TOKEN
+        );
+        AndroidPushIdentityStorage.State registered = storage.markRegistered(
+            candidate,
+            "  " + AUTH_TOKEN + "  ",
+            null,
+            7
+        );
+
+        assertFalse(registered.needsRegistration(AUTH_TOKEN, "", 7));
+        assertTrue(registered.needsRegistration(null, null, 7));
+
+        AndroidPushIdentityStorage.State rotated = storage.recordToken(
+            API_ORIGIN,
+            3,
+            registered.installationId(),
+            TOKEN + "-rotated"
+        );
+        assertEquals(
+            rotated.token(),
+            storage.markRegistered(registered, null, null, 7).token()
+        );
+
+        AndroidPushIdentityStorage freshStorage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State freshBound = freshStorage.bindRuntime(
+            API_ORIGIN,
+            3
+        );
+        AndroidPushIdentityStorage.State freshCandidate = freshStorage.recordToken(
+            API_ORIGIN,
+            3,
+            freshBound.installationId(),
+            TOKEN
+        );
+        try {
+            freshStorage.markRegistered(freshCandidate, null, "1.2.3", 7);
+            fail("Expected missing registration authority failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalArgumentException);
+        }
     }
 
     @Test

@@ -11,9 +11,12 @@ import android.content.SharedPreferences;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 import java.util.UUID;
 
 final class AndroidPushIdentityStorage {
@@ -24,7 +27,7 @@ final class AndroidPushIdentityStorage {
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
-    private static final int MAX_PENDING_AUTH_TOKEN_CHARACTERS = 64 * 1024;
+    private static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
 
     interface InstallationIdFactory {
         String create();
@@ -158,14 +161,17 @@ final class AndroidPushIdentityStorage {
             String packageVersionName,
             long packageVersionCode
         ) {
+            String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
             return token != null
                 && !token.isEmpty()
-                && !registrationFingerprint(
-                    this,
-                    authToken,
-                    packageVersionName,
-                    packageVersionCode
-                ).equals(registeredFingerprint);
+                && (normalizedAuthToken.isEmpty()
+                    || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS
+                    || !registrationFingerprint(
+                        this,
+                        normalizedAuthToken,
+                        packageVersionName,
+                        packageVersionCode
+                    ).equals(registeredFingerprint));
         }
 
         JSONObject toJson() throws JSONException {
@@ -650,6 +656,14 @@ final class AndroidPushIdentityStorage {
         if (!sameRegistrationCandidate(current, expected)) {
             return current;
         }
+        String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
+        if (normalizedAuthToken.isEmpty()
+            || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS) {
+            throw new TokenStorageException(
+                "Android push registration authority is invalid",
+                new IllegalArgumentException("authToken")
+            );
+        }
         State registered = new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -658,7 +672,7 @@ final class AndroidPushIdentityStorage {
             current.tokenReceivedAt(),
             registrationFingerprint(
                 current,
-                authToken,
+                normalizedAuthToken,
                 packageVersionName,
                 packageVersionCode
             ),
@@ -1046,9 +1060,9 @@ final class AndroidPushIdentityStorage {
             + "\n"
             + state.token()
             + "\n"
-            + authToken.trim()
+            + normalizeRegistrationAuthToken(authToken)
             + "\n"
-            + packageVersionName
+            + normalizePackageVersionName(packageVersionName)
             + "\n"
             + packageVersionCode;
         try {
@@ -1067,13 +1081,45 @@ final class AndroidPushIdentityStorage {
 
     private static String requireApiOrigin(String value) throws TokenStorageException {
         String normalized = value == null ? "" : value.trim();
-        if (normalized.isEmpty()) {
+        try {
+            URI parsed = new URI(normalized);
+            String host = parsed.getHost();
+            int port = parsed.getPort();
+            if (!"https".equalsIgnoreCase(parsed.getScheme())
+                || host == null
+                || host.isEmpty()
+                || parsed.getRawUserInfo() != null
+                || (parsed.getRawPath() != null && !parsed.getRawPath().isEmpty())
+                || parsed.getRawQuery() != null
+                || parsed.getRawFragment() != null
+                || (port != -1 && (port < 1 || port > 65535))
+                || (parsed.getRawAuthority() != null
+                    && parsed.getRawAuthority().endsWith(":"))) {
+                throw new URISyntaxException(normalized, "not a bare HTTPS origin");
+            }
+
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            if (normalizedHost.indexOf(':') >= 0
+                && !normalizedHost.startsWith("[")) {
+                normalizedHost = "[" + normalizedHost + "]";
+            }
+            return "https://"
+                + normalizedHost
+                + (port == -1 || port == 443 ? "" : ":" + port);
+        } catch (URISyntaxException exception) {
             throw new TokenStorageException(
-                "Android push runtime origin is unavailable",
-                new IllegalArgumentException("apiOrigin")
+                "Android push runtime origin is invalid",
+                new IllegalArgumentException("apiOrigin", exception)
             );
         }
-        return normalized;
+    }
+
+    private static String normalizeRegistrationAuthToken(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static String normalizePackageVersionName(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static String normalizePendingAuthToken(String value)
@@ -1083,7 +1129,7 @@ final class AndroidPushIdentityStorage {
         }
         String normalized = value.trim();
         if (normalized.isEmpty()
-            || normalized.length() > MAX_PENDING_AUTH_TOKEN_CHARACTERS) {
+            || normalized.length() > MAX_AUTH_TOKEN_CHARACTERS) {
             throw new TokenStorageException(
                 "Android push revocation authority is invalid",
                 new IllegalArgumentException("pendingRevocationAuthToken")
