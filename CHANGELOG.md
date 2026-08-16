@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an encrypted, runtime-bound native Android state model for push tokens,
+  installation identity, registration fingerprints, and pending lifecycle work,
+  including fail-closed corruption recovery and token-rotation markers (issue
+  #597).
 - Added a daily and change-filtered API-35 Android emulator smoke workflow that
   builds the current frontend `main`, verifies runtime discovery and persistence,
   native password authentication, a protected profile read, foreground lifecycle,
