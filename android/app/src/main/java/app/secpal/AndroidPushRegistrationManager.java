@@ -850,9 +850,7 @@ final class AndroidPushRegistrationManager {
             return SyncResult.COMPLETE;
         }
 
-        String lifecycleEvent = state.hasServerRegistration()
-            ? "credential_rotated"
-            : "registered";
+        String lifecycleEvent = registrationLifecycleEvent(state);
         try {
             RegistrationResponse response = backend.register(
                 state.apiOrigin(),
@@ -1020,6 +1018,17 @@ final class AndroidPushRegistrationManager {
 
     private static boolean isSuccessfulRevocationStatus(int status) {
         return status == 200 || status == 204 || status == 404;
+    }
+
+    private static String registrationLifecycleEvent(
+        AndroidPushIdentityStorage.State state
+    ) {
+        if (!state.hasServerRegistration()) {
+            return "registered";
+        }
+        return state.hasTokenChangedSinceRegistration()
+            ? "credential_rotated"
+            : "client_updated";
     }
 
     private static String runtimeClearAuthToken(

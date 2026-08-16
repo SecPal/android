@@ -96,6 +96,10 @@ final class AndroidPushIdentityStorage {
             return registeredFingerprint != null && !registeredFingerprint.isEmpty();
         }
 
+        boolean hasTokenChangedSinceRegistration() {
+            return hasServerRegistration() && tokenReceivedAt > registeredAt;
+        }
+
         boolean hasPendingRevocation() {
             return pendingRevocationApiOrigin != null
                 && pendingRevocationInstallationId != null;
@@ -599,12 +603,16 @@ final class AndroidPushIdentityStorage {
             return current;
         }
 
+        long nextTokenReceivedAt = clock.currentTimeMillis();
+        if (current.hasServerRegistration()) {
+            nextTokenReceivedAt = currentTimeAfter(current.registeredAt);
+        }
         State updated = new State(
             current.apiOrigin(),
             current.metadataRevision(),
             current.installationId(),
             normalizedToken,
-            clock.currentTimeMillis(),
+            nextTokenReceivedAt,
             current.registeredFingerprint,
             current.registeredAt,
             current.pendingRevocationApiOrigin(),
@@ -648,7 +656,7 @@ final class AndroidPushIdentityStorage {
                 packageVersionName,
                 packageVersionCode
             ),
-            clock.currentTimeMillis(),
+            currentTimeAfter(current.tokenReceivedAt()),
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
@@ -987,6 +995,17 @@ final class AndroidPushIdentityStorage {
             && left.installationId().equals(right.installationId())
             && left.token() != null
             && left.token().equals(right.token());
+    }
+
+    private long currentTimeAfter(long previousTimestamp)
+        throws TokenStorageException {
+        if (previousTimestamp == Long.MAX_VALUE) {
+            throw new TokenStorageException(
+                "Android push lifecycle timestamp is exhausted",
+                new IllegalStateException("previousTimestamp")
+            );
+        }
+        return Math.max(clock.currentTimeMillis(), previousTimestamp + 1);
     }
 
     private static State withoutPendingRebind(State current) {

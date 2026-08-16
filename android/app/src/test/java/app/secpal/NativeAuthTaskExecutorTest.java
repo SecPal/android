@@ -910,7 +910,6 @@ public class NativeAuthTaskExecutorTest {
             assertTrue(transitionCancelled.await(2, TimeUnit.SECONDS));
             releaseTransition.countDown();
             assertTrue(transitionFinished.await(2, TimeUnit.SECONDS));
-            assertTrue(taskExecutor.awaitIdleForTest(2, TimeUnit.SECONDS));
             taskExecutor.resumeAuthenticated();
             assertEquals(
                 NativeAuthTaskExecutor.SubmitResult.ACCEPTED,

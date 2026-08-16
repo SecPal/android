@@ -25,9 +25,11 @@ import java.util.regex.Pattern;
 
 /**
  * Reviewed least-privilege request policies for Android bearer-token use. {@link #authorize}
- * contains only routes available to the packaged WebView broker. Native push registration uses
- * its separate, narrower {@link #authorizeAndroidPush} inventory. Authentication, bootstrap,
- * discovery, and health endpoints use dedicated native flows and deliberately do not appear here.
+ * contains only routes available to the packaged WebView broker, including the live push bridge
+ * until its coordinator migration tracked in issue #599 is complete. The native push manager
+ * additionally uses the narrower {@link #authorizeAndroidPush} inventory. Authentication,
+ * bootstrap, discovery, and health endpoints use dedicated native flows and deliberately do not
+ * appear here.
  */
 final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024;
@@ -181,6 +183,7 @@ final class NativeAuthRequestPolicy {
         add(routes, "POST", "/v1/me/mfa/totp/enrollment", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/totp/enrollment/confirm", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/recovery-codes/regenerate", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
+        addNotificationInstallationRoutes(routes);
         add(routes, "GET", "/v1/addresses/de/streets", keys("name", "postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/localities", keys("postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
 
@@ -245,9 +248,15 @@ final class NativeAuthRequestPolicy {
 
     private static List<RouteSpec> buildAndroidPushRoutes() {
         List<RouteSpec> routes = new ArrayList<>();
+        addNotificationInstallationRoutes(routes);
+        return Collections.unmodifiableList(routes);
+    }
+
+    private static void addNotificationInstallationRoutes(
+        List<RouteSpec> routes
+    ) {
         add(routes, "PUT", "/v1/me/notification-installations/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "DELETE", "/v1/me/notification-installations/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
-        return Collections.unmodifiableList(routes);
     }
 
     private static void add(

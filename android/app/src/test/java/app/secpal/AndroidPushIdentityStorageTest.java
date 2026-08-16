@@ -753,6 +753,45 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void tokenRotationRemainsDistinctWhenTheClockDoesNotAdvance()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
+        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+            API_ORIGIN,
+            3,
+            bound.installationId(),
+            TOKEN
+        );
+        AndroidPushIdentityStorage.State registered = storage.markRegistered(
+            candidate,
+            AUTH_TOKEN,
+            "1.2.3",
+            7
+        );
+
+        assertFalse(registered.hasTokenChangedSinceRegistration());
+
+        AndroidPushIdentityStorage.State rotated = storage.recordToken(
+            API_ORIGIN,
+            3,
+            registered.installationId(),
+            TOKEN + "-rotated"
+        );
+        assertTrue(rotated.hasTokenChangedSinceRegistration());
+
+        AndroidPushIdentityStorage.State reregistered = storage.markRegistered(
+            rotated,
+            AUTH_TOKEN,
+            "1.2.3",
+            7
+        );
+        assertFalse(reregistered.hasTokenChangedSinceRegistration());
+    }
+
+    @Test
     public void clearAndStateRestoreUseDurablePersistence() throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AndroidPushIdentityStorage storage = createStorage(preferences);

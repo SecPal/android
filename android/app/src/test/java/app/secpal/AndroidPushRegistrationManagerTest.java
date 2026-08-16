@@ -450,7 +450,7 @@ public class AndroidPushRegistrationManagerTest {
         upgraded.onAuthenticated("auth-token");
 
         assertEquals(2, backend.lifecycleEvents.size());
-        assertEquals("credential_rotated", backend.lifecycleEvents.get(1));
+        assertEquals("client_updated", backend.lifecycleEvents.get(1));
     }
 
     @Test

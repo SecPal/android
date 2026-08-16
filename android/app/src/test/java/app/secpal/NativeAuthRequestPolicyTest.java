@@ -65,23 +65,26 @@ public class NativeAuthRequestPolicyTest {
     }
 
     @Test
-    public void rejectsNativePushRegistrationRoutesFromTheWebViewInventory() {
-        assertRejected(
+    public void authorizesLivePushRegistrationRoutesThroughTheWebViewInventory()
+        throws Exception {
+        assertAuthorized(
             "PUT",
             "/v1/me/notification-installations/7cb38f42-8d47-44f6-8d1f-12ff7c24fe38",
             "application/json",
-            128
+            128,
+            NativeAuthRequestPolicy.ResponseKind.JSON
         );
-        assertRejected(
+        assertAuthorized(
             "DELETE",
             "/v1/me/notification-installations/7cb38f42-8d47-44f6-8d1f-12ff7c24fe38",
             null,
-            0
+            0,
+            NativeAuthRequestPolicy.ResponseKind.JSON
         );
     }
 
     @Test
-    public void authorizesNativePushRegistrationOnlyThroughItsDedicatedPolicy()
+    public void authorizesNativePushRegistrationThroughItsDedicatedPolicy()
         throws Exception {
         NativeAuthRequestPolicy.authorizeAndroidPush(
             "PUT",
@@ -125,6 +128,8 @@ public class NativeAuthRequestPolicyTest {
             { "POST", "/v1/me/mfa/totp/enrollment", null, 0 },
             { "POST", "/v1/me/mfa/totp/enrollment/confirm", "application/json", 2 },
             { "POST", "/v1/me/mfa/recovery-codes/regenerate", "application/json", 2 },
+            { "PUT", "/v1/me/notification-installations/device-1", "application/json", 2 },
+            { "DELETE", "/v1/me/notification-installations/device-1", null, 0 },
             { "GET", "/v1/addresses/de/streets?name=Main&postal_code=10115&locality=Berlin&limit=10", null, 0 },
             { "GET", "/v1/addresses/de/localities?postal_code=10115&locality=Berlin&limit=10", null, 0 },
             { "GET", "/v1/organizational-units?type=branch&parent_id=null&is_active=1&is_assignable=1&per_page=25&page=1", "application/json", 0 },
