@@ -38,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Aligned the standalone Android web-asset fallback inventory with the complete
-  committed application shell so JVM unit tests can validate packaged assets
-  without a sibling frontend checkout.
+- Fixed native Android session transitions settling bridge calls before their
+  transition gate was released, which could reject an immediate runtime reset
+  as temporarily busy after logout.
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
