@@ -474,7 +474,9 @@ final class AndroidPushRegistrationManager {
         }
         AndroidPushIdentityStorage.State restoredState = rebind.previousSnapshot.state();
         if (rebind.previousServerRegistrationRevoked && restoredState != null) {
-            restoredState = restoredState.withoutServerRegistration();
+            restoredState = restoredState.afterServerRegistrationRevoked();
+        } else if (restoredState != null) {
+            restoredState = restoredState.afterRuntimeRebindRolledBack();
         }
         storage.restore(rebind.previousSnapshot.withState(restoredState));
         boundApiOrigin = rebind.previousBoundApiOrigin;
@@ -714,13 +716,15 @@ final class AndroidPushRegistrationManager {
             }
         }
         if (state != null && state.hasServerRegistration()) {
-            if (!hasAuthToken(authToken)) {
+            String revocationAuthToken =
+                state.resolveCurrentRegistrationRevocationAuthToken(authToken);
+            if (!hasAuthToken(revocationAuthToken)) {
                 replaceIdentityForTokenRotation(disabled);
                 return;
             }
             RevocationAttempt attempt = revokeRegistration(
                 state.apiOrigin(),
-                authToken,
+                revocationAuthToken,
                 state.installationId(),
                 cancellation
             );
@@ -728,7 +732,9 @@ final class AndroidPushRegistrationManager {
                 return;
             }
             if (attempt.outcome != RevocationOutcome.REVOKED) {
-                storage.retainCurrentRegistrationForRevocation(authToken);
+                storage.retainCurrentRegistrationForRevocation(
+                    revocationAuthToken
+                );
                 setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
                 return;
             }
@@ -1230,10 +1236,12 @@ final class AndroidPushRegistrationManager {
     private static String runtimeClearAuthToken(
         AndroidPushIdentityStorage.State state,
         String authToken
-    ) {
+    ) throws TokenStorageException {
         if (state != null && state.hasPendingRebind()) {
-            if (hasAuthToken(state.pendingRebindAuthToken())) {
-                return state.pendingRebindAuthToken();
+            String revocationAuthToken =
+                state.resolveCurrentRegistrationRevocationAuthToken(authToken);
+            if (hasAuthToken(revocationAuthToken)) {
+                return revocationAuthToken;
             }
             if (!state.apiOrigin().equals(state.pendingRebindApiOrigin())) {
                 return null;

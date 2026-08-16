@@ -54,7 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registration, required token rotation when credential replacement overlaps
   legacy cleanup, allowed runtime rebind to recover safely when previous
   revocation authority is permanently rejected, kept the previous origin's
-  bearer authoritative during staged runtime cleanup, and deleted orphaned
+  bearer authoritative during staged runtime cleanup and logout, preserved the
+  old-token deletion obligation while server cleanup is pending, prevented
+  rollback from restoring stale rebind authority, and deleted orphaned
   Firebase tokens after cold-start recovery.
 - Preserved terminal Android push reconfiguration state across authentication
   rejection and prevented cancelled logout or runtime cleanup from replacing a

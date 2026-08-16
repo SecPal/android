@@ -293,6 +293,8 @@ public class AndroidPushRegistrationManagerTest {
             "first-user-auth-token",
             "second-user-auth-token"
         );
+        assertFalse(manager.requiresTokenRotation());
+        assertTrue(manager.requiresOldRuntimeTokenDeletion());
         manager.onAuthenticated("second-user-auth-token");
 
         assertEquals(2, backend.lifecycleEvents.size());
@@ -1087,6 +1089,86 @@ public class AndroidPushRegistrationManagerTest {
         manager.onAuthenticated("auth-token");
 
         assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void rollbackAfterStagedRevocationDoesNotRestoreRebindAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+        manager.revokePrevious(
+            rebind,
+            null,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        manager.rollbackRebind(rebind);
+
+        AndroidPushIdentityStorage.State restored = storage.load();
+        assertEquals(API_ORIGIN, restored.apiOrigin());
+        assertFalse(restored.hasServerRegistration());
+        assertFalse(restored.hasPendingRebind());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(
+            "REGISTRATION_RETRY_REQUIRED",
+            manager.getStatus().getString("failureCode")
+        );
+    }
+
+    @Test
+    public void rollbackBeforeStagedRevocationCancelsThePreparedRebind()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        String installationId = storage.load().installationId();
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4)
+        );
+
+        manager.rollbackRebind(rebind);
+
+        AndroidPushIdentityStorage.State restored = storage.load();
+        assertEquals(API_ORIGIN, restored.apiOrigin());
+        assertEquals(installationId, restored.installationId());
+        assertTrue(restored.hasServerRegistration());
+        assertFalse(restored.hasPendingRebind());
         assertEquals("registered", manager.getStatus().getString("state"));
     }
 
@@ -1889,6 +1971,7 @@ public class AndroidPushRegistrationManagerTest {
 
         assertTrue(storage.load().hasPendingRevocation());
         assertFalse(manager.requiresTokenRotation());
+        assertTrue(manager.requiresOldRuntimeTokenDeletion());
     }
 
     @Test
@@ -2455,6 +2538,37 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void stagedLogoutNeverUsesTheNewTenantBearer() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+
+        manager.onLogout("new-tenant-auth-token");
+
+        assertEquals(1, backend.unregisterCount);
+        assertEquals(API_ORIGIN, backend.unregistrationApiOrigins.get(0));
+        assertEquals(
+            "old-tenant-auth-token",
+            backend.unregistrationAuthTokens.get(0)
+        );
+    }
+
+    @Test
     public void stagedCrossTenantClearWithoutPreviousAuthoritySendsNoBearer()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
@@ -2478,6 +2592,32 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals(0, backend.unregisterCount);
         assertNull(storage.load());
         assertTrue(manager.requiresTokenRotation());
+    }
+
+    @Test
+    public void stagedCrossTenantLogoutWithoutPreviousAuthoritySendsNoBearer()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+
+        manager.onLogout("new-tenant-auth-token");
+
+        assertEquals(0, backend.unregisterCount);
+        assertTrue(manager.requiresTokenRotation());
+        assertTrue(manager.requiresOldRuntimeTokenDeletion());
     }
 
     @Test

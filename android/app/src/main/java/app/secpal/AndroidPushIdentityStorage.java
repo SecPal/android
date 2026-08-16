@@ -129,11 +129,25 @@ final class AndroidPushIdentityStorage {
             return pendingRebindAuthToken;
         }
 
+        String resolveCurrentRegistrationRevocationAuthToken(
+            String fallbackAuthToken
+        ) throws TokenStorageException {
+            if (hasPendingRebind()) {
+                if (pendingRebindAuthToken != null) {
+                    return pendingRebindAuthToken;
+                }
+                if (!apiOrigin.equals(pendingRebindApiOrigin)) {
+                    return null;
+                }
+            }
+            return normalizePendingAuthToken(fallbackAuthToken);
+        }
+
         boolean isReconfigurationRequired() {
             return reconfigurationRequired;
         }
 
-        State withoutServerRegistration() {
+        State afterServerRegistrationRevoked() {
             return new State(
                 apiOrigin,
                 metadataRevision,
@@ -145,10 +159,16 @@ final class AndroidPushIdentityStorage {
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
                 pendingRevocationAuthToken,
-                pendingRebindApiOrigin,
-                pendingRebindAuthToken,
+                null,
+                null,
                 reconfigurationRequired
             );
+        }
+
+        State afterRuntimeRebindRolledBack() {
+            return hasPendingRebind()
+                ? AndroidPushIdentityStorage.withoutPendingRebind(this)
+                : this;
         }
 
         boolean needsRegistration(
@@ -477,11 +497,9 @@ final class AndroidPushIdentityStorage {
                 new IllegalStateException("pendingRevocation")
             );
         }
-        String retainedAuthToken = normalizePendingAuthToken(
-            authToken != null
-                ? authToken
-                : current.pendingRebindAuthToken()
-        );
+        String retainedAuthToken = current.pendingRebindAuthToken() != null
+            ? current.pendingRebindAuthToken()
+            : normalizePendingAuthToken(authToken);
         if (retainedAuthToken == null) {
             throw new TokenStorageException(
                 "Android push revocation authority is unavailable",

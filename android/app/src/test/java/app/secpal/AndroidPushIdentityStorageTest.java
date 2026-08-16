@@ -352,6 +352,24 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void retainedRegistrationUsesTheOriginBoundRebindAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, AUTH_TOKEN);
+
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(
+                "new-tenant-auth-token"
+            );
+
+        assertTrue(retained.hasPendingRevocation());
+        assertEquals(AUTH_TOKEN, retained.pendingRevocationAuthToken());
+    }
+
+    @Test
     public void runtimeRebindPreparationDefersMissingAuthorityUntilApply()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
@@ -877,7 +895,7 @@ public class AndroidPushIdentityStorageTest {
         AndroidPushIdentityStorage.State registered = registerCurrentIdentity(storage);
 
         AndroidPushIdentityStorage.State unregistered =
-            registered.withoutServerRegistration();
+            registered.afterServerRegistrationRevoked();
 
         assertFalse(unregistered.hasServerRegistration());
         assertTrue(unregistered.needsRegistration(AUTH_TOKEN, "1.2.3", 7));
