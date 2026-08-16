@@ -310,6 +310,110 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void credentialReplacementRotatesARegisteredTokenWhileLegacyCleanupIsPending()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "first-user-auth-token"
+        );
+        String registeredInstallationId = storage.load().installationId();
+        String legacyInstallationId = "11111111-1111-4111-8111-111111111111";
+        manager.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            "first-user-auth-token"
+        );
+
+        manager.prepareCredentialReplacement(
+            "first-user-auth-token",
+            "second-user-auth-token"
+        );
+
+        AndroidPushIdentityStorage.State rotated = storage.load();
+        assertNotEquals(registeredInstallationId, rotated.installationId());
+        assertFalse(rotated.hasServerRegistration());
+        assertTrue(rotated.hasPendingRevocation());
+        assertEquals(
+            legacyInstallationId,
+            rotated.pendingRevocationInstallationId()
+        );
+        assertTrue(manager.requiresTokenRotation());
+
+        manager.onAuthenticated("second-user-auth-token");
+
+        assertEquals(1, backend.unregisterCount);
+        assertEquals(
+            "first-user-auth-token",
+            backend.unregistrationAuthTokens.get(0)
+        );
+        assertEquals(1, backend.lifecycleEvents.size());
+        assertEquals("awaiting_token", manager.getStatus().getString("state"));
+
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_TWO,
+            "second-user-auth-token"
+        );
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("registered", backend.lifecycleEvents.get(1));
+        assertEquals(
+            "second-user-auth-token",
+            backend.registrationAuthTokens.get(1)
+        );
+    }
+
+    @Test
+    public void cancelledCredentialReplacementRestoresRegistrationAndLegacyCleanup()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            new RecordingBackend()
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "first-user-auth-token"
+        );
+        String registeredInstallationId = storage.load().installationId();
+        String legacyInstallationId = "11111111-1111-4111-8111-111111111111";
+        manager.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            "first-user-auth-token"
+        );
+
+        NativeCredentialRollback rollback = manager.prepareCredentialReplacement(
+            "first-user-auth-token",
+            "second-user-auth-token"
+        );
+        rollback.rollback();
+
+        AndroidPushIdentityStorage.State restored = storage.load();
+        assertEquals(registeredInstallationId, restored.installationId());
+        assertTrue(restored.hasServerRegistration());
+        assertTrue(restored.hasPendingRevocation());
+        assertEquals(
+            legacyInstallationId,
+            restored.pendingRevocationInstallationId()
+        );
+        assertFalse(manager.requiresTokenRotation());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void cancelledCredentialReplacementRestoresThePreviousPushRegistration()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -670,6 +774,53 @@ public class AndroidPushRegistrationManagerTest {
 
         assertFalse(storage.load().hasPendingRevocation());
         assertEquals("awaiting_token", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void rejectedPreviousAuthorityRotatesInsteadOfBlockingTheRebind()
+        throws Exception {
+        for (int rejectedStatus : new int[] { 401, 403 }) {
+            AndroidPushIdentityStorage storage = createStorage(
+                new InMemorySharedPreferences()
+            );
+            RecordingBackend backend = new RecordingBackend();
+            AndroidPushRegistrationManager manager =
+                new AndroidPushRegistrationManager(storage, backend);
+            manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+            manager.onTokenReceived(
+                AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+                TOKEN_ONE,
+                "old-auth-token"
+            );
+            AndroidPushRegistrationManager.RebindResult rebind =
+                manager.rebindRuntime(
+                    "https://tenant-b.example",
+                    pushMetadata(4),
+                    "old-auth-token"
+                );
+            backend.unregisterStatus = rejectedStatus;
+
+            manager.revokePrevious(
+                rebind,
+                "old-auth-token",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+            AndroidPushIdentityStorage.State replacement = storage.load();
+            assertEquals("https://tenant-b.example", replacement.apiOrigin());
+            assertFalse(replacement.hasServerRegistration());
+            assertFalse(replacement.hasPendingRevocation());
+            assertTrue(manager.requiresTokenRotation());
+            assertEquals("awaiting_token", manager.getStatus().getString("state"));
+
+            manager.rollbackRebind(rebind);
+
+            AndroidPushIdentityStorage.State rollback = storage.load();
+            assertEquals(API_ORIGIN, rollback.apiOrigin());
+            assertFalse(rollback.hasServerRegistration());
+            assertTrue(manager.requiresTokenRotation());
+            assertEquals("awaiting_token", manager.getStatus().getString("state"));
+        }
     }
 
     @Test
@@ -1048,6 +1199,59 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals("old-auth-token", backend.unregistrationAuthTokens.get(0));
         assertEquals(API_ORIGIN, backend.unregistrationApiOrigins.get(0));
         assertEquals("awaiting_token", restarted.getStatus().getString("state"));
+    }
+
+    @Test
+    public void equivalentOriginSpellingCancelsAStagedSameBindingRebind()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        String installationId = createStorage(
+            preferences,
+            cipher,
+            ids
+        ).load().installationId();
+        manager.prepareRuntimeRebind(
+            "https://TENANT-A.example:443",
+            "old-auth-token"
+        );
+
+        AndroidPushRegistrationManager restarted = new AndroidPushRegistrationManager(
+            createStorage(preferences, cipher, ids),
+            backend
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = restarted.restoreRuntime(
+            "https://TENANT-A.example:443",
+            pushMetadata(3)
+        );
+        restarted.revokePrevious(
+            rebind,
+            "old-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        AndroidPushIdentityStorage.State retained = createStorage(
+            preferences,
+            cipher,
+            ids
+        ).load();
+        assertEquals(0, backend.unregisterCount);
+        assertEquals(installationId, retained.installationId());
+        assertTrue(retained.hasServerRegistration());
+        assertFalse(retained.hasPendingRebind());
+        assertEquals("registered", restarted.getStatus().getString("state"));
     }
 
     @Test
@@ -1984,6 +2188,63 @@ public class AndroidPushRegistrationManagerTest {
             "old-tenant-auth-token",
             backend.unregistrationAuthTokens.get(1)
         );
+    }
+
+    @Test
+    public void stagedRuntimeClearNeverUsesTheNewTenantBearer() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+
+        assertTrue(manager.clearRuntime("new-tenant-auth-token"));
+
+        assertEquals(1, backend.unregisterCount);
+        assertEquals(API_ORIGIN, backend.unregistrationApiOrigins.get(0));
+        assertEquals(
+            "old-tenant-auth-token",
+            backend.unregistrationAuthTokens.get(0)
+        );
+    }
+
+    @Test
+    public void stagedCrossTenantClearWithoutPreviousAuthoritySendsNoBearer()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+
+        assertTrue(manager.clearRuntime("new-tenant-auth-token"));
+
+        assertEquals(0, backend.unregisterCount);
+        assertNull(storage.load());
+        assertTrue(manager.requiresTokenRotation());
     }
 
     @Test

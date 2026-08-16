@@ -166,6 +166,36 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void applyWithRollbackRecreatesTheMissingRuntimeBeforeDeletingItsToken() {
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+        AndroidPushRuntimeMetadata previousMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 2, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        AndroidPushRuntimeMetadata nextMetadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "new-api-key", "new-project", "new-app", "new-sender"
+        );
+
+        manager.applyWithRollback(nextMetadata, previousMetadata, true);
+
+        assertEquals(2, backend.initializeCallCount);
+        assertEquals(1, backend.deleteMessagingTokenCallCount);
+        assertEquals(1, backend.deleteCallCount);
+        assertEquals(1, backend.ensureMessagingCallCount);
+        assertSame(backend.lastInitializedApp, backend.lastEnsuredMessagingApp);
+        assertEquals(
+            Arrays.asList(
+                "initialize",
+                "delete-token",
+                "delete-app",
+                "initialize",
+                "ensure"
+            ),
+            backend.events
+        );
+    }
+
+    @Test
     public void runtimeResetDeletesTheOrphanedTokenBeforeDeletingItsFirebaseApp() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
         FakeFirebaseApp previousApp = new FakeFirebaseApp(

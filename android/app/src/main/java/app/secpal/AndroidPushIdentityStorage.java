@@ -1059,7 +1059,7 @@ final class AndroidPushIdentityStorage {
         }
     }
 
-    private static String requireApiOrigin(String value) throws TokenStorageException {
+    static String requireApiOrigin(String value) throws TokenStorageException {
         String normalized = value == null ? "" : value.trim();
         try {
             URI parsed = new URI(normalized);

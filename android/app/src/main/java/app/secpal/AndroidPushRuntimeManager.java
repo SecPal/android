@@ -126,12 +126,7 @@ final class AndroidPushRuntimeManager {
     ) {
         try {
             if (tokenRotationRequired) {
-                firebaseBackend.cancelPendingTokenRequest();
-                FirebaseAppHandle existingRuntimeApp =
-                    firebaseBackend.findRuntimeApp();
-                if (existingRuntimeApp != null) {
-                    firebaseBackend.deleteMessagingToken(existingRuntimeApp);
-                }
+                deleteToken(rollbackMetadata);
             }
             apply(metadata, false);
         } catch (RuntimeException exception) {
