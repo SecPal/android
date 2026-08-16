@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Centralized native Android push revocation outcomes so definitive server
+  results are committed even when cancellation arrives immediately afterwards,
+  preserved independent registration retry failures after rebind cleanup, and
+  prevented repeated rebind preparation from discarding retained revocation
+  authority.
 - Prevented equivalent Android push runtime origins from revoking the live
   registration, required token rotation when credential replacement overlaps
   legacy cleanup, allowed runtime rebind to recover safely when previous

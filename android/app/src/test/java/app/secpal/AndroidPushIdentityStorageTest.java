@@ -298,6 +298,30 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void repeatedRuntimeRebindPreparationCannotDiscardRetainedAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, AUTH_TOKEN);
+
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, null);
+
+        AndroidPushIdentityStorage.State prepared = storage.load();
+        assertEquals(NEXT_API_ORIGIN, prepared.pendingRebindApiOrigin());
+        assertEquals(AUTH_TOKEN, prepared.pendingRebindAuthToken());
+
+        AndroidPushIdentityStorage.State rebound = storage.bindRuntime(
+            NEXT_API_ORIGIN,
+            4
+        );
+        assertTrue(rebound.hasPendingRevocation());
+        assertEquals(AUTH_TOKEN, rebound.pendingRevocationAuthToken());
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void runtimeRebindPreparationDefersMissingAuthorityUntilApply()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(

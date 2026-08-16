@@ -346,6 +346,11 @@ final class AndroidPushIdentityStorage {
             );
         }
         String normalizedAuthToken = normalizePendingAuthToken(previousAuthToken);
+        if (normalizedAuthToken == null
+            && current.hasPendingRebind()
+            && normalizedOrigin.equals(current.pendingRebindApiOrigin())) {
+            normalizedAuthToken = current.pendingRebindAuthToken();
+        }
         State prepared = new State(
             current.apiOrigin(),
             current.metadataRevision(),

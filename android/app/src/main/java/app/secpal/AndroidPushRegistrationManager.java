@@ -36,6 +36,39 @@ final class AndroidPushRegistrationManager {
         CANCELLED
     }
 
+    private enum RevocationOutcome {
+        REVOKED,
+        AUTHORITY_REJECTED,
+        REJECTED,
+        NETWORK_FAILURE,
+        FAILURE,
+        CANCELLED
+    }
+
+    private static final class RevocationAttempt {
+        private final RevocationOutcome outcome;
+        private final Exception failure;
+
+        private RevocationAttempt(
+            RevocationOutcome outcome,
+            Exception failure
+        ) {
+            this.outcome = outcome;
+            this.failure = failure;
+        }
+
+        private static RevocationAttempt completed(RevocationOutcome outcome) {
+            return new RevocationAttempt(outcome, null);
+        }
+
+        private static RevocationAttempt failed(
+            RevocationOutcome outcome,
+            Exception failure
+        ) {
+            return new RevocationAttempt(outcome, failure);
+        }
+    }
+
     interface Backend {
         RegistrationResponse register(
             String apiOrigin,
@@ -469,30 +502,43 @@ final class AndroidPushRegistrationManager {
         if (!hasAuthToken(revocationAuthToken)) {
             return;
         }
-        try {
-            int responseStatus = backend.unregister(
-                rebind.previousSnapshot.state().apiOrigin(),
-                revocationAuthToken,
-                rebind.previousSnapshot.state().installationId(),
-                cancellation
-            );
-            if (cancellation.isCancelled()) {
-                return;
-            }
-            if (responseStatus == 401 || responseStatus == 403) {
+        RevocationAttempt attempt = revokeRegistration(
+            rebind.previousSnapshot.state().apiOrigin(),
+            revocationAuthToken,
+            rebind.previousSnapshot.state().installationId(),
+            cancellation
+        );
+        if (attempt.outcome == RevocationOutcome.CANCELLED) {
+            return;
+        }
+        if (attempt.outcome == RevocationOutcome.AUTHORITY_REJECTED) {
+            try {
                 rotateAfterRejectedRevocation(
                     boundApiOrigin,
                     boundMetadataRevision,
                     boundApiOrigin == null ? "disabled" : "unconfigured"
                 );
-                rebind.markPreviousRegistrationAuthorityRejected();
-                return;
-            }
-            if (responseStatus != 200 && responseStatus != 204 && responseStatus != 404) {
+            } catch (TokenStorageException exception) {
                 throw new IllegalStateException(
-                    "Previous Android push registration revocation was rejected"
+                    "Previous Android push registration cleanup could not be persisted",
+                    exception
                 );
             }
+            rebind.markPreviousRegistrationAuthorityRejected();
+            return;
+        }
+        if (attempt.outcome == RevocationOutcome.REJECTED) {
+            throw new IllegalStateException(
+                "Previous Android push registration revocation was rejected"
+            );
+        }
+        if (attempt.outcome != RevocationOutcome.REVOKED) {
+            throw new IllegalStateException(
+                "Previous Android push registration could not be revoked",
+                attempt.failure
+            );
+        }
+        try {
             rebind.markPreviousServerRegistrationRevoked();
             if (boundApiOrigin == null) {
                 storage.clear();
@@ -503,17 +549,10 @@ final class AndroidPushRegistrationManager {
                         rebind.previousSnapshot.state().apiOrigin(),
                         rebind.previousSnapshot.state().installationId()
                     );
-                if (!"TOKEN_UNAVAILABLE".equals(failureCode)) {
+                if (isAwaitingPreviousRevocation()) {
                     setStatus(statusForBoundState(current), null);
                 }
             }
-        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
-            return;
-        } catch (IOException | NativeAuthHttpException exception) {
-            throw new IllegalStateException(
-                "Previous Android push registration could not be revoked",
-                exception
-            );
         } catch (TokenStorageException exception) {
             throw new IllegalStateException(
                 "Previous Android push registration cleanup could not be persisted",
@@ -667,6 +706,7 @@ final class AndroidPushRegistrationManager {
         if (state != null && state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, cancellation);
             if (cancellation.isCancelled()) {
+                publishRetainedStateAfterCancelledCleanup(state, disabled);
                 return;
             }
             if (state != null && state.hasPendingRevocation()) {
@@ -678,23 +718,16 @@ final class AndroidPushRegistrationManager {
                 replaceIdentityForTokenRotation(disabled);
                 return;
             }
-            boolean serverRegistrationRevoked = false;
-            try {
-                serverRegistrationRevoked = isSuccessfulRevocationStatus(
-                    backend.unregister(
-                        state.apiOrigin(),
-                        authToken,
-                        state.installationId(),
-                        cancellation
-                    )
-                );
-            } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
-                serverRegistrationRevoked = false;
-            }
-            if (cancellation.isCancelled()) {
+            RevocationAttempt attempt = revokeRegistration(
+                state.apiOrigin(),
+                authToken,
+                state.installationId(),
+                cancellation
+            );
+            if (attempt.outcome == RevocationOutcome.CANCELLED) {
                 return;
             }
-            if (!serverRegistrationRevoked) {
+            if (attempt.outcome != RevocationOutcome.REVOKED) {
                 storage.retainCurrentRegistrationForRevocation(authToken);
                 setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
                 return;
@@ -727,6 +760,7 @@ final class AndroidPushRegistrationManager {
         if (cancellation.isCancelled()) {
             return false;
         }
+        boolean disabled = "disabled".equals(status);
         try {
             AndroidPushIdentityStorage.State state = storage.load();
             if (state == null) {
@@ -743,6 +777,7 @@ final class AndroidPushRegistrationManager {
                 }
                 state = retryPendingRevocation(state, cancellation);
                 if (cancellation.isCancelled()) {
+                    publishRetainedStateAfterCancelledCleanup(state, disabled);
                     return false;
                 }
                 if (state != null && state.hasPendingRevocation()) {
@@ -757,22 +792,16 @@ final class AndroidPushRegistrationManager {
                     clearRuntimeBinding(true);
                     return true;
                 }
-                boolean revoked = false;
-                try {
-                    int responseStatus = backend.unregister(
-                        state.apiOrigin(),
-                        revocationAuthToken,
-                        state.installationId(),
-                        cancellation
-                    );
-                    revoked = isSuccessfulRevocationStatus(responseStatus);
-                } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
-                    // The protected revocation tombstone below owns offline retry.
-                }
-                if (cancellation.isCancelled()) {
+                RevocationAttempt attempt = revokeRegistration(
+                    state.apiOrigin(),
+                    revocationAuthToken,
+                    state.installationId(),
+                    cancellation
+                );
+                if (attempt.outcome == RevocationOutcome.CANCELLED) {
                     return false;
                 }
-                if (!revoked) {
+                if (attempt.outcome != RevocationOutcome.REVOKED) {
                     storage.retainCurrentRegistrationForRevocation(
                         revocationAuthToken
                     );
@@ -948,9 +977,6 @@ final class AndroidPushRegistrationManager {
                 lifecycleEvent,
                 cancellation
             );
-            if (cancellation.isCancelled()) {
-                return SyncResult.CANCELLED;
-            }
             int responseStatus = response.status();
             if (responseStatus == 200 || responseStatus == 201) {
                 storage.markRegistered(
@@ -1011,51 +1037,47 @@ final class AndroidPushRegistrationManager {
             setStatus("awaiting_token", null);
             return replacement;
         }
-        try {
-            int responseStatus = backend.unregister(
-                state.pendingRevocationApiOrigin(),
-                revocationAuthToken,
-                state.pendingRevocationInstallationId(),
-                cancellation
+        RevocationAttempt attempt = revokeRegistration(
+            state.pendingRevocationApiOrigin(),
+            revocationAuthToken,
+            state.pendingRevocationInstallationId(),
+            cancellation
+        );
+        if (attempt.outcome == RevocationOutcome.CANCELLED) {
+            return state;
+        }
+        if (attempt.outcome == RevocationOutcome.AUTHORITY_REJECTED) {
+            storage.discardIdentityForTokenRotation();
+            if (boundApiOrigin == null || boundMetadataRevision <= 0) {
+                setStatus("unconfigured", null);
+                return null;
+            }
+            AndroidPushIdentityStorage.State replacement = storage.bindRuntime(
+                boundApiOrigin,
+                boundMetadataRevision
             );
-            if (cancellation.isCancelled()) {
-                return state;
-            }
-            if (responseStatus == 401 || responseStatus == 403) {
-                storage.discardIdentityForTokenRotation();
-                if (boundApiOrigin == null || boundMetadataRevision <= 0) {
-                    setStatus("unconfigured", null);
-                    return null;
-                }
-                AndroidPushIdentityStorage.State replacement = storage.bindRuntime(
-                    boundApiOrigin,
-                    boundMetadataRevision
-                );
-                setStatus("awaiting_token", null);
-                return replacement;
-            }
-            if (responseStatus != 200 && responseStatus != 204 && responseStatus != 404) {
-                setStatus("retry_pending", "PREVIOUS_REGISTRATION_REJECTED");
-                return state;
-            }
-            if (cancellation.isCancelled()) {
-                return state;
-            }
+            setStatus("awaiting_token", null);
+            return replacement;
+        }
+        if (attempt.outcome == RevocationOutcome.REJECTED) {
+            setStatus("retry_pending", "PREVIOUS_REGISTRATION_REJECTED");
+            return state;
+        }
+        if (attempt.outcome == RevocationOutcome.NETWORK_FAILURE) {
+            setStatus("retry_pending", "NETWORK_UNAVAILABLE");
+            return state;
+        }
+        if (attempt.outcome == RevocationOutcome.FAILURE) {
+            setStatus("retry_pending", "PREVIOUS_REGISTRATION_FAILED");
+            return state;
+        }
+        if (attempt.outcome == RevocationOutcome.REVOKED) {
             return storage.clearPendingRevocation(
                 state.pendingRevocationApiOrigin(),
                 state.pendingRevocationInstallationId()
             );
-        } catch (IOException exception) {
-            if (!cancellation.isCancelled()) {
-                setStatus("retry_pending", "NETWORK_UNAVAILABLE");
-            }
-            return state;
-        } catch (NativeAuthHttpException | RuntimeException exception) {
-            if (!cancellation.isCancelled()) {
-                setStatus("retry_pending", "PREVIOUS_REGISTRATION_FAILED");
-            }
-            return state;
         }
+        throw new IllegalStateException("Unknown Android push revocation outcome");
     }
 
     private void setStatus(String nextStatus, String nextFailureCode) {
@@ -1125,6 +1147,73 @@ final class AndroidPushRegistrationManager {
 
     private static boolean isSuccessfulRevocationStatus(int status) {
         return status == 200 || status == 204 || status == 404;
+    }
+
+    private RevocationAttempt revokeRegistration(
+        String apiOrigin,
+        String authToken,
+        String installationId,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) {
+        if (cancellation.isCancelled()) {
+            return RevocationAttempt.completed(RevocationOutcome.CANCELLED);
+        }
+        try {
+            int responseStatus = backend.unregister(
+                apiOrigin,
+                authToken,
+                installationId,
+                cancellation
+            );
+            if (isSuccessfulRevocationStatus(responseStatus)) {
+                return RevocationAttempt.completed(RevocationOutcome.REVOKED);
+            }
+            if (responseStatus == 401 || responseStatus == 403) {
+                return RevocationAttempt.completed(
+                    RevocationOutcome.AUTHORITY_REJECTED
+                );
+            }
+            return RevocationAttempt.completed(RevocationOutcome.REJECTED);
+        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            return RevocationAttempt.completed(RevocationOutcome.CANCELLED);
+        } catch (IOException exception) {
+            return cancellation.isCancelled()
+                ? RevocationAttempt.completed(RevocationOutcome.CANCELLED)
+                : RevocationAttempt.failed(
+                    RevocationOutcome.NETWORK_FAILURE,
+                    exception
+                );
+        } catch (NativeAuthHttpException | RuntimeException exception) {
+            return cancellation.isCancelled()
+                ? RevocationAttempt.completed(RevocationOutcome.CANCELLED)
+                : RevocationAttempt.failed(RevocationOutcome.FAILURE, exception);
+        }
+    }
+
+    private boolean isAwaitingPreviousRevocation() {
+        return "retry_pending".equals(status)
+            && "PREVIOUS_REGISTRATION_PENDING".equals(failureCode);
+    }
+
+    private void publishRetainedStateAfterCancelledCleanup(
+        AndroidPushIdentityStorage.State state,
+        boolean disabled
+    ) {
+        if (state != null && state.hasPendingRevocation()) {
+            return;
+        }
+        if (disabled) {
+            setStatus("disabled", null);
+            return;
+        }
+        if (state == null) {
+            setStatus(
+                boundApiOrigin == null ? "unconfigured" : "awaiting_token",
+                null
+            );
+            return;
+        }
+        setStatus(statusForBoundState(state), null);
     }
 
     private static String registrationLifecycleEvent(
