@@ -1734,7 +1734,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
             taskExecutor,
             cleanup,
             protectedStorageErrorMarker,
-            () -> {}
+            () -> {},
+            true
         );
     }
 
@@ -1808,6 +1809,22 @@ public class SecPalNativeAuthPlugin extends Plugin {
         Runnable protectedStorageErrorMarker,
         Runnable schedulingErrorMarker
     ) {
+        return scheduleAndroidPushAfterAuthentication(
+            taskExecutor,
+            task,
+            protectedStorageErrorMarker,
+            schedulingErrorMarker,
+            false
+        );
+    }
+
+    private static NativeAuthTaskExecutor.SubmitResult scheduleAndroidPushAfterAuthentication(
+        NativeAuthTaskExecutor taskExecutor,
+        CancellablePushTask task,
+        Runnable protectedStorageErrorMarker,
+        Runnable schedulingErrorMarker,
+        boolean serializeWithSessionTransition
+    ) {
         String requestId = "android-push-auth-" + UUID.randomUUID();
         NativeAuthHttpClient.CancellationSignal cancellation =
             new NativeAuthHttpClient.CancellationSignal();
@@ -1815,10 +1832,21 @@ public class SecPalNativeAuthPlugin extends Plugin {
             requestId,
             0,
             () -> {
-                try {
-                    task.run(cancellation);
-                } catch (TokenStorageException exception) {
-                    protectedStorageErrorMarker.run();
+                if (serializeWithSessionTransition) {
+                    taskExecutor.completeAuthenticatedMutation(
+                        requestId,
+                        () -> runAndroidPushTask(
+                            task,
+                            cancellation,
+                            protectedStorageErrorMarker
+                        )
+                    );
+                } else {
+                    runAndroidPushTask(
+                        task,
+                        cancellation,
+                        protectedStorageErrorMarker
+                    );
                 }
             },
             reasonCode -> cancellation.cancel(),
@@ -1829,6 +1857,18 @@ public class SecPalNativeAuthPlugin extends Plugin {
             schedulingErrorMarker.run();
         }
         return result;
+    }
+
+    private static void runAndroidPushTask(
+        CancellablePushTask task,
+        NativeAuthHttpClient.CancellationSignal cancellation,
+        Runnable protectedStorageErrorMarker
+    ) {
+        try {
+            task.run(cancellation);
+        } catch (TokenStorageException exception) {
+            protectedStorageErrorMarker.run();
+        }
     }
 
     static void retryAndroidPushRegistrationNow(

@@ -128,7 +128,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also fails. Failed persisted-runtime restoration now likewise commits both
   server-revocation authority and pending FCM-token deletion metadata before
   discarding the runtime bootstrap or bearer. Startup cleanup and restored
-  revocation work now share the cancellable authenticated task lane, runtime
+  revocation work now share the cancellable authenticated task lane, and
+  runtime transitions wait for an in-flight synchronous Firebase token deletion
+  and its protected failure-state update before replacing the runtime. Runtime
   transitions reschedule Firebase refresh only after their gate reopens, and a
   legacy tombstone without its original authority forces identity and token
   rotation instead of borrowing a future login's bearer (issue #411, part of

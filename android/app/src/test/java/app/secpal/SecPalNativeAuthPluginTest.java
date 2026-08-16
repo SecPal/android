@@ -2158,6 +2158,128 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void pendingRuntimeDeletionFinishesBeforeSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        CountDownLatch deletionStarted = new CountDownLatch(1);
+        CountDownLatch releaseDeletion = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+        AtomicReference<NativeAuthHttpClient.CancellationSignal> cancellation =
+            new AtomicReference<>();
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, false);
+        backend.deletionStarted = deletionStarted;
+        backend.releaseDeletion = releaseDeletion;
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    signal -> {
+                        cancellation.set(signal);
+                        SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                            preferences,
+                            new AndroidPushRuntimeManager(backend),
+                            signal
+                        );
+                    },
+                    () -> fail("Protected push storage should remain available")
+                )
+            );
+            assertTrue(deletionStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-during-token-deletion",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(cancellation.get().isCancelled());
+            assertFalse(transitionCompleted.await(200, TimeUnit.MILLISECONDS));
+            releaseDeletion.countDown();
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+            assertTrue(preferences.contains("pending_push_runtime_clear"));
+        } finally {
+            releaseDeletion.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void pendingRuntimeStorageFailureSettlesBeforeSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch failureMarkerStarted = new CountDownLatch(1);
+        CountDownLatch releaseFailureMarker = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    cancellation -> {
+                        cleanupStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        throw new TokenStorageException(
+                            "Protected cleanup failed",
+                            new IllegalStateException("test")
+                        );
+                    },
+                    () -> {
+                        failureMarkerStarted.countDown();
+                        boolean released = false;
+                        while (!released) {
+                            try {
+                                released = releaseFailureMarker.await(
+                                    2,
+                                    TimeUnit.SECONDS
+                                );
+                            } catch (InterruptedException ignored) {
+                                // Protected-state settlement must finish atomically.
+                            }
+                        }
+                    }
+                )
+            );
+            assertTrue(cleanupStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-during-cleanup-failure",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(failureMarkerStarted.await(2, TimeUnit.SECONDS));
+            assertFalse(transitionCompleted.await(200, TimeUnit.MILLISECONDS));
+            releaseFailureMarker.countDown();
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+        } finally {
+            releaseFailureMarker.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void rejectedAuthenticatedPushSchedulingPublishesRetryState() {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
         AtomicBoolean rejected = new AtomicBoolean(false);
@@ -2650,6 +2772,8 @@ public class SecPalNativeAuthPluginTest {
         private AndroidPushRuntimeManager.FirebaseAppHandle runtimeApp;
         private AndroidPushRuntimeMetadata initializedMetadata;
         private RuntimeException deletionFailure;
+        private CountDownLatch deletionStarted;
+        private CountDownLatch releaseDeletion;
         private boolean metadataWasPersisted;
         private boolean tokenDeleted;
         private boolean appDeleted;
@@ -2700,6 +2824,17 @@ public class SecPalNativeAuthPluginTest {
             );
             if (deletionFailure != null) {
                 throw deletionFailure;
+            }
+            if (deletionStarted != null && releaseDeletion != null) {
+                deletionStarted.countDown();
+                boolean released = false;
+                while (!released) {
+                    try {
+                        released = releaseDeletion.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException ignoredException) {
+                        // Firebase token deletion cannot be interrupted.
+                    }
+                }
             }
             tokenDeleted = true;
         }
