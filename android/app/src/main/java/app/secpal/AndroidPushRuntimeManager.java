@@ -9,12 +9,17 @@ import android.content.Context;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.android.gms.tasks.Tasks;
 
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class AndroidPushRuntimeManager {
     private static final String RUNTIME_APP_NAME = "secpal-runtime-push";
+    private static final long TOKEN_DELETION_TIMEOUT_SECONDS = 15;
     private static final MessagingListener NO_OP_MESSAGING_LISTENER = new MessagingListener() {
         @Override
         public void onTokenReceived(String appName, String token) {}
@@ -43,6 +48,10 @@ final class AndroidPushRuntimeManager {
 
     interface FirebaseMessagingClient {
         void requestToken(String appName, MessagingTokenListener listener);
+
+        void rotateToken(String appName, MessagingTokenListener listener);
+
+        void deleteToken(String appName);
     }
 
     interface FirebaseBackend {
@@ -53,6 +62,10 @@ final class AndroidPushRuntimeManager {
         void cancelPendingTokenRequest();
 
         void ensureMessaging(FirebaseAppHandle app);
+
+        void rotateMessagingToken(FirebaseAppHandle app);
+
+        void deleteMessagingToken(FirebaseAppHandle app);
     }
 
     private final FirebaseBackend firebaseBackend;
@@ -72,6 +85,13 @@ final class AndroidPushRuntimeManager {
     }
 
     void apply(AndroidPushRuntimeMetadata metadata) {
+        apply(metadata, false);
+    }
+
+    void apply(
+        AndroidPushRuntimeMetadata metadata,
+        boolean tokenRotationRequired
+    ) {
         firebaseBackend.cancelPendingTokenRequest();
 
         FirebaseAppHandle existingRuntimeApp = firebaseBackend.findRuntimeApp();
@@ -85,15 +105,35 @@ final class AndroidPushRuntimeManager {
         }
 
         FirebaseAppHandle initializedApp = firebaseBackend.initialize(metadata);
-        firebaseBackend.ensureMessaging(initializedApp);
+        if (tokenRotationRequired) {
+            firebaseBackend.rotateMessagingToken(initializedApp);
+        } else {
+            firebaseBackend.ensureMessaging(initializedApp);
+        }
     }
 
     void applyWithRollback(
         AndroidPushRuntimeMetadata metadata,
         AndroidPushRuntimeMetadata rollbackMetadata
     ) {
+        applyWithRollback(metadata, rollbackMetadata, false);
+    }
+
+    void applyWithRollback(
+        AndroidPushRuntimeMetadata metadata,
+        AndroidPushRuntimeMetadata rollbackMetadata,
+        boolean tokenRotationRequired
+    ) {
         try {
-            apply(metadata);
+            if (tokenRotationRequired) {
+                firebaseBackend.cancelPendingTokenRequest();
+                FirebaseAppHandle existingRuntimeApp =
+                    firebaseBackend.findRuntimeApp();
+                if (existingRuntimeApp != null) {
+                    firebaseBackend.deleteMessagingToken(existingRuntimeApp);
+                }
+            }
+            apply(metadata, false);
         } catch (RuntimeException exception) {
             try {
                 apply(rollbackMetadata);
@@ -101,6 +141,46 @@ final class AndroidPushRuntimeManager {
                 exception.addSuppressed(rollbackException);
             }
             throw exception;
+        }
+    }
+
+    void refreshToken() {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp != null) {
+            firebaseBackend.ensureMessaging(runtimeApp);
+        }
+    }
+
+    void rotateToken() {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp != null) {
+            firebaseBackend.rotateMessagingToken(runtimeApp);
+        }
+    }
+
+    void deleteToken() {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp != null) {
+            firebaseBackend.deleteMessagingToken(runtimeApp);
+        }
+    }
+
+    void deleteToken(AndroidPushRuntimeMetadata metadata) {
+        firebaseBackend.cancelPendingTokenRequest();
+        FirebaseAppHandle runtimeApp = firebaseBackend.findRuntimeApp();
+        if (runtimeApp == null && metadata != null) {
+            runtimeApp = firebaseBackend.initialize(metadata);
+        }
+        if (runtimeApp == null) {
+            return;
+        }
+        try {
+            firebaseBackend.deleteMessagingToken(runtimeApp);
+        } finally {
+            runtimeApp.delete();
         }
     }
 
@@ -159,33 +239,101 @@ final class AndroidPushRuntimeManager {
 
         @Override
         public void ensureMessaging(FirebaseAppHandle app) {
+            requestMessagingToken(app, false);
+        }
+
+        @Override
+        public void rotateMessagingToken(FirebaseAppHandle app) {
+            requestMessagingToken(app, true);
+        }
+
+        @Override
+        public void deleteMessagingToken(FirebaseAppHandle app) {
+            messagingClient.deleteToken(app.getName());
+        }
+
+        private void requestMessagingToken(
+            FirebaseAppHandle app,
+            boolean rotateToken
+        ) {
             String appName = app.getName();
             int generation = requestGeneration.get();
-
-            messagingClient.requestToken(
-                appName,
-                new MessagingTokenListener() {
-                    @Override
-                    public void onTokenReceived(String token) {
-                        if (requestGeneration.get() == generation) {
-                            messagingListener.onTokenReceived(appName, token);
-                        }
-                    }
-
-                    @Override
-                    public void onTokenError(Exception exception) {
-                        if (requestGeneration.get() == generation) {
-                            messagingListener.onTokenError(appName, exception);
-                        }
+            MessagingTokenListener listener = new MessagingTokenListener() {
+                @Override
+                public void onTokenReceived(String token) {
+                    if (requestGeneration.get() == generation) {
+                        messagingListener.onTokenReceived(appName, token);
                     }
                 }
-            );
+
+                @Override
+                public void onTokenError(Exception exception) {
+                    if (requestGeneration.get() == generation) {
+                        messagingListener.onTokenError(appName, exception);
+                    }
+                }
+            };
+            if (rotateToken) {
+                messagingClient.rotateToken(appName, listener);
+            } else {
+                messagingClient.requestToken(appName, listener);
+            }
         }
     }
 
     static final class DefaultFirebaseMessagingClient implements FirebaseMessagingClient {
         @Override
         public void requestToken(String appName, MessagingTokenListener listener) {
+            resolveMessaging(appName)
+                .getToken()
+                .addOnSuccessListener(listener::onTokenReceived)
+                .addOnFailureListener(listener::onTokenError);
+        }
+
+        @Override
+        public void rotateToken(String appName, MessagingTokenListener listener) {
+            FirebaseMessaging messaging = resolveMessaging(appName);
+            messaging
+                .deleteToken()
+                .continueWithTask(deletion -> {
+                    if (!deletion.isSuccessful()) {
+                        Exception failure = deletion.getException();
+                        if (failure != null) {
+                            throw failure;
+                        }
+                        throw new IllegalStateException(
+                            "Failed to delete the previous Android push token"
+                        );
+                    }
+                    return messaging.getToken();
+                })
+                .addOnSuccessListener(listener::onTokenReceived)
+                .addOnFailureListener(listener::onTokenError);
+        }
+
+        @Override
+        public void deleteToken(String appName) {
+            try {
+                Tasks.await(
+                    resolveMessaging(appName).deleteToken(),
+                    TOKEN_DELETION_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS
+                );
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                    "Interrupted while deleting the previous Android push token",
+                    exception
+                );
+            } catch (ExecutionException | TimeoutException exception) {
+                throw new IllegalStateException(
+                    "Failed to delete the previous Android push token",
+                    exception
+                );
+            }
+        }
+
+        private static FirebaseMessaging resolveMessaging(String appName) {
             FirebaseApp namedApp = FirebaseApp.getInstance(appName);
             FirebaseMessaging messaging = namedApp.get(FirebaseMessaging.class);
 
@@ -194,11 +342,7 @@ final class AndroidPushRuntimeManager {
                     "Failed to resolve Firebase Messaging for Android push runtime app " + appName
                 );
             }
-
-            messaging
-                .getToken()
-                .addOnSuccessListener(listener::onTokenReceived)
-                .addOnFailureListener(listener::onTokenError);
+            return messaging;
         }
     }
 

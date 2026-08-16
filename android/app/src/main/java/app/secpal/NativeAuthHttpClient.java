@@ -195,6 +195,7 @@ class NativeAuthHttpClient {
             token,
             authorizedRequest,
             requestBody,
+            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES,
             cancellation
         );
     }
@@ -211,6 +212,36 @@ class NativeAuthHttpClient {
             token,
             authorizedRequest,
             decodeRequestBody(requestBodyBase64),
+            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES,
+            cancellation
+        );
+    }
+
+    JSObject requestAuxiliaryJson(
+        String baseUrl,
+        String token,
+        String method,
+        String path,
+        String requestBodyBase64,
+        String contentType,
+        String accept,
+        CancellationSignal cancellation
+    ) throws IOException, NativeAuthHttpException {
+        byte[] requestBody = decodeRequestBody(requestBodyBase64);
+        NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest =
+            NativeAuthRequestPolicy.authorizeAndroidPush(
+                method,
+                path,
+                contentType,
+                accept,
+                requestBody == null ? 0 : requestBody.length
+            );
+        return requestAuthorized(
+            baseUrl,
+            token,
+            authorizedRequest,
+            requestBody,
+            MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES,
             cancellation
         );
     }
@@ -220,6 +251,7 @@ class NativeAuthHttpClient {
         String token,
         NativeAuthRequestPolicy.AuthorizedRequest authorizedRequest,
         byte[] requestBody,
+        int maxResponseBodyBytes,
         CancellationSignal cancellation
     ) throws IOException, NativeAuthHttpException {
         RequestResponse response = sendRequest(
@@ -232,7 +264,7 @@ class NativeAuthHttpClient {
             authorizedRequest.getAccept(),
             false,
             authorizedRequest.getResponseKind(),
-            NativeAuthRequestPolicy.MAX_RESPONSE_BODY_BYTES,
+            maxResponseBodyBytes,
             cancellation
         );
 

@@ -24,9 +24,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Reviewed least-privilege inventory for requests that the packaged Android frontend makes through
- * the bearer-token broker. Authentication, bootstrap, discovery, and health endpoints use their
- * dedicated native flows and deliberately do not appear here.
+ * Reviewed least-privilege request policies for Android bearer-token use. {@link #authorize}
+ * contains only routes available to the packaged WebView broker. Native push registration uses
+ * its separate, narrower {@link #authorizeAndroidPush} inventory. Authentication, bootstrap,
+ * discovery, and health endpoints use dedicated native flows and deliberately do not appear here.
  */
 final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024;
@@ -44,7 +45,8 @@ final class NativeAuthRequestPolicy {
         "^[A-Za-z0-9'()+_,./:=?-]{1,70}$"
     );
 
-    private static final List<RouteSpec> ROUTES = buildRoutes();
+    private static final List<RouteSpec> WEBVIEW_ROUTES = buildWebViewRoutes();
+    private static final List<RouteSpec> ANDROID_PUSH_ROUTES = buildAndroidPushRoutes();
 
     private NativeAuthRequestPolicy() {}
 
@@ -68,6 +70,41 @@ final class NativeAuthRequestPolicy {
     }
 
     static AuthorizedRequest authorize(
+        String method,
+        String pathAndQuery,
+        String contentType,
+        String accept,
+        int requestBodyLength
+    ) throws NativeAuthHttpException {
+        return authorizeAgainst(
+            WEBVIEW_ROUTES,
+            method,
+            pathAndQuery,
+            contentType,
+            accept,
+            requestBodyLength
+        );
+    }
+
+    static AuthorizedRequest authorizeAndroidPush(
+        String method,
+        String pathAndQuery,
+        String contentType,
+        String accept,
+        int requestBodyLength
+    ) throws NativeAuthHttpException {
+        return authorizeAgainst(
+            ANDROID_PUSH_ROUTES,
+            method,
+            pathAndQuery,
+            contentType,
+            accept,
+            requestBodyLength
+        );
+    }
+
+    private static AuthorizedRequest authorizeAgainst(
+        List<RouteSpec> routes,
         String method,
         String pathAndQuery,
         String contentType,
@@ -99,7 +136,7 @@ final class NativeAuthRequestPolicy {
             throw validationError("Android auth bridge requires an inventoried request content type");
         }
 
-        for (RouteSpec route : ROUTES) {
+        for (RouteSpec route : routes) {
             if (!route.method.equals(normalizedMethod) || !route.pathPattern.matcher(target.decodedPath).matches()) {
                 continue;
             }
@@ -130,7 +167,7 @@ final class NativeAuthRequestPolicy {
         return value != null && value.length() > MAX_MEDIA_TYPE_CHARACTERS;
     }
 
-    private static List<RouteSpec> buildRoutes() {
+    private static List<RouteSpec> buildWebViewRoutes() {
         List<RouteSpec> routes = new ArrayList<>();
 
         add(routes, "GET", "/v1/me", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
@@ -144,8 +181,6 @@ final class NativeAuthRequestPolicy {
         add(routes, "POST", "/v1/me/mfa/totp/enrollment", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/totp/enrollment/confirm", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/recovery-codes/regenerate", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "PUT", "/v1/me/notification-installations/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "DELETE", "/v1/me/notification-installations/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/streets", keys("name", "postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/localities", keys("postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
 
@@ -205,6 +240,13 @@ final class NativeAuthRequestPolicy {
         ), NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/activity-logs/" + ID + "/verify", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
 
+        return Collections.unmodifiableList(routes);
+    }
+
+    private static List<RouteSpec> buildAndroidPushRoutes() {
+        List<RouteSpec> routes = new ArrayList<>();
+        add(routes, "PUT", "/v1/me/notification-installations/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
+        add(routes, "DELETE", "/v1/me/notification-installations/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         return Collections.unmodifiableList(routes);
     }
 

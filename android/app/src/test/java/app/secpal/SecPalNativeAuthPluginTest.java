@@ -1558,6 +1558,20 @@ public class SecPalNativeAuthPluginTest {
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             fail("ensureMessaging should not run after initialization fails");
         }
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
+            fail("rotateMessagingToken should not run after initialization fails");
+        }
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
+            fail("deleteMessagingToken should not run without an existing runtime");
+        }
     }
 
     private static final class ResetFailingFirebaseBackend
@@ -1610,6 +1624,18 @@ public class SecPalNativeAuthPluginTest {
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             ensureMessagingCallCount += 1;
         }
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {
+            ensureMessagingCallCount += 1;
+        }
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle app
+        ) {}
     }
 
     private static final class InMemorySharedPreferences implements SharedPreferences {

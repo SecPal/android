@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an idempotent native Android push registration lifecycle with
+  runtime-specific Firebase applications, bounded server requests, durable
+  unregister work, token refresh and rotation recovery, and abstract public
+  registration status (issue #598).
 - Added an encrypted, runtime-bound native Android state model for push tokens,
   installation identity, registration fingerprints, and pending lifecycle work,
   including fail-closed corruption recovery and token-rotation markers (issue
