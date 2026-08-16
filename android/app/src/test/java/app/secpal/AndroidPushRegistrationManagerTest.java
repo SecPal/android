@@ -896,6 +896,91 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void cancelledPreviousRevocationRollbackForcesReregistration()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            API_ORIGIN,
+            pushMetadata(4),
+            "auth-token"
+        );
+        backend.cancelUnregistration = true;
+
+        manager.revokePrevious(
+            rebind,
+            "auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        manager.rollbackRebind(rebind);
+
+        assertFalse(storage.load().hasServerRegistration());
+        assertTrue(storage.load().hasPendingRevocation());
+        assertEquals(
+            "auth-token",
+            storage.load().pendingRevocationAuthToken()
+        );
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+
+        backend.cancelUnregistration = false;
+        manager.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void cancelledRuntimeClearAttemptRetainsCleanupAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        backend.cancelUnregistration = true;
+
+        assertFalse(
+            manager.clearRuntime(
+                "auth-token",
+                new NativeAuthHttpClient.CancellationSignal()
+            )
+        );
+
+        AndroidPushIdentityStorage.State retained = storage.load();
+        assertFalse(retained.hasServerRegistration());
+        assertTrue(retained.hasPendingRevocation());
+        assertEquals("auth-token", retained.pendingRevocationAuthToken());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+
+        backend.cancelUnregistration = false;
+
+        assertTrue(manager.clearRuntime(null));
+        assertNull(storage.load());
+        assertEquals(2, backend.unregisterCount);
+    }
+
+    @Test
     public void tokenErrorDuringRebindRemainsRetryableAfterPreviousRevocation()
         throws Exception {
         RecordingBackend backend = new RecordingBackend();
@@ -1034,6 +1119,56 @@ public class AndroidPushRegistrationManagerTest {
         }
 
         assertEquals(originalInstallationId, storage.load().installationId());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void ambiguousPreviousRevocationRollbackForcesReregistration()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            API_ORIGIN,
+            pushMetadata(4),
+            "auth-token"
+        );
+        backend.offlineUnregistration = true;
+
+        try {
+            manager.revokePrevious(
+                rebind,
+                "auth-token",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            fail("Expected ambiguous previous registration revocation");
+        } catch (IllegalStateException expected) {
+            manager.rollbackRebind(rebind);
+        }
+
+        assertFalse(storage.load().hasServerRegistration());
+        assertTrue(storage.load().hasPendingRevocation());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+        assertEquals(
+            "PREVIOUS_REGISTRATION_PENDING",
+            manager.getStatus().getString("failureCode")
+        );
+
+        backend.offlineUnregistration = false;
+        manager.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
         assertEquals("registered", manager.getStatus().getString("state"));
     }
 
@@ -2035,6 +2170,105 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void rejectedLogoutRevocationRotatesImmediately() throws Exception {
+        for (int rejectionStatus : new int[] { 401, 403 }) {
+            AndroidPushIdentityStorage storage = createStorage(
+                new InMemorySharedPreferences()
+            );
+            RecordingBackend backend = new RecordingBackend();
+            AndroidPushRegistrationManager manager =
+                new AndroidPushRegistrationManager(storage, backend);
+            manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+            manager.onTokenReceived(
+                AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+                TOKEN_ONE,
+                "auth-token"
+            );
+            backend.unregisterStatus = rejectionStatus;
+
+            manager.onLogout("auth-token");
+
+            assertFalse(storage.load().hasServerRegistration());
+            assertFalse(storage.load().hasPendingRevocation());
+            assertTrue(manager.requiresTokenRotation());
+            assertEquals("awaiting_token", manager.getStatus().getString("state"));
+            assertEquals(1, backend.unregisterCount);
+        }
+    }
+
+    @Test
+    public void cancelledLogoutAttemptForcesReregistration() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        backend.cancelUnregistration = true;
+
+        manager.onLogout(
+            "auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertFalse(storage.load().hasServerRegistration());
+        assertTrue(storage.load().hasPendingRevocation());
+        assertEquals(
+            "auth-token",
+            storage.load().pendingRevocationAuthToken()
+        );
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+
+        backend.cancelUnregistration = false;
+        manager.onAuthenticated("auth-token");
+
+        assertEquals(2, backend.lifecycleEvents.size());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void tokenCallbackRetriesRetainedLogoutRevocationWithoutCurrentAuth()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        backend.offlineUnregistration = true;
+        manager.onLogout("old-auth-token");
+        assertTrue(storage.load().hasPendingRevocation());
+
+        backend.offlineUnregistration = false;
+        AndroidPushRegistrationManager.SyncResult result = manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            null
+        );
+
+        assertEquals(AndroidPushRegistrationManager.SyncResult.COMPLETE, result);
+        assertEquals(2, backend.unregisterCount);
+        assertFalse(storage.load().hasPendingRevocation());
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void successfulPushRevocationCompletesLogoutCleanup()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
@@ -2233,6 +2467,142 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals(2, backend.unregisterCount);
         assertEquals("reset-auth-token", backend.unregistrationAuthTokens.get(0));
         assertEquals("reset-auth-token", backend.unregistrationAuthTokens.get(1));
+    }
+
+    @Test
+    public void rejectedRuntimeClearRetryPreservesTokenDeletionRequirement()
+        throws Exception {
+        for (int rejectionStatus : new int[] { 401, 403 }) {
+            InMemorySharedPreferences preferences =
+                new InMemorySharedPreferences();
+            MemoryCipher cipher = new MemoryCipher();
+            AtomicInteger ids = new AtomicInteger();
+            RecordingBackend backend = new RecordingBackend();
+            AndroidPushIdentityStorage storage = createStorage(
+                preferences,
+                cipher,
+                ids
+            );
+            AndroidPushRegistrationManager manager =
+                new AndroidPushRegistrationManager(storage, backend);
+            manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+            manager.onTokenReceived(
+                AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+                TOKEN_ONE,
+                "reset-auth-token"
+            );
+            manager.prepareRuntimeReset("reset-auth-token");
+
+            backend.offlineUnregistration = true;
+            AndroidPushRegistrationManager firstRestart =
+                new AndroidPushRegistrationManager(
+                    createStorage(preferences, cipher, ids),
+                    backend
+                );
+            assertFalse(firstRestart.clearRuntime(null));
+
+            backend.offlineUnregistration = false;
+            backend.unregisterStatus = rejectionStatus;
+            AndroidPushRegistrationManager secondRestart =
+                new AndroidPushRegistrationManager(
+                    createStorage(preferences, cipher, ids),
+                    backend
+                );
+
+            assertTrue(secondRestart.clearRuntime(null));
+            assertNull(storage.load());
+            assertTrue(secondRestart.requiresTokenRotation());
+            assertTrue(secondRestart.requiresOldRuntimeTokenDeletion());
+            assertEquals(2, backend.unregisterCount);
+        }
+    }
+
+    @Test
+    public void rejectedInitialRuntimeClearPreservesTokenDeletionRequirement()
+        throws Exception {
+        for (int rejectionStatus : new int[] { 401, 403 }) {
+            AndroidPushIdentityStorage storage = createStorage(
+                new InMemorySharedPreferences()
+            );
+            RecordingBackend backend = new RecordingBackend();
+            AndroidPushRegistrationManager manager =
+                new AndroidPushRegistrationManager(storage, backend);
+            manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+            manager.onTokenReceived(
+                AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+                TOKEN_ONE,
+                "reset-auth-token"
+            );
+            manager.prepareRuntimeReset("reset-auth-token");
+            backend.unregisterStatus = rejectionStatus;
+
+            assertTrue(manager.clearRuntime(null));
+
+            assertNull(storage.load());
+            assertTrue(manager.requiresTokenRotation());
+            assertTrue(manager.requiresOldRuntimeTokenDeletion());
+            assertEquals(1, backend.unregisterCount);
+        }
+    }
+
+    @Test
+    public void nativeHttpRevocationFailurePreservesDefinitiveStatus()
+        throws Exception {
+        for (int definitiveStatus : new int[] { 401, 403, 404 }) {
+            InMemorySharedPreferences preferences =
+                new InMemorySharedPreferences();
+            MemoryCipher cipher = new MemoryCipher();
+            AtomicInteger ids = new AtomicInteger();
+            RecordingBackend backend = new RecordingBackend();
+            AndroidPushIdentityStorage storage = createStorage(
+                preferences,
+                cipher,
+                ids
+            );
+            AndroidPushRegistrationManager manager =
+                new AndroidPushRegistrationManager(storage, backend);
+            manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+            manager.onTokenReceived(
+                AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+                TOKEN_ONE,
+                "reset-auth-token"
+            );
+            manager.prepareRuntimeReset("reset-auth-token");
+
+            backend.offlineUnregistration = true;
+            AndroidPushRegistrationManager firstRestart =
+                new AndroidPushRegistrationManager(
+                    createStorage(preferences, cipher, ids),
+                    backend
+                );
+            assertFalse(firstRestart.clearRuntime(null));
+
+            backend.offlineUnregistration = false;
+            backend.unregistrationHttpFailure = new NativeAuthHttpException(
+                "unsupported response",
+                definitiveStatus
+            );
+            NativeAuthHttpClient.CancellationSignal lateCancellation =
+                new NativeAuthHttpClient.CancellationSignal();
+            backend.beforeUnregister = lateCancellation::cancel;
+            AndroidPushRegistrationManager secondRestart =
+                new AndroidPushRegistrationManager(
+                    createStorage(preferences, cipher, ids),
+                    backend
+                );
+
+            assertFalse(secondRestart.clearRuntime(null, lateCancellation));
+            AndroidPushIdentityStorage.State retained = storage.load();
+            if (definitiveStatus == 404) {
+                assertNotNull(retained);
+                assertFalse(retained.hasPendingRevocation());
+                assertFalse(secondRestart.requiresTokenRotation());
+            } else {
+                assertNull(retained);
+                assertTrue(secondRestart.requiresTokenRotation());
+            }
+            assertEquals(2, backend.unregisterCount);
+        }
     }
 
     @Test
@@ -3343,6 +3713,7 @@ public class AndroidPushRegistrationManagerTest {
         Runnable beforeUnregister = () -> {};
         boolean offline;
         boolean offlineUnregistration;
+        NativeAuthHttpException unregistrationHttpFailure;
         boolean cancelUnregistration;
         boolean cancelDuringRegistration;
         boolean cancelAfterSuccessfulRegistration;
@@ -3384,7 +3755,7 @@ public class AndroidPushRegistrationManagerTest {
             String authToken,
             String installationId,
             NativeAuthHttpClient.CancellationSignal cancellation
-        ) throws IOException {
+        ) throws IOException, NativeAuthHttpException {
             unregisterCount += 1;
             teardownEvents.add("unregister");
             unregistrationApiOrigins.add(apiOrigin);
@@ -3397,6 +3768,9 @@ public class AndroidPushRegistrationManagerTest {
             beforeUnregister.run();
             if (offlineUnregistration) {
                 throw new IOException("offline");
+            }
+            if (unregistrationHttpFailure != null) {
+                throw unregistrationHttpFailure;
             }
             if (cancelAfterSuccessfulUnregistration) {
                 cancellation.cancel();

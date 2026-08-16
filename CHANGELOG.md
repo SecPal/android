@@ -46,19 +46,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Centralized native Android push revocation outcomes so definitive server
-  results are committed even when cancellation arrives immediately afterwards,
-  preserved independent registration retry failures after rebind cleanup, and
-  prevented repeated rebind preparation from discarding or replacing retained
-  revocation authority.
+  results, including response-validation exceptions, are committed consistently;
+  retried stored revocation authority before requiring current authentication;
+  retained cleanup authority and forced idempotent re-registration after
+  ambiguous or cancelled DELETE attempts; preserved independent registration
+  retry failures after rebind cleanup; and prevented repeated rebind preparation
+  from discarding or replacing retained revocation authority.
 - Prevented equivalent Android push runtime origins from revoking the live
   registration, required token rotation when credential replacement overlaps
   legacy cleanup, allowed runtime rebind to recover safely when previous
   revocation authority is permanently rejected, kept the previous origin's
   bearer authoritative during staged runtime cleanup and logout, rejected
   unbound cross-tenant fallback authority at the storage boundary, preserved
-  the old-token deletion obligation while server cleanup is pending, prevented
-  rollback from restoring stale rebind authority, and deleted orphaned Firebase
-  tokens after cold-start recovery.
+  the old-token deletion obligation while server cleanup is pending or
+  permanently rejected, prevented rollback from restoring stale rebind
+  authority, and deleted orphaned Firebase tokens after cold-start recovery.
 - Preserved terminal Android push reconfiguration state across authentication
   rejection and prevented cancelled logout or runtime cleanup from replacing a
   live registration with retry state.

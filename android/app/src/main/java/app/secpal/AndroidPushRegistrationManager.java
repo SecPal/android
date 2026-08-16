@@ -48,24 +48,35 @@ final class AndroidPushRegistrationManager {
     private static final class RevocationAttempt {
         private final RevocationOutcome outcome;
         private final Exception failure;
+        private final boolean requestAttempted;
 
         private RevocationAttempt(
             RevocationOutcome outcome,
-            Exception failure
+            Exception failure,
+            boolean requestAttempted
         ) {
             this.outcome = outcome;
             this.failure = failure;
+            this.requestAttempted = requestAttempted;
         }
 
         private static RevocationAttempt completed(RevocationOutcome outcome) {
-            return new RevocationAttempt(outcome, null);
+            return new RevocationAttempt(outcome, null, true);
+        }
+
+        private static RevocationAttempt cancelledBeforeRequest() {
+            return new RevocationAttempt(
+                RevocationOutcome.CANCELLED,
+                null,
+                false
+            );
         }
 
         private static RevocationAttempt failed(
             RevocationOutcome outcome,
             Exception failure
         ) {
-            return new RevocationAttempt(outcome, failure);
+            return new RevocationAttempt(outcome, failure, true);
         }
     }
 
@@ -128,6 +139,7 @@ final class AndroidPushRegistrationManager {
         private final boolean changed;
         private boolean previousServerRegistrationRevoked;
         private boolean previousRegistrationAuthorityRejected;
+        private String previousRegistrationStateUncertainAuthToken;
 
         RebindResult(
             AndroidPushIdentityStorage.Snapshot previousSnapshot,
@@ -177,6 +189,10 @@ final class AndroidPushRegistrationManager {
 
         void markPreviousRegistrationAuthorityRejected() {
             previousRegistrationAuthorityRejected = true;
+        }
+
+        void markPreviousRegistrationStateUncertain(String authToken) {
+            previousRegistrationStateUncertainAuthToken = authToken;
         }
     }
 
@@ -472,6 +488,24 @@ final class AndroidPushRegistrationManager {
             );
             return;
         }
+        if (hasAuthToken(rebind.previousRegistrationStateUncertainAuthToken)) {
+            AndroidPushIdentityStorage.State previousState =
+                rebind.previousSnapshot.state();
+            storage.restore(
+                rebind.previousSnapshot.withState(
+                    previousState == null
+                        ? null
+                        : previousState.afterRuntimeRebindRolledBack()
+                )
+            );
+            storage.retainCurrentRegistrationForRevocation(
+                rebind.previousRegistrationStateUncertainAuthToken
+            );
+            boundApiOrigin = rebind.previousBoundApiOrigin;
+            boundMetadataRevision = rebind.previousBoundMetadataRevision;
+            setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
+            return;
+        }
         AndroidPushIdentityStorage.State restoredState = rebind.previousSnapshot.state();
         if (rebind.previousServerRegistrationRevoked && restoredState != null) {
             restoredState = restoredState.afterServerRegistrationRevoked();
@@ -511,6 +545,11 @@ final class AndroidPushRegistrationManager {
             cancellation
         );
         if (attempt.outcome == RevocationOutcome.CANCELLED) {
+            if (attempt.requestAttempted) {
+                rebind.markPreviousRegistrationStateUncertain(
+                    revocationAuthToken
+                );
+            }
             return;
         }
         if (attempt.outcome == RevocationOutcome.AUTHORITY_REJECTED) {
@@ -535,6 +574,7 @@ final class AndroidPushRegistrationManager {
             );
         }
         if (attempt.outcome != RevocationOutcome.REVOKED) {
+            rebind.markPreviousRegistrationStateUncertain(revocationAuthToken);
             throw new IllegalStateException(
                 "Previous Android push registration could not be revoked",
                 attempt.failure
@@ -729,6 +769,23 @@ final class AndroidPushRegistrationManager {
                 cancellation
             );
             if (attempt.outcome == RevocationOutcome.CANCELLED) {
+                if (attempt.requestAttempted) {
+                    storage.retainCurrentRegistrationForRevocation(
+                        revocationAuthToken
+                    );
+                    setStatus(
+                        "retry_pending",
+                        "PREVIOUS_REGISTRATION_PENDING"
+                    );
+                }
+                return;
+            }
+            if (attempt.outcome == RevocationOutcome.AUTHORITY_REJECTED) {
+                rotateAfterRejectedRevocation(
+                    disabled ? null : boundApiOrigin,
+                    disabled ? 0 : boundMetadataRevision,
+                    disabled ? "disabled" : "unconfigured"
+                );
                 return;
             }
             if (attempt.outcome != RevocationOutcome.REVOKED) {
@@ -805,7 +862,21 @@ final class AndroidPushRegistrationManager {
                     cancellation
                 );
                 if (attempt.outcome == RevocationOutcome.CANCELLED) {
+                    if (attempt.requestAttempted) {
+                        storage.retainCurrentRegistrationForRevocation(
+                            revocationAuthToken
+                        );
+                        setStatus(
+                            "retry_pending",
+                            "PREVIOUS_REGISTRATION_PENDING"
+                        );
+                    }
                     return false;
+                }
+                if (attempt.outcome == RevocationOutcome.AUTHORITY_REJECTED) {
+                    storage.discardIdentityForTokenRotation();
+                    clearRuntimeBinding(true);
+                    return true;
                 }
                 if (attempt.outcome != RevocationOutcome.REVOKED) {
                     storage.retainCurrentRegistrationForRevocation(
@@ -815,7 +886,11 @@ final class AndroidPushRegistrationManager {
                     return false;
                 }
             }
-            storage.clear();
+            if (storage.requiresTokenRotation()) {
+                storage.discardIdentityForTokenRotation();
+            } else {
+                storage.clear();
+            }
             clearRuntimeBinding(true);
             return true;
         } catch (TokenStorageException ignored) {
@@ -942,10 +1017,6 @@ final class AndroidPushRegistrationManager {
             setStatus(boundApiOrigin == null ? "unconfigured" : "awaiting_token", null);
             return SyncResult.COMPLETE;
         }
-        if (!hasAuthToken(authToken)) {
-            setStatus("awaiting_auth", null);
-            return SyncResult.COMPLETE;
-        }
         if (state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, cancellation);
             if (state == null) {
@@ -964,6 +1035,10 @@ final class AndroidPushRegistrationManager {
                 setStatus("awaiting_token", null);
                 return SyncResult.COMPLETE;
             }
+        }
+        if (!hasAuthToken(authToken)) {
+            setStatus("awaiting_auth", null);
+            return SyncResult.COMPLETE;
         }
         if (!state.needsRegistration(
             authToken,
@@ -1162,7 +1237,7 @@ final class AndroidPushRegistrationManager {
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
         if (cancellation.isCancelled()) {
-            return RevocationAttempt.completed(RevocationOutcome.CANCELLED);
+            return RevocationAttempt.cancelledBeforeRequest();
         }
         try {
             int responseStatus = backend.unregister(
@@ -1171,15 +1246,9 @@ final class AndroidPushRegistrationManager {
                 installationId,
                 cancellation
             );
-            if (isSuccessfulRevocationStatus(responseStatus)) {
-                return RevocationAttempt.completed(RevocationOutcome.REVOKED);
-            }
-            if (responseStatus == 401 || responseStatus == 403) {
-                return RevocationAttempt.completed(
-                    RevocationOutcome.AUTHORITY_REJECTED
-                );
-            }
-            return RevocationAttempt.completed(RevocationOutcome.REJECTED);
+            return RevocationAttempt.completed(
+                revocationOutcomeForStatus(responseStatus)
+            );
         } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
             return RevocationAttempt.completed(RevocationOutcome.CANCELLED);
         } catch (IOException exception) {
@@ -1189,11 +1258,31 @@ final class AndroidPushRegistrationManager {
                     RevocationOutcome.NETWORK_FAILURE,
                     exception
                 );
-        } catch (NativeAuthHttpException | RuntimeException exception) {
+        } catch (NativeAuthHttpException exception) {
+            int statusCode = exception.getStatusCode();
+            if (statusCode > 0) {
+                return RevocationAttempt.completed(
+                    revocationOutcomeForStatus(statusCode)
+                );
+            }
+            return cancellation.isCancelled()
+                ? RevocationAttempt.completed(RevocationOutcome.CANCELLED)
+                : RevocationAttempt.failed(RevocationOutcome.FAILURE, exception);
+        } catch (RuntimeException exception) {
             return cancellation.isCancelled()
                 ? RevocationAttempt.completed(RevocationOutcome.CANCELLED)
                 : RevocationAttempt.failed(RevocationOutcome.FAILURE, exception);
         }
+    }
+
+    private static RevocationOutcome revocationOutcomeForStatus(int status) {
+        if (isSuccessfulRevocationStatus(status)) {
+            return RevocationOutcome.REVOKED;
+        }
+        if (status == 401 || status == 403) {
+            return RevocationOutcome.AUTHORITY_REJECTED;
+        }
+        return RevocationOutcome.REJECTED;
     }
 
     private boolean isAwaitingPreviousRevocation() {
