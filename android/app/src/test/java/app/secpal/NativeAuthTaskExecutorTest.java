@@ -874,8 +874,10 @@ public class NativeAuthTaskExecutorTest {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
         CountDownLatch transitionStarted = new CountDownLatch(1);
         CountDownLatch releaseTransition = new CountDownLatch(1);
-        CountDownLatch transitionFinished = new CountDownLatch(1);
+        CountDownLatch transitionExitStarted = new CountDownLatch(1);
+        CountDownLatch allowTransitionExit = new CountDownLatch(1);
         CountDownLatch transitionCancelled = new CountDownLatch(1);
+        AtomicInteger cancellationCount = new AtomicInteger();
 
         try {
             assertEquals(
@@ -894,11 +896,17 @@ public class NativeAuthTaskExecutorTest {
                                 }
                             }
                         } finally {
-                            transitionFinished.countDown();
+                            transitionExitStarted.countDown();
+                            try {
+                                allowTransitionExit.await();
+                            } catch (InterruptedException exception) {
+                                Thread.currentThread().interrupt();
+                            }
                         }
                     },
                     reason -> {
                         assertEquals("APP_BACKGROUNDED", reason);
+                        cancellationCount.incrementAndGet();
                         transitionCancelled.countDown();
                     }
                 )
@@ -909,8 +917,26 @@ public class NativeAuthTaskExecutorTest {
 
             assertTrue(transitionCancelled.await(2, TimeUnit.SECONDS));
             releaseTransition.countDown();
-            assertTrue(transitionFinished.await(2, TimeUnit.SECONDS));
+            assertTrue(transitionExitStarted.await(2, TimeUnit.SECONDS));
+            assertEquals(
+                NativeAuthTaskExecutor.estimateRequestReservationBytes(0),
+                taskExecutor.getReservedBufferedBytesForTest()
+            );
             taskExecutor.resumeAuthenticated();
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.TRANSITION_IN_PROGRESS,
+                taskExecutor.submitAuthenticated(
+                    "foreground-before-reset-cleanup",
+                    0,
+                    () -> {},
+                    reason -> {}
+                )
+            );
+
+            allowTransitionExit.countDown();
+            assertTrue(taskExecutor.awaitIdleForTest(2, TimeUnit.SECONDS));
+            assertEquals(1, cancellationCount.get());
+            assertEquals(0, taskExecutor.getReservedBufferedBytesForTest());
             assertEquals(
                 NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
                 taskExecutor.submitAuthenticated(
@@ -922,6 +948,7 @@ public class NativeAuthTaskExecutorTest {
             );
         } finally {
             releaseTransition.countDown();
+            allowTransitionExit.countDown();
             taskExecutor.shutdownNow();
         }
     }
