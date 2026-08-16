@@ -219,7 +219,7 @@ final class AndroidPushRegistrationManager {
             if (!canRevokePreviousRegistration
                 && current != null
                 && current.hasPendingRevocation()) {
-                storage.rotateIdentityPreservingPendingRevocation();
+                storage.rotateIdentityPreservingLifecycleState();
             } else if (!canRevokePreviousRegistration
                 && (hasIdentityToInvalidate || storage.requiresTokenRotation())) {
                 replaceIdentityForTokenRotation(true);
@@ -622,6 +622,9 @@ final class AndroidPushRegistrationManager {
         String authToken,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) throws TokenStorageException {
+        if (cancellation.isCancelled()) {
+            return;
+        }
         boolean disabled = "disabled".equals(status);
         AndroidPushIdentityStorage.State state;
         try {
@@ -634,6 +637,9 @@ final class AndroidPushRegistrationManager {
         }
         if (state != null && state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, cancellation);
+            if (cancellation.isCancelled()) {
+                return;
+            }
             if (state != null && state.hasPendingRevocation()) {
                 return;
             }
@@ -655,6 +661,9 @@ final class AndroidPushRegistrationManager {
                 );
             } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
                 serverRegistrationRevoked = false;
+            }
+            if (cancellation.isCancelled()) {
+                return;
             }
             if (!serverRegistrationRevoked) {
                 storage.retainCurrentRegistrationForRevocation(authToken);
@@ -686,6 +695,9 @@ final class AndroidPushRegistrationManager {
         String authToken,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
+        if (cancellation.isCancelled()) {
+            return false;
+        }
         try {
             AndroidPushIdentityStorage.State state = storage.load();
             if (state == null) {
@@ -701,6 +713,9 @@ final class AndroidPushRegistrationManager {
                     return true;
                 }
                 state = retryPendingRevocation(state, cancellation);
+                if (cancellation.isCancelled()) {
+                    return false;
+                }
                 if (state != null && state.hasPendingRevocation()) {
                     storage.rotateIdentityForPendingRuntimeClear();
                     clearRuntimeBinding(false);
@@ -724,6 +739,9 @@ final class AndroidPushRegistrationManager {
                     revoked = isSuccessfulRevocationStatus(responseStatus);
                 } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
                     // The protected revocation tombstone below owns offline retry.
+                }
+                if (cancellation.isCancelled()) {
+                    return false;
                 }
                 if (!revoked) {
                     storage.retainCurrentRegistrationForRevocation(
@@ -1039,9 +1057,11 @@ final class AndroidPushRegistrationManager {
     synchronized void onAuthenticationRejected() throws TokenStorageException {
         boolean disabled = "disabled".equals(status);
         AndroidPushIdentityStorage.State retained =
-            storage.rotateIdentityPreservingPendingRevocation();
+            storage.rotateIdentityPreservingLifecycleState();
         if (disabled) {
             setStatus("disabled", null);
+        } else if (retained != null && retained.isReconfigurationRequired()) {
+            setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
         } else if (retained != null && retained.hasPendingRevocation()) {
             setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
         } else if (boundApiOrigin != null && boundMetadataRevision > 0) {

@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved terminal Android push reconfiguration state across authentication
+  rejection and prevented cancelled logout or runtime cleanup from replacing a
+  live registration with retry state.
 - Prevented native Android push rebind cleanup from disclosing a new tenant's
   bearer to the previous origin, preserved pending cleanup on cancellation,
   cleared abandoned cold-start rebind authority, and kept logout status

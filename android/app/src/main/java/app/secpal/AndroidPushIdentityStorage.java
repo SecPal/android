@@ -520,24 +520,26 @@ final class AndroidPushIdentityStorage {
             invalidateUnreadableIdentityForTokenRotation();
             return null;
         }
-        State retained = replacementRetainingPendingRevocation(current);
+        State retained = replacementRetainingLifecycleState(current);
         save(retained, false, true);
         return retained;
     }
 
-    synchronized State rotateIdentityPreservingPendingRevocation()
+    synchronized State rotateIdentityPreservingLifecycleState()
         throws TokenStorageException {
         State current = load();
-        if (current == null || !current.hasPendingRevocation()) {
+        if (current == null
+            || (!current.hasPendingRevocation()
+                && !current.isReconfigurationRequired())) {
             discardIdentityForTokenRotation();
             return null;
         }
-        State retained = replacementRetainingPendingRevocation(current);
+        State retained = replacementRetainingLifecycleState(current);
         save(retained, false, true);
         return retained;
     }
 
-    private State replacementRetainingPendingRevocation(State current) {
+    private State replacementRetainingLifecycleState(State current) {
         return new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -551,7 +553,7 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationAuthToken(),
             null,
             null,
-            false
+            current.isReconfigurationRequired()
         );
     }
 
@@ -563,7 +565,7 @@ final class AndroidPushIdentityStorage {
             || current.hasServerRegistration()) {
             return current;
         }
-        State retained = replacementRetainingPendingRevocation(current);
+        State retained = replacementRetainingLifecycleState(current);
         save(retained);
         return retained;
     }

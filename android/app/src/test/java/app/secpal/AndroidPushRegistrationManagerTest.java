@@ -1362,6 +1362,70 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void cancelledLogoutDoesNotMutateTheLivePushRegistration()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        String installationId = storage.load().installationId();
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        cancellation.cancel();
+
+        manager.onLogout("auth-token", cancellation);
+
+        AndroidPushIdentityStorage.State retained = storage.load();
+        assertEquals(0, backend.unregisterCount);
+        assertEquals(installationId, retained.installationId());
+        assertTrue(retained.hasServerRegistration());
+        assertFalse(retained.hasPendingRevocation());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void cancelledRuntimeClearDoesNotMutateTheLivePushRegistration()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "auth-token"
+        );
+        String installationId = storage.load().installationId();
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        cancellation.cancel();
+
+        assertFalse(manager.clearRuntime("auth-token", cancellation));
+
+        AndroidPushIdentityStorage.State retained = storage.load();
+        assertEquals(0, backend.unregisterCount);
+        assertEquals(installationId, retained.installationId());
+        assertTrue(retained.hasServerRegistration());
+        assertFalse(retained.hasPendingRevocation());
+        assertEquals("registered", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void failedLogoutPushCleanupRetainsRetryAuthority()
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
@@ -2325,8 +2389,13 @@ public class AndroidPushRegistrationManagerTest {
                 409,
                 "NOTIFICATION_RUNTIME_STATE_INVALID"
             );
+        AndroidPushIdentityStorage storage = createStorage(
+            preferences,
+            cipher,
+            ids
+        );
         AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
-            createStorage(preferences, cipher, ids),
+            storage,
             backend
         );
         manager.bindRuntime(API_ORIGIN, pushMetadata(3));
@@ -2339,6 +2408,17 @@ public class AndroidPushRegistrationManagerTest {
         assertEquals(
             AndroidPushRegistrationManager.SyncResult.RECONFIGURATION_REQUIRED,
             result
+        );
+        String rejectedInstallationId = storage.load().installationId();
+        manager.onAuthenticationRejected();
+
+        AndroidPushIdentityStorage.State replacement = storage.load();
+        assertNotEquals(rejectedInstallationId, replacement.installationId());
+        assertNull(replacement.token());
+        assertTrue(replacement.isReconfigurationRequired());
+        assertEquals(
+            "reconfiguration_required",
+            manager.getStatus().getString("state")
         );
         manager.onTokenError(AndroidPushRegistrationManager.RUNTIME_APP_NAME);
         manager.onTokenReceived(
