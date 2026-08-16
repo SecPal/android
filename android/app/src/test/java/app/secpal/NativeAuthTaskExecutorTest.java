@@ -373,6 +373,45 @@ public class NativeAuthTaskExecutorTest {
     }
 
     @Test
+    public void sessionTransitionCompletionRunsAfterTheTransitionGateIsReleased()
+        throws InterruptedException {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch completionSettled = new CountDownLatch(1);
+        CountDownLatch nextTransitionFinished = new CountDownLatch(1);
+        AtomicReference<NativeAuthTaskExecutor.SubmitResult> nextResult =
+            new AtomicReference<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "logout-transition",
+                    0,
+                    () -> assertTrue(taskExecutor.deferSessionTransitionCompletion(
+                        "logout-transition",
+                        () -> {
+                            nextResult.set(taskExecutor.submitSessionTransition(
+                                "runtime-reset-transition",
+                                0,
+                                nextTransitionFinished::countDown,
+                                reason -> {}
+                            ));
+                            completionSettled.countDown();
+                        }
+                    )),
+                    reason -> {}
+                )
+            );
+
+            assertTrue(completionSettled.await(2, TimeUnit.SECONDS));
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, nextResult.get());
+            assertTrue(nextTransitionFinished.await(2, TimeUnit.SECONDS));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void invalidationCancelsRunningAndQueuedAuthenticatedWorkAndReleasesBytes()
         throws InterruptedException {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();

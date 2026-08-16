@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an encrypted, runtime-bound native Android state model for push tokens,
+  installation identity, registration fingerprints, and pending lifecycle work,
+  including fail-closed corruption recovery and token-rotation markers (issue
+  #597).
 - Added a daily and change-filtered API-35 Android emulator smoke workflow that
   builds the current frontend `main`, verifies runtime discovery and persistence,
   native password authentication, a protected profile read, foreground lifecycle,
@@ -34,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hardened native Android push identity registration against missing fingerprint
+  inputs and restricted persisted runtime bindings to canonical bare HTTPS
+  origins.
+- Fixed native Android session transitions settling bridge calls before their
+  transition gate was released, which could reject an immediate runtime reset
+  as temporarily busy after logout.
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
