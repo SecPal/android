@@ -61,6 +61,7 @@ public class WebViewBridgeIsolationInstrumentedTest {
         );
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(intent)) {
             assertPackagedFrontendCannotExposeForbiddenNativePlugins(scenario);
+            assertPackagedPushIdentityBoundary(scenario);
             assertUnusedCorePluginsAreAbsentFromTheNativeRegistry(scenario);
             assertNativeHttpInterceptorIsBlocked(scenario);
             assertTrustedPackagedMainFrameCanInvokeRetainedNativePlugin(scenario);
@@ -70,6 +71,77 @@ public class WebViewBridgeIsolationInstrumentedTest {
             assertPackagedWebViewCannotInvokeForbiddenCorePlugins(scenario);
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+    }
+
+    private static void assertPackagedPushIdentityBoundary(
+        ActivityScenario<MainActivity> scenario
+    ) throws Exception {
+        String seedAndReload =
+            "(function () {" +
+            "var keys = [" +
+            "'secpal-android-push-installation:https://device-test.secpal.dev'," +
+            "'secpal-android-push-token:https://device-test.secpal.dev'," +
+            "'secpal-android-push-token-app:https://device-test.secpal.dev'," +
+            "'secpal-android-push-token-saved-at:https://device-test.secpal.dev'" +
+            "];" +
+            "keys.forEach(function (key) {" +
+            "localStorage.setItem(key, 'raw-push-identity');" +
+            "sessionStorage.setItem(key, 'raw-push-identity');" +
+            "});" +
+            "window.__secpalPushBoundaryBeforeReload = true;" +
+            "location.reload();" +
+            "return 'reloading';" +
+            "})()";
+        scenario.onActivity(activity ->
+            activity.getBridge().getWebView().evaluateJavascript(seedAndReload, null)
+        );
+
+        String startStatusRead =
+            "(function () {" +
+            "if (window.__secpalPushBoundaryBeforeReload === true) { return null; }" +
+            "if (!window.SecPalNativeAuthBridge || " +
+            "typeof window.SecPalNativeAuthBridge.getAndroidPushRegistrationState !== 'function') {" +
+            "return null;" +
+            "}" +
+            "window.__secpalPushBoundaryResult = null;" +
+            "Promise.resolve(window.SecPalNativeAuthBridge.getAndroidPushRegistrationState())" +
+            ".then(function (status) { window.__secpalPushBoundaryResult = status; })" +
+            ".catch(function () { window.__secpalPushBoundaryResult = { failed: true }; });" +
+            "return 'started';" +
+            "})()";
+        assertEquals("\"started\"", awaitJavascriptResult(scenario, startStatusRead));
+
+        String verifyBoundary =
+            "(function () {" +
+            "var status = window.__secpalPushBoundaryResult;" +
+            "if (!status) { return null; }" +
+            "var prefixes = [" +
+            "'secpal-android-push-installation:'," +
+            "'secpal-android-push-token:'," +
+            "'secpal-android-push-token-app:'," +
+            "'secpal-android-push-token-saved-at:'" +
+            "];" +
+            "var storageClean = [localStorage, sessionStorage].every(function (storage) {" +
+            "for (var index = 0; index < storage.length; index += 1) {" +
+            "var key = storage.key(index);" +
+            "if (prefixes.some(function (prefix) { return key.indexOf(prefix) === 0; })) {" +
+            "return false;" +
+            "}" +
+            "}" +
+            "return true;" +
+            "});" +
+            "var globalsClean = !Object.prototype.hasOwnProperty.call(" +
+            "window, '__SecPalAndroidPushSyncState');" +
+            "var fieldsClean = Object.keys(status).every(function (key) {" +
+            "return !/(token|installation|timestamp|payload|apiOrigin|metadataRevision)/i.test(key);" +
+            "});" +
+            "delete window.__secpalPushBoundaryResult;" +
+            "return 'push-boundary:' + storageClean + ',' + globalsClean + ',' + fieldsClean;" +
+            "})()";
+        assertEquals(
+            "\"push-boundary:true,true,true\"",
+            awaitJavascriptResult(scenario, verifyBoundary)
+        );
     }
 
     private static void assertTrustedPackagedMainFrameCanInvokeRetainedNativePlugin(

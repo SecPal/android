@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added packaged-WebView, real-Keystore, and live native push boundary checks,
+  and hardened Android device readiness and authenticated smoke retries so
+  rollout validation cannot reuse a stale registration or a half-booted device
+  (issue #601).
 - Added an idempotent native Android push registration lifecycle with
   runtime-specific Firebase applications, bounded server requests, durable
   unregister work, token refresh and rotation recovery, and abstract public

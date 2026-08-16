@@ -43,7 +43,8 @@ async function loadSmokeModule(): Promise<{
     runtimeReadinessStatus: number | null;
   }>;
   readNativeUserEmail: (
-    globalLike: Record<string, unknown>
+    globalLike: Record<string, unknown>,
+    retry?: { retryAttempts?: number; retryDelayMs?: number }
   ) => Promise<string | null>;
   sanitizeSmokeState: (
     value: Record<string, unknown>
@@ -150,7 +151,8 @@ describe("Android smoke helpers", () => {
         readNativeUserEmail(
           buildGlobal(async () =>
             Promise.reject(Object.assign(new Error(code), { code }))
-          )
+          ),
+          { retryAttempts: 1 }
         )
       ).rejects.toMatchObject({ code });
     }
@@ -158,6 +160,37 @@ describe("Android smoke helpers", () => {
     await expect(readNativeUserEmail({})).rejects.toThrow(
       "Missing native getCurrentUser bridge method"
     );
+  });
+
+  it("retries a transient native connectivity snapshot before reading the user", async () => {
+    const { readNativeUserEmail } = await loadSmokeModule();
+    let attempts = 0;
+    const globalLike = {
+      Capacitor: {
+        Plugins: {
+          SecPalNativeAuth: {
+            getCurrentUser: async () => {
+              attempts += 1;
+              if (attempts === 1) {
+                throw Object.assign(new Error("offline"), {
+                  code: "NETWORK_OFFLINE",
+                });
+              }
+              return { email: "test@example.com" };
+            },
+          },
+        },
+      },
+      setTimeout: (callback: () => void) => {
+        callback();
+        return 1;
+      },
+    };
+
+    await expect(readNativeUserEmail(globalLike)).resolves.toBe(
+      "test@example.com"
+    );
+    expect(attempts).toBe(2);
   });
 
   it("requires the runtime readiness response through the WebView network", async () => {

@@ -274,25 +274,37 @@ export async function probeRuntimeReadiness(globalLike, runtimeUrl) {
   }
 }
 
-export async function readNativeUserEmail(globalLike) {
+export async function readNativeUserEmail(
+  globalLike,
+  { retryAttempts = 10, retryDelayMs = 250 } = {}
+) {
   const plugin = globalLike.Capacitor?.Plugins?.SecPalNativeAuth;
   if (typeof plugin?.getCurrentUser !== "function") {
     throw new Error("Missing native getCurrentUser bridge method.");
   }
 
-  try {
-    const user = await plugin.getCurrentUser();
-    if (typeof user?.email !== "string" || user.email.length === 0) {
-      throw new Error("Native current-user response is missing an email.");
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    try {
+      const user = await plugin.getCurrentUser();
+      if (typeof user?.email !== "string" || user.email.length === 0) {
+        throw new Error("Native current-user response is missing an email.");
+      }
+      return user.email;
+    } catch (error) {
+      const code = error && typeof error === "object" ? error.code : undefined;
+      if (code === "NO_STORED_TOKEN") {
+        return null;
+      }
+      if (code !== "NETWORK_OFFLINE" || attempt === retryAttempts) {
+        throw error;
+      }
+      await new Promise((resolvePromise) =>
+        globalLike.setTimeout(resolvePromise, retryDelayMs)
+      );
     }
-    return user.email;
-  } catch (error) {
-    const code = error && typeof error === "object" ? error.code : undefined;
-    if (code === "NO_STORED_TOKEN") {
-      return null;
-    }
-    throw error;
   }
+
+  throw new Error("Native current-user retry budget was exhausted.");
 }
 
 export function clickProfileMenuItem(globalLike) {

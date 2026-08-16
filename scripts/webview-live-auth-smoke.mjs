@@ -215,7 +215,6 @@ const inspectStateExpression = `(async () => ({
   href: globalThis.location?.href ?? null,
   runtimeBootstrap: (await globalThis.Capacitor?.Plugins?.SecPalNativeAuth?.getRuntimeBootstrap?.()) ?? null,
   nativeAuthState: globalThis.__SecPalNativeAuthState ?? null,
-  androidPushSyncState: globalThis.__SecPalAndroidPushSyncState ?? null,
   registrationState: (await globalThis.SecPalNativeAuthBridge?.getAndroidPushRegistrationState?.()) ?? null,
   loginErrorText: globalThis.document?.getElementById?.('login-error')?.innerText ?? null,
   discoveryErrorText: globalThis.document?.getElementById?.('secpal-instance-discovery-error')?.innerText ?? null,
@@ -238,11 +237,9 @@ const loginFormReadyExpression = `(() => ({
   hasLoginForm: Boolean(globalThis.document?.getElementById?.('email')) && Boolean(globalThis.document?.getElementById?.('password')),
 }))()`;
 
-const preLoginPushReadyExpression = `(() => ({
+const preLoginPushReadyExpression = `(async () => ({
   href: globalThis.location?.href ?? null,
-  currentToken: globalThis.__SecPalAndroidPushSyncState?.currentToken ?? null,
-  lastSyncedToken: globalThis.__SecPalAndroidPushSyncState?.lastSyncedToken ?? null,
-  disabledError: globalThis.__SecPalAndroidPushSyncState?.disabledError ?? null,
+  registrationState: (await globalThis.SecPalNativeAuthBridge?.getAndroidPushRegistrationState?.()) ?? null,
   nativeAuthActive: globalThis.__SecPalNativeAuthState?.active ?? null,
 }))()`;
 
@@ -253,12 +250,9 @@ export function assertFreshPreLoginSmokeState(state) {
     );
   }
 
-  if (
-    typeof state?.lastSyncedToken === "string" &&
-    state.lastSyncedToken.length > 0
-  ) {
+  if (state?.registrationState?.state === "registered") {
     throw new Error(
-      "Android push sync already completed before the smoke login step. Clear the current session and rerun the smoke."
+      "Android push registration already completed before the smoke login step. Clear the current session and rerun the smoke."
     );
   }
 }
@@ -581,9 +575,12 @@ async function runLoginSmoke(options) {
   );
 
   const preLoginPushState = await waitFor(
-    "pre-login push token readiness",
+    "pre-login native push readiness",
     preLoginPushReadyExpression,
-    (value) => value?.currentToken != null || value?.disabledError != null,
+    (value) => {
+      const state = value?.registrationState?.state;
+      return typeof state === "string" && state !== "awaiting_token";
+    },
     {
       ...options,
       attempts: 80,
@@ -593,9 +590,11 @@ async function runLoginSmoke(options) {
   console.log("PRE_LOGIN_PUSH_STATE");
   console.log(formatJson(preLoginPushState));
 
-  if (preLoginPushState?.disabledError) {
+  if (
+    preLoginPushState?.registrationState?.state === "reconfiguration_required"
+  ) {
     throw new Error(
-      `Push registration is disabled before login: ${preLoginPushState.disabledError}`
+      `Push registration requires runtime reconfiguration: ${preLoginPushState.registrationState.failureCode ?? "unknown"}`
     );
   }
 
@@ -631,10 +630,12 @@ async function runLoginSmoke(options) {
     "push registration sync",
     inspectStateExpression,
     (value) => {
-      const syncState = value?.androidPushSyncState;
-      return (
-        syncState?.lastSyncedToken != null || syncState?.disabledError != null
-      );
+      const state = value?.registrationState?.state;
+      return [
+        "registered",
+        "retry_pending",
+        "reconfiguration_required",
+      ].includes(state);
     },
     {
       ...options,
@@ -645,9 +646,9 @@ async function runLoginSmoke(options) {
   console.log("PUSH_SYNC_STATE");
   console.log(formatJson(pushSyncState));
 
-  if (pushSyncState?.androidPushSyncState?.disabledError) {
+  if (pushSyncState?.registrationState?.state !== "registered") {
     throw new Error(
-      `Push sync disabled in the WebView: ${pushSyncState.androidPushSyncState.disabledError}`
+      `Native push registration did not complete: ${pushSyncState?.registrationState?.failureCode ?? pushSyncState?.registrationState?.state ?? "unknown"}`
     );
   }
 

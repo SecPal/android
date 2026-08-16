@@ -478,8 +478,19 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" &&
   exit 0
 fi
 if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "settings" && "$5" == "get" && "$6" == "global" && "$7" == "device_provisioned" ]]; then
-  [[ "\${SECPAL_TEST_SETTINGS_READY:-true}" == "true" ]]
-  exit
+  case "\${SECPAL_TEST_SETTINGS_READY:-true}" in
+    true)
+      printf '1\r\n'
+      exit 0
+      ;;
+    invalid)
+      printf "Cannot access system provider: 'settings' before system providers are installed!\n" >&2
+      exit 0
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
 fi
 if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "pm" && "$5" == "path" && "$6" == "android" ]]; then
   if [[ "\${SECPAL_TEST_PACKAGE_READY:-true}" == "true" ]]; then
@@ -546,6 +557,32 @@ exit 1
 
       expect(systemProvidersUnavailableResult.status).toBe(1);
       expect(systemProvidersUnavailableResult.stderr).toContain(
+        "settings=missing"
+      );
+
+      const systemProviderFalsePositiveResult = spawnSync(
+        "bash",
+        [
+          resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+          serial,
+          "1",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            HOME: tempRoot,
+            PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+            ANDROID_SDK_ROOT: "",
+            ANDROID_HOME: "",
+            SECPAL_TEST_SETTINGS_READY: "invalid",
+          },
+          encoding: "utf8",
+        }
+      );
+
+      expect(systemProviderFalsePositiveResult.status).toBe(1);
+      expect(systemProviderFalsePositiveResult.stderr).toContain(
         "settings=missing"
       );
 
