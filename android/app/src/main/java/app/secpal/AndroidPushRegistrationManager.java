@@ -207,7 +207,7 @@ final class AndroidPushRegistrationManager {
             if (!canRevokePreviousRegistration
                 && current != null
                 && current.hasPendingRevocation()) {
-                storage.invalidateCurrentIdentityForTokenRotation();
+                storage.rotateIdentityPreservingPendingRevocation();
             } else if (!canRevokePreviousRegistration
                 && (hasIdentityToInvalidate || storage.requiresTokenRotation())) {
                 replaceIdentityForTokenRotation(true);
@@ -283,7 +283,7 @@ final class AndroidPushRegistrationManager {
                     state.pendingRebindAuthToken()
                 );
             } else {
-                storage.invalidateIdentityForTokenRotation();
+                storage.discardIdentityForTokenRotation();
                 setStatus("unconfigured", null);
                 return false;
             }
@@ -478,9 +478,14 @@ final class AndroidPushRegistrationManager {
             || boundMetadataRevision <= 0) {
             return SyncResult.COMPLETE;
         }
-        AndroidPushIdentityStorage.State state = storage.recordToken(
+        AndroidPushIdentityStorage.State state = storage.load();
+        if (state == null) {
+            return sync(null, authToken, cancellation);
+        }
+        state = storage.recordToken(
             boundApiOrigin,
             boundMetadataRevision,
+            state.installationId(),
             token
         );
         return sync(state, authToken, cancellation);
@@ -533,7 +538,7 @@ final class AndroidPushRegistrationManager {
                 );
                 setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
             } else {
-                storage.invalidateIdentityForTokenRotation();
+                storage.discardIdentityForTokenRotation();
                 if (boundApiOrigin != null && boundMetadataRevision > 0) {
                     storage.bindRuntime(boundApiOrigin, boundMetadataRevision);
                     setStatus("awaiting_token", null);
@@ -649,7 +654,7 @@ final class AndroidPushRegistrationManager {
             String revocationAuthToken = runtimeClearAuthToken(state, authToken);
             if (state.hasPendingRevocation()) {
                 if (!hasAuthToken(revocationAuthToken)) {
-                    storage.invalidateIdentityForTokenRotation();
+                    storage.discardIdentityForTokenRotation();
                     clearRuntimeBinding(true);
                     return true;
                 }
@@ -662,7 +667,7 @@ final class AndroidPushRegistrationManager {
             }
             if (state != null && state.hasServerRegistration()) {
                 if (!hasAuthToken(revocationAuthToken)) {
-                    storage.invalidateIdentityForTokenRotation();
+                    storage.discardIdentityForTokenRotation();
                     clearRuntimeBinding(true);
                     return true;
                 }
@@ -686,13 +691,13 @@ final class AndroidPushRegistrationManager {
                     return false;
                 }
             }
+            storage.clear();
+            clearRuntimeBinding(true);
+            return true;
         } catch (TokenStorageException ignored) {
             clearRuntimeBinding(false);
             return false;
         }
-        storage.clear();
-        clearRuntimeBinding(true);
-        return true;
     }
 
     private void clearRuntimeBinding(boolean cleanupComplete) {
@@ -740,7 +745,7 @@ final class AndroidPushRegistrationManager {
             && !"awaiting_auth".equals(status);
     }
 
-    synchronized boolean requiresTokenRotation() {
+    synchronized boolean requiresTokenRotation() throws TokenStorageException {
         return storage.requiresTokenRotation();
     }
 
@@ -907,7 +912,7 @@ final class AndroidPushRegistrationManager {
         }
         String revocationAuthToken = state.pendingRevocationAuthToken();
         if (!hasAuthToken(revocationAuthToken)) {
-            storage.invalidateIdentityForTokenRotation();
+            storage.discardIdentityForTokenRotation();
             if (boundApiOrigin == null || boundMetadataRevision <= 0) {
                 setStatus("unconfigured", null);
                 return null;
@@ -930,7 +935,7 @@ final class AndroidPushRegistrationManager {
                 return state;
             }
             if (responseStatus == 401 || responseStatus == 403) {
-                storage.invalidateIdentityForTokenRotation();
+                storage.discardIdentityForTokenRotation();
                 if (boundApiOrigin == null || boundMetadataRevision <= 0) {
                     setStatus("unconfigured", null);
                     return null;
@@ -982,7 +987,7 @@ final class AndroidPushRegistrationManager {
 
     private void replaceIdentityForTokenRotation(boolean disabled)
         throws TokenStorageException {
-        storage.invalidateIdentityForTokenRotation();
+        storage.discardIdentityForTokenRotation();
         if (!disabled && boundApiOrigin != null && boundMetadataRevision > 0) {
             storage.bindRuntime(boundApiOrigin, boundMetadataRevision);
             setStatus("awaiting_auth", null);
@@ -994,7 +999,7 @@ final class AndroidPushRegistrationManager {
     synchronized void onAuthenticationRejected() throws TokenStorageException {
         boolean disabled = "disabled".equals(status);
         AndroidPushIdentityStorage.State retained =
-            storage.invalidateCurrentIdentityForTokenRotation();
+            storage.rotateIdentityPreservingPendingRevocation();
         if (disabled) {
             setStatus("disabled", null);
         } else if (retained != null && retained.hasPendingRevocation()) {

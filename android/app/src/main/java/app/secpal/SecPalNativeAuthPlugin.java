@@ -541,7 +541,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         return;
                     }
                     if (!replacementSucceeded.get()) {
-                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                             settled,
                             () -> call.reject(
                                 "Failed to persist Android runtime bootstrap",
@@ -553,12 +553,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
                     JSObject payload = new JSObject();
                     payload.put("bootstrap", bootstrap);
-                    taskExecutor.completeAuthenticated(
+                    taskExecutor.deferSessionTransitionCompletion(
                         requestId,
                         () -> settleOnce(settled, () -> call.resolve(payload))
                     );
                 } catch (TokenStorageException exception) {
-                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                    taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                         settled,
                         () -> call.reject(
                             "Failed to access Android auth token during runtime rebind",
@@ -567,7 +567,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         )
                     ));
                 } catch (RuntimeException exception) {
-                    taskExecutor.completeAuthenticated(
+                    taskExecutor.deferSessionTransitionCompletion(
                         requestId,
                         () -> settleOnce(settled, () -> rejectRuntimeBootstrap(call, exception))
                     );
@@ -685,7 +685,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         return;
                     }
                     if (!clearSucceeded.get()) {
-                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                             settled,
                             () -> call.reject(
                                 "Failed to clear Android runtime bootstrap state",
@@ -714,12 +714,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
                             cancellation
                         )
                     );
-                    taskExecutor.completeAuthenticated(
+                    taskExecutor.deferSessionTransitionCompletion(
                         requestId,
                         () -> settleOnce(settled, call::resolve)
                     );
                 } catch (TokenStorageException exception) {
-                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                    taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                         settled,
                         () -> call.reject(
                             "Failed to access Android auth token during runtime reset",
@@ -728,7 +728,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         )
                     ));
                 } catch (RuntimeException exception) {
-                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                    taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                         settled,
                         () -> call.reject(
                             exception.getMessage(),
@@ -794,7 +794,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 try {
                     String token = tokenStorage.getToken();
                     if (token == null || token.trim().isEmpty()) {
-                        taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                        taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                             settled,
                             () -> call.reject(
                                 "Android auth token is not available",
@@ -818,12 +818,12 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         }
                         // Server revocation is best effort after the local credential is gone.
                     }
-                    taskExecutor.completeAuthenticated(
+                    taskExecutor.deferSessionTransitionCompletion(
                         requestId,
                         () -> settleOnce(settled, call::resolve)
                     );
                 } catch (TokenStorageException exception) {
-                    taskExecutor.completeAuthenticated(requestId, () -> settleOnce(
+                    taskExecutor.deferSessionTransitionCompletion(requestId, () -> settleOnce(
                         settled,
                         () -> call.reject(
                             "Failed to load Android auth token",

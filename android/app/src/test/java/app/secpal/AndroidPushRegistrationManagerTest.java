@@ -53,7 +53,7 @@ public class AndroidPushRegistrationManagerTest {
         AndroidPushIdentityStorage storage = createStorage(preferences);
 
         AndroidPushIdentityStorage.State state = storage.bindRuntime(API_ORIGIN, 3);
-        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        storage.recordToken(API_ORIGIN, 3, state.installationId(), TOKEN_ONE);
 
         String persisted = preferences.getString(
             AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY,
@@ -73,7 +73,7 @@ public class AndroidPushRegistrationManagerTest {
         AndroidPushIdentityStorage storage = createStorage(preferences, cipher, ids);
 
         AndroidPushIdentityStorage.State first = storage.bindRuntime(API_ORIGIN, 3);
-        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        storage.recordToken(API_ORIGIN, 3, first.installationId(), TOKEN_ONE);
         AndroidPushIdentityStorage restarted = createStorage(preferences, cipher, ids);
         AndroidPushIdentityStorage.State restored = restarted.bindRuntime(API_ORIGIN, 3);
 
@@ -345,13 +345,13 @@ public class AndroidPushRegistrationManagerTest {
         throws Exception {
         InMemorySharedPreferences preferences = new InMemorySharedPreferences();
         AndroidPushIdentityStorage storage = createStorage(preferences);
-        storage.bindRuntime(API_ORIGIN, 3);
+        AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
         preferences.edit()
             .putBoolean(AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY, true)
             .commit();
         AndroidPushIdentityStorage.Snapshot snapshot = storage.snapshot();
 
-        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        storage.recordToken(API_ORIGIN, 3, bound.installationId(), TOKEN_ONE);
         assertFalse(storage.requiresTokenRotation());
 
         storage.restore(snapshot);
@@ -1132,7 +1132,12 @@ public class AndroidPushRegistrationManagerTest {
             backend
         );
         manager.bindRuntime(API_ORIGIN, pushMetadata(3));
-        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            storage.load().installationId(),
+            TOKEN_ONE
+        );
 
         manager.prepareRuntimeRebind("https://tenant-b.example", null);
         manager.rebindRuntime("https://tenant-b.example", null, null);
@@ -1940,7 +1945,13 @@ public class AndroidPushRegistrationManagerTest {
             TOKEN_TWO,
             null
         );
-        backend.beforeUnregister = storage::clear;
+        backend.beforeUnregister = () -> {
+            try {
+                storage.clear();
+            } catch (TokenStorageException exception) {
+                throw new IllegalStateException(exception);
+            }
+        };
 
         manager.onAuthenticated("auth-token");
 
@@ -2385,7 +2396,12 @@ public class AndroidPushRegistrationManagerTest {
             new InMemorySharedPreferences()
         );
         AndroidPushIdentityStorage.State state = storage.bindRuntime(API_ORIGIN, 3);
-        state = storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        state = storage.recordToken(
+            API_ORIGIN,
+            3,
+            state.installationId(),
+            TOKEN_ONE
+        );
 
         assertEquals(
             201,
@@ -2428,7 +2444,12 @@ public class AndroidPushRegistrationManagerTest {
             new InMemorySharedPreferences()
         );
         AndroidPushIdentityStorage.State state = storage.bindRuntime(API_ORIGIN, 3);
-        state = storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+        state = storage.recordToken(
+            API_ORIGIN,
+            3,
+            state.installationId(),
+            TOKEN_ONE
+        );
 
         AndroidPushRegistrationManager.RegistrationResponse response = backend.register(
             API_ORIGIN,

@@ -11,9 +11,12 @@ import android.content.SharedPreferences;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 import java.util.UUID;
 
 final class AndroidPushIdentityStorage {
@@ -24,7 +27,7 @@ final class AndroidPushIdentityStorage {
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
-    private static final int MAX_PENDING_AUTH_TOKEN_CHARACTERS = 64 * 1024;
+    private static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
 
     interface InstallationIdFactory {
         String create();
@@ -149,14 +152,17 @@ final class AndroidPushIdentityStorage {
             String packageVersionName,
             long packageVersionCode
         ) {
+            String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
             return token != null
                 && !token.isEmpty()
-                && !registrationFingerprint(
-                    this,
-                    authToken,
-                    packageVersionName,
-                    packageVersionCode
-                ).equals(registeredFingerprint);
+                && (normalizedAuthToken.isEmpty()
+                    || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS
+                    || !registrationFingerprint(
+                        this,
+                        normalizedAuthToken,
+                        packageVersionName,
+                        packageVersionCode
+                    ).equals(registeredFingerprint));
         }
 
         JSONObject toJson() throws JSONException {
@@ -268,10 +274,6 @@ final class AndroidPushIdentityStorage {
         if (current != null
             && normalizedOrigin.equals(current.apiOrigin())
             && metadataRevision == current.metadataRevision()) {
-            if (current.hasPendingRebind()) {
-                current = withoutPendingRebind(current);
-                save(current);
-            }
             return current;
         }
         if (current != null && current.hasPendingRevocation()) {
@@ -461,6 +463,12 @@ final class AndroidPushIdentityStorage {
         if (current == null || !current.hasServerRegistration()) {
             return current;
         }
+        if (current.hasPendingRevocation()) {
+            throw new TokenStorageException(
+                "Previous Android push registration cleanup is still pending",
+                new IllegalStateException("pendingRevocation")
+            );
+        }
         String retainedAuthToken = normalizePendingAuthToken(
             authToken != null
                 ? authToken
@@ -494,8 +502,30 @@ final class AndroidPushIdentityStorage {
     synchronized State invalidateCurrentIdentityForTokenRotation()
         throws TokenStorageException {
         State current = load();
+        if (current == null) {
+            invalidateUnreadableIdentityForTokenRotation();
+            return null;
+        }
+        if (current.hasServerRegistration()) {
+            throw new TokenStorageException(
+                "Android push registration must be retained before identity rotation",
+                new IllegalStateException("serverRegistration")
+            );
+        }
+        if (!current.hasPendingRevocation()) {
+            invalidateUnreadableIdentityForTokenRotation();
+            return null;
+        }
+        State retained = replacementRetainingPendingRevocation(current);
+        save(retained, false, true);
+        return retained;
+    }
+
+    synchronized State rotateIdentityPreservingPendingRevocation()
+        throws TokenStorageException {
+        State current = load();
         if (current == null || !current.hasPendingRevocation()) {
-            invalidateIdentityForTokenRotation();
+            discardIdentityForTokenRotation();
             return null;
         }
         State retained = replacementRetainingPendingRevocation(current);
@@ -550,15 +580,21 @@ final class AndroidPushIdentityStorage {
     synchronized State recordToken(
         String expectedApiOrigin,
         int expectedMetadataRevision,
+        String expectedInstallationId,
         String token
     ) throws TokenStorageException {
         State current = load();
-        String normalizedToken = normalizeToken(token);
+        String normalizedOrigin = requireApiOrigin(expectedApiOrigin);
+        String normalizedInstallationId = requireInstallationId(
+            expectedInstallationId
+        );
         if (current == null
-            || !current.apiOrigin().equals(requireApiOrigin(expectedApiOrigin))
-            || current.metadataRevision() != expectedMetadataRevision) {
+            || !current.apiOrigin().equals(normalizedOrigin)
+            || current.metadataRevision() != expectedMetadataRevision
+            || !current.installationId().equals(normalizedInstallationId)) {
             return current;
         }
+        String normalizedToken = normalizeToken(token);
         if (normalizedToken.equals(current.token())) {
             return current;
         }
@@ -592,6 +628,14 @@ final class AndroidPushIdentityStorage {
         if (!sameRegistrationCandidate(current, expected)) {
             return current;
         }
+        String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
+        if (normalizedAuthToken.isEmpty()
+            || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS) {
+            throw new TokenStorageException(
+                "Android push registration authority is invalid",
+                new IllegalArgumentException("authToken")
+            );
+        }
         State registered = new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -600,7 +644,7 @@ final class AndroidPushIdentityStorage {
             current.tokenReceivedAt(),
             registrationFingerprint(
                 current,
-                authToken,
+                normalizedAuthToken,
                 packageVersionName,
                 packageVersionCode
             ),
@@ -701,33 +745,37 @@ final class AndroidPushIdentityStorage {
     }
 
     synchronized State load() throws TokenStorageException {
-        String ciphertext = preferences.getString(STATE_CIPHERTEXT_KEY, null);
-        String initializationVector = preferences.getString(STATE_IV_KEY, null);
-        if (ciphertext == null && initializationVector == null) {
-            return null;
-        }
-        if (ciphertext == null || initializationVector == null) {
-            invalidateIdentityForTokenRotation();
-            throw new TokenStorageException(
-                "Failed to decode Android push identity",
-                new IllegalStateException("Incomplete Android push identity state")
-            );
-        }
-
         try {
+            String ciphertext = preferences.getString(STATE_CIPHERTEXT_KEY, null);
+            String initializationVector = preferences.getString(STATE_IV_KEY, null);
+            if (ciphertext == null && initializationVector == null) {
+                return null;
+            }
+            if (ciphertext == null || initializationVector == null) {
+                throw new JSONException("Incomplete Android push identity state");
+            }
             String plaintext = cipher.decrypt(
                 new EncryptedTokenPayload(ciphertext, initializationVector)
             );
             JSONObject json = new JSONObject(plaintext);
-            if (json.getInt("schemaVersion") != STATE_SCHEMA_VERSION) {
+            if (requirePositiveInteger(json, "schemaVersion")
+                != STATE_SCHEMA_VERSION) {
                 throw new JSONException("Unsupported Android push identity schema");
             }
             String apiOrigin = requireApiOrigin(json.getString("apiOrigin"));
-            int metadataRevision = json.getInt("metadataRevision");
+            int metadataRevision = requirePositiveInteger(
+                json,
+                "metadataRevision"
+            );
             String installationId = json.getString("installationId").trim();
-            if (metadataRevision <= 0 || !isUuid(installationId)) {
+            if (!isUuid(installationId)) {
                 throw new JSONException("Invalid Android push identity state");
             }
+            long tokenReceivedAt = requireNonNegativeLong(
+                json,
+                "tokenReceivedAt"
+            );
+            long registeredAt = requireNonNegativeLong(json, "registeredAt");
             String token = json.has("token") ? normalizeToken(json.getString("token")) : null;
             String registeredFingerprint = json.has("registeredFingerprint")
                 ? json.getString("registeredFingerprint").trim()
@@ -759,6 +807,11 @@ final class AndroidPushIdentityStorage {
             String pendingRebindAuthToken = json.has("pendingRebindAuthToken")
                 ? normalizePendingAuthToken(json.getString("pendingRebindAuthToken"))
                 : null;
+            boolean reconfigurationRequired = optionalBoolean(
+                json,
+                "reconfigurationRequired",
+                false
+            );
             if ((pendingRevocationApiOrigin == null)
                     != (pendingRevocationInstallationId == null)
                 || (pendingRevocationInstallationId != null
@@ -774,42 +827,55 @@ final class AndroidPushIdentityStorage {
                 metadataRevision,
                 installationId,
                 token,
-                json.optLong("tokenReceivedAt", 0),
+                tokenReceivedAt,
                 registeredFingerprint,
-                json.optLong("registeredAt", 0),
+                registeredAt,
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
                 pendingRevocationAuthToken,
                 pendingRebindApiOrigin,
                 pendingRebindAuthToken,
-                json.optBoolean("reconfigurationRequired", false)
+                reconfigurationRequired
             );
-        } catch (JSONException | IllegalArgumentException exception) {
-            invalidateIdentityForTokenRotation();
+        } catch (JSONException | IllegalArgumentException | ClassCastException exception) {
+            invalidateUnreadableIdentityForTokenRotation();
             throw new TokenStorageException(
                 "Failed to decode Android push identity",
                 exception
             );
         } catch (TokenStorageException exception) {
-            invalidateIdentityForTokenRotation();
+            invalidateUnreadableIdentityForTokenRotation();
             throw exception;
         }
     }
 
-    synchronized boolean requiresTokenRotation() {
-        return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
+    synchronized boolean requiresTokenRotation() throws TokenStorageException {
+        try {
+            return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
+        } catch (ClassCastException exception) {
+            invalidateUnreadableIdentityForTokenRotation();
+            throw new TokenStorageException(
+                "Failed to decode Android push token rotation requirement",
+                exception
+            );
+        }
     }
 
     synchronized Snapshot snapshot() throws TokenStorageException {
         return new Snapshot(load(), requiresTokenRotation());
     }
 
-    synchronized void clear() {
-        preferences.edit()
+    synchronized void clear() throws TokenStorageException {
+        if (!preferences.edit()
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
-            .apply();
+            .commit()) {
+            throw new TokenStorageException(
+                "Failed to clear Android push identity",
+                new IllegalStateException("SharedPreferences commit failed")
+            );
+        }
     }
 
     synchronized void restore(State state) throws TokenStorageException {
@@ -891,6 +957,16 @@ final class AndroidPushIdentityStorage {
 
     synchronized void invalidateIdentityForTokenRotation()
         throws TokenStorageException {
+        invalidateCurrentIdentityForTokenRotation();
+    }
+
+    synchronized void discardIdentityForTokenRotation()
+        throws TokenStorageException {
+        invalidateUnreadableIdentityForTokenRotation();
+    }
+
+    private void invalidateUnreadableIdentityForTokenRotation()
+        throws TokenStorageException {
         if (!preferences.edit()
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
@@ -943,9 +1019,9 @@ final class AndroidPushIdentityStorage {
             + "\n"
             + state.token()
             + "\n"
-            + authToken.trim()
+            + normalizeRegistrationAuthToken(authToken)
             + "\n"
-            + packageVersionName
+            + normalizePackageVersionName(packageVersionName)
             + "\n"
             + packageVersionCode;
         try {
@@ -964,13 +1040,45 @@ final class AndroidPushIdentityStorage {
 
     private static String requireApiOrigin(String value) throws TokenStorageException {
         String normalized = value == null ? "" : value.trim();
-        if (normalized.isEmpty()) {
+        try {
+            URI parsed = new URI(normalized);
+            String host = parsed.getHost();
+            int port = parsed.getPort();
+            if (!"https".equalsIgnoreCase(parsed.getScheme())
+                || host == null
+                || host.isEmpty()
+                || parsed.getRawUserInfo() != null
+                || (parsed.getRawPath() != null && !parsed.getRawPath().isEmpty())
+                || parsed.getRawQuery() != null
+                || parsed.getRawFragment() != null
+                || (port != -1 && (port < 1 || port > 65535))
+                || (parsed.getRawAuthority() != null
+                    && parsed.getRawAuthority().endsWith(":"))) {
+                throw new URISyntaxException(normalized, "not a bare HTTPS origin");
+            }
+
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            if (normalizedHost.indexOf(':') >= 0
+                && !normalizedHost.startsWith("[")) {
+                normalizedHost = "[" + normalizedHost + "]";
+            }
+            return "https://"
+                + normalizedHost
+                + (port == -1 || port == 443 ? "" : ":" + port);
+        } catch (URISyntaxException exception) {
             throw new TokenStorageException(
-                "Android push runtime origin is unavailable",
-                new IllegalArgumentException("apiOrigin")
+                "Android push runtime origin is invalid",
+                new IllegalArgumentException("apiOrigin", exception)
             );
         }
-        return normalized;
+    }
+
+    private static String normalizeRegistrationAuthToken(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static String normalizePackageVersionName(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static String normalizePendingAuthToken(String value)
@@ -980,7 +1088,7 @@ final class AndroidPushIdentityStorage {
         }
         String normalized = value.trim();
         if (normalized.isEmpty()
-            || normalized.length() > MAX_PENDING_AUTH_TOKEN_CHARACTERS) {
+            || normalized.length() > MAX_AUTH_TOKEN_CHARACTERS) {
             throw new TokenStorageException(
                 "Android push revocation authority is invalid",
                 new IllegalArgumentException("pendingRevocationAuthToken")
@@ -995,6 +1103,67 @@ final class AndroidPushIdentityStorage {
             throw new TokenStorageException(
                 "Android push token is invalid",
                 new IllegalArgumentException("token")
+            );
+        }
+        return normalized;
+    }
+
+    private static int requirePositiveInteger(JSONObject json, String key)
+        throws JSONException {
+        Object value = json.get(key);
+        if (!(value instanceof Number)) {
+            throw new JSONException(key + " must be an integer");
+        }
+        Number number = (Number) value;
+        double numericValue = number.doubleValue();
+        int normalized = number.intValue();
+        if (!Double.isFinite(numericValue)
+            || numericValue != normalized
+            || normalized <= 0) {
+            throw new JSONException(key + " must be a positive integer");
+        }
+        return normalized;
+    }
+
+    private static long requireNonNegativeLong(JSONObject json, String key)
+        throws JSONException {
+        Object value = json.get(key);
+        if (!(value instanceof Number)) {
+            throw new JSONException(key + " must be an integer");
+        }
+        Number number = (Number) value;
+        double numericValue = number.doubleValue();
+        long normalized = number.longValue();
+        if (!Double.isFinite(numericValue)
+            || numericValue != normalized
+            || normalized < 0) {
+            throw new JSONException(key + " must be a non-negative integer");
+        }
+        return normalized;
+    }
+
+    private static boolean optionalBoolean(
+        JSONObject json,
+        String key,
+        boolean defaultValue
+    ) throws JSONException {
+        if (!json.has(key)) {
+            return defaultValue;
+        }
+        Object value = json.get(key);
+        if (!(value instanceof Boolean)) {
+            throw new JSONException(key + " must be a boolean");
+        }
+        return (Boolean) value;
+    }
+
+    private static String requireInstallationId(String value)
+        throws TokenStorageException {
+        String normalized = value == null ? "" : value.trim();
+        if (!isUuid(normalized)) {
+            throw new TokenStorageException(
+                "Android push installation identifier is invalid",
+                new IllegalArgumentException("installationId")
             );
         }
         return normalized;

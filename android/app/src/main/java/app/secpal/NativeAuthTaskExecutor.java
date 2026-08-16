@@ -14,7 +14,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -79,7 +78,7 @@ class NativeAuthTaskExecutor {
                 1,
                 0L,
                 TimeUnit.MILLISECONDS,
-                new SynchronousQueue<>(),
+                new ArrayBlockingQueue<>(1),
                 namedDaemonThreadFactory("secpal-native-auth-session")
             ),
             newDeadlineScheduler("secpal-native-auth-deadline"),
@@ -302,6 +301,17 @@ class NativeAuthTaskExecutor {
             }
             completion.run();
             return true;
+        }
+    }
+
+    boolean deferSessionTransitionCompletion(String requestId, Runnable completion) {
+        synchronized (generationLock) {
+            ManagedTask task = authenticatedTasks.get(requestId);
+            if (task == null || task.isCancelled() || !task.sessionTransition
+                || task.submittedGeneration != generation.get()) {
+                return false;
+            }
+            return task.deferTransitionCompletion(completion);
         }
     }
 
@@ -731,6 +741,7 @@ class NativeAuthTaskExecutor {
         private final AtomicBoolean cancellationNotified = new AtomicBoolean();
         private final AtomicBoolean reservationReleased = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
+        private final AtomicReference<Runnable> transitionCompletion = new AtomicReference<>();
         private volatile Thread runner;
         private volatile ScheduledFuture<?> deadline;
 
@@ -762,10 +773,11 @@ class NativeAuthTaskExecutor {
         public void run() {
             if (isCancelled() || submittedGeneration != generation.get()) {
                 cancelDeadline();
-                finish();
+                finish(false);
                 return;
             }
 
+            RuntimeException failure = null;
             runner = Thread.currentThread();
             try {
                 if (!isCancelled() && submittedGeneration == generation.get()) {
@@ -773,20 +785,31 @@ class NativeAuthTaskExecutor {
                 }
             } catch (RuntimeException exception) {
                 if (!isCancelled()) {
-                    try {
-                        completeAuthenticated(
-                            requestId,
-                            () -> failureHandler.accept(exception)
-                        );
-                    } catch (RuntimeException ignored) {
-                        // The executor must still release the task if settlement fails.
+                    if (sessionTransition) {
+                        failure = exception;
+                    } else {
+                        try {
+                            completeAuthenticated(
+                                requestId,
+                                () -> failureHandler.accept(exception)
+                            );
+                        } catch (RuntimeException ignored) {
+                            // The executor must still release the task if settlement fails.
+                        }
                     }
                 }
             } finally {
                 cancelDeadline();
                 runner = null;
-                finish();
+                finish(failure == null);
             }
+            if (failure != null && !isCancelled()) {
+                notifyFailure(failure);
+            }
+        }
+
+        boolean deferTransitionCompletion(Runnable completion) {
+            return transitionCompletion.compareAndSet(null, completion);
         }
 
         void armDeadline() {
@@ -827,13 +850,13 @@ class NativeAuthTaskExecutor {
                 } else {
                     notifyCancellation();
                     removeQueuedTask(this);
-                    finish();
+                    finish(false);
                 }
             }
             return true;
         }
 
-        private void finish() {
+        private void finish(boolean runTransitionCompletion) {
             if (!finished.compareAndSet(false, true)) {
                 return;
             }
@@ -844,6 +867,29 @@ class NativeAuthTaskExecutor {
             releaseReservation();
             if (sessionTransition) {
                 endSessionTransition();
+            }
+            if (!isCancelled() && runTransitionCompletion) {
+                notifyTransitionCompletion();
+            }
+        }
+
+        private void notifyTransitionCompletion() {
+            Runnable completion = transitionCompletion.getAndSet(null);
+            if (completion == null) {
+                return;
+            }
+            try {
+                completion.run();
+            } catch (RuntimeException ignored) {
+                // The executor must remain available if callback settlement fails.
+            }
+        }
+
+        private void notifyFailure(RuntimeException exception) {
+            try {
+                failureHandler.accept(exception);
+            } catch (RuntimeException ignored) {
+                // The executor must remain available if callback settlement fails.
             }
         }
 
