@@ -27,7 +27,7 @@ final class AndroidPushIdentityStorage {
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
-    private static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
+    static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
 
     interface InstallationIdFactory {
         String create();
@@ -105,6 +105,17 @@ final class AndroidPushIdentityStorage {
                 && pendingRevocationInstallationId != null;
         }
 
+        boolean hasPendingRevocation(
+            String expectedApiOrigin,
+            String expectedInstallationId
+        ) {
+            return hasPendingRevocation()
+                && pendingRevocationApiOrigin.equals(expectedApiOrigin)
+                && pendingRevocationInstallationId.equals(
+                    expectedInstallationId
+                );
+        }
+
         String pendingRevocationApiOrigin() {
             return pendingRevocationApiOrigin;
         }
@@ -119,6 +130,28 @@ final class AndroidPushIdentityStorage {
 
         boolean hasPendingRebind() {
             return pendingRebindApiOrigin != null;
+        }
+
+        boolean hasSameServerRegistration(State other) {
+            return other != null
+                && hasServerRegistration()
+                && other.hasServerRegistration()
+                && apiOrigin.equals(other.apiOrigin)
+                && metadataRevision == other.metadataRevision
+                && installationId.equals(other.installationId)
+                && registeredFingerprint.equals(other.registeredFingerprint)
+                && registeredAt == other.registeredAt;
+        }
+
+        boolean hasSamePendingRebind(State other) {
+            return other != null
+                && hasPendingRebind()
+                && other.hasPendingRebind()
+                && pendingRebindApiOrigin.equals(other.pendingRebindApiOrigin)
+                && sameNullableValue(
+                    pendingRebindAuthToken,
+                    other.pendingRebindAuthToken
+                );
         }
 
         String pendingRebindApiOrigin() {
@@ -179,14 +212,13 @@ final class AndroidPushIdentityStorage {
             String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
             return token != null
                 && !token.isEmpty()
-                && (normalizedAuthToken.isEmpty()
-                    || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS
-                    || !registrationFingerprint(
+                && isValidRegistrationAuthToken(normalizedAuthToken)
+                && !registrationFingerprint(
                         this,
                         normalizedAuthToken,
                         packageVersionName,
                         packageVersionCode
-                    ).equals(registeredFingerprint));
+                    ).equals(registeredFingerprint);
         }
 
         JSONObject toJson() throws JSONException {
@@ -660,8 +692,7 @@ final class AndroidPushIdentityStorage {
             return current;
         }
         String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
-        if (normalizedAuthToken.isEmpty()
-            || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS) {
+        if (!isValidRegistrationAuthToken(normalizedAuthToken)) {
             throw new TokenStorageException(
                 "Android push registration authority is invalid",
                 new IllegalArgumentException("authToken")
@@ -749,9 +780,8 @@ final class AndroidPushIdentityStorage {
     ) throws TokenStorageException {
         State current = load();
         if (current == null
-            || !current.hasPendingRevocation()
-            || !current.pendingRevocationApiOrigin().equals(expectedApiOrigin)
-            || !current.pendingRevocationInstallationId().equals(
+            || !current.hasPendingRevocation(
+                expectedApiOrigin,
                 expectedInstallationId
             )) {
             return current;
@@ -1117,6 +1147,16 @@ final class AndroidPushIdentityStorage {
 
     private static String normalizeRegistrationAuthToken(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static boolean sameNullableValue(String left, String right) {
+        return left == null ? right == null : left.equals(right);
+    }
+
+    static boolean isValidRegistrationAuthToken(String value) {
+        String normalized = normalizeRegistrationAuthToken(value);
+        return !normalized.isEmpty()
+            && normalized.length() <= MAX_AUTH_TOKEN_CHARACTERS;
     }
 
     private static String normalizePackageVersionName(String value) {

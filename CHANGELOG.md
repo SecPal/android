@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Rejected oversized Android push registration authority before network I/O and
+  prevented completed or stale runtime-rebind handles from repeating server
+  revocation against a newer local registration state.
 - Centralized native Android push revocation outcomes so definitive server
   results, including response-validation exceptions, are committed consistently;
   retried stored revocation authority before requiring current authentication;

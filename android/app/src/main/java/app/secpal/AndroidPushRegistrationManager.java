@@ -534,6 +534,29 @@ final class AndroidPushRegistrationManager {
             || !rebind.previousSnapshot.state().hasServerRegistration()) {
             return;
         }
+        AndroidPushIdentityStorage.State previousState =
+            rebind.previousSnapshot.state();
+        try {
+            AndroidPushIdentityStorage.State current = storage.load();
+            boolean matchesPersistedRevocation = current != null
+                && current.hasPendingRevocation(
+                    previousState.apiOrigin(),
+                    previousState.installationId()
+                );
+            boolean matchesPreparedDisable = current != null
+                && boundApiOrigin == null
+                && rebind.nextApiOrigin == null
+                && current.hasSameServerRegistration(previousState)
+                && current.hasSamePendingRebind(previousState);
+            if (!matchesPersistedRevocation && !matchesPreparedDisable) {
+                return;
+            }
+        } catch (TokenStorageException exception) {
+            throw new IllegalStateException(
+                "Previous Android push registration state could not be read",
+                exception
+            );
+        }
         String revocationAuthToken = rebind.previousRevocationAuthToken(authToken);
         if (!hasAuthToken(revocationAuthToken)) {
             return;
@@ -1039,6 +1062,10 @@ final class AndroidPushRegistrationManager {
         if (!hasAuthToken(authToken)) {
             setStatus("awaiting_auth", null);
             return SyncResult.COMPLETE;
+        }
+        if (!AndroidPushIdentityStorage.isValidRegistrationAuthToken(authToken)) {
+            setStatus("awaiting_auth", "AUTHENTICATION_REQUIRED");
+            return SyncResult.AUTHENTICATION_REJECTED;
         }
         if (!state.needsRegistration(
             authToken,

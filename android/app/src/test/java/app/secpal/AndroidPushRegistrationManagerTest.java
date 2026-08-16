@@ -814,6 +814,82 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void repeatedPreviousRevocationDoesNotReuseACompletedRebind()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4),
+            "old-auth-token"
+        );
+
+        manager.revokePrevious(
+            rebind,
+            "old-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        backend.unregisterStatus = 401;
+        manager.revokePrevious(
+            rebind,
+            "old-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(1, backend.unregisterCount);
+        assertFalse(manager.requiresTokenRotation());
+        assertEquals("https://tenant-b.example", storage.load().apiOrigin());
+    }
+
+    @Test
+    public void staleRebindCannotRevokeAfterAuthenticatedCleanup()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-auth-token"
+        );
+        AndroidPushRegistrationManager.RebindResult rebind = manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4),
+            "old-auth-token"
+        );
+
+        manager.onAuthenticated("old-auth-token");
+        backend.unregisterStatus = 401;
+        manager.revokePrevious(
+            rebind,
+            "old-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(1, backend.unregisterCount);
+        assertFalse(manager.requiresTokenRotation());
+        assertEquals("https://tenant-b.example", storage.load().apiOrigin());
+    }
+
+    @Test
     public void rejectedPreviousAuthorityRotatesInsteadOfBlockingTheRebind()
         throws Exception {
         for (int rejectedStatus : new int[] { 401, 403 }) {
@@ -3273,6 +3349,36 @@ public class AndroidPushRegistrationManagerTest {
             result
         );
         assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void oversizedRegistrationAuthorityIsRejectedBeforeNetworkIo()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+
+        AndroidPushRegistrationManager.SyncResult result = manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "a".repeat(
+                AndroidPushIdentityStorage.MAX_AUTH_TOKEN_CHARACTERS + 1
+            )
+        );
+
+        assertEquals(
+            AndroidPushRegistrationManager.SyncResult.AUTHENTICATION_REJECTED,
+            result
+        );
+        assertTrue(backend.lifecycleEvents.isEmpty());
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+        assertEquals(
+            "AUTHENTICATION_REQUIRED",
+            manager.getStatus().getString("failureCode")
+        );
     }
 
     @Test
