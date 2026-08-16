@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 import org.json.JSONObject;
@@ -177,6 +178,7 @@ public class SecPalNativeAuthPluginTest {
         assertFalse(exportedMethods.contains("clearRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeBootstrap"));
         assertTrue(exportedMethods.contains("confirmRuntimeReset"));
+        assertTrue(exportedMethods.contains("retainLegacyAndroidPushInstallation"));
         assertTrue(exportedMethods.contains("cancelRequest"));
     }
 
@@ -258,6 +260,36 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void destroyDismissesAndReleasesPendingRuntimeConfirmationOnce() {
+        AtomicBoolean confirmationPending = new AtomicBoolean(true);
+        AtomicInteger dismissals = new AtomicInteger();
+        AtomicReference<DialogInterface> dialog = new AtomicReference<>(
+            new DialogInterface() {
+                @Override
+                public void cancel() {}
+
+                @Override
+                public void dismiss() {
+                    dismissals.incrementAndGet();
+                }
+            }
+        );
+
+        assertTrue(SecPalNativeAuthPlugin.dismissRuntimeConfirmationOnDestroy(
+            dialog,
+            confirmationPending
+        ));
+        assertEquals(1, dismissals.get());
+        assertNull(dialog.get());
+        assertFalse(confirmationPending.get());
+        assertFalse(SecPalNativeAuthPlugin.dismissRuntimeConfirmationOnDestroy(
+            dialog,
+            confirmationPending
+        ));
+        assertEquals(1, dismissals.get());
+    }
+
+    @Test
     public void runtimeRebindClearsTenantCredentialBeforePersistence() throws Exception {
         List<String> events = new ArrayList<>();
         RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
@@ -277,6 +309,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
         assertEquals(
@@ -311,6 +344,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
 
@@ -349,6 +383,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return false;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             );
             fail("Expected failed runtime rollback to fail closed");
@@ -391,6 +426,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> {
                     events.add("apply-push");
                     throw pushFailure;
@@ -416,6 +452,45 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void runtimeRebindDoesNotRestoreARevokedPreviousCredential()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "tenant-a-token",
+            events
+        );
+        RuntimeException cleanupFailure = new RuntimeException("cleanup-failed");
+
+        try {
+            SecPalNativeAuthPlugin.replaceRuntimeBootstrapStateWithRollback(
+                "https://tenant-a.example",
+                "https://tenant-b.example",
+                tokenStorage,
+                () -> true,
+                () -> {
+                    events.add("restore-runtime");
+                    return true;
+                },
+                () -> false,
+                () -> { throw cleanupFailure; }
+            );
+            fail("Expected push cleanup failure");
+        } catch (RuntimeException thrown) {
+            assertEquals(cleanupFailure, thrown);
+        }
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "read-token",
+                "clear-token",
+                "restore-runtime"
+            ),
+            events
+        );
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
     public void runtimeRebindKeepsCredentialClearedWhenRuntimeRollbackFails()
         throws Exception {
         FakeTokenStorage tokenStorage = new FakeTokenStorage();
@@ -429,6 +504,7 @@ public class SecPalNativeAuthPluginTest {
                 tokenStorage,
                 () -> true,
                 () -> false,
+                () -> true,
                 () -> { throw pushFailure; }
             );
             fail("Expected push replacement failure");
@@ -468,6 +544,7 @@ public class SecPalNativeAuthPluginTest {
                 unrestorableTokenStorage,
                 () -> true,
                 () -> true,
+                () -> true,
                 () -> { throw pushFailure; }
             );
             fail("Expected token restoration failure");
@@ -499,6 +576,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             );
             fail("Expected persistence failure");
@@ -539,6 +617,7 @@ public class SecPalNativeAuthPluginTest {
                 events.add("restore-runtime");
                 return true;
             },
+            () -> true,
             () -> events.add("apply-push")
         ));
 
@@ -584,6 +663,7 @@ public class SecPalNativeAuthPluginTest {
                     events.add("restore-runtime");
                     return true;
                 },
+                () -> true,
                 () -> events.add("apply-push")
             )
         );
@@ -604,6 +684,142 @@ public class SecPalNativeAuthPluginTest {
             "HTTP_401",
             SecPalNativeAuthPlugin.resolveErrorCode(new NativeAuthHttpException("Unauthenticated", 401))
         );
+    }
+
+    @Test
+    public void rejectedAuthenticationInvalidatesPushBeforeClearingTheBearer() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> events.add("invalidate-push-identity"),
+                () -> events.add("delete-push-token"),
+                () -> events.add("push-storage-error"),
+                (event, payload) -> events.add(
+                    event + ":" + payload.getString("reason")
+                )
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "delete-push-token",
+                    "clear-token",
+                    "nativeAuthSessionInvalidated:AUTHENTICATION_REJECTED"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticationStillClearsBearerWhenPushTokenDeletionFails() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> events.add("invalidate-push-identity"),
+                () -> {
+                    events.add("delete-push-token");
+                    throw new IllegalStateException("FCM delete failed");
+                },
+                () -> events.add("push-storage-error")
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "delete-push-token",
+                    "clear-token"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticationRemainsInvalidWhenListenerDeliveryFails() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            new ArrayList<>()
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> {},
+                () -> {},
+                () -> fail("Protected storage should remain available"),
+                (event, payload) -> {
+                    throw new IllegalStateException("listener unavailable");
+                }
+            );
+
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticationDeletesTokenWhenPushInvalidationFails() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> {
+                    events.add("invalidate-push-identity");
+                    throw new TokenStorageException(
+                        "Push storage failed",
+                        new IllegalStateException("storage")
+                    );
+                },
+                () -> events.add("delete-push-token"),
+                () -> events.add("push-storage-error")
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "push-storage-error",
+                    "delete-push-token",
+                    "clear-token"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -1007,39 +1223,246 @@ public class SecPalNativeAuthPluginTest {
             .commit();
         tokenStorage.token = "tenant-a-token";
         ThrowingFirebaseBackend firebaseBackend = new ThrowingFirebaseBackend();
+        List<JSObject> pushIdentityBindings = new ArrayList<>();
+        AtomicBoolean cleanupAuthorityRetained = new AtomicBoolean(false);
 
         JSObject result = SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
             preferences,
             tokenStorage,
             new AndroidPushRuntimeManager(firebaseBackend),
-            stored
+            stored,
+            bootstrap -> {
+                pushIdentityBindings.add(bootstrap);
+                return false;
+            },
+            () -> {
+                pushIdentityBindings.add(null);
+                cleanupAuthorityRetained.set(
+                    "tenant-a-token".equals(tokenStorage.token)
+                );
+            }
         );
 
         assertNull(result);
         assertNull(preferences.getString("runtime_bootstrap", null));
         assertNull(preferences.getString("api_base_url", null));
         assertNull(tokenStorage.token);
+        assertTrue(cleanupAuthorityRetained.get());
+        AndroidPushRuntimeMetadata pendingPushCleanup =
+            AndroidPushRuntimeMetadata.fromBootstrap(
+                new JSONObject(
+                    preferences.getString("pending_push_runtime_clear", null)
+                )
+            );
         assertEquals(
-            "Load-time Firebase failures should clear the persisted bootstrap asynchronously.",
-            1,
+            "secpal-demo-push",
+            pendingPushCleanup.projectId()
+        );
+        assertEquals(
+            "Load-time Firebase failures should commit cleanup metadata synchronously.",
+            0,
             preferences.applyCallCount
         );
         assertEquals(1, firebaseBackend.initializeCallCount);
         assertEquals(2, firebaseBackend.findRuntimeAppCallCount);
+        assertEquals(Arrays.asList(stored, null), pushIdentityBindings);
     }
 
     @Test
-    public void messagingListenerForwardsTokenEventBeforeDestroyed() {
+    public void failedRuntimeRecoveryPersistencePreservesCleanupAuthority()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("instanceDisplayName", "Tenant A")
+                .put("rawApiBaseUrl", "https://tenant-a.example/v1")
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put("applicationId", "1:1234567890:android:abcdef1234567890")
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+        preferences.edit()
+            .putString("runtime_bootstrap", stored.toString())
+            .putString("api_base_url", "https://tenant-a.example")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+        preferences.failNextCommit = true;
+
+        try {
+            SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+                preferences,
+                tokenStorage,
+                new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
+                stored,
+                bootstrap -> {
+                    assertEquals(stored.toString(), bootstrap.toString());
+                    return false;
+                },
+                () -> {}
+            );
+            fail("Expected failed cleanup-state persistence to fail closed");
+        } catch (IllegalStateException expected) {
+            assertEquals(
+                "Failed to initialize Android push runtime from deployment metadata",
+                expected.getMessage()
+            );
+        }
+
+        assertEquals("tenant-a-token", tokenStorage.token);
+        assertEquals(
+            stored.toString(),
+            preferences.getString("runtime_bootstrap", null)
+        );
+        assertEquals(
+            "https://tenant-a.example",
+            preferences.getString("api_base_url", null)
+        );
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void missingRuntimeBootstrapUsesExplicitCleanupRecovery() {
+        AtomicBoolean cleanupRecoveryCalled = new AtomicBoolean(false);
+
+        assertNull(SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            new InMemorySharedPreferences(),
+            new FakeTokenStorage(),
+            new AndroidPushRuntimeManager(new ThrowingFirebaseBackend()),
+            null,
+            bootstrap -> {
+                assertNull(bootstrap);
+                fail("A missing bootstrap must not enter the binding path");
+                return false;
+            },
+            () -> cleanupRecoveryCalled.set(true)
+        ));
+
+        assertTrue(cleanupRecoveryCalled.get());
+    }
+
+    @Test
+    public void persistedPushIdentityIsBoundBeforeFirebaseCanReturnAToken()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        List<String> events = new ArrayList<>();
+        AndroidPushRuntimeManager.FirebaseBackend firebaseBackend =
+            new AndroidPushRuntimeManager.FirebaseBackend() {
+                @Override
+                public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+                    return null;
+                }
+
+                @Override
+                public AndroidPushRuntimeManager.FirebaseAppHandle initialize(
+                    AndroidPushRuntimeMetadata metadata
+                ) {
+                    return new AndroidPushRuntimeManager.FirebaseAppHandle() {
+                        @Override
+                        public String getName() {
+                            return AndroidPushRegistrationManager.RUNTIME_APP_NAME;
+                        }
+
+                        @Override
+                        public void delete() {}
+                    };
+                }
+
+                @Override
+                public void cancelPendingTokenRequest() {}
+
+                @Override
+                public void ensureMessaging(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-request");
+                }
+
+                @Override
+                public void rotateMessagingToken(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-rotation");
+                }
+
+                @Override
+                public void deleteMessagingToken(
+                    AndroidPushRuntimeManager.FirebaseAppHandle app
+                ) {
+                    events.add("token-deletion");
+                }
+            };
+        JSObject stored = SecPalNativeAuthPlugin.normalizeRuntimeBootstrap(
+            new JSONObject()
+                .put("bootstrapVersion", "v1")
+                .put("schemaVersion", 4)
+                .put("metadataRevision", 1)
+                .put("instanceDisplayName", "Tenant A")
+                .put("apiOrigin", "https://tenant-a.example")
+                .put(
+                    "androidPush",
+                    new JSONObject()
+                        .put("provider", "fcm")
+                        .put("metadataRevision", 3)
+                        .put(
+                            "publicClientMetadata",
+                            new JSONObject()
+                                .put("apiKey", "public-client-api-key-demo-1234567890")
+                                .put("projectId", "secpal-demo-push")
+                                .put(
+                                    "applicationId",
+                                    "1:1234567890:android:abcdef1234567890"
+                                )
+                                .put("senderId", "1234567890")
+                        )
+                )
+        );
+
+        SecPalNativeAuthPlugin.applyPersistedRuntimeBootstrap(
+            preferences,
+            tokenStorage,
+            new AndroidPushRuntimeManager(firebaseBackend),
+            stored,
+            bootstrap -> {
+                assertNotNull(bootstrap);
+                events.add("binding-restored");
+                return false;
+            },
+            () -> fail("Cleanup recovery should not run after a successful restore")
+        );
+
+        assertEquals(Arrays.asList("binding-restored", "token-request"), events);
+    }
+
+    @Test
+    public void messagingListenerRoutesRawTokenOnlyToNativeHandler() {
         final boolean[] notified = { false };
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> false,
-                (event, payload) -> {
-                    assertEquals("androidPushTokenReceived", event);
-                    assertEquals("secpal-runtime-push", payload.getString("appName"));
-                    assertEquals("fcm", payload.getString("provider"));
-                    assertEquals("fcm-token-demo", payload.getString("token"));
-                    notified[0] = true;
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        assertEquals("secpal-runtime-push", appName);
+                        assertEquals("fcm-token-demo", token);
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        fail("Token error should not be called");
+                    }
                 }
             );
 
@@ -1054,7 +1477,17 @@ public class SecPalNativeAuthPluginTest {
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> true,
-                (event, payload) -> notified[0] = true
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        notified[0] = true;
+                    }
+                }
             );
 
         listener.onTokenReceived("secpal-runtime-push", "fcm-token-demo");
@@ -1071,7 +1504,17 @@ public class SecPalNativeAuthPluginTest {
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> true,
-                (event, payload) -> notified[0] = true
+                new SecPalNativeAuthPlugin.AndroidPushMessageHandler() {
+                    @Override
+                    public void onTokenReceived(String appName, String token) {
+                        notified[0] = true;
+                    }
+
+                    @Override
+                    public void onTokenError(String appName) {
+                        notified[0] = true;
+                    }
+                }
             );
 
         listener.onTokenError("secpal-runtime-push", new RuntimeException("token-failure"));
@@ -1080,6 +1523,919 @@ public class SecPalNativeAuthPluginTest {
             "Error callback must be suppressed after plugin is destroyed",
             notified[0]
         );
+    }
+
+    @Test
+    public void rejectedNativePushSubmissionMarksRegistrationForRetry()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        AtomicInteger retries = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "push-submit-rejection",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+
+            assertFalse(SecPalNativeAuthPlugin.submitNativePushTask(
+                taskExecutor,
+                () -> fail("Push task must not run during logout"),
+                retries::incrementAndGet
+            ));
+            assertEquals(1, retries.get());
+        } finally {
+            releaseTransition.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedForegroundRefreshPublishesGenericRetryState()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        CountDownLatch releaseTransition = new CountDownLatch(1);
+        AtomicInteger refreshes = new AtomicInteger();
+        AtomicInteger retries = new AtomicInteger();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "foreground-refresh-rejection",
+                    0,
+                    () -> {
+                        transitionStarted.countDown();
+                        try {
+                            releaseTransition.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    reason -> {}
+                )
+            );
+            assertTrue(transitionStarted.await(2, TimeUnit.SECONDS));
+
+            assertFalse(SecPalNativeAuthPlugin.submitForegroundPushRefresh(
+                taskExecutor,
+                refreshes::incrementAndGet,
+                retries::incrementAndGet
+            ));
+            assertEquals(0, refreshes.get());
+            assertEquals(1, retries.get());
+        } finally {
+            releaseTransition.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void foregroundWithoutRuntimeRetriesProtectedPushCleanupOnly() {
+        AtomicInteger cleanupRetries = new AtomicInteger();
+        AtomicInteger tokenRefreshes = new AtomicInteger();
+
+        SecPalNativeAuthPlugin.resumeAndroidPushWork(
+            null,
+            cleanupRetries::incrementAndGet,
+            tokenRefreshes::incrementAndGet
+        );
+
+        assertEquals(1, cleanupRetries.get());
+        assertEquals(0, tokenRefreshes.get());
+
+        SecPalNativeAuthPlugin.resumeAndroidPushWork(
+            "https://api.secpal.dev",
+            cleanupRetries::incrementAndGet,
+            tokenRefreshes::incrementAndGet
+        );
+
+        assertEquals(1, cleanupRetries.get());
+        assertEquals(1, tokenRefreshes.get());
+    }
+
+    @Test
+    public void previousRegistrationCleanupWaitsForAnAvailableCredential() {
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            null
+        ));
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            "  "
+        ));
+        assertTrue(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            true,
+            "auth-token"
+        ));
+        assertFalse(SecPalNativeAuthPlugin.shouldSchedulePreviousPushRevocation(
+            false,
+            "auth-token"
+        ));
+    }
+
+    @Test
+    public void logoutDeletesTokenAndClearsCredentialWhenPushStateIsCorrupt()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+            "auth-token",
+            (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                token,
+                cancellation,
+                (ignoredToken, ignoredCancellation) -> {
+                    events.add("push-logout");
+                    throw new TokenStorageException(
+                        "corrupt push state",
+                        new IllegalStateException("corrupt")
+                    );
+                },
+                () -> false,
+                () -> events.add("delete-token")
+            ),
+            new NativeAuthHttpClient.CancellationSignal(),
+            tokenStorage,
+            localCredentialCleared,
+            mutation -> {
+                mutation.run();
+                return true;
+            }
+        ));
+
+        assertEquals(
+            Arrays.asList("push-logout", "delete-token", "clear-token"),
+            events
+        );
+        assertTrue(localCredentialCleared.get());
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void logoutDeletesInvalidatedPushTokenBeforeCredentialClear()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+
+        SecPalNativeAuthPlugin.logoutAndroidPush(
+            "auth-token",
+            cancellation,
+            (token, suppliedCancellation) -> {
+                assertEquals("auth-token", token);
+                assertEquals(cancellation, suppliedCancellation);
+                events.add("push-logout");
+            },
+            () -> true,
+            () -> events.add("delete-token")
+        );
+
+        assertEquals(
+            Arrays.asList("push-logout", "delete-token"),
+            events
+        );
+    }
+
+    @Test
+    public void failedPushCleanupDeletesTokenBeforeCredentialClear()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        assertTrue(SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+            "auth-token",
+            (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                token,
+                cancellation,
+                (ignoredToken, ignoredCancellation) -> {
+                    events.add("push-logout");
+                    throw new TokenStorageException(
+                        "failed to persist push cleanup",
+                        new IllegalStateException("storage unavailable")
+                    );
+                },
+                () -> false,
+                () -> events.add("delete-token")
+            ),
+            new NativeAuthHttpClient.CancellationSignal(),
+            tokenStorage,
+            localCredentialCleared,
+            mutation -> {
+                mutation.run();
+                return true;
+            }
+        ));
+
+        assertEquals(
+            Arrays.asList("push-logout", "delete-token", "clear-token"),
+            events
+        );
+        assertTrue(localCredentialCleared.get());
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void failedPushCleanupAndTokenDeletionPreserveCredential()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "auth-token",
+            events
+        );
+        AtomicBoolean localCredentialCleared = new AtomicBoolean(false);
+
+        try {
+            SecPalNativeAuthPlugin.performNativeLogoutTeardown(
+                "auth-token",
+                (token, cancellation) -> SecPalNativeAuthPlugin.logoutAndroidPush(
+                    token,
+                    cancellation,
+                    (ignoredToken, ignoredCancellation) -> {
+                        events.add("push-logout");
+                        throw new TokenStorageException(
+                            "failed to persist push cleanup",
+                            new IllegalStateException("storage unavailable")
+                        );
+                    },
+                    () -> false,
+                    () -> {
+                        events.add("delete-token");
+                        throw new IllegalStateException("FCM unavailable");
+                    }
+                ),
+                new NativeAuthHttpClient.CancellationSignal(),
+                tokenStorage,
+                localCredentialCleared,
+                mutation -> {
+                    mutation.run();
+                    return true;
+                }
+            );
+            fail("Expected push cleanup to remain required");
+        } catch (TokenStorageException expected) {
+            assertEquals("failed to persist push cleanup", expected.getMessage());
+            assertEquals(1, expected.getSuppressed().length);
+        }
+
+        assertEquals(Arrays.asList("push-logout", "delete-token"), events);
+        assertFalse(localCredentialCleared.get());
+        assertEquals("auth-token", tokenStorage.token);
+    }
+
+    @Test
+    public void credentialReplacementRetainsThePreviousAuthorityBeforeSaving()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "first-user-auth-token",
+            events
+        );
+
+        NativeCredentialRollback rollback = SecPalNativeAuthPlugin.replaceStoredCredential(
+            tokenStorage,
+            "second-user-auth-token",
+            (previousToken, nextToken) -> {
+                assertEquals("first-user-auth-token", previousToken);
+                assertEquals("second-user-auth-token", nextToken);
+                events.add("prepare-push-replacement");
+                return () -> events.add("rollback-push-replacement");
+            }
+        );
+
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("second-user-auth-token", tokenStorage.token);
+
+        rollback.rollback();
+
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save-token",
+                "rollback-push-replacement",
+                "save-token"
+            ),
+            events
+        );
+        assertEquals("first-user-auth-token", tokenStorage.token);
+    }
+
+    @Test
+    public void unreadablePreviousCredentialCannotBlockReplacement()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        TokenStorage tokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) {
+                events.add("save:" + token);
+            }
+
+            @Override
+            public String getToken() throws TokenStorageException {
+                events.add("read");
+                throw new TokenStorageException(
+                    "unreadable token",
+                    new IllegalStateException("invalidated")
+                );
+            }
+
+            @Override
+            public void clearToken() {
+                events.add("clear");
+            }
+        };
+
+        SecPalNativeAuthPlugin.replaceStoredCredential(
+            tokenStorage,
+            "replacement-token",
+            (previousToken, nextToken) -> {
+                assertNull(previousToken);
+                events.add("prepare:" + nextToken);
+                return () -> {};
+            }
+        );
+
+        assertEquals(
+            Arrays.asList(
+                "read",
+                "clear",
+                "prepare:replacement-token",
+                "save:replacement-token"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void failedCredentialSaveRestoresPushStateAndPreviousBearer()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        String[] storedToken = { "first-user-auth-token" };
+        TokenStorage tokenStorage = new TokenStorage() {
+            @Override
+            public void saveToken(String token) throws TokenStorageException {
+                events.add("save:" + token);
+                if ("second-user-auth-token".equals(token)) {
+                    throw new TokenStorageException(
+                        "failed to persist replacement token",
+                        new IllegalStateException("test failure")
+                    );
+                }
+                storedToken[0] = token;
+            }
+
+            @Override
+            public String getToken() {
+                events.add("read-token");
+                return storedToken[0];
+            }
+
+            @Override
+            public void clearToken() {
+                events.add("clear-token");
+                storedToken[0] = null;
+            }
+        };
+
+        try {
+            SecPalNativeAuthPlugin.replaceStoredCredential(
+                tokenStorage,
+                "second-user-auth-token",
+                (previousToken, nextToken) -> {
+                    events.add("prepare-push-replacement");
+                    return () -> events.add("rollback-push-replacement");
+                }
+            );
+            fail("Expected replacement bearer persistence to fail");
+        } catch (TokenStorageException expected) {
+            assertEquals("failed to persist replacement token", expected.getMessage());
+        }
+
+        assertEquals("first-user-auth-token", storedToken[0]);
+        assertEquals(
+            Arrays.asList(
+                "read-token",
+                "prepare-push-replacement",
+                "save:second-user-auth-token",
+                "rollback-push-replacement",
+                "save:first-user-auth-token"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void authenticationSyncRotatesAnInvalidatedPrincipalTokenAfterStateCheck() {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.synchronizeAndroidPushAfterAuthentication(
+            "second-user-auth-token",
+            new NativeAuthHttpClient.CancellationSignal(),
+            (token, cancellation) -> events.add("sync:" + token),
+            () -> true,
+            () -> events.add("rotate-token"),
+            () -> fail("Protected storage should remain available")
+        );
+
+        assertEquals(
+            Arrays.asList("sync:second-user-auth-token", "rotate-token"),
+            events
+        );
+    }
+
+    @Test
+    public void explicitPushRetrySynchronizesStoredStateBeforeRefreshingFirebase()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.retryAndroidPushRegistrationNow(
+            () -> {
+                events.add("prepare-retry");
+                return true;
+            },
+            () -> events.add("refresh-token"),
+            () -> events.add("sync-registration")
+        );
+
+        assertEquals(
+            Arrays.asList("prepare-retry", "sync-registration", "refresh-token"),
+            events
+        );
+    }
+
+    @Test
+    public void explicitPushRetryUsesThePostSynchronizationRotationState()
+        throws Exception {
+        List<String> events = new ArrayList<>();
+        AtomicBoolean rotationRequired = new AtomicBoolean(false);
+
+        SecPalNativeAuthPlugin.retryAndroidPushRegistrationNow(
+            () -> true,
+            () -> events.add(
+                rotationRequired.get() ? "rotate-token" : "refresh-token"
+            ),
+            () -> rotationRequired.set(true)
+        );
+
+        assertEquals(Arrays.asList("rotate-token"), events);
+    }
+
+    @Test
+    public void runtimeResetPersistsPushMetadataBeforeDeletingTheToken()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        FakeTokenStorage tokenStorage = new FakeTokenStorage();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, true);
+        preferences.edit()
+            .putString("runtime_bootstrap", "{\"apiOrigin\":\"https://tenant-a.example\"}")
+            .commit();
+        tokenStorage.token = "tenant-a-token";
+
+        assertTrue(
+            SecPalNativeAuthPlugin.clearRuntimeBootstrapStateWithPushRollback(
+                preferences,
+                tokenStorage,
+                tokenStorage.token,
+                new AndroidPushRuntimeManager(backend),
+                metadata,
+                true
+            )
+        );
+
+        assertTrue(backend.metadataWasPersisted);
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void coldStartFinishesPersistedPushTokenDeletion() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, false);
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+
+        assertTrue(
+            SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                preferences,
+                new AndroidPushRuntimeManager(backend)
+            )
+        );
+
+        assertEquals("old-project", backend.initializedMetadata.projectId());
+        assertTrue(backend.tokenDeleted);
+        assertTrue(backend.appDeleted);
+        assertFalse(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void offlineColdStartRetainsPushTokenDeletionForRetry() throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, true);
+        backend.deletionFailure = new IllegalStateException("offline");
+
+        assertFalse(
+            SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                preferences,
+                new AndroidPushRuntimeManager(backend)
+            )
+        );
+
+        assertTrue(preferences.contains("pending_push_runtime_clear"));
+    }
+
+    @Test
+    public void lifecycleCancellationStopsExplicitPushRetryBeforeSessionTeardown()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch retryStarted = new CountDownLatch(1);
+        CountDownLatch retryCancelled = new CountDownLatch(1);
+        CountDownLatch teardownCompleted = new CountDownLatch(1);
+        AtomicBoolean retryCompleted = new AtomicBoolean(false);
+        AtomicReference<String> cancellationReason = new AtomicReference<>();
+        AtomicReference<NativeAuthHttpClient.CancellationSignal> retryCancellation =
+            new AtomicReference<>();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.submitAndroidPushRegistrationRetry(
+                    taskExecutor,
+                    () -> true,
+                    () -> {},
+                    cancellation -> {
+                        retryCancellation.set(cancellation);
+                        retryStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        retryCancelled.countDown();
+                    },
+                    () -> retryCompleted.set(true),
+                    exception -> fail("Protected push storage should remain available"),
+                    cancellationReason::set,
+                    exception -> fail("Explicit push retry should not fail")
+                )
+            );
+            assertTrue(retryStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-reset-after-push-retry",
+                    0,
+                    () -> {
+                        assertTrue(retryCancellation.get().isCancelled());
+                        assertEquals(0L, retryCancelled.getCount());
+                        teardownCompleted.countDown();
+                    },
+                    reason -> {}
+                )
+            );
+
+            assertTrue(retryCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(teardownCompleted.await(2, TimeUnit.SECONDS));
+            assertEquals("SESSION_INVALIDATED", cancellationReason.get());
+            assertFalse(retryCompleted.get());
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void authenticatedPushSchedulingDoesNotBlockAuthenticationCompletion()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch pushStarted = new CountDownLatch(1);
+        CountDownLatch releasePush = new CountDownLatch(1);
+        CountDownLatch pushCompleted = new CountDownLatch(1);
+        AtomicBoolean pushFinished = new AtomicBoolean(false);
+        AtomicBoolean schedulingFailed = new AtomicBoolean(false);
+
+        try {
+            NativeAuthTaskExecutor.SubmitResult result =
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    () -> {
+                        pushStarted.countDown();
+                        try {
+                            releasePush.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new TokenStorageException(
+                                "Push scheduling test interrupted",
+                                exception
+                            );
+                        }
+                        pushFinished.set(true);
+                        pushCompleted.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available"),
+                    () -> schedulingFailed.set(true)
+                );
+
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.ACCEPTED, result);
+            assertTrue(pushStarted.await(2, TimeUnit.SECONDS));
+            assertFalse(pushFinished.get());
+            assertFalse(schedulingFailed.get());
+        } finally {
+            releasePush.countDown();
+            pushCompleted.await(2, TimeUnit.SECONDS);
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void legacyPushRetentionResolvesBeforeCleanupScheduling() {
+        List<String> events = new ArrayList<>();
+
+        SecPalNativeAuthPlugin.completeLegacyPushRetention(
+            () -> events.add("resolve-bridge-call"),
+            () -> events.add("schedule-cleanup")
+        );
+
+        assertEquals(
+            java.util.Arrays.asList(
+                "resolve-bridge-call",
+                "schedule-cleanup"
+            ),
+            events
+        );
+    }
+
+    @Test
+    public void legacyPushRetentionDoesNotUseAGlobalMigrationMarker() {
+        assertFalse(
+            Arrays.stream(SecPalNativeAuthPlugin.class.getDeclaredFields())
+                .anyMatch(field -> field.getName().contains("LEGACY_PUSH_MIGRATION"))
+        );
+    }
+
+    @Test
+    public void lifecycleCancellationInterruptsAuthenticatedPushScheduling()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch pushStarted = new CountDownLatch(1);
+        CountDownLatch pushCancelled = new CountDownLatch(1);
+        CountDownLatch retryRequired = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    cancellation -> {
+                        pushStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        pushCancelled.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available"),
+                    retryRequired::countDown
+                )
+            );
+            assertTrue(pushStarted.await(2, TimeUnit.SECONDS));
+
+            taskExecutor.invalidateAuthenticated("SESSION_INVALIDATED");
+
+            assertTrue(pushCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(retryRequired.await(2, TimeUnit.SECONDS));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void deferredRuntimeCleanupIsCancelledByASessionTransition()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch cleanupCancelled = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    cancellation -> {
+                        cleanupStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        cleanupCancelled.countDown();
+                    },
+                    () -> fail("Protected push storage should remain available")
+                )
+            );
+            assertTrue(cleanupStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-after-startup-cleanup",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(cleanupCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void pendingRuntimeDeletionFinishesBeforeSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm", 3, "old-api-key", "old-project", "old-app", "old-sender"
+        );
+        CountDownLatch deletionStarted = new CountDownLatch(1);
+        CountDownLatch releaseDeletion = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+        AtomicReference<NativeAuthHttpClient.CancellationSignal> cancellation =
+            new AtomicReference<>();
+        RuntimeCleanupFirebaseBackend backend =
+            new RuntimeCleanupFirebaseBackend(preferences, false);
+        backend.deletionStarted = deletionStarted;
+        backend.releaseDeletion = releaseDeletion;
+        preferences.edit()
+            .putString("pending_push_runtime_clear", metadata.toJsObject().toString())
+            .commit();
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    signal -> {
+                        cancellation.set(signal);
+                        SecPalNativeAuthPlugin.recoverPendingPushRuntimeClear(
+                            preferences,
+                            new AndroidPushRuntimeManager(backend),
+                            signal
+                        );
+                    },
+                    () -> fail("Protected push storage should remain available")
+                )
+            );
+            assertTrue(deletionStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-during-token-deletion",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(cancellation.get().isCancelled());
+            assertFalse(transitionCompleted.await(200, TimeUnit.MILLISECONDS));
+            releaseDeletion.countDown();
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+            assertTrue(preferences.contains("pending_push_runtime_clear"));
+        } finally {
+            releaseDeletion.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void pendingRuntimeStorageFailureSettlesBeforeSessionTransitionStarts()
+        throws Exception {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch failureMarkerStarted = new CountDownLatch(1);
+        CountDownLatch releaseFailureMarker = new CountDownLatch(1);
+        CountDownLatch transitionCompleted = new CountDownLatch(1);
+
+        try {
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                SecPalNativeAuthPlugin.schedulePendingRuntimeCleanup(
+                    taskExecutor,
+                    cancellation -> {
+                        cleanupStarted.countDown();
+                        while (!cancellation.isCancelled()) {
+                            Thread.yield();
+                        }
+                        throw new TokenStorageException(
+                            "Protected cleanup failed",
+                            new IllegalStateException("test")
+                        );
+                    },
+                    () -> {
+                        failureMarkerStarted.countDown();
+                        boolean released = false;
+                        while (!released) {
+                            try {
+                                released = releaseFailureMarker.await(
+                                    2,
+                                    TimeUnit.SECONDS
+                                );
+                            } catch (InterruptedException ignored) {
+                                // Protected-state settlement must finish atomically.
+                            }
+                        }
+                    }
+                )
+            );
+            assertTrue(cleanupStarted.await(2, TimeUnit.SECONDS));
+
+            assertEquals(
+                NativeAuthTaskExecutor.SubmitResult.ACCEPTED,
+                taskExecutor.submitSessionTransition(
+                    "runtime-switch-during-cleanup-failure",
+                    0,
+                    transitionCompleted::countDown,
+                    reason -> {}
+                )
+            );
+
+            assertTrue(failureMarkerStarted.await(2, TimeUnit.SECONDS));
+            assertFalse(transitionCompleted.await(200, TimeUnit.MILLISECONDS));
+            releaseFailureMarker.countDown();
+            assertTrue(transitionCompleted.await(2, TimeUnit.SECONDS));
+        } finally {
+            releaseFailureMarker.countDown();
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticatedPushSchedulingPublishesRetryState() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        AtomicBoolean rejected = new AtomicBoolean(false);
+
+        try {
+            taskExecutor.pauseAuthenticated();
+
+            NativeAuthTaskExecutor.SubmitResult result =
+                SecPalNativeAuthPlugin.scheduleAndroidPushAfterAuthentication(
+                    taskExecutor,
+                    () -> fail("Rejected push work must not run"),
+                    () -> fail("Protected push storage should remain available"),
+                    () -> rejected.set(true)
+                );
+
+            assertEquals(NativeAuthTaskExecutor.SubmitResult.BACKGROUNDED, result);
+            assertTrue(rejected.get());
+        } finally {
+            taskExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -1380,98 +2736,6 @@ public class SecPalNativeAuthPluginTest {
         assertNull(preferences.getString("api_base_url", null));
     }
 
-    @Test
-    public void completedNativeRuntimeClearRevokesPushRegistrationWithCapturedCredential() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                assertEquals("123e4567-e89b-42d3-a456-426614174000", installationId);
-                revocationCalled.set(true);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearIgnoresBestEffortPushRevocationFailure() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "rejected-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                revocationCalled.set(true);
-                throw new NativeAuthHttpException("Unauthenticated", 401);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearRevokesPushBeforeServerAuthentication() {
-        List<String> events = new ArrayList<>();
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("push");
-            },
-            (apiOrigin, token) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("logout");
-            }
-        );
-
-        assertEquals(Arrays.asList("push", "logout"), events);
-    }
-
-    @Test
-    public void completedNativeRuntimeClearStillRevokesAuthenticationWhenPushRevocationFails() {
-        AtomicBoolean logoutCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                throw new IOException("offline");
-            },
-            (apiOrigin, token) -> logoutCalled.set(true)
-        );
-
-        assertTrue(logoutCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearIgnoresBestEffortAuthenticationRevocationFailure() {
-        AtomicBoolean logoutCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeNativeAuthenticationAfterRuntimeClear(
-            "rejected-token",
-            "https://tenant-a.example",
-            (apiOrigin, token) -> {
-                logoutCalled.set(true);
-                throw new NativeAuthHttpException("Unauthenticated", 401);
-            }
-        );
-
-        assertTrue(logoutCalled.get());
-    }
-
     private static void assertRuntimeBootstrapInvalid(
         String instanceDisplayName,
         String rawApiBaseUrl
@@ -1636,6 +2900,95 @@ public class SecPalNativeAuthPluginTest {
         public void deleteMessagingToken(
             AndroidPushRuntimeManager.FirebaseAppHandle app
         ) {}
+    }
+
+    private static final class RuntimeCleanupFirebaseBackend
+        implements AndroidPushRuntimeManager.FirebaseBackend {
+        private final InMemorySharedPreferences preferences;
+        private AndroidPushRuntimeManager.FirebaseAppHandle runtimeApp;
+        private AndroidPushRuntimeMetadata initializedMetadata;
+        private RuntimeException deletionFailure;
+        private CountDownLatch deletionStarted;
+        private CountDownLatch releaseDeletion;
+        private boolean metadataWasPersisted;
+        private boolean tokenDeleted;
+        private boolean appDeleted;
+
+        RuntimeCleanupFirebaseBackend(
+            InMemorySharedPreferences preferences,
+            boolean runtimeExists
+        ) {
+            this.preferences = preferences;
+            if (runtimeExists) {
+                runtimeApp = createRuntimeApp();
+            }
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle findRuntimeApp() {
+            return runtimeApp;
+        }
+
+        @Override
+        public AndroidPushRuntimeManager.FirebaseAppHandle initialize(
+            AndroidPushRuntimeMetadata metadata
+        ) {
+            initializedMetadata = metadata;
+            runtimeApp = createRuntimeApp();
+            return runtimeApp;
+        }
+
+        @Override
+        public void cancelPendingTokenRequest() {}
+
+        @Override
+        public void ensureMessaging(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {}
+
+        @Override
+        public void rotateMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {}
+
+        @Override
+        public void deleteMessagingToken(
+            AndroidPushRuntimeManager.FirebaseAppHandle ignored
+        ) {
+            metadataWasPersisted = preferences.contains(
+                "pending_push_runtime_clear"
+            );
+            if (deletionFailure != null) {
+                throw deletionFailure;
+            }
+            if (deletionStarted != null && releaseDeletion != null) {
+                deletionStarted.countDown();
+                boolean released = false;
+                while (!released) {
+                    try {
+                        released = releaseDeletion.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException ignoredException) {
+                        // Firebase token deletion cannot be interrupted.
+                    }
+                }
+            }
+            tokenDeleted = true;
+        }
+
+        private AndroidPushRuntimeManager.FirebaseAppHandle createRuntimeApp() {
+            return new AndroidPushRuntimeManager.FirebaseAppHandle() {
+                @Override
+                public String getName() {
+                    return AndroidPushRegistrationManager.RUNTIME_APP_NAME;
+                }
+
+                @Override
+                public void delete() {
+                    appDeleted = true;
+                    runtimeApp = null;
+                }
+            };
+        }
     }
 
     private static final class InMemorySharedPreferences implements SharedPreferences {

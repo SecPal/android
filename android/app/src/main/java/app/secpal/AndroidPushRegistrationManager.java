@@ -28,6 +28,11 @@ final class AndroidPushRegistrationManager {
     private static final String CHANNEL_UNSUPPORTED =
         "NOTIFICATION_CHANNEL_UNSUPPORTED";
 
+    enum SyncResult {
+        COMPLETE,
+        AUTHENTICATION_REJECTED
+    }
+
     interface Backend {
         RegistrationResponse register(
             String apiOrigin,
@@ -479,12 +484,12 @@ final class AndroidPushRegistrationManager {
         }
     }
 
-    synchronized void onTokenReceived(
+    synchronized SyncResult onTokenReceived(
         String appName,
         String token,
         String authToken
     ) throws TokenStorageException {
-        onTokenReceived(
+        return onTokenReceived(
             appName,
             token,
             authToken,
@@ -492,7 +497,7 @@ final class AndroidPushRegistrationManager {
         );
     }
 
-    synchronized void onTokenReceived(
+    synchronized SyncResult onTokenReceived(
         String appName,
         String token,
         String authToken,
@@ -501,14 +506,14 @@ final class AndroidPushRegistrationManager {
         if (!RUNTIME_APP_NAME.equals(appName)
             || boundApiOrigin == null
             || boundMetadataRevision <= 0) {
-            return;
+            return SyncResult.COMPLETE;
         }
         AndroidPushIdentityStorage.State state = storage.recordToken(
             boundApiOrigin,
             boundMetadataRevision,
             token
         );
-        sync(state, authToken, cancellation);
+        return sync(state, authToken, cancellation);
     }
 
     synchronized void onTokenError(String appName) {
@@ -519,15 +524,19 @@ final class AndroidPushRegistrationManager {
         setStatus("retry_pending", "TOKEN_UNAVAILABLE");
     }
 
-    synchronized void onAuthenticated(String authToken) throws TokenStorageException {
-        onAuthenticated(authToken, new NativeAuthHttpClient.CancellationSignal());
+    synchronized SyncResult onAuthenticated(String authToken)
+        throws TokenStorageException {
+        return onAuthenticated(
+            authToken,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
     }
 
-    synchronized void onAuthenticated(
+    synchronized SyncResult onAuthenticated(
         String authToken,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) throws TokenStorageException {
-        sync(storage.load(), authToken, cancellation);
+        return sync(storage.load(), authToken, cancellation);
     }
 
     synchronized NativeCredentialRollback prepareCredentialReplacement(
@@ -909,39 +918,43 @@ final class AndroidPushRegistrationManager {
         return hasAuthToken(state.pendingRevocationAuthToken());
     }
 
-    private void sync(
+    private SyncResult sync(
         AndroidPushIdentityStorage.State state,
         String authToken
     ) throws TokenStorageException {
-        sync(state, authToken, new NativeAuthHttpClient.CancellationSignal());
+        return sync(
+            state,
+            authToken,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
     }
 
-    private void sync(
+    private SyncResult sync(
         AndroidPushIdentityStorage.State state,
         String authToken,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) throws TokenStorageException {
         if ("disabled".equals(status)) {
             setStatus("disabled", null);
-            return;
+            return SyncResult.COMPLETE;
         }
         if (state != null && state.isReconfigurationRequired()) {
             setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
-            return;
+            return SyncResult.COMPLETE;
         }
         if (state == null || state.token() == null) {
             if (state != null && state.hasPendingRevocation()) {
                 state = retryPendingRevocation(state, cancellation);
                 if (state != null && state.hasPendingRevocation()) {
-                    return;
+                    return SyncResult.COMPLETE;
                 }
             }
             setStatus(boundApiOrigin == null ? "unconfigured" : "awaiting_token", null);
-            return;
+            return SyncResult.COMPLETE;
         }
         if (!hasAuthToken(authToken)) {
             setStatus("awaiting_auth", null);
-            return;
+            return SyncResult.COMPLETE;
         }
         if (state.hasPendingRevocation()) {
             state = retryPendingRevocation(state, cancellation);
@@ -950,14 +963,14 @@ final class AndroidPushRegistrationManager {
                     boundApiOrigin == null ? "unconfigured" : "awaiting_token",
                     null
                 );
-                return;
+                return SyncResult.COMPLETE;
             }
             if (state.hasPendingRevocation()) {
-                return;
+                return SyncResult.COMPLETE;
             }
             if (state.token() == null || state.token().isEmpty()) {
                 setStatus("awaiting_token", null);
-                return;
+                return SyncResult.COMPLETE;
             }
         }
         if (!state.needsRegistration(
@@ -966,7 +979,7 @@ final class AndroidPushRegistrationManager {
             packageVersionCode
         )) {
             setStatus("registered", null);
-            return;
+            return SyncResult.COMPLETE;
         }
 
         String lifecycleEvent = state.hasServerRegistration()
@@ -991,6 +1004,7 @@ final class AndroidPushRegistrationManager {
                 setStatus("registered", null);
             } else if (responseStatus == 401) {
                 setStatus("awaiting_auth", "AUTHENTICATION_REQUIRED");
+                return SyncResult.AUTHENTICATION_REJECTED;
             } else if (responseStatus == 409 && response.requiresReconfiguration()) {
                 storage.markReconfigurationRequired(state);
                 setStatus("reconfiguration_required", "RUNTIME_BINDING_REJECTED");
@@ -1002,6 +1016,7 @@ final class AndroidPushRegistrationManager {
         } catch (NativeAuthHttpException | JSONException | RuntimeException exception) {
             setStatus("retry_pending", "REGISTRATION_FAILED");
         }
+        return SyncResult.COMPLETE;
     }
 
     private AndroidPushIdentityStorage.State retryPendingRevocation(

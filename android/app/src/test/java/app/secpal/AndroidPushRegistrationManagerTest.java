@@ -2113,6 +2113,31 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void registrationRejectionReturnsAuthenticationInvalidation()
+        throws Exception {
+        RecordingBackend backend = new RecordingBackend();
+        backend.registrationResponse =
+            new AndroidPushRegistrationManager.RegistrationResponse(401, null);
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            createStorage(new InMemorySharedPreferences()),
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+
+        AndroidPushRegistrationManager.SyncResult result = manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "rejected-auth-token"
+        );
+
+        assertEquals(
+            AndroidPushRegistrationManager.SyncResult.AUTHENTICATION_REJECTED,
+            result
+        );
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void unrelatedRegistrationConflictRemainsRetryable() throws Exception {
         RecordingBackend backend = new RecordingBackend();
         backend.registrationResponse =

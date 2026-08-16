@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unified rejected native bearer handling across routed API requests and push
+  registration: the initiating task is no longer self-interrupted, push
+  identity and FCM state are invalidated before the bearer is cleared, and the
+  WebView receives one abstract session-invalidated event (issue #599).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and
