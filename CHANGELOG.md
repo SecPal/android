@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevented native Android push rebind cleanup from disclosing a new tenant's
+  bearer to the previous origin, preserved pending cleanup on cancellation,
+  cleared abandoned cold-start rebind authority, and kept logout status
+  consistent after protected-state recovery.
 - Hardened native Android push identity registration against missing fingerprint
   inputs and restricted persisted runtime bindings to canonical bare HTTPS
   origins.
