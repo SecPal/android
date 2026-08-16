@@ -133,8 +133,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its protected failure-state update before replacing the runtime. Runtime
   transitions reschedule Firebase refresh only after their gate reopens, and a
   legacy tombstone without its original authority forces identity and token
-  rotation instead of borrowing a future login's bearer (issue #411, part of
-  #402).
+  rotation instead of borrowing a future login's bearer. Disabling push without
+  revocation authority now invalidates any native token-bearing identity before
+  runtime teardown, and an authentication rejection invalidates protected push
+  state and deletes the FCM token before clearing the rejected bearer while
+  retaining any independently authorized previous-registration cleanup (issue
+  #411, part of #402).
 - Bounded the Android bearer-authenticated request broker to one in-flight and
   up to eight queued small operations with a 144 MiB aggregate native working-
   set budget, including conservative Base64, Java-string, response-copy, and

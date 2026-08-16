@@ -206,7 +206,19 @@ final class AndroidPushRegistrationManager {
             boolean preparedDisable = current != null
                 && current.hasPendingRebind()
                 && current.pendingRebindApiOrigin().equals(apiOrigin);
-            if (!preparedDisable) {
+            boolean canRevokePreviousRegistration = preparedDisable
+                && current.hasServerRegistration()
+                && hasAuthToken(current.pendingRebindAuthToken());
+            boolean hasIdentityToInvalidate = current != null
+                && (current.token() != null || current.hasServerRegistration());
+            if (!canRevokePreviousRegistration
+                && current != null
+                && current.hasPendingRevocation()) {
+                storage.invalidateCurrentIdentityForTokenRotation();
+            } else if (!canRevokePreviousRegistration
+                && (hasIdentityToInvalidate || storage.requiresTokenRotation())) {
+                replaceIdentityForTokenRotation(true);
+            } else if (!canRevokePreviousRegistration) {
                 storage.clear();
             }
             boundApiOrigin = null;
@@ -1119,6 +1131,22 @@ final class AndroidPushRegistrationManager {
             setStatus("awaiting_auth", null);
         } else {
             setStatus(disabled ? "disabled" : "unconfigured", null);
+        }
+    }
+
+    synchronized void onAuthenticationRejected() throws TokenStorageException {
+        boolean disabled = "disabled".equals(status);
+        AndroidPushIdentityStorage.State retained =
+            storage.invalidateCurrentIdentityForTokenRotation();
+        if (disabled) {
+            setStatus("disabled", null);
+        } else if (retained != null && retained.hasPendingRevocation()) {
+            setStatus("retry_pending", "PREVIOUS_REGISTRATION_PENDING");
+        } else if (boundApiOrigin != null && boundMetadataRevision > 0) {
+            storage.bindRuntime(boundApiOrigin, boundMetadataRevision);
+            setStatus("awaiting_auth", null);
+        } else {
+            setStatus("unconfigured", null);
         }
     }
 

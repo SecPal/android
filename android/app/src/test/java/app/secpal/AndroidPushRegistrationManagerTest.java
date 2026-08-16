@@ -1108,6 +1108,181 @@ public class AndroidPushRegistrationManagerTest {
     }
 
     @Test
+    public void disablingPushWithoutRevocationAuthorityRotatesTheIdentity()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+        manager.rebindRuntime("https://tenant-b.example", null, null);
+
+        assertNull(storage.load());
+        assertTrue(manager.requiresTokenRotation());
+        assertEquals("disabled", manager.getStatus().getString("state"));
+        assertEquals(0, backend.unregisterCount);
+    }
+
+    @Test
+    public void disablingPushInvalidatesAnUnregisteredToken() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        storage.recordToken(API_ORIGIN, 3, TOKEN_ONE);
+
+        manager.prepareRuntimeRebind("https://tenant-b.example", null);
+        manager.rebindRuntime("https://tenant-b.example", null, null);
+
+        assertNull(storage.load());
+        assertTrue(manager.requiresTokenRotation());
+        assertEquals("disabled", manager.getStatus().getString("state"));
+        assertEquals(0, backend.unregisterCount);
+    }
+
+    @Test
+    public void disablingPushPreservesPendingPreviousRevocation() throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        String previousInstallationId = storage.load().installationId();
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+        manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4),
+            "old-tenant-auth-token"
+        );
+
+        manager.bindRuntime("https://tenant-b.example", null);
+
+        AndroidPushIdentityStorage.State retained = storage.load();
+        assertNotNull(retained);
+        assertNull(retained.token());
+        assertTrue(retained.hasPendingRevocation());
+        assertEquals(API_ORIGIN, retained.pendingRevocationApiOrigin());
+        assertEquals(
+            previousInstallationId,
+            retained.pendingRevocationInstallationId()
+        );
+        assertEquals(
+            "old-tenant-auth-token",
+            retained.pendingRevocationAuthToken()
+        );
+        assertTrue(manager.requiresTokenRotation());
+        assertEquals("disabled", manager.getStatus().getString("state"));
+    }
+
+    @Test
+    public void rejectedAuthenticationInvalidatesTheRegisteredIdentity()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "rejected-auth-token"
+        );
+        String previousInstallationId = storage.load().installationId();
+
+        manager.onAuthenticationRejected();
+
+        AndroidPushIdentityStorage.State replacement = storage.load();
+        assertNotEquals(previousInstallationId, replacement.installationId());
+        assertNull(replacement.token());
+        assertFalse(replacement.hasServerRegistration());
+        assertTrue(manager.requiresTokenRotation());
+        assertEquals("awaiting_auth", manager.getStatus().getString("state"));
+        assertEquals(0, backend.unregisterCount);
+    }
+
+    @Test
+    public void rejectedAuthenticationPreservesPreviousRevocationAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        RecordingBackend backend = new RecordingBackend();
+        AndroidPushRegistrationManager manager = new AndroidPushRegistrationManager(
+            storage,
+            backend
+        );
+        manager.bindRuntime(API_ORIGIN, pushMetadata(3));
+        manager.onTokenReceived(
+            AndroidPushRegistrationManager.RUNTIME_APP_NAME,
+            TOKEN_ONE,
+            "old-tenant-auth-token"
+        );
+        String previousInstallationId = storage.load().installationId();
+
+        manager.prepareRuntimeRebind(
+            "https://tenant-b.example",
+            "old-tenant-auth-token"
+        );
+        manager.rebindRuntime(
+            "https://tenant-b.example",
+            pushMetadata(4),
+            "old-tenant-auth-token"
+        );
+        String rejectedInstallationId = storage.load().installationId();
+
+        manager.onAuthenticationRejected();
+
+        AndroidPushIdentityStorage.State replacement = storage.load();
+        assertNotEquals(rejectedInstallationId, replacement.installationId());
+        assertNull(replacement.token());
+        assertFalse(replacement.hasServerRegistration());
+        assertTrue(replacement.hasPendingRevocation());
+        assertEquals(API_ORIGIN, replacement.pendingRevocationApiOrigin());
+        assertEquals(
+            previousInstallationId,
+            replacement.pendingRevocationInstallationId()
+        );
+        assertEquals(
+            "old-tenant-auth-token",
+            replacement.pendingRevocationAuthToken()
+        );
+        assertTrue(manager.requiresTokenRotation());
+        assertEquals("retry_pending", manager.getStatus().getString("state"));
+    }
+
+    @Test
     public void runtimeResetWithoutRevocationAuthorityInvalidatesTheLocalIdentity()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(

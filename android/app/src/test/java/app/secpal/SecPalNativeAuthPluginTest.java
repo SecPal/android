@@ -687,6 +687,112 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
+    public void rejectedAuthenticationInvalidatesPushBeforeClearingTheBearer() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> events.add("invalidate-push-identity"),
+                () -> events.add("delete-push-token"),
+                () -> events.add("push-storage-error")
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "delete-push-token",
+                    "clear-token"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticationStillClearsBearerWhenPushTokenDeletionFails() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> events.add("invalidate-push-identity"),
+                () -> {
+                    events.add("delete-push-token");
+                    throw new IllegalStateException("FCM delete failed");
+                },
+                () -> events.add("push-storage-error")
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "delete-push-token",
+                    "clear-token"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rejectedAuthenticationDeletesTokenWhenPushInvalidationFails() {
+        NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "rejected-auth-token",
+            events
+        );
+
+        try {
+            SecPalNativeAuthPlugin.invalidateRejectedAuthentication(
+                taskExecutor,
+                tokenStorage,
+                () -> {
+                    events.add("invalidate-push-identity");
+                    throw new TokenStorageException(
+                        "Push storage failed",
+                        new IllegalStateException("storage")
+                    );
+                },
+                () -> events.add("delete-push-token"),
+                () -> events.add("push-storage-error")
+            );
+
+            assertEquals(
+                Arrays.asList(
+                    "invalidate-push-identity",
+                    "push-storage-error",
+                    "delete-push-token",
+                    "clear-token"
+                ),
+                events
+            );
+            assertNull(tokenStorage.token);
+        } finally {
+            taskExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void resolveErrorCodeUsesValidationFallbackWhenStatusIsZero() {
         assertEquals(
             "VALIDATION_ERROR",

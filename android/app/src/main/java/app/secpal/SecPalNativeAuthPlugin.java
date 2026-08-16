@@ -3034,9 +3034,38 @@ public class SecPalNativeAuthPlugin extends Plugin {
             NativeAuthHttpException httpException = (NativeAuthHttpException) exception;
 
             if (httpException.getStatusCode() == 401) {
-                taskExecutor.invalidateAndRunSessionMutation(tokenStorage::clearToken);
+                invalidateRejectedAuthentication(
+                    taskExecutor,
+                    tokenStorage,
+                    androidPushRegistrationManager::onAuthenticationRejected,
+                    androidPushRuntimeManager::deleteToken,
+                    this::handleAndroidPushProtectedStateError
+                );
             }
         }
+    }
+
+    static void invalidateRejectedAuthentication(
+        NativeAuthTaskExecutor taskExecutor,
+        TokenStorage tokenStorage,
+        PushTask pushIdentityInvalidation,
+        Runnable pushTokenDeletion,
+        Runnable protectedStorageErrorMarker
+    ) {
+        taskExecutor.invalidateAndRunSessionMutation(() -> {
+            try {
+                pushIdentityInvalidation.run();
+            } catch (TokenStorageException exception) {
+                protectedStorageErrorMarker.run();
+            }
+            try {
+                pushTokenDeletion.run();
+            } catch (RuntimeException ignored) {
+                // A rejected bearer cannot be retained solely to retry local deletion.
+            } finally {
+                tokenStorage.clearToken();
+            }
+        });
     }
 
     private void requireNetworkConnection() throws NetworkUnavailableException {
