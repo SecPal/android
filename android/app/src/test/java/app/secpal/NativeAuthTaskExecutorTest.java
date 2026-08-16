@@ -874,6 +874,7 @@ public class NativeAuthTaskExecutorTest {
         NativeAuthTaskExecutor taskExecutor = new NativeAuthTaskExecutor();
         CountDownLatch transitionStarted = new CountDownLatch(1);
         CountDownLatch releaseTransition = new CountDownLatch(1);
+        CountDownLatch transitionInterrupted = new CountDownLatch(1);
         CountDownLatch transitionExitStarted = new CountDownLatch(1);
         CountDownLatch allowTransitionExit = new CountDownLatch(1);
         CountDownLatch transitionCancelled = new CountDownLatch(1);
@@ -892,7 +893,8 @@ public class NativeAuthTaskExecutorTest {
                                 try {
                                     releaseTransition.await();
                                 } catch (InterruptedException ignored) {
-                                    // Keep the transition open until the cancellation is observed.
+                                    transitionInterrupted.countDown();
+                                    // Keep the transition open until the test releases it.
                                 }
                             }
                         } finally {
@@ -916,6 +918,7 @@ public class NativeAuthTaskExecutorTest {
             taskExecutor.pauseAuthenticated();
 
             assertTrue(transitionCancelled.await(2, TimeUnit.SECONDS));
+            assertTrue(transitionInterrupted.await(2, TimeUnit.SECONDS));
             releaseTransition.countDown();
             assertTrue(transitionExitStarted.await(2, TimeUnit.SECONDS));
             assertEquals(

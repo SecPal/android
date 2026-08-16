@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bearer to the previous origin, preserved pending cleanup on cancellation,
   cleared abandoned cold-start rebind authority, and kept logout status
   consistent after protected-state recovery.
+- Stabilized native Android session-transition cancellation coverage by waiting
+  for the running transition to observe its cancellation interrupt before
+  releasing the transition body and asserting managed-task gate cleanup (issue
+  #607).
 - Hardened native Android push identity registration against missing fingerprint
   inputs and restricted persisted runtime bindings to canonical bare HTTPS
   origins.
