@@ -86,6 +86,23 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void retainedPushRevocationHasNoAuthenticationCleanupPolicy()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State state = storage.bindRuntime(API_ORIGIN, 3);
+        state = storage.recordToken(API_ORIGIN, 3, TOKEN);
+        state = storage.markRegistered(state, "auth-token", "0.1.0", 1);
+
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation("auth-token");
+
+        assertTrue(retained.hasPendingRevocation());
+        assertEquals("auth-token", retained.pendingRevocationAuthToken());
+    }
+
+    @Test
     public void mismatchedTokenCallbackCannotCrossRuntimeBindings() throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
             new InMemorySharedPreferences()

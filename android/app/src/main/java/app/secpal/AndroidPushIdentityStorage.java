@@ -45,7 +45,6 @@ final class AndroidPushIdentityStorage {
         private final String pendingRevocationApiOrigin;
         private final String pendingRevocationInstallationId;
         private final String pendingRevocationAuthToken;
-        private final boolean pendingRevocationRequiresAuthenticationLogout;
         private final String pendingRebindApiOrigin;
         private final String pendingRebindAuthToken;
         private final boolean reconfigurationRequired;
@@ -61,7 +60,6 @@ final class AndroidPushIdentityStorage {
             String pendingRevocationApiOrigin,
             String pendingRevocationInstallationId,
             String pendingRevocationAuthToken,
-            boolean pendingRevocationRequiresAuthenticationLogout,
             String pendingRebindApiOrigin,
             String pendingRebindAuthToken,
             boolean reconfigurationRequired
@@ -76,8 +74,6 @@ final class AndroidPushIdentityStorage {
             this.pendingRevocationApiOrigin = pendingRevocationApiOrigin;
             this.pendingRevocationInstallationId = pendingRevocationInstallationId;
             this.pendingRevocationAuthToken = pendingRevocationAuthToken;
-            this.pendingRevocationRequiresAuthenticationLogout =
-                pendingRevocationRequiresAuthenticationLogout;
             this.pendingRebindApiOrigin = pendingRebindApiOrigin;
             this.pendingRebindAuthToken = pendingRebindAuthToken;
             this.reconfigurationRequired = reconfigurationRequired;
@@ -114,10 +110,6 @@ final class AndroidPushIdentityStorage {
             return pendingRevocationAuthToken;
         }
 
-        boolean pendingRevocationRequiresAuthenticationLogout() {
-            return pendingRevocationRequiresAuthenticationLogout;
-        }
-
         boolean hasPendingRebind() {
             return pendingRebindApiOrigin != null;
         }
@@ -146,7 +138,6 @@ final class AndroidPushIdentityStorage {
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
                 pendingRevocationAuthToken,
-                pendingRevocationRequiresAuthenticationLogout,
                 pendingRebindApiOrigin,
                 pendingRebindAuthToken,
                 reconfigurationRequired
@@ -193,9 +184,6 @@ final class AndroidPushIdentityStorage {
                         "pendingRevocationAuthToken",
                         pendingRevocationAuthToken
                     );
-                }
-                if (pendingRevocationRequiresAuthenticationLogout) {
-                    json.put("pendingRevocationRequiresAuthenticationLogout", true);
                 }
             }
             if (hasPendingRebind()) {
@@ -316,9 +304,6 @@ final class AndroidPushIdentityStorage {
             && !registrationAuthorityUnavailable
             ? current.installationId()
             : null;
-        boolean revokePreviousAuthentication = pendingRevocationAuthToken != null
-            && !normalizedOrigin.equals(current.apiOrigin());
-
         State replacement = new State(
             normalizedOrigin,
             metadataRevision,
@@ -330,7 +315,6 @@ final class AndroidPushIdentityStorage {
             pendingRevocationApiOrigin,
             pendingRevocationInstallationId,
             pendingRevocationAuthToken,
-            revokePreviousAuthentication,
             null,
             null,
             false
@@ -367,7 +351,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             normalizedOrigin,
             normalizedAuthToken,
             current.isReconfigurationRequired()
@@ -406,7 +389,6 @@ final class AndroidPushIdentityStorage {
                 current.pendingRevocationApiOrigin(),
                 current.pendingRevocationInstallationId(),
                 pendingAuthToken,
-                true,
                 null,
                 null,
                 current.isReconfigurationRequired()
@@ -466,7 +448,6 @@ final class AndroidPushIdentityStorage {
             current.apiOrigin(),
             normalizedInstallationId,
             normalizePendingAuthToken(authToken),
-            false,
             current.pendingRebindApiOrigin(),
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
@@ -474,10 +455,7 @@ final class AndroidPushIdentityStorage {
         save(retained);
     }
 
-    synchronized State retainCurrentRegistrationForRevocation(
-        String authToken,
-        boolean revokeAuthentication
-    )
+    synchronized State retainCurrentRegistrationForRevocation(String authToken)
         throws TokenStorageException {
         State current = load();
         if (current == null || !current.hasServerRegistration()) {
@@ -505,7 +483,6 @@ final class AndroidPushIdentityStorage {
             current.apiOrigin(),
             current.installationId(),
             retainedAuthToken,
-            revokeAuthentication,
             null,
             null,
             false
@@ -538,7 +515,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             null,
             null,
             false
@@ -598,7 +574,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             current.pendingRebindApiOrigin(),
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
@@ -633,7 +608,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             current.pendingRebindApiOrigin(),
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
@@ -662,7 +636,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             current.pendingRebindApiOrigin(),
             current.pendingRebindAuthToken(),
             true
@@ -687,7 +660,6 @@ final class AndroidPushIdentityStorage {
             null,
             null,
             null,
-            false,
             null,
             null,
             current.isReconfigurationRequired()
@@ -720,7 +692,6 @@ final class AndroidPushIdentityStorage {
             null,
             null,
             null,
-            false,
             current.pendingRebindApiOrigin(),
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
@@ -782,11 +753,6 @@ final class AndroidPushIdentityStorage {
                     json.getString("pendingRevocationAuthToken")
                 )
                 : null;
-            boolean pendingRevocationRequiresAuthenticationLogout =
-                json.optBoolean(
-                    "pendingRevocationRequiresAuthenticationLogout",
-                    false
-                );
             String pendingRebindApiOrigin = json.has("pendingRebindApiOrigin")
                 ? requireApiOrigin(json.getString("pendingRebindApiOrigin"))
                 : null;
@@ -799,8 +765,6 @@ final class AndroidPushIdentityStorage {
                     && !isUuid(pendingRevocationInstallationId))
                 || (pendingRevocationAuthToken != null
                     && pendingRevocationApiOrigin == null)
-                || (pendingRevocationRequiresAuthenticationLogout
-                    && pendingRevocationAuthToken == null)
                 || (pendingRebindAuthToken != null
                     && pendingRebindApiOrigin == null)) {
                 throw new JSONException("Invalid pending Android push revocation");
@@ -816,7 +780,6 @@ final class AndroidPushIdentityStorage {
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
                 pendingRevocationAuthToken,
-                pendingRevocationRequiresAuthenticationLogout,
                 pendingRebindApiOrigin,
                 pendingRebindAuthToken,
                 json.optBoolean("reconfigurationRequired", false)
@@ -962,7 +925,6 @@ final class AndroidPushIdentityStorage {
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
-            current.pendingRevocationRequiresAuthenticationLogout(),
             null,
             null,
             current.isReconfigurationRequired()
