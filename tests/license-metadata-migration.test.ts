@@ -46,23 +46,20 @@ const historicalLicenseReferenceLines = [
   ].join(""),
 ].sort();
 
-function trackedFiles(): string[] {
-  return execFileSync("git", ["ls-files", "-z"], {
+function gitGrepLines(pattern: string): string[] {
+  return execFileSync("git", ["grep", "-n", "-F", "--", pattern], {
     cwd: repoRoot,
     encoding: "utf8",
   })
-    .split("\0")
-    .filter(Boolean);
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.replace(/^([^:]+):\d+:/, "$1:"));
 }
 
 describe("licensing metadata migration", () => {
   it("limits obsolete addendum references to explicit historical lines", () => {
-    const obsoleteReferenceLines = trackedFiles().flatMap((path) =>
-      readFileSync(resolve(repoRoot, path), "utf8")
-        .split(/\r?\n/)
-        .filter((line) => line.includes(obsoleteLicenseReference))
-        .map((line) => `${path}:${line}`)
-    );
+    const obsoleteReferenceLines = gitGrepLines(obsoleteLicenseReference);
 
     expect(obsoleteReferenceLines.sort()).toEqual(
       historicalLicenseReferenceLines
