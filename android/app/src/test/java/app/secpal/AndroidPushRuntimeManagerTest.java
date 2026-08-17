@@ -55,6 +55,31 @@ public class AndroidPushRuntimeManagerTest {
     }
 
     @Test
+    public void applyReusesAnExistingRuntimeWhenFirebaseOptionsStillMatch() {
+        AndroidPushRuntimeMetadata metadata = new AndroidPushRuntimeMetadata(
+            "fcm",
+            3,
+            "public-client-api-key-demo-1234567890",
+            "secpal-demo-push",
+            "1:1234567890:android:abcdef1234567890",
+            "1234567890"
+        );
+        FakeFirebaseBackend backend = new FakeFirebaseBackend();
+        backend.existingAppMatchesMetadata = true;
+        backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
+        AndroidPushRuntimeManager manager = new AndroidPushRuntimeManager(backend);
+
+        manager.apply(metadata);
+
+        assertEquals(0, backend.initializeCallCount);
+        assertEquals(1, backend.ensureMessagingCallCount);
+        assertEquals(0, backend.deleteMessagingTokenCallCount);
+        assertEquals(0, backend.deleteCallCount);
+        assertEquals(Arrays.asList("cancel", "refresh"), backend.events);
+        assertSame(backend.existingApp, backend.lastEnsuredMessagingApp);
+    }
+
+    @Test
     public void applyClearsExistingRuntimeWhenDeploymentDisablesPush() {
         FakeFirebaseBackend backend = new FakeFirebaseBackend();
         backend.existingApp = new FakeFirebaseApp(backend, "secpal-runtime-push");
@@ -519,6 +544,7 @@ public class AndroidPushRuntimeManagerTest {
         int deleteCallCount;
         RuntimeException nextInitializeFailure;
         RuntimeException nextDeleteMessagingFailure;
+        boolean existingAppMatchesMetadata;
         final List<String> events = new ArrayList<>();
 
         @Override
@@ -584,6 +610,11 @@ public class AndroidPushRuntimeManagerTest {
         @Override
         public String getName() {
             return name;
+        }
+
+        @Override
+        public boolean matches(AndroidPushRuntimeMetadata metadata) {
+            return owner.existingAppMatchesMetadata;
         }
 
         @Override

@@ -10,9 +10,11 @@ import android.content.Context;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +34,10 @@ final class AndroidPushRuntimeManager {
 
     interface FirebaseAppHandle {
         String getName();
+
+        default boolean matches(AndroidPushRuntimeMetadata metadata) {
+            return false;
+        }
 
         void delete();
     }
@@ -101,6 +107,13 @@ final class AndroidPushRuntimeManager {
         firebaseBackend.cancelPendingTokenRequest();
 
         FirebaseAppHandle existingRuntimeApp = firebaseBackend.findRuntimeApp();
+
+        if (existingRuntimeApp != null
+            && metadata != null
+            && existingRuntimeApp.matches(metadata)) {
+            firebaseBackend.ensureMessaging(existingRuntimeApp);
+            return;
+        }
 
         if (existingRuntimeApp != null) {
             firebaseBackend.deleteMessagingToken(existingRuntimeApp);
@@ -363,6 +376,27 @@ final class AndroidPushRuntimeManager {
         @Override
         public String getName() {
             return firebaseApp.getName();
+        }
+
+        @Override
+        public boolean matches(AndroidPushRuntimeMetadata metadata) {
+            if (metadata == null) {
+                return false;
+            }
+            FirebaseOptions options = firebaseApp.getOptions();
+            return Objects.equals(options.getApiKey(), metadata.apiKey())
+                && Objects.equals(
+                    options.getProjectId(),
+                    metadata.projectId()
+                )
+                && Objects.equals(
+                    options.getApplicationId(),
+                    metadata.applicationId()
+                )
+                && Objects.equals(
+                    options.getGcmSenderId(),
+                    metadata.senderId()
+                );
         }
 
         @Override

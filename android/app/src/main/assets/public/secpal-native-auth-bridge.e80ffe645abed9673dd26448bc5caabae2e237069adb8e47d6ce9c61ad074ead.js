@@ -11,6 +11,7 @@
   const runtimeResetPendingStorageKey =
     "secpal-android-runtime-reset-pending";
   const incompatibleVaultWrapperKind = "native-device-bound";
+  const passkeyCapabilityUnavailableReason = "PASSKEY_CAPABILITY_UNAVAILABLE";
   const maxAndroidPushMetadataRevision = 2147483647;
   const legacyAndroidPushIdentityStorageKeyPrefixes = [
     "secpal-android-push-installation:",
@@ -1508,12 +1509,13 @@
       await ensureRuntimeConfigured();
       let result;
       let didLogoutSucceed = false;
+      const wasAuthActive = authState.active === true;
       try {
         setAuthActive(false);
         result = await getPlugin().logout();
         didLogoutSucceed = true;
       } finally {
-        setAuthActive(false);
+        setAuthActive(didLogoutSucceed ? false : wasAuthActive);
       }
 
       if (didLogoutSucceed) {

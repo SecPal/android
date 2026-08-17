@@ -1392,6 +1392,52 @@ public class SecPalNativeAuthPluginTest {
         assertTrue(logoutCalled.get());
     }
 
+    @Test
+    public void nativeLogoutDeletesThePushTokenBeforeClearingTheCredential() {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "stored-token",
+            events
+        );
+
+        SecPalNativeAuthPlugin.clearNativeCredentialAfterPushTokenDeletion(
+            () -> events.add("delete-push-token"),
+            tokenStorage
+        );
+
+        assertEquals(
+            Arrays.asList("delete-push-token", "clear-token"),
+            events
+        );
+        assertNull(tokenStorage.token);
+    }
+
+    @Test
+    public void nativeLogoutKeepsTheCredentialWhenPushTokenDeletionFails() {
+        List<String> events = new ArrayList<>();
+        RecordingTokenStorage tokenStorage = new RecordingTokenStorage(
+            "stored-token",
+            events
+        );
+        RuntimeException deletionFailure = new RuntimeException("delete-failed");
+
+        try {
+            SecPalNativeAuthPlugin.clearNativeCredentialAfterPushTokenDeletion(
+                () -> {
+                    events.add("delete-push-token");
+                    throw deletionFailure;
+                },
+                tokenStorage
+            );
+            fail("Expected push token deletion failure");
+        } catch (RuntimeException thrown) {
+            assertTrue(thrown == deletionFailure);
+        }
+
+        assertEquals(Arrays.asList("delete-push-token"), events);
+        assertEquals("stored-token", tokenStorage.token);
+    }
+
     private static void assertRuntimeBootstrapInvalid(
         String instanceDisplayName,
         String rawApiBaseUrl

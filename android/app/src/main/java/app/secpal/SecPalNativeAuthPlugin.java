@@ -59,6 +59,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
             throws IOException, JSONException, NativeAuthHttpException;
     }
 
+    @FunctionalInterface
+    interface AndroidPushTokenDeleter {
+        void delete();
+    }
+
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
@@ -772,7 +777,10 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     }
 
                     if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
-                        tokenStorage.clearToken();
+                        clearNativeCredentialAfterPushTokenDeletion(
+                            androidPushRuntimeManager::deleteToken,
+                            tokenStorage
+                        );
                         localCredentialCleared.set(true);
                     })) {
                         return;
@@ -1793,6 +1801,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
         } catch (IOException | JSONException | NativeAuthHttpException | RuntimeException ignored) {
             // Runtime reset remains available offline; server logout is best-effort.
         }
+    }
+
+    static void clearNativeCredentialAfterPushTokenDeletion(
+        AndroidPushTokenDeleter pushTokenDeleter,
+        TokenStorage tokenStorage
+    ) {
+        pushTokenDeleter.delete();
+        tokenStorage.clearToken();
     }
 
     static boolean restoreRuntimeBootstrapPersistenceSynchronously(

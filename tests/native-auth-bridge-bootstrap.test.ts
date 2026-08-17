@@ -986,6 +986,48 @@ describe("native auth bridge bootstrap injection", () => {
     expect(plugin.loginWithPasskey).not.toHaveBeenCalled();
   });
 
+  it("returns the canonical unavailable reason when native passkey capabilities are absent", async () => {
+    const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
+    const plugin = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getCurrentUser: vi.fn(),
+      isNetworkAvailable: vi.fn().mockResolvedValue({ available: true }),
+      request: vi.fn(),
+    };
+    const sandbox = {
+      Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+      fetch,
+      Request,
+      Response,
+      Headers,
+      URL,
+      Uint8Array,
+      ArrayBuffer,
+      TextEncoder,
+      TextDecoder,
+      btoa: (value: string) => Buffer.from(value, "binary").toString("base64"),
+      atob: (value: string) => Buffer.from(value, "base64").toString("binary"),
+      console,
+      location: { href: "https://app.secpal.dev/" },
+    } as Record<string, unknown>;
+    sandbox.globalThis = sandbox;
+
+    runNativeBridgeInContext(
+      buildNativeAuthBridgeBootstrapScript("https://api.secpal.dev"),
+      sandbox
+    );
+
+    const bridge = sandbox.SecPalNativeAuthBridge as {
+      getPasskeyCapabilities(): Promise<unknown>;
+    };
+
+    await expect(bridge.getPasskeyCapabilities()).resolves.toEqual({
+      passkeysAvailable: false,
+      reason: "PASSKEY_CAPABILITY_UNAVAILABLE",
+    });
+  });
+
   it("exposes native connectivity status through the injected bridge", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const plugin = {
@@ -2499,10 +2541,12 @@ describe("native auth bridge bootstrap injection", () => {
     const { bridge, sandbox, plugin } =
       await createNativeAuthLifecycleSandbox();
     const logoutListener = vi.fn();
+    const authState = sandbox.__SecPalNativeAuthState as { active: boolean };
 
     plugin.logout.mockRejectedValueOnce(
       Object.assign(new Error("logout failed"), { code: "HTTP_500" })
     );
+    authState.active = true;
 
     (
       sandbox as {
@@ -2517,6 +2561,7 @@ describe("native auth bridge bootstrap injection", () => {
     await flushMicrotasks();
 
     expect(logoutListener).not.toHaveBeenCalled();
+    expect(authState.active).toBe(true);
   });
 
   it("does not render the removed in-app dedicated-device launcher", async () => {
