@@ -16,6 +16,7 @@ const emulatorHelperSource = readFileSync(
   "utf8"
 );
 type WorkflowStep = {
+  id?: string;
   name?: string;
   env?: Record<string, string>;
   if?: string;
@@ -65,10 +66,26 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("jq -e '.status == \"ready\"'");
   });
 
-  it("builds Android against a reproducible checkout of frontend main", () => {
-    expect(workflowSource).toContain("repository: SecPal/frontend");
-    expect(workflowSource).toContain('ref: "main"');
-    expect(workflowSource).toContain("path: frontend");
+  it("builds Android against the validated pinned frontend revision", () => {
+    const revisionStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Read pinned frontend revision"
+    );
+    const checkoutStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Checkout pinned frontend"
+    );
+    const revisionStep = workflow.jobs.smoke.steps[revisionStepIndex];
+    const checkoutStep = workflow.jobs.smoke.steps[checkoutStepIndex];
+
+    expect(revisionStepIndex).toBeGreaterThan(-1);
+    expect(checkoutStepIndex).toBe(revisionStepIndex + 1);
+    expect(revisionStep?.id).toBe("frontend-revision");
+    expect(revisionStep?.run).toContain("android/frontend-revision.txt");
+    expect(revisionStep?.run).toContain("^[0-9a-f]{40}$");
+    expect(checkoutStep?.with).toMatchObject({
+      repository: "SecPal/frontend",
+      ref: "${{ steps.frontend-revision.outputs.sha }}",
+      path: "frontend",
+    });
     expect(workflowSource).toContain(
       "SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend"
     );
@@ -81,7 +98,7 @@ describe("Android smoke workflow", () => {
 
   it("verifies generated native-auth route parity after packaging", () => {
     const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Build debug APK from frontend main"
+      (step) => step.name === "Build debug APK from pinned frontend"
     );
     const parityStepIndex = workflow.jobs.smoke.steps.findIndex(
       (step) => step.name === "Verify generated native-auth route parity"
@@ -107,7 +124,7 @@ describe("Android smoke workflow", () => {
       (step) => step.name === "Record tested revisions"
     );
     const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Build debug APK from frontend main"
+      (step) => step.name === "Build debug APK from pinned frontend"
     );
     const revisionSetup =
       workflow.jobs.smoke.steps[revisionStepIndex]?.run ?? "";

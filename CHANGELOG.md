@@ -40,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refreshed and checked in the complete packaged Android frontend from the
   pinned frontend revision with a commit-derived reproducible build timestamp
-  and its exact generated web asset inventory, removing retired
+  and its exact generated web asset inventory, pinning the Android smoke
+  checkout to the same revision, removing retired
   enrollment-session requests and preventing missing or stale chunks from
   bypassing fail-closed native route-contract extraction (issue #618).
 - Stabilized native Android session-transition cancellation coverage by waiting
