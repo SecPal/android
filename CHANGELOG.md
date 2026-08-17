@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refreshed the packaged Android frontend from the current frontend `main`
+  revision and regenerated its exact web asset inventory, removing retired
+  enrollment-session requests and restoring fail-closed native route-contract
+  extraction (issue #618).
 - Stabilized native Android session-transition cancellation coverage by waiting
   for the running transition to observe its cancellation interrupt before
   releasing the transition body and asserting managed-task gate cleanup (issue
