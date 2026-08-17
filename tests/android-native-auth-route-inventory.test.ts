@@ -125,6 +125,31 @@ function collectAstNodes(root: unknown, type: string): AstNode[] {
   return matches;
 }
 
+const functionNodeTypes = new Set([
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "ArrowFunctionExpression",
+]);
+
+function collectFunctionBodyNodes(root: unknown, type: string): AstNode[] {
+  const matches: AstNode[] = [];
+
+  function visit(value: unknown) {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!isAstNode(value) || functionNodeTypes.has(value.type)) return;
+    if (value.type === type) matches.push(value);
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== "parent") visit(child);
+    }
+  }
+
+  visit(root);
+  return matches;
+}
+
 function identifierName(value: unknown): string | null {
   return isAstNode(value) &&
     value.type === "Identifier" &&
@@ -245,15 +270,97 @@ function derivePackagedCallerContracts(sources: string[]): RouteContract[] {
     candidate.includes("/v1/")
   )) {
     const program = parse(source, { sourceType: "module" });
-    for (const functionNode of collectAstNodes(
-      program,
-      "FunctionDeclaration"
-    )) {
-      if (functionNode.async !== true) continue;
-      const routeTemplates = collectAstNodes(
+    const functionNodes = [
+      ...collectAstNodes(program, "FunctionDeclaration"),
+      ...collectAstNodes(program, "FunctionExpression"),
+      ...collectAstNodes(program, "ArrowFunctionExpression"),
+    ];
+    for (const functionNode of functionNodes) {
+      const templateNodes = collectFunctionBodyNodes(
         functionNode.body,
         "TemplateLiteral"
+      );
+      const protectedLiteralNodes = collectFunctionBodyNodes(
+        functionNode.body,
+        "Literal"
       )
+        .map((node) => ({ node, literal: staticString(node) }))
+        .filter(
+          (candidate): candidate is { node: AstNode; literal: string } =>
+            candidate.literal !== null
+        )
+        .map(({ node, literal }) => {
+          const routeStart = literal.indexOf("/v1/");
+          return routeStart === -1
+            ? null
+            : {
+                node,
+                path: literal
+                  .slice(routeStart)
+                  .split("?", 1)[0]
+                  .replace(/\/+$/, ""),
+              };
+        })
+        .filter(
+          (route): route is { node: AstNode; path: string } =>
+            route !== null && isProtectedRoute(route.path)
+        );
+      if (functionNode.async !== true) {
+        const protectedTemplateNodes = templateNodes.filter((node) => {
+          if (!Array.isArray(node.quasis)) return false;
+          const staticSegments = node.quasis
+            .map((quasi) =>
+              isAstNode(quasi) &&
+              typeof quasi.value === "object" &&
+              quasi.value !== null &&
+              "cooked" in quasi.value &&
+              typeof quasi.value.cooked === "string"
+                ? quasi.value.cooked
+                : ""
+            )
+            .join("");
+          const routeStart = staticSegments.indexOf("/v1/");
+          const path =
+            routeStart === -1
+              ? null
+              : staticSegments
+                  .slice(routeStart)
+                  .split("?", 1)[0]
+                  .replace(/\/+$/, "");
+          return path !== null && isProtectedRoute(path);
+        });
+        const protectedExpressionNodes = [
+          ...protectedTemplateNodes,
+          ...protectedLiteralNodes.map(({ node }) => node),
+        ];
+        if (protectedExpressionNodes.length === 0) continue;
+
+        const staticCatalogExpressionNodes = new Set(
+          collectFunctionBodyNodes(
+            functionNode.body,
+            "ArrayExpression"
+          ).flatMap((arrayExpression) => [
+            ...collectFunctionBodyNodes(arrayExpression, "TemplateLiteral"),
+            ...collectFunctionBodyNodes(arrayExpression, "Literal"),
+          ])
+        );
+        if (
+          protectedExpressionNodes.some(
+            (node) => !staticCatalogExpressionNodes.has(node)
+          )
+        ) {
+          throw new Error(
+            "Protected Android caller must use a statically classified async function"
+          );
+        }
+        continue;
+      }
+      if (protectedLiteralNodes.length > 0) {
+        throw new Error(
+          "Protected Android caller contains an ambiguous route expression"
+        );
+      }
+      const routeTemplates = templateNodes
         .map((node) => ({ node, path: routeFromTemplate(node) }))
         .filter(
           (route): route is { node: AstNode; path: string } =>
@@ -267,7 +374,10 @@ function derivePackagedCallerContracts(sources: string[]): RouteContract[] {
         );
       }
 
-      const properties = collectAstNodes(functionNode.body, "Property");
+      const properties = collectFunctionBodyNodes(
+        functionNode.body,
+        "Property"
+      );
       const methodProperties = properties.filter(
         (property) => propertyName(property) === "method"
       );
@@ -286,7 +396,7 @@ function derivePackagedCallerContracts(sources: string[]): RouteContract[] {
         );
       }
 
-      const searchParamsDeclarations = collectAstNodes(
+      const searchParamsDeclarations = collectFunctionBodyNodes(
         functionNode.body,
         "VariableDeclarator"
       ).filter((declaration) => {
@@ -324,7 +434,7 @@ function derivePackagedCallerContracts(sources: string[]): RouteContract[] {
           `Protected Android caller declares query parameters without URLSearchParams for ${paths[0]}`
         );
       }
-      const queryMutationCalls = collectAstNodes(
+      const queryMutationCalls = collectFunctionBodyNodes(
         functionNode.body,
         "CallExpression"
       ).filter((call) => {
@@ -347,7 +457,7 @@ function derivePackagedCallerContracts(sources: string[]): RouteContract[] {
           `Protected Android caller has a dynamic query key for ${paths[0]}`
         );
       }
-      const usesFormData = collectAstNodes(
+      const usesFormData = collectFunctionBodyNodes(
         functionNode.body,
         "NewExpression"
       ).some((expression) => identifierName(expression.callee) === "FormData");
@@ -435,6 +545,89 @@ describe("Android caller contract derivation", () => {
         responseType: "json",
       },
     ]);
+  });
+
+  it("derives protected callers expressed as async arrow functions", () => {
+    const templateQuote = String.fromCharCode(96);
+    const generatedCaller = [
+      "const updateCustomer = async (id) => {",
+      "  return apiFetch(" +
+        templateQuote +
+        "$" +
+        "{apiBase}/v1/customers/" +
+        "$" +
+        "{id}" +
+        templateQuote +
+        ", {",
+      '    method: "PATCH",',
+      '    headers: { "Content-Type": "application/json" },',
+      "  });",
+      "};",
+    ].join("\n");
+
+    expect(derivePackagedCallerContracts([generatedCaller])).toEqual([
+      {
+        method: "PATCH",
+        path: "/v1/customers/{id}",
+        queryKeys: [],
+        contentTypes: ["application/json"],
+        responseType: "json",
+      },
+    ]);
+  });
+
+  it("rejects promise-returning protected callers that are not statically classified", () => {
+    const templateQuote = String.fromCharCode(96);
+    const generatedCaller = [
+      "function loadCustomers() {",
+      "  return apiFetch(" +
+        templateQuote +
+        "$" +
+        "{apiBase}/v1/customers" +
+        templateQuote +
+        ");",
+      "}",
+    ].join("\n");
+
+    expect(() => derivePackagedCallerContracts([generatedCaller])).toThrow(
+      "Protected Android caller must use a statically classified async function"
+    );
+  });
+
+  it("rejects non-async callers with multiple protected requests", () => {
+    const templateQuote = String.fromCharCode(96);
+    const generatedCaller = [
+      "function loadProtectedResources() {",
+      "  apiFetch(" +
+        templateQuote +
+        "$" +
+        "{apiBase}/v1/customers" +
+        templateQuote +
+        ");",
+      "  return apiFetch(" +
+        templateQuote +
+        "$" +
+        "{apiBase}/v1/sites" +
+        templateQuote +
+        ");",
+      "}",
+    ].join("\n");
+
+    expect(() => derivePackagedCallerContracts([generatedCaller])).toThrow(
+      "Protected Android caller must use a statically classified async function"
+    );
+  });
+
+  it("rejects protected routes assembled through string concatenation", () => {
+    const generatedCaller = [
+      "async function loadCustomer(id) {",
+      '  return apiFetch(apiBase + "/v1/customers/" + id);',
+      "}",
+    ].join("\n");
+
+    expect(() => derivePackagedCallerContracts([generatedCaller])).toThrow(
+      "Protected Android caller contains an ambiguous route expression"
+    );
   });
 });
 

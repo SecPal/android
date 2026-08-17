@@ -22,6 +22,7 @@ on:
       - "scripts/inject-native-auth-bridge.mjs"
       - "scripts/verify-android-frontend-build.mjs"
       - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-assets-clean.mjs"
       - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
@@ -52,6 +53,7 @@ on:
       - "scripts/inject-native-auth-bridge.mjs"
       - "scripts/verify-android-frontend-build.mjs"
       - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-assets-clean.mjs"
       - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
@@ -210,7 +212,9 @@ jobs:
           set -euo pipefail
           echo "build-debug-apk" > "$SMOKE_STEP_FILE"
           npm run cap:sync
+          npm run native:verify:web-assets-clean
           npm run native:assemble:debug
+          npm run native:verify:web-assets-clean
           test -f android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Verify generated native-auth route parity

@@ -46,6 +46,7 @@
     "format": "prettier --write --cache '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "format:check": "prettier --check '**/*.{md,yml,yaml,json,ts,js,mjs,css,html}'",
     "native:verify": "test -f android/settings.gradle && test -f android/app/build.gradle && test -f android/app/src/main/AndroidManifest.xml",
+    "native:verify:web-assets-clean": "node ./scripts/verify-android-web-assets-clean.mjs",
     "native:verify:network-security": "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-network-security.sh",
     "native:verify:packaging-guard": "bash ./scripts/with-android-env.sh bash ./scripts/verify-android-packaging-guard.sh",
     "cap:sync": "npm run frontend:build && npx cap sync android && npm run native:inventory:web-assets && npm run native:patch:capacitor-android && npm run native:normalize:cordova-config && npm run native:normalize:cordova-gradle",

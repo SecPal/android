@@ -60,9 +60,11 @@ function runBuildScript(frontendDirectory?: string) {
 function runBuildScriptWithFrontendState({
   actualRevision = expectedFrontendRevision,
   dirty = false,
+  ignoredBuildInput = false,
 }: {
   actualRevision?: string;
   dirty?: boolean;
+  ignoredBuildInput?: boolean;
 }) {
   const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-state-"));
   const isolatedRepositoryRoot = join(tempRoot, "android");
@@ -108,7 +110,11 @@ if [ "$#" -eq 2 ] && [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; the
 elif [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
   printf '%s\\n' "$SECPAL_TEST_ACTUAL_REVISION"
 elif [ "$1" = "-C" ] && [ "$3" = "status" ]; then
-  if [ "$SECPAL_TEST_FRONTEND_DIRTY" = "1" ]; then
+  if [[ " $* " == *" --ignored=matching "* ]]; then
+    if [ "$SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT" = "1" ]; then
+      printf '!! .env.android.local\\n'
+    fi
+  elif [ "$SECPAL_TEST_FRONTEND_DIRTY" = "1" ]; then
     printf ' M src/App.tsx\\n'
   fi
 elif [ "$1" = "-C" ] && [ "$3" = "show" ]; then
@@ -134,6 +140,7 @@ fi
         SECPAL_ANDROID_FRONTEND_DIR: frontendDirectory,
         SECPAL_TEST_ACTUAL_REVISION: actualRevision,
         SECPAL_TEST_FRONTEND_DIRTY: dirty ? "1" : "0",
+        SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT: ignoredBuildInput ? "1" : "0",
         SECPAL_TEST_REPOSITORY_ROOT: isolatedRepositoryRoot,
       },
     });
@@ -194,5 +201,15 @@ describe("build frontend web script", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("frontend checkout is not clean");
+  });
+
+  it("rejects ignored frontend build inputs", () => {
+    const result = runBuildScriptWithFrontendState({
+      ignoredBuildInput: true,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("ignored build inputs");
+    expect(result.stderr).toContain(".env.android.local");
   });
 });

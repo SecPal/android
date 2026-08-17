@@ -53,6 +53,34 @@ if [ -n "$FRONTEND_DIRTY_STATE" ]; then
   exit 1
 fi
 
+FRONTEND_IGNORED_BUILD_STATE="$(
+  git -C "$FRONTEND_DIR" status --short --ignored=matching --untracked-files=all -- . |
+    awk '
+      BEGIN {
+        allowed["node_modules/"] = 1
+        allowed["dist/"] = 1
+        allowed[".context/"] = 1
+        allowed[".polyscope-preview-stage/"] = 1
+        allowed[".eslintcache"] = 1
+        allowed[".prettiercache"] = 1
+        allowed["coverage/"] = 1
+        allowed["test-results/"] = 1
+        allowed["playwright-report/"] = 1
+      }
+      $1 == "!!" {
+        path = substr($0, 4)
+        if (!(path in allowed)) {
+          print
+        }
+      }
+    '
+)"
+if [ -n "$FRONTEND_IGNORED_BUILD_STATE" ]; then
+  echo "❌ frontend checkout contains ignored build inputs at pinned revision $EXPECTED_FRONTEND_REVISION:" >&2
+  printf '%s\n' "$FRONTEND_IGNORED_BUILD_STATE" >&2
+  exit 1
+fi
+
 FRONTEND_SOURCE_DATE_EPOCH="$(git -C "$FRONTEND_DIR" show -s --format=%ct "$EXPECTED_FRONTEND_REVISION")"
 if [[ ! "$FRONTEND_SOURCE_DATE_EPOCH" =~ ^(0|[1-9][0-9]*)$ ]]; then
   echo "❌ frontend commit timestamp is invalid for $EXPECTED_FRONTEND_REVISION." >&2

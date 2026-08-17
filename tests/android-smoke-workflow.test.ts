@@ -96,6 +96,28 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("Frontend SHA:");
   });
 
+  it("compares both generated and finally packaged web assets with Git", () => {
+    const buildStep = workflow.jobs.smoke.steps.find(
+      (step) => step.name === "Build debug APK from pinned frontend"
+    );
+    const buildCommands = buildStep?.run ?? "";
+    const syncIndex = buildCommands.indexOf("npm run cap:sync");
+    const firstCleanIndex = buildCommands.indexOf(
+      "npm run native:verify:web-assets-clean"
+    );
+    const assembleIndex = buildCommands.indexOf(
+      "npm run native:assemble:debug"
+    );
+    const finalCleanIndex = buildCommands.lastIndexOf(
+      "npm run native:verify:web-assets-clean"
+    );
+
+    expect(syncIndex).toBeGreaterThan(-1);
+    expect(firstCleanIndex).toBeGreaterThan(syncIndex);
+    expect(assembleIndex).toBeGreaterThan(firstCleanIndex);
+    expect(finalCleanIndex).toBeGreaterThan(assembleIndex);
+  });
+
   it("verifies generated native-auth route parity after packaging", () => {
     const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
       (step) => step.name === "Build debug APK from pinned frontend"
@@ -151,6 +173,7 @@ describe("Android smoke workflow", () => {
       "scripts/patch-capacitor-android-unchecked.mjs",
       "scripts/verify-android-frontend-build.mjs",
       "scripts/verify-android-runtime-schema.mjs",
+      "scripts/verify-android-web-assets-clean.mjs",
       "scripts/verify-android-web-asset-overlays.mjs",
     ];
 

@@ -1217,14 +1217,24 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       "Android packaging requires the SecPal frontend source"
     );
-    expect(appBuildGradle).toMatch(
-      /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    const runtimeSchemaVerificationTask = appBuildGradle.match(
+      /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?\n\}/
+    )?.[0];
+    expect(runtimeSchemaVerificationTask).toBeDefined();
+    expect(runtimeSchemaVerificationTask).not.toContain(
+      'dependsOn("prepareAndroidRuntimeSchemaAsset")'
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*workingDir androidRepositoryRoot[\s\S]*commandLine\(\s*"npm",\s*"run",\s*"cap:copy"\s*\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.named\("verifyAndroidRuntimeSchemaAsset"\)[\s\S]*mustRunAfter\("prepareAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidWebAssetOverlays"\)/
