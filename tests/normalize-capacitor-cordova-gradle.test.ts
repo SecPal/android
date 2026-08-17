@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2026 SecPal Contributors
- * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { describe, expect, it } from "vitest";
@@ -111,7 +111,7 @@ describe("Capacitor Cordova Gradle normalization", () => {
         "SPDX-FileCopyrightText: 2026 SecPal Contributors\n" +
           [
             `${["SPDX", "License-Identifier"].join("-")}:`,
-            "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution\n",
+            "AGPL-3.0-or-later\n",
           ].join(" ")
       );
     } finally {

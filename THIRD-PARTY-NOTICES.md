@@ -35,8 +35,8 @@ the MIT License:
 Copyright (c) 2017-present Drifty Co.
 ```
 
-SecPal's normalization of the generated Cordova Gradle project is an AGPLv3
-change with the SecPal attribution terms. Its `.license` sidecar and
+SecPal's normalization of the generated Cordova Gradle project is an
+AGPL-3.0-or-later change. Its `.license` sidecar and
 `REUSE.toml` aggregate that SecPal provenance with the upstream Drifty/MIT
 provenance; unchanged Capacitor output remains MIT only. The complete MIT text
 is at [LICENSES/MIT.txt](LICENSES/MIT.txt).

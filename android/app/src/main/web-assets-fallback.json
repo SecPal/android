@@ -1,5 +1,5 @@
 {
-  "$comment": "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution",
+  "$comment": "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later",
   "schema_version": 1,
   "files": [
     {
@@ -8,7 +8,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "9fa9bcaee12b51c3034dc0d7b99f4fa3e1eb8839944955096e6d7402f87ae710"
+      "sha256": "36d2e1c2f563bd9a1ef613a844a7eac0d50e03f110b0663738c3fd5457c3f0a2"
     },
     {
       "path": "secpal-native-auth-bridge.b95286adefec841e13051dc1a93a0a3875d9c2b367f92d1cfd1f8a0a354943ae.js",

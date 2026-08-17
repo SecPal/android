@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2026 SecPal Contributors
- * SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -8,6 +8,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const plainAgplSpdxHeader =
+  ["SPDX", "License-Identifier"].join("-") + ": AGPL-3.0-or-later";
 
 function annotationBlockFor(path: string): string {
   const reuseConfig = readFileSync(resolve(repoRoot, "REUSE.toml"), "utf8");
@@ -26,9 +28,7 @@ describe("third-party license provenance", () => {
   it("keeps GitHub's CC0 template and SecPal changes distinct", () => {
     const sidecarPath = resolve(repoRoot, "android/.gitignore.license");
     expect(existsSync(sidecarPath)).toBe(true);
-    expect(readFileSync(sidecarPath, "utf8")).toContain(
-      "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
-    );
+    expect(readFileSync(sidecarPath, "utf8")).toContain(plainAgplSpdxHeader);
 
     const annotationBlock = annotationBlockFor("android/.gitignore");
     expect(annotationBlock).toMatch(/precedence\s*=\s*"aggregate"/);
@@ -58,9 +58,7 @@ describe("third-party license provenance", () => {
     expect(sidecar).toContain(
       "SPDX-FileCopyrightText: 2026 SecPal Contributors"
     );
-    expect(sidecar).toContain(
-      "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
-    );
+    expect(sidecar).toContain(plainAgplSpdxHeader);
 
     const annotationBlock = annotationBlockFor("android/settings.gradle");
     expect(annotationBlock).toMatch(/precedence\s*=\s*"aggregate"/);
@@ -82,9 +80,7 @@ describe("third-party license provenance", () => {
     expect(sidecar).toContain(
       "SPDX-FileCopyrightText: 2026 SecPal Contributors"
     );
-    expect(sidecar).toContain(
-      "SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
-    );
+    expect(sidecar).toContain(plainAgplSpdxHeader);
 
     const annotationBlock = annotationBlockFor(
       "android/capacitor-cordova-android-plugins/build.gradle"

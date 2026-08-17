@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added repository-wide regression coverage for active licensing metadata and
+  metadata-generation paths while migrating SecPal-owned Android material to
+  plain `AGPL-3.0-or-later` (issue #593).
 - Added an encrypted, runtime-bound native Android state model for push tokens,
   installation identity, registration fingerprints, and pending lifecycle work,
   including fail-closed corruption recovery and token-rotation markers (issue

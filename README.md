@@ -250,11 +250,9 @@ The preflight script blocks direct pushes from `main`, runs formatting and gover
 
 ## Licensing
 
-Where this repository applies the SecPal attribution addendum, the affected SecPal-owned AGPL-covered files use `AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution`.
+SecPal-owned AGPL-covered files use `AGPL-3.0-or-later`.
 
-The additional attribution terms live in [LICENSES/LicenseRef-SecPal-Attribution.txt](LICENSES/LicenseRef-SecPal-Attribution.txt) and are applied as AGPLv3 section 7(b) and 7(c) terms. They require preserving a visible SecPal attribution notice such as `Powered by SecPal` in appropriate legal notices, credits, or about surfaces where those notices exist.
-
-The preferred tagline `A guard's best friend` and a reference or link to `https://secpal.app` are requested, but they are not mandatory license conditions.
+Official SecPal product surfaces retain their intentional `Powered by SecPal – A guard's best friend` branding. This branding is not an additional license condition.
 
 ## Roadmap
 

@@ -10,7 +10,7 @@ const ANDROID_GRADLE_PLUGIN_CLASSPATH =
 const SPDX_LICENSE_IDENTIFIER_LABEL = ["SPDX", "License-Identifier"].join("-");
 const BUILD_GRADLE_LICENSE_IDENTIFIER = [
   `${SPDX_LICENSE_IDENTIFIER_LABEL}:`,
-  "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution",
+  "AGPL-3.0-or-later",
 ].join(" ");
 const BUILD_GRADLE_LICENSE = [
   "SPDX-FileCopyrightText: 2026 SecPal Contributors",

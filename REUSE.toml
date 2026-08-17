@@ -7,7 +7,7 @@ SPDX-FileCopyrightText = "SecPal Contributors"
 [[annotations]]
 path = "tests/**"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = "package.json"
@@ -52,7 +52,7 @@ SPDX-License-Identifier = "AGPL-3.0-or-later"
 [[annotations]]
 path = "Gemfile"
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = "Gemfile.lock"
@@ -72,17 +72,17 @@ path = [
   "scripts/validate-play-store-assets.mjs",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = ["fastlane/Appfile", "fastlane/Fastfile", "fastlane/lib/**", "fastlane/test/**"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = ["fastlane/metadata/android/**/*.txt", "fastlane/metadata/android/**/*.png"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = "android/gradlew"
@@ -109,7 +109,7 @@ path = [
   "android/app/src/main/res/**",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 [[annotations]]
 path = [
@@ -160,4 +160,4 @@ SPDX-License-Identifier = "MIT"
 [[annotations]]
 path = ["android/app/src/main/assets/capacitor.config.json", "android/app/src/main/assets/capacitor.plugins.json", "android/app/src/main/assets/public/**"]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
-SPDX-License-Identifier = "AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
