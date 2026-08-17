@@ -477,10 +477,7 @@ describe("Android native-auth route inventory", () => {
   });
 });
 
-describe.runIf(
-  existsSync(packagedAssetsDirectory) ||
-    process.env.SECPAL_REQUIRE_PACKAGED_ROUTE_PARITY === "1"
-)("generated Android frontend route parity", () => {
+describe("generated Android frontend route parity", () => {
   let generatedJavascript = "";
   let generatedJavascriptFiles: string[] = [];
 

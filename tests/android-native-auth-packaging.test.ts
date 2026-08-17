@@ -51,7 +51,7 @@ function createFrontendBuildMetadata(
 }
 
 describe("Android native-auth packaging", () => {
-  it("keeps the standalone fallback inventory aligned with every committed web asset", () => {
+  it("keeps both checked-in inventories aligned with the complete packaged web asset set", () => {
     const publicRoot = resolve(repoRoot, "android/app/src/main/assets/public");
     const fallback = JSON.parse(
       readFileSync(
@@ -61,12 +61,19 @@ describe("Android native-auth packaging", () => {
     ) as {
       files: Array<{ path: string; sha256: string }>;
     };
+    const generated = JSON.parse(
+      readFileSync(resolve(publicRoot, "secpal-web-assets.json"), "utf8")
+    ) as {
+      files: Array<{ path: string; sha256: string }>;
+    };
 
-    expect(fallback.files.map(({ path }) => path)).toEqual([
-      "build-metadata.json",
-      "index.html",
-      expect.stringMatching(/^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/),
-    ]);
+    expect(generated.files.length).toBeGreaterThan(3);
+    expect(
+      generated.files.some(
+        ({ path }) => path.startsWith("assets/") && path.endsWith(".js")
+      )
+    ).toBe(true);
+    expect(fallback.files).toEqual(generated.files);
     for (const file of fallback.files) {
       const content = readFileSync(resolve(publicRoot, file.path));
       expect(

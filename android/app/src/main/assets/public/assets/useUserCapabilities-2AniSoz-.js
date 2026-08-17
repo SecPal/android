@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-hePW80VL.js";import{Y as t}from"./vendor-icons-DfwQfbe7.js";import{Hn as n,Jn as r}from"./index-bERUY49y.js";var i=e(t(),1);function a(){let{user:e}=n();return(0,i.useMemo)(()=>r(e),[e])}export{a as t};

@@ -5,6 +5,7 @@
 
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -17,6 +18,7 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const buildScript = join(repositoryRoot, "scripts/build-frontend-web.sh");
+const expectedFrontendRevision = "8c950220d8ae582a536135eed75c8ecb2a4858c8";
 
 function runBuildScript(frontendDirectory?: string) {
   const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-web-"));
@@ -55,6 +57,91 @@ function runBuildScript(frontendDirectory?: string) {
   }
 }
 
+function runBuildScriptWithFrontendState({
+  actualRevision = expectedFrontendRevision,
+  dirty = false,
+}: {
+  actualRevision?: string;
+  dirty?: boolean;
+}) {
+  const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-state-"));
+  const isolatedRepositoryRoot = join(tempRoot, "android");
+  const frontendDirectory = join(tempRoot, "frontend");
+
+  mkdirSync(
+    join(
+      isolatedRepositoryRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values"
+    ),
+    { recursive: true }
+  );
+  mkdirSync(frontendDirectory, { recursive: true });
+  writeFileSync(
+    join(isolatedRepositoryRoot, "android", "frontend-revision.txt"),
+    `# SPDX-FileCopyrightText: 2026 SecPal Contributors\n# SPDX-License-Identifier: CC0-1.0\n${expectedFrontendRevision}\n`
+  );
+  writeFileSync(
+    join(
+      isolatedRepositoryRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "values",
+      "strings.xml"
+    ),
+    '<resources><string name="api_base_url">https://api.secpal.dev</string></resources>\n'
+  );
+  writeFileSync(join(frontendDirectory, "package.json"), "{}\n");
+  writeFileSync(
+    join(tempRoot, "git"),
+    `#!/usr/bin/env bash
+set -eu
+if [ "$#" -eq 2 ] && [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+  printf '%s\\n' "$SECPAL_TEST_REPOSITORY_ROOT"
+elif [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
+  printf '%s\\n' "$SECPAL_TEST_ACTUAL_REVISION"
+elif [ "$1" = "-C" ] && [ "$3" = "status" ]; then
+  if [ "$SECPAL_TEST_FRONTEND_DIRTY" = "1" ]; then
+    printf ' M src/App.tsx\\n'
+  fi
+elif [ "$1" = "-C" ] && [ "$3" = "show" ]; then
+  printf '1786943204\\n'
+else
+  exit 91
+fi
+`
+  );
+  writeFileSync(
+    join(tempRoot, "npm"),
+    "#!/usr/bin/env bash\nprintf 'SOURCE_DATE_EPOCH=%s\\n' \"${SOURCE_DATE_EPOCH-}\"\nexit 73\n"
+  );
+  chmodSync(join(tempRoot, "git"), 0o755);
+  chmodSync(join(tempRoot, "npm"), 0o755);
+
+  try {
+    return spawnSync("bash", [buildScript], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${tempRoot}:${process.env.PATH ?? ""}`,
+        SECPAL_ANDROID_FRONTEND_DIR: frontendDirectory,
+        SECPAL_TEST_ACTUAL_REVISION: actualRevision,
+        SECPAL_TEST_FRONTEND_DIRTY: dirty ? "1" : "0",
+        SECPAL_TEST_REPOSITORY_ROOT: isolatedRepositoryRoot,
+      },
+    });
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 describe("build frontend web script", () => {
   it("builds and verifies the explicit Android-native frontend surface", () => {
     const source = readFileSync(buildScript, "utf8");
@@ -84,5 +171,28 @@ describe("build frontend web script", () => {
     expect(result.stderr).toContain(
       `frontend repository not found at: ${frontendDirectory}`
     );
+  });
+
+  it("builds a clean pinned frontend with its commit timestamp", () => {
+    const result = runBuildScriptWithFrontendState({});
+
+    expect(result.status).toBe(73);
+    expect(result.stdout).toContain("SOURCE_DATE_EPOCH=1786943204");
+  });
+
+  it("rejects a frontend checkout at another revision", () => {
+    const result = runBuildScriptWithFrontendState({
+      actualRevision: "9".repeat(40),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not match pinned revision");
+  });
+
+  it("rejects tracked or untracked frontend source changes", () => {
+    const result = runBuildScriptWithFrontendState({ dirty: true });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("frontend checkout is not clean");
   });
 });
