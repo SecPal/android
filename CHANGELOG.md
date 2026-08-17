@@ -41,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed and checked in the complete packaged Android frontend from the
   pinned frontend revision with a commit-derived reproducible build timestamp
   and its exact generated web asset inventory, pinning the Android smoke
-  checkout to the same revision, removing retired
-  enrollment-session requests and preventing missing or stale chunks from
-  bypassing fail-closed native route-contract extraction (issue #618).
+  checkout to the same revision, enforcing LF checkouts for the revision lock
+  and inventoried text assets, removing retired enrollment-session requests and
+  preventing missing or stale chunks from bypassing fail-closed native
+  route-contract extraction (issue #618).
 - Stabilized native Android session-transition cancellation coverage by waiting
   for the running transition to observe its cancellation interrupt before
   releasing the transition body and asserting managed-task gate cleanup (issue

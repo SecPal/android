@@ -1122,7 +1122,13 @@ describe("Android native hardening", () => {
       "ignoreAssetsPattern '!.svn:!.git:!.ds_store"
     );
     expect(gitAttributes).toContain(
-      "android/app/src/main/assets/public/index.html text eol=lf"
+      "android/frontend-revision.txt text eol=lf"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/assets/public/** text=auto eol=lf"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/web-assets-fallback.json text eol=lf"
     );
     expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
     expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
