@@ -54,7 +54,7 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("runs the Cordova config normalizer after Capacitor sync and add", () => {
+  it("normalizes generated Cordova artifacts after Capacitor commands", () => {
     const packageJson = JSON.parse(readRepoFile("package.json")) as {
       scripts: Record<string, string>;
     };
@@ -68,6 +68,10 @@ describe("Android native hardening", () => {
     expect(packageJson.scripts["cap:add:android"]).toContain(
       "native:normalize:cordova-config"
     );
+    const capCopyScript = packageJson.scripts["cap:copy"];
+    expect(
+      capCopyScript.indexOf("native:normalize:cordova-gradle")
+    ).toBeGreaterThan(capCopyScript.indexOf("npx cap copy android"));
   });
 
   it("keeps only Android resources with proven runtime or build-time callers", () => {

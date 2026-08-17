@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Normalized generated Cordova artifacts after `cap:copy` so frontend-only
+  refreshes preserve the tracked Android manifest's final newline (issue #622).
 - Refreshed and checked in the complete packaged Android frontend from the
   pinned frontend revision with a commit-derived reproducible build timestamp
   and its exact generated web asset inventory, pinning the Android smoke
