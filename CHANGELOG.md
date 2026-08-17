@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a native-only Android push JSON transport restricted to canonical
+  notification-installation `PUT` and `DELETE` requests, with dedicated 256 KiB
+  request and response bounds, plus named Firebase token refresh, rotation, and
+  synchronous deletion primitives that delete tokens before runtime application
+  teardown; raw push identities no longer cross the WebView bridge, and legacy
+  browser copies are purged on bootstrap (issue #614).
 - Added an encrypted, runtime-bound native Android state model for push tokens,
   installation identity, registration fingerprints, and pending lifecycle work,
   including fail-closed corruption recovery and token-rotation markers (issue

@@ -5,6 +5,8 @@
 
 package app.secpal;
 
+import android.util.Base64;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -515,6 +517,101 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void auxiliaryPushJsonRequestUsesTheDedicatedBufferLimit() throws Exception {
+        AtomicInteger openedConnections = new AtomicInteger();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            openedConnections.incrementAndGet();
+            return new StubHttpURLConnection(url, 200, null);
+        });
+        String oversizedBody = Base64.encodeToString(
+            new byte[NativeAuthRequestPolicy.MAX_ANDROID_PUSH_REQUEST_BODY_BYTES + 1],
+            Base64.NO_WRAP
+        );
+
+        try {
+            client.requestAuxiliaryJson(
+                "https://api.secpal.dev",
+                "auth-token",
+                "PUT",
+                "/v1/me/notification-installations/device-1",
+                oversizedBody,
+                "application/json",
+                "application/json",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            throw new AssertionError("Expected oversized auxiliary request to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals("Android auth bridge request exceeds the allowed size", exception.getMessage());
+        }
+
+        assertEquals(0, openedConnections.get());
+    }
+
+    @Test
+    public void auxiliaryPushJsonResponseUsesTheDedicatedBufferLimit() throws Exception {
+        byte[] oversizedResponse = new byte[
+            NativeAuthHttpClient.MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES + 1
+        ];
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                200,
+                null,
+                oversizedResponse,
+                "application/json"
+            )
+        );
+
+        try {
+            client.requestAuxiliaryJson(
+                "https://api.secpal.dev",
+                "auth-token",
+                "DELETE",
+                "/v1/me/notification-installations/device-1",
+                null,
+                null,
+                "application/json",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            throw new AssertionError("Expected oversized auxiliary response to fail closed");
+        } catch (NativeAuthHttpException exception) {
+            assertEquals(
+                "Android auth bridge response exceeds the allowed size",
+                exception.getMessage()
+            );
+            assertEquals(0, exception.getStatusCode());
+        }
+    }
+
+    @Test
+    public void auxiliaryPushJsonRejectsNonPushRoutesBeforeOpeningAConnection()
+        throws Exception {
+        AtomicInteger openedConnections = new AtomicInteger();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(url -> {
+            openedConnections.incrementAndGet();
+            return new StubHttpURLConnection(url, 200, null);
+        });
+
+        try {
+            client.requestAuxiliaryJson(
+                "https://api.secpal.dev",
+                "auth-token",
+                "GET",
+                "/v1/me",
+                null,
+                null,
+                "application/json",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            throw new AssertionError("Expected non-push auxiliary route to fail closed");
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(0, expected.getStatusCode());
+        }
+
+        assertEquals(0, openedConnections.get());
+    }
+
+    @Test
     public void oversizedUnauthorizedResponsesPreserveAuthenticationStatus()
         throws Exception {
         byte[] oversizedDedicatedResponse = new byte[
@@ -636,7 +733,7 @@ public class NativeAuthHttpClientTest {
                         "https://api.secpal.dev",
                         "native-secret",
                         "PUT",
-                        "/v1/me/notification-installations/device-1",
+                        "/v1/employees/employee-1/bwr/status",
                         "e30=",
                         "application/json",
                         "application/json"
@@ -687,7 +784,7 @@ public class NativeAuthHttpClientTest {
                             "https://127.0.0.1:" + sourcePort,
                             "native-secret",
                             "PUT",
-                            "/v1/me/notification-installations/device-1",
+                            "/v1/employees/employee-1/bwr/status",
                             "e30=",
                             "application/json",
                             "application/json"
@@ -981,7 +1078,7 @@ public class NativeAuthHttpClientTest {
     }
 
     private static final class RedirectTestServer implements AutoCloseable {
-        private static final String SOURCE_PATH = "/v1/me/notification-installations/device-1";
+        private static final String SOURCE_PATH = "/v1/employees/employee-1/bwr/status";
 
         private final ServerSocket serverSocket;
         private final Thread serverThread;

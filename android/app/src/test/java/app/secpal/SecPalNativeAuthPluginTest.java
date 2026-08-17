@@ -1029,23 +1029,17 @@ public class SecPalNativeAuthPluginTest {
     }
 
     @Test
-    public void messagingListenerForwardsTokenEventBeforeDestroyed() {
+    public void messagingListenerNeverForwardsRawTokenToTheWebView() {
         final boolean[] notified = { false };
         AndroidPushRuntimeManager.MessagingListener listener =
             SecPalNativeAuthPlugin.buildAndroidPushMessagingListener(
                 () -> false,
-                (event, payload) -> {
-                    assertEquals("androidPushTokenReceived", event);
-                    assertEquals("secpal-runtime-push", payload.getString("appName"));
-                    assertEquals("fcm", payload.getString("provider"));
-                    assertEquals("fcm-token-demo", payload.getString("token"));
-                    notified[0] = true;
-                }
+                (event, payload) -> notified[0] = true
             );
 
         listener.onTokenReceived("secpal-runtime-push", "fcm-token-demo");
 
-        assertTrue("Token event must reach notifier before destroy", notified[0]);
+        assertFalse("Raw push tokens must remain native-only", notified[0]);
     }
 
     @Test
@@ -1263,6 +1257,7 @@ public class SecPalNativeAuthPluginTest {
         assertEquals(1, firebaseBackend.initializeCallCount);
         assertEquals(previousPushRuntime, firebaseBackend.lastInitializedMetadata);
         assertEquals(1, firebaseBackend.ensureMessagingCallCount);
+        assertEquals(1, firebaseBackend.deleteMessagingTokenCallCount);
     }
 
     @Test
@@ -1380,81 +1375,6 @@ public class SecPalNativeAuthPluginTest {
         assertNull(preferences.getString("api_base_url", null));
     }
 
-    @Test
-    public void completedNativeRuntimeClearRevokesPushRegistrationWithCapturedCredential() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                assertEquals("123e4567-e89b-42d3-a456-426614174000", installationId);
-                revocationCalled.set(true);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearIgnoresBestEffortPushRevocationFailure() {
-        AtomicBoolean revocationCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeAndroidPushRegistrationAfterRuntimeClear(
-            "rejected-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                revocationCalled.set(true);
-                throw new NativeAuthHttpException("Unauthenticated", 401);
-            }
-        );
-
-        assertTrue(revocationCalled.get());
-    }
-
-    @Test
-    public void completedNativeRuntimeClearRevokesPushBeforeServerAuthentication() {
-        List<String> events = new ArrayList<>();
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("push");
-            },
-            (apiOrigin, token) -> {
-                assertEquals("https://tenant-a.example", apiOrigin);
-                assertEquals("tenant-a-token", token);
-                events.add("logout");
-            }
-        );
-
-        assertEquals(Arrays.asList("push", "logout"), events);
-    }
-
-    @Test
-    public void completedNativeRuntimeClearStillRevokesAuthenticationWhenPushRevocationFails() {
-        AtomicBoolean logoutCalled = new AtomicBoolean(false);
-
-        SecPalNativeAuthPlugin.revokeServerStateAfterRuntimeClear(
-            "tenant-a-token",
-            "https://tenant-a.example",
-            "123e4567-e89b-42d3-a456-426614174000",
-            (apiOrigin, token, installationId) -> {
-                throw new IOException("offline");
-            },
-            (apiOrigin, token) -> logoutCalled.set(true)
-        );
-
-        assertTrue(logoutCalled.get());
-    }
 
     @Test
     public void completedNativeRuntimeClearIgnoresBestEffortAuthenticationRevocationFailure() {
@@ -1558,6 +1478,16 @@ public class SecPalNativeAuthPluginTest {
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             fail("ensureMessaging should not run after initialization fails");
         }
+
+        @Override
+        public void rotateMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            fail("rotateMessagingToken should not run after initialization fails");
+        }
+
+        @Override
+        public void deleteMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            fail("deleteMessagingToken is not part of this initialization test");
+        }
     }
 
     private static final class ResetFailingFirebaseBackend
@@ -1576,6 +1506,7 @@ public class SecPalNativeAuthPluginTest {
         };
         private int initializeCallCount;
         private int ensureMessagingCallCount;
+        private int deleteMessagingTokenCallCount;
         private AndroidPushRuntimeMetadata lastInitializedMetadata;
 
         @Override
@@ -1609,6 +1540,16 @@ public class SecPalNativeAuthPluginTest {
         @Override
         public void ensureMessaging(AndroidPushRuntimeManager.FirebaseAppHandle app) {
             ensureMessagingCallCount += 1;
+        }
+
+        @Override
+        public void rotateMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            fail("rotateMessagingToken is not part of this reset test");
+        }
+
+        @Override
+        public void deleteMessagingToken(AndroidPushRuntimeManager.FirebaseAppHandle app) {
+            deleteMessagingTokenCallCount += 1;
         }
     }
 

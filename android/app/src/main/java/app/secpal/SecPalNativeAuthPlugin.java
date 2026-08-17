@@ -39,7 +39,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static final String NATIVE_AUTH_PREFERENCES_NAME = "secpal_native_auth";
     private static final String API_BASE_URL_PREFERENCE_KEY = "api_base_url";
     private static final String RUNTIME_BOOTSTRAP_PREFERENCE_KEY = "runtime_bootstrap";
-    private static final String ANDROID_PUSH_TOKEN_RECEIVED_EVENT = "androidPushTokenReceived";
     private static final String ANDROID_PUSH_TOKEN_ERROR_EVENT = "androidPushTokenError";
     private static final String NATIVE_AUTH_LIFECYCLE_CHANGED_EVENT =
         "nativeAuthLifecycleChanged";
@@ -53,13 +52,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
     static final int MAX_RUNTIME_URL_CHARACTERS = 2 * 1024;
     private static final int MAX_RUNTIME_METADATA_CHARACTERS = 64 * 1024;
     static final int MAX_PASSKEY_OPTIONS_CHARACTERS = 1024 * 1024;
-    private static final int MAX_PUSH_INSTALLATION_ID_CHARACTERS = 256;
-
-    @FunctionalInterface
-    interface AndroidPushRegistrationRevoker {
-        void revoke(String apiOrigin, String token, String installationId)
-            throws IOException, NativeAuthHttpException;
-    }
 
     @FunctionalInterface
     interface NativeAuthenticationRevoker {
@@ -601,16 +593,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
 
     @PluginMethod
     public void confirmRuntimeReset(PluginCall call) {
-        if (!requireOnlyKeys(call, "androidPushInstallationId")) {
-            return;
-        }
-        String androidPushInstallationId = call.getString("androidPushInstallationId");
-        if (androidPushInstallationId != null
-            && (!isBoundedValue(
-                androidPushInstallationId,
-                MAX_PUSH_INSTALLATION_ID_CHARACTERS
-            ) || !androidPushInstallationId.matches("[A-Za-z0-9][A-Za-z0-9._~-]*"))) {
-            call.reject("Android push installation id is invalid", "INVALID_INPUT");
+        if (!requireOnlyKeys(call)) {
             return;
         }
         runAsync(call, () -> {
@@ -637,19 +620,14 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 call,
                 R.string.runtime_confirmation_reset_title,
                 confirmationMessage,
-                () -> clearConfirmedRuntime(
-                    call,
-                    confirmedApiOrigin,
-                    androidPushInstallationId
-                )
+                () -> clearConfirmedRuntime(call, confirmedApiOrigin)
             );
         });
     }
 
     private void clearConfirmedRuntime(
         PluginCall call,
-        String confirmedApiOrigin,
-        String androidPushInstallationId
+        String confirmedApiOrigin
     ) {
         String requestId = "runtime-reset-" + UUID.randomUUID();
         AtomicBoolean settled = new AtomicBoolean(false);
@@ -694,20 +672,9 @@ public class SecPalNativeAuthPlugin extends Plugin {
                         ));
                         return;
                     }
-                    revokeServerStateAfterRuntimeClear(
+                    revokeNativeAuthenticationAfterRuntimeClear(
                         tokenForServerRevocation,
                         confirmedApiOrigin,
-                        androidPushInstallationId,
-                        (apiOrigin, token, installationId) -> httpClient.request(
-                            apiOrigin,
-                            token,
-                            "DELETE",
-                            "/v1/me/notification-installations/" + installationId,
-                            null,
-                            null,
-                            "application/json",
-                            cancellation
-                        ),
                         (apiOrigin, token) -> httpClient.logout(
                             apiOrigin,
                             token,
@@ -1351,15 +1318,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
     ) {
         return new AndroidPushRuntimeManager.MessagingListener() {
             @Override
-            public void onTokenReceived(String appName, String token) {
-                if (destroyedCheck.isDestroyed()) {
-                    return;
-                }
-                notifier.notifyRetained(
-                    ANDROID_PUSH_TOKEN_RECEIVED_EVENT,
-                    buildAndroidPushTokenPayload(appName, token)
-                );
-            }
+            public void onTokenReceived(String appName, String token) {}
 
             @Override
             public void onTokenError(String appName, Exception exception) {
@@ -1372,14 +1331,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 );
             }
         };
-    }
-
-    private static JSObject buildAndroidPushTokenPayload(String appName, String token) {
-        JSObject payload = new JSObject();
-        payload.put("appName", appName);
-        payload.put("provider", "fcm");
-        payload.put("token", token);
-        return payload;
     }
 
     private static JSObject buildAndroidPushTokenErrorPayload(String appName, Exception exception) {
@@ -1824,49 +1775,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
             return tokenStorage.getToken();
         } catch (TokenStorageException ignored) {
             return null;
-        }
-    }
-
-    static void revokeServerStateAfterRuntimeClear(
-        String token,
-        String apiOrigin,
-        String installationId,
-        AndroidPushRegistrationRevoker pushRevoker,
-        NativeAuthenticationRevoker authenticationRevoker
-    ) {
-        revokeAndroidPushRegistrationAfterRuntimeClear(
-            token,
-            apiOrigin,
-            installationId,
-            pushRevoker
-        );
-        revokeNativeAuthenticationAfterRuntimeClear(
-            token,
-            apiOrigin,
-            authenticationRevoker
-        );
-    }
-
-    static void revokeAndroidPushRegistrationAfterRuntimeClear(
-        String token,
-        String apiOrigin,
-        String installationId,
-        AndroidPushRegistrationRevoker revoker
-    ) {
-        String normalizedApiOrigin = apiOrigin == null ? "" : apiOrigin.trim();
-        String normalizedInstallationId = installationId == null ? "" : installationId.trim();
-        if (normalizedApiOrigin.isEmpty() || normalizedInstallationId.isEmpty()) {
-            return;
-        }
-
-        if (token == null || token.trim().isEmpty()) {
-            return;
-        }
-
-        try {
-            revoker.revoke(normalizedApiOrigin, token, normalizedInstallationId);
-        } catch (IOException | NativeAuthHttpException | RuntimeException ignored) {
-            // Runtime reset remains available offline; server revocation is best-effort.
         }
     }
 

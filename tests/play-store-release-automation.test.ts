@@ -1074,12 +1074,7 @@ system("sh", "-eu", "-c", script, exception: true)
         "ambiguous.aab",
         "base",
         ["base", "assets", "public"],
-        buildAndroidRuntimeIndexHtml(
-          canonicalRuntimeBridge.replace(
-            "currentBootstrapSchemaVersion = 4",
-            "currentBootstrapSchemaVersion = 3"
-          )
-        )
+        buildAndroidRuntimeIndexHtml(canonicalRuntimeBridge)
       );
       writeFile(
         join(ambiguousAabRoot, "assets", "public", "index.html"),
@@ -1143,26 +1138,6 @@ system("sh", "-eu", "-c", script, exception: true)
         ).rejects.toThrow(expectedError);
       };
       await expectInvalidArtifact(
-        "obsolete",
-        buildAndroidRuntimeIndexHtml(
-          canonicalRuntimeBridge.replace(
-            "currentBootstrapSchemaVersion = 4",
-            "currentBootstrapSchemaVersion = 3"
-          )
-        ),
-        /must declare schema 4 independently/i
-      );
-      await expectInvalidArtifact(
-        "hardcoded-schema",
-        buildAndroidRuntimeIndexHtml(
-          canonicalRuntimeBridge.replace(
-            "schema_version: currentBootstrapSchemaVersion",
-            "schema_version: 4"
-          )
-        ),
-        /must declare schema 4 independently/i
-      );
-      await expectInvalidArtifact(
         "mutated-bridge",
         buildAndroidRuntimeIndexHtml(
           canonicalRuntimeBridge.replace(
@@ -1170,7 +1145,7 @@ system("sh", "-eu", "-c", script, exception: true)
             "https://unexpected-runtime.secpal.dev"
           )
         ),
-        /does not contain the canonical schema 4 runtime bridge/i
+        /does not contain the canonical Android runtime bridge/i
       );
       await expectInvalidArtifact(
         "duplicate",
@@ -1663,8 +1638,8 @@ system("sh", "-eu", "-c", script, exception: true)
       writeAndroidRuntimeIndexFixture(
         staleIndexPath,
         canonicalRuntimeBridge.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
+          "const fallbackApiOrigin =",
+          "const fallbackApiOrigin = /* stale */"
         )
       );
       writeAndroidWebAssetInventory(canonicalRoot);
@@ -1675,7 +1650,7 @@ system("sh", "-eu", "-c", script, exception: true)
       ).not.toThrow();
       expect(() =>
         verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
-      ).toThrow(/must declare schema 4 independently/i);
+      ).toThrow(/does not contain the canonical Android runtime bridge/i);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -1706,15 +1681,15 @@ system("sh", "-eu", "-c", script, exception: true)
       writeAndroidRuntimeIndexFixture(
         staleIndexPath,
         canonicalRuntimeBridge.replace(
-          "currentBootstrapSchemaVersion = 4",
-          "currentBootstrapSchemaVersion = 3"
+          "const fallbackApiOrigin =",
+          "const fallbackApiOrigin = /* stale */"
         )
       );
       writeAndroidWebAssetInventory(tempRoot);
 
       expect(() =>
         verifyAndroidRuntimeSchemaIndex(staleIndexPath, stringsXmlPath)
-      ).toThrow(/must declare schema 4 independently/i);
+      ).toThrow(/does not contain the canonical Android runtime bridge/i);
 
       injectNativeAuthBridgeIntoFile(staleIndexPath, stringsXmlPath);
       writeAndroidWebAssetInventory(tempRoot);
