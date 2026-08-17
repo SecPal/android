@@ -22,6 +22,7 @@ on:
       - "scripts/inject-native-auth-bridge.mjs"
       - "scripts/verify-android-frontend-build.mjs"
       - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-assets-clean.mjs"
       - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
@@ -52,6 +53,7 @@ on:
       - "scripts/inject-native-auth-bridge.mjs"
       - "scripts/verify-android-frontend-build.mjs"
       - "scripts/verify-android-runtime-schema.mjs"
+      - "scripts/verify-android-web-assets-clean.mjs"
       - "scripts/verify-android-web-asset-overlays.mjs"
       - "scripts/normalize-capacitor-cordova-gradle.mjs"
       - "scripts/normalize-cordova-config.mjs"
@@ -139,11 +141,24 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout frontend main
+      - name: Read pinned frontend revision
+        id: frontend-revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          frontend_revision_file="android/frontend-revision.txt"
+          frontend_sha="$(awk '/^[0-9a-f]{40}$/ { print }' "$frontend_revision_file")"
+          if [[ ! "$frontend_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::${frontend_revision_file} must contain exactly one full lowercase commit SHA."
+            exit 1
+          fi
+          echo "sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned frontend
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: SecPal/frontend
-          ref: "main"
+          ref: ${{ steps.frontend-revision.outputs.sha }}
           path: frontend
 
       - name: Record tested revisions
@@ -191,13 +206,15 @@ jobs:
           npm ci
           npm --prefix frontend ci
 
-      - name: Build debug APK from frontend main
+      - name: Build debug APK from pinned frontend
         shell: bash
         run: |
           set -euo pipefail
           echo "build-debug-apk" > "$SMOKE_STEP_FILE"
           npm run cap:sync
+          npm run native:verify:web-assets-clean
           npm run native:assemble:debug
+          npm run native:verify:web-assets-clean
           test -f android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Verify generated native-auth route parity

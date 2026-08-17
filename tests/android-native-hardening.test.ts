@@ -1064,6 +1064,14 @@ describe("Android native hardening", () => {
       "scripts",
       "build-frontend-web.sh"
     );
+    const frontendRevisionSource = readRepoFile(
+      "android",
+      "frontend-revision.txt"
+    );
+    const routeInventoryTests = readRepoFile(
+      "tests",
+      "android-native-auth-route-inventory.test.ts"
+    );
     const playStoreReleaseTests = readRepoFile(
       "tests",
       "play-store-release-automation.test.ts"
@@ -1114,7 +1122,13 @@ describe("Android native hardening", () => {
       "ignoreAssetsPattern '!.svn:!.git:!.ds_store"
     );
     expect(gitAttributes).toContain(
-      "android/app/src/main/assets/public/index.html text eol=lf"
+      "android/frontend-revision.txt text eol=lf"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/assets/public/** text=auto eol=lf"
+    );
+    expect(gitAttributes).toContain(
+      "android/app/src/main/web-assets-fallback.json text eol=lf"
     );
     expect(appBuildGradle).toContain("inputs.dir(generatedAndroidWebAssets)");
     expect(appBuildGradle).toContain("generatedAndroidWebAssets.absolutePath");
@@ -1124,8 +1138,20 @@ describe("Android native hardening", () => {
     expect(frontendBuildScript).not.toContain(
       "scripts/generate-android-web-asset-inventory.mjs"
     );
+    expect(frontendRevisionSource.match(/^[0-9a-f]{40}$/gm)).toEqual([
+      "8c950220d8ae582a536135eed75c8ecb2a4858c8",
+    ]);
+    expect(frontendBuildScript).toContain("android/frontend-revision.txt");
+    expect(frontendBuildScript).toContain('git -C "$FRONTEND_DIR" status');
+    expect(frontendBuildScript).toContain(
+      'SOURCE_DATE_EPOCH="$FRONTEND_SOURCE_DATE_EPOCH"'
+    );
+    expect(routeInventoryTests).not.toContain("describe.runIf");
+    expect(routeInventoryTests).toContain(
+      'describe("generated Android frontend route parity"'
+    );
     expect(packageJson.scripts["native:inventory:web-assets"]).toBe(
-      "node ./scripts/generate-android-web-asset-inventory.mjs ./android/app/src/main/assets/public"
+      "node ./scripts/generate-android-web-asset-inventory.mjs ./android/app/src/main/assets/public ./android/app/src/main/web-assets-fallback.json"
     );
     for (const scriptName of [
       "cap:copy",
@@ -1142,14 +1168,13 @@ describe("Android native hardening", () => {
       expect(capacitorCopyIndex).toBeGreaterThanOrEqual(0);
       expect(inventoryIndex).toBeGreaterThan(capacitorCopyIndex);
     }
-    expect(androidGitignore).not.toContain(
-      "!app/src/main/assets/public/secpal-web-assets.json"
-    );
-    expect(fallbackInventory.files.map(({ path }) => path)).toEqual([
-      "build-metadata.json",
-      "index.html",
-      expect.stringMatching(/^secpal-native-auth-bridge\.[0-9a-f]{64}\.js$/),
-    ]);
+    expect(androidGitignore).not.toContain("app/src/main/assets/public/*");
+    expect(fallbackInventory.files.length).toBeGreaterThan(3);
+    expect(
+      fallbackInventory.files.some(
+        ({ path }) => path.startsWith("assets/") && path.endsWith(".js")
+      )
+    ).toBe(true);
     expect(playStoreReleaseTests).toContain(
       "writeAndroidWebAssetInventory(assetRoot);"
     );
@@ -1192,14 +1217,24 @@ describe("Android native hardening", () => {
     expect(appBuildGradle).toContain(
       "Android packaging requires the SecPal frontend source"
     );
-    expect(appBuildGradle).toMatch(
-      /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    const runtimeSchemaVerificationTask = appBuildGradle.match(
+      /tasks\.register\("verifyAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*?\n\}/
+    )?.[0];
+    expect(runtimeSchemaVerificationTask).toBeDefined();
+    expect(runtimeSchemaVerificationTask).not.toContain(
+      'dependsOn("prepareAndroidRuntimeSchemaAsset")'
     );
     expect(appBuildGradle).toMatch(
       /tasks\.register\("prepareAndroidRuntimeSchemaAsset", Exec\)\s*\{[\s\S]*workingDir androidRepositoryRoot[\s\S]*commandLine\(\s*"npm",\s*"run",\s*"cap:copy"\s*\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("prepareAndroidRuntimeSchemaAsset"\)/
+    );
+    expect(appBuildGradle).toMatch(
+      /tasks\.named\("verifyAndroidRuntimeSchemaAsset"\)[\s\S]*mustRunAfter\("prepareAndroidRuntimeSchemaAsset"\)/
     );
     expect(appBuildGradle).toMatch(
       /tasks\.matching\s*\{\s*it\.name == "preBuild"\s*\}[\s\S]*dependsOn\("verifyAndroidWebAssetOverlays"\)/

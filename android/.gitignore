@@ -89,12 +89,13 @@ lint/tmp/
 # Android Profiling
 *.hprof
 
-# Copied web assets. Keep only the immutable standalone-verification fallback
-# controls; every other frontend output remains generated and ignored.
-app/src/main/assets/public/*
-!app/src/main/assets/public/index.html
-!app/src/main/assets/public/build-metadata.json
-!app/src/main/assets/public/secpal-native-auth-bridge.*.js
+# Keep the complete packageable frontend output under version control so its
+# generated inventory, route-contract evidence, and shipped files cannot drift.
+# Static-host dotfiles are excluded by the Android AAPT policy and are not part
+# of the packaged asset inventory.
+app/src/main/assets/public/.htaccess
+app/src/main/assets/public/.well-known/
+app/src/main/assets/public/public/
 
 # Generated Config files
 app/src/main/assets/capacitor.config.json

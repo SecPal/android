@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 FRONTEND_DIR="${SECPAL_ANDROID_FRONTEND_DIR:-${ROOT_DIR}/../frontend}"
 ANDROID_STRINGS_XML="${ROOT_DIR}/android/app/src/main/res/values/strings.xml"
+FRONTEND_REVISION_FILE="${ROOT_DIR}/android/frontend-revision.txt"
 
 if [ ! -d "$FRONTEND_DIR" ]; then
   echo "❌ frontend repository not found at: $FRONTEND_DIR" >&2
@@ -24,6 +25,68 @@ if [ ! -f "$ANDROID_STRINGS_XML" ]; then
   exit 1
 fi
 
+if [ ! -f "$FRONTEND_REVISION_FILE" ]; then
+  echo "❌ pinned frontend revision missing at: $FRONTEND_REVISION_FILE" >&2
+  exit 1
+fi
+
+EXPECTED_FRONTEND_REVISION="$(awk '/^[0-9a-f]{40}$/ { print }' "$FRONTEND_REVISION_FILE")"
+if [[ ! "$EXPECTED_FRONTEND_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ $FRONTEND_REVISION_FILE must contain exactly one full lowercase commit SHA." >&2
+  exit 1
+fi
+
+if ! ACTUAL_FRONTEND_REVISION="$(git -C "$FRONTEND_DIR" rev-parse --verify 'HEAD^{commit}')"; then
+  echo "❌ could not resolve the frontend checkout revision at: $FRONTEND_DIR" >&2
+  exit 1
+fi
+
+if [ "$ACTUAL_FRONTEND_REVISION" != "$EXPECTED_FRONTEND_REVISION" ]; then
+  echo "❌ frontend checkout $ACTUAL_FRONTEND_REVISION does not match pinned revision $EXPECTED_FRONTEND_REVISION." >&2
+  exit 1
+fi
+
+FRONTEND_DIRTY_STATE="$(git -C "$FRONTEND_DIR" status --short --untracked-files=all -- . ':(exclude)node_modules' ':(exclude)dist')"
+if [ -n "$FRONTEND_DIRTY_STATE" ]; then
+  echo "❌ frontend checkout is not clean at pinned revision $EXPECTED_FRONTEND_REVISION:" >&2
+  printf '%s\n' "$FRONTEND_DIRTY_STATE" >&2
+  exit 1
+fi
+
+FRONTEND_IGNORED_BUILD_STATE="$(
+  git -C "$FRONTEND_DIR" status --short --ignored=matching --untracked-files=all -- . |
+    awk '
+      BEGIN {
+        allowed["node_modules/"] = 1
+        allowed["dist/"] = 1
+        allowed[".context/"] = 1
+        allowed[".polyscope-preview-stage/"] = 1
+        allowed[".eslintcache"] = 1
+        allowed[".prettiercache"] = 1
+        allowed["coverage/"] = 1
+        allowed["test-results/"] = 1
+        allowed["playwright-report/"] = 1
+      }
+      $1 == "!!" {
+        path = substr($0, 4)
+        if (!(path in allowed)) {
+          print
+        }
+      }
+    '
+)"
+if [ -n "$FRONTEND_IGNORED_BUILD_STATE" ]; then
+  echo "❌ frontend checkout contains ignored build inputs at pinned revision $EXPECTED_FRONTEND_REVISION:" >&2
+  printf '%s\n' "$FRONTEND_IGNORED_BUILD_STATE" >&2
+  exit 1
+fi
+
+FRONTEND_SOURCE_DATE_EPOCH="$(git -C "$FRONTEND_DIR" show -s --format=%ct "$EXPECTED_FRONTEND_REVISION")"
+if [[ ! "$FRONTEND_SOURCE_DATE_EPOCH" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "❌ frontend commit timestamp is invalid for $EXPECTED_FRONTEND_REVISION." >&2
+  exit 1
+fi
+
 API_BASE_URL="$({ sed -n 's@.*<string name="api_base_url">\(.*\)</string>.*@\1@p' "$ANDROID_STRINGS_XML" | head -n 1; } || true)"
 
 if [ -z "$API_BASE_URL" ]; then
@@ -32,10 +95,13 @@ if [ -z "$API_BASE_URL" ]; then
 fi
 
 echo "→ Building frontend from $FRONTEND_DIR"
+echo "→ Using pinned frontend revision: $EXPECTED_FRONTEND_REVISION"
 echo "→ Using Android API base URL: $API_BASE_URL"
 (
   cd "$FRONTEND_DIR"
-  VITE_API_URL="$API_BASE_URL" npm run build:android
+  SOURCE_DATE_EPOCH="$FRONTEND_SOURCE_DATE_EPOCH" \
+    VITE_API_URL="$API_BASE_URL" \
+    npm run build:android
 )
 
 if [ ! -d "$FRONTEND_DIR/dist" ]; then

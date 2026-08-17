@@ -16,6 +16,7 @@ const emulatorHelperSource = readFileSync(
   "utf8"
 );
 type WorkflowStep = {
+  id?: string;
   name?: string;
   env?: Record<string, string>;
   if?: string;
@@ -65,10 +66,26 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("jq -e '.status == \"ready\"'");
   });
 
-  it("builds Android against a reproducible checkout of frontend main", () => {
-    expect(workflowSource).toContain("repository: SecPal/frontend");
-    expect(workflowSource).toContain('ref: "main"');
-    expect(workflowSource).toContain("path: frontend");
+  it("builds Android against the validated pinned frontend revision", () => {
+    const revisionStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Read pinned frontend revision"
+    );
+    const checkoutStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Checkout pinned frontend"
+    );
+    const revisionStep = workflow.jobs.smoke.steps[revisionStepIndex];
+    const checkoutStep = workflow.jobs.smoke.steps[checkoutStepIndex];
+
+    expect(revisionStepIndex).toBeGreaterThan(-1);
+    expect(checkoutStepIndex).toBe(revisionStepIndex + 1);
+    expect(revisionStep?.id).toBe("frontend-revision");
+    expect(revisionStep?.run).toContain("android/frontend-revision.txt");
+    expect(revisionStep?.run).toContain("^[0-9a-f]{40}$");
+    expect(checkoutStep?.with).toMatchObject({
+      repository: "SecPal/frontend",
+      ref: "${{ steps.frontend-revision.outputs.sha }}",
+      path: "frontend",
+    });
     expect(workflowSource).toContain(
       "SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend"
     );
@@ -79,9 +96,31 @@ describe("Android smoke workflow", () => {
     expect(workflowSource).toContain("Frontend SHA:");
   });
 
+  it("compares both generated and finally packaged web assets with Git", () => {
+    const buildStep = workflow.jobs.smoke.steps.find(
+      (step) => step.name === "Build debug APK from pinned frontend"
+    );
+    const buildCommands = buildStep?.run ?? "";
+    const syncIndex = buildCommands.indexOf("npm run cap:sync");
+    const firstCleanIndex = buildCommands.indexOf(
+      "npm run native:verify:web-assets-clean"
+    );
+    const assembleIndex = buildCommands.indexOf(
+      "npm run native:assemble:debug"
+    );
+    const finalCleanIndex = buildCommands.lastIndexOf(
+      "npm run native:verify:web-assets-clean"
+    );
+
+    expect(syncIndex).toBeGreaterThan(-1);
+    expect(firstCleanIndex).toBeGreaterThan(syncIndex);
+    expect(assembleIndex).toBeGreaterThan(firstCleanIndex);
+    expect(finalCleanIndex).toBeGreaterThan(assembleIndex);
+  });
+
   it("verifies generated native-auth route parity after packaging", () => {
     const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Build debug APK from frontend main"
+      (step) => step.name === "Build debug APK from pinned frontend"
     );
     const parityStepIndex = workflow.jobs.smoke.steps.findIndex(
       (step) => step.name === "Verify generated native-auth route parity"
@@ -107,7 +146,7 @@ describe("Android smoke workflow", () => {
       (step) => step.name === "Record tested revisions"
     );
     const buildStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Build debug APK from frontend main"
+      (step) => step.name === "Build debug APK from pinned frontend"
     );
     const revisionSetup =
       workflow.jobs.smoke.steps[revisionStepIndex]?.run ?? "";
@@ -134,6 +173,7 @@ describe("Android smoke workflow", () => {
       "scripts/patch-capacitor-android-unchecked.mjs",
       "scripts/verify-android-frontend-build.mjs",
       "scripts/verify-android-runtime-schema.mjs",
+      "scripts/verify-android-web-assets-clean.mjs",
       "scripts/verify-android-web-asset-overlays.mjs",
     ];
 
