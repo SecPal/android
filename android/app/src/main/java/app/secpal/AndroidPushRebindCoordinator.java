@@ -317,9 +317,10 @@ final class AndroidPushRebindCoordinator {
             if (current != null && current.hasPendingRebind()) {
                 return publish(Outcome.of(Outcome.Kind.CONFLICT));
             }
-            if (current != null
-                && current.hasServerRegistration()
-                && (previous == null || !previous.canAuthorize(current))) {
+            if ((previous != null && !previous.canAuthorize(current))
+                || (previous == null
+                    && current != null
+                    && current.hasServerRegistration())) {
                 return publish(
                     Outcome.of(
                         Outcome.Kind.CONFLICT,
@@ -366,6 +367,7 @@ final class AndroidPushRebindCoordinator {
         if (cancellation.isCancelled()) {
             return publish(Outcome.of(Outcome.Kind.CANCELLED));
         }
+        AndroidPushIdentityStorage.State bound;
         try {
             AndroidPushIdentityStorage.State validated = storage.load();
             if (!handle.describes(validated)) {
@@ -373,7 +375,7 @@ final class AndroidPushRebindCoordinator {
                     terminate(handle, Outcome.of(Outcome.Kind.STALE))
                 );
             }
-            AndroidPushIdentityStorage.State bound = storage.bindRuntime(
+            bound = storage.bindRuntime(
                 handle.nextApiOrigin(),
                 handle.nextMetadataRevision,
                 null,
@@ -386,7 +388,10 @@ final class AndroidPushRebindCoordinator {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
         return publish(
-            terminate(handle, drain(Outcome.Kind.COMMITTED, cancellation))
+            terminate(
+                handle,
+                drain(Outcome.Kind.COMMITTED, bound, cancellation)
+            )
         );
     }
 
@@ -449,7 +454,7 @@ final class AndroidPushRebindCoordinator {
         }
         Outcome drained = null;
         if (current.hasPendingRevocation()) {
-            drained = drain(Outcome.Kind.CLEANED, cancellation);
+            drained = drain(Outcome.Kind.CLEANED, current, cancellation);
             if (drained.cleanup() != Cleanup.COMPLETED) {
                 return publish(drained);
             }
@@ -587,7 +592,7 @@ final class AndroidPushRebindCoordinator {
                 Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED)
             );
         }
-        return publish(drain(Outcome.Kind.CLEANED, cancellation));
+        return publish(drain(Outcome.Kind.CLEANED, current, cancellation));
     }
 
     /**
@@ -616,7 +621,7 @@ final class AndroidPushRebindCoordinator {
                 return publish(Outcome.of(Outcome.Kind.CONFLICT));
             }
             if (current != null && current.hasPendingRevocation()) {
-                drained = drain(Outcome.Kind.CLEANED, cancellation);
+                drained = drain(Outcome.Kind.CLEANED, current, cancellation);
                 current = storage.load();
                 if (drained.cleanup() == Cleanup.CANCELLED
                     || (current != null && current.hasPendingRevocation())) {
@@ -641,7 +646,7 @@ final class AndroidPushRebindCoordinator {
                     )
                 );
             }
-            storage.retainCurrentRegistrationForRevocation(
+            current = storage.retainCurrentRegistrationForRevocation(
                 credential.authority,
                 requiresAuthenticationLogout,
                 current
@@ -649,7 +654,7 @@ final class AndroidPushRebindCoordinator {
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
-        return publish(drain(Outcome.Kind.CLEANED, cancellation));
+        return publish(drain(Outcome.Kind.CLEANED, current, cancellation));
     }
 
     /**
@@ -658,14 +663,16 @@ final class AndroidPushRebindCoordinator {
      */
     private Outcome drain(
         Outcome.Kind kind,
+        AndroidPushIdentityStorage.State retained,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
-        boolean deferredLogout = sampleDeferredLogout();
+        boolean deferredLogout = retained != null
+            && retained.pendingRevocationRequiresAuthenticationLogout();
         Cleanup cleanup = cleanupRetainedRegistration(cancellation);
         return Outcome.cleaned(
             kind,
             cleanup,
-            deferredLogout && !sampleDeferredLogout()
+            deferredLogout && isRetired(cleanup)
         );
     }
 
@@ -673,16 +680,22 @@ final class AndroidPushRebindCoordinator {
      * Reports whether a tombstone whose session invalidation is deferred is
      * currently retained.
      *
-     * <p>The authority is retired once that tombstone is gone, which a definitive
-     * response reaches even when a late cancellation masks the reported result.
-     * Comparing before and after the drain therefore describes the retirement
-     * better than the reported cleanup does.</p>
+     * <p>A completed or rejected cleanup always clears the tombstone. A late
+     * cancellation can also clear it, because the revocation coordinator
+     * persists a definitive response before reporting the cancellation, so that
+     * case is confirmed against durable state. A pending cleanup keeps it.</p>
      */
-    private boolean sampleDeferredLogout() {
+    private boolean isRetired(Cleanup cleanup) {
+        if (cleanup == Cleanup.COMPLETED
+            || cleanup == Cleanup.AUTHORITY_REJECTED) {
+            return true;
+        }
+        if (cleanup != Cleanup.CANCELLED) {
+            return false;
+        }
         try {
             AndroidPushIdentityStorage.State current = storage.load();
-            return current != null
-                && current.pendingRevocationRequiresAuthenticationLogout();
+            return current == null || !current.hasPendingRevocation();
         } catch (TokenStorageException | RuntimeException exception) {
             return false;
         }

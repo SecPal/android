@@ -48,8 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   durable marker is cleared, and that statement survives a late cancellation that
   masks an already persisted result. A durable staged rebind blocks logout and
   credential replacement after a restart just as it does before one, and
-  unusable recovery metadata fails without discarding the staged authority
-  (issue #617).
+  unusable recovery metadata fails without discarding the staged authority. A
+  caller credential is validated against the current binding before it is
+  retained at all, so a registration appearing during staging cannot make an
+  unvalidated authority durable, and the retirement statement is derived from the
+  cleanup that cleared the tombstone rather than from re-reading state that the
+  cleanup may already have removed (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

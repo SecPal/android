@@ -1383,6 +1383,86 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aForeignCredentialIsRefusedEvenBeforeRegistrationAppears()
+        throws Exception {
+        storage.clearRegistrationAuthority();
+        assertFalse(storage.load().hasServerRegistration());
+        AndroidPushIdentityStorage.State unregistered = storage.load();
+        cipher.rebindAfterNextRead = () -> {
+            try {
+                storage.markRegistered(
+                    storage.snapshot(),
+                    "e".repeat(64),
+                    "f".repeat(64)
+                );
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
+
+        AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
+            "https://tenant-c.example",
+            5,
+            credential(TENANT_B, AUTHORITY_B)
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+            outcome.cleanup()
+        );
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertFalse(current.hasPendingRebind());
+        assertEquals(TENANT_A, current.apiOrigin());
+        assertEquals(unregistered.installationId(), current.installationId());
+    }
+
+    @Test
+    public void aRejectedAuthorityIsAlsoReportedAsRetired() throws Exception {
+        revocationTransport.failure = new IOException("offline");
+        coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        revocationTransport.failure = null;
+        revocationTransport.statusCode = 403;
+
+        AndroidPushRebindCoordinator.Outcome outcome = coordinator().cleanup(
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.AUTHORITY_REJECTED,
+            outcome.cleanup()
+        );
+        assertTrue(outcome.retiredAuthenticationAuthority());
+        assertFalse(storage.load().hasPendingRevocation());
+    }
+
+    @Test
+    public void aPendingCleanupNeverClaimsTheAuthorityIsRetired()
+        throws Exception {
+        revocationTransport.failure = new IOException("offline");
+
+        AndroidPushRebindCoordinator.Outcome outcome = coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.PENDING,
+            outcome.cleanup()
+        );
+        assertFalse(outcome.retiredAuthenticationAuthority());
+        assertTrue(
+            storage.load().pendingRevocationRequiresAuthenticationLogout()
+        );
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
