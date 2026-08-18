@@ -433,9 +433,10 @@ final class AndroidPushRebindCoordinator {
      * discarded. The transaction owns the target origin, not the metadata
      * revision: the resumed transaction always carries the revision the runtime
      * reports now, because a revision captured before the restart may no longer
-     * describe the runtime the device is actually configured for. Durable cleanup always runs first because a retained tombstone
-     * owns the transition until it is resolved. A transaction that is still open
-     * in this process owns the transition and is never replaced.</p>
+     * describe the runtime the device is actually configured for. Durable cleanup
+     * always runs first because a retained tombstone owns the transition until it
+     * is resolved. A transaction that is still open in this process owns the
+     * transition and is never replaced.</p>
      */
     synchronized Outcome recover(
         String apiOrigin,
@@ -446,40 +447,49 @@ final class AndroidPushRebindCoordinator {
             return publish(Outcome.of(Outcome.Kind.CONFLICT));
         }
         activeTransaction = null;
-        AndroidPushIdentityStorage.State current;
-        try {
-            current = storage.load();
-        } catch (TokenStorageException | RuntimeException exception) {
-            return publish(Outcome.of(Outcome.Kind.FAILED));
-        }
-        if (current == null) {
-            return publish(Outcome.of(Outcome.Kind.IDLE));
-        }
         Outcome drained = null;
-        if (current.hasPendingRevocation()) {
-            drained = drain(Outcome.Kind.CLEANED, current, cancellation);
-            if (drained.cleanup() != Cleanup.COMPLETED) {
-                return publish(drained);
-            }
-            try {
+        try {
+            AndroidPushIdentityStorage.State current = storage.load();
+            if (current != null && current.hasPendingRevocation()) {
+                drained = drain(Outcome.Kind.CLEANED, current, cancellation);
+                if (drained.cleanup() != Cleanup.COMPLETED) {
+                    return publish(drained);
+                }
                 current = storage.load();
-            } catch (TokenStorageException | RuntimeException exception) {
-                return publish(Outcome.of(Outcome.Kind.FAILED));
             }
-            if (current == null) {
-                return publish(drained);
+            if (current == null || !current.hasPendingRebind()) {
+                return publish(
+                    drained == null ? Outcome.of(Outcome.Kind.IDLE) : drained
+                );
             }
-        }
-        if (!current.hasPendingRebind()) {
             return publish(
-                drained == null ? Outcome.of(Outcome.Kind.IDLE) : drained
+                resumeOrInvalidate(current, apiOrigin, metadataRevision)
+            );
+        } catch (TokenStorageException | RuntimeException exception) {
+            return publish(
+                carryRetirement(Outcome.of(Outcome.Kind.FAILED), drained)
             );
         }
+    }
+
+    /**
+     * Resumes the staged transition for the runtime the caller is starting, or
+     * discards a staging that no longer describes any runtime it could apply to.
+     *
+     * <p>Unusable metadata is never treated as a different runtime: discarding
+     * the staged authority would leave its registration live with nothing left
+     * to remove it.</p>
+     */
+    private Outcome resumeOrInvalidate(
+        AndroidPushIdentityStorage.State current,
+        String apiOrigin,
+        int metadataRevision
+    ) throws TokenStorageException {
         String normalizedOrigin = AndroidPushIdentityStorage.normalizeApiOrigin(
             apiOrigin
         );
         if (normalizedOrigin == null || metadataRevision <= 0) {
-            return publish(Outcome.of(Outcome.Kind.FAILED));
+            return Outcome.of(Outcome.Kind.FAILED);
         }
         if (current.pendingRebindApiOrigin().equals(normalizedOrigin)) {
             activeTransaction = new Transaction(
@@ -487,18 +497,10 @@ final class AndroidPushRebindCoordinator {
                 metadataRevision,
                 current.installationId()
             );
-            return publish(
-                Outcome.of(Outcome.Kind.RESUMED, activeTransaction)
-            );
+            return Outcome.of(Outcome.Kind.RESUMED, activeTransaction);
         }
-        try {
-            storage.cancelPreparedRuntimeRebind(
-                current.pendingRebindApiOrigin()
-            );
-        } catch (TokenStorageException | RuntimeException exception) {
-            return publish(Outcome.of(Outcome.Kind.FAILED));
-        }
-        return publish(Outcome.of(Outcome.Kind.INVALIDATED));
+        storage.cancelPreparedRuntimeRebind(current.pendingRebindApiOrigin());
+        return Outcome.of(Outcome.Kind.INVALIDATED);
     }
 
     /**
@@ -616,52 +618,73 @@ final class AndroidPushRebindCoordinator {
         if (activeTransaction != null && !activeTransaction.isTerminal()) {
             return publish(Outcome.of(Outcome.Kind.CONFLICT));
         }
-        AndroidPushIdentityStorage.State current;
         Outcome drained = null;
+        Outcome outcome;
         try {
-            current = storage.load();
+            AndroidPushIdentityStorage.State current = storage.load();
             if (current != null && current.hasPendingRebind()) {
-                return publish(Outcome.of(Outcome.Kind.CONFLICT));
-            }
-            if (current != null && current.hasPendingRevocation()) {
-                drained = drain(Outcome.Kind.CLEANED, current, cancellation);
-                current = storage.load();
-                if (drained.cleanup() == Cleanup.CANCELLED
-                    || (current != null && current.hasPendingRevocation())) {
-                    return publish(drained);
-                }
-            }
-            if (current == null || !current.hasServerRegistration()) {
-                return publish(
-                    drained == null
-                        ? Outcome.of(
-                            Outcome.Kind.CLEANED,
-                            Cleanup.NOT_REQUIRED
-                        )
-                        : drained
-                );
-            }
-            if (credential == null || !credential.canAuthorize(current)) {
-                return publish(
-                    Outcome.of(
+                outcome = Outcome.of(Outcome.Kind.CONFLICT);
+            } else {
+                if (current != null && current.hasPendingRevocation()) {
+                    drained = drain(
                         Outcome.Kind.CLEANED,
-                        Cleanup.AUTHORITY_UNAVAILABLE
-                    )
+                        current,
+                        cancellation
+                    );
+                    current = storage.load();
+                }
+                outcome = retainAndCleanRemaining(
+                    current,
+                    credential,
+                    requiresAuthenticationLogout,
+                    drained,
+                    cancellation
                 );
             }
-            current = storage.retainCurrentRegistrationForRevocation(
+        } catch (TokenStorageException | RuntimeException exception) {
+            outcome = Outcome.of(Outcome.Kind.FAILED);
+        }
+        return publish(carryRetirement(outcome, drained));
+    }
+
+    /**
+     * Resolves the transition once any already retained tombstone was drained.
+     *
+     * <p>Split out so {@link #retainAndClean} has a single exit: every result,
+     * including a failure, passes through the same retirement carry, because a
+     * drain that already happened cannot be reported by any later attempt.</p>
+     */
+    private Outcome retainAndCleanRemaining(
+        AndroidPushIdentityStorage.State current,
+        Credential credential,
+        boolean requiresAuthenticationLogout,
+        Outcome drained,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) throws TokenStorageException {
+        if (drained != null
+            && (drained.cleanup() == Cleanup.CANCELLED
+                || (current != null && current.hasPendingRevocation()))) {
+            return drained;
+        }
+        if (current == null || !current.hasServerRegistration()) {
+            return drained != null
+                ? drained
+                : Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED);
+        }
+        if (credential == null || !credential.canAuthorize(current)) {
+            return Outcome.of(
+                Outcome.Kind.CLEANED,
+                Cleanup.AUTHORITY_UNAVAILABLE
+            );
+        }
+        return drain(
+            Outcome.Kind.CLEANED,
+            storage.retainCurrentRegistrationForRevocation(
                 credential.authority,
                 requiresAuthenticationLogout,
                 current
-            );
-        } catch (TokenStorageException | RuntimeException exception) {
-            return publish(Outcome.of(Outcome.Kind.FAILED));
-        }
-        return publish(
-            carryRetirement(
-                drain(Outcome.Kind.CLEANED, current, cancellation),
-                drained
-            )
+            ),
+            cancellation
         );
     }
 

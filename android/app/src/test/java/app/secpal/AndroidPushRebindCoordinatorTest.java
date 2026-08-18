@@ -1548,6 +1548,67 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aRetirementSurvivesEveryOutcomeOfTheFollowingTransition()
+        throws Exception {
+        for (String followUp : List.of("failure", "unauthorized")) {
+            setUp();
+            AndroidPushRebindCoordinator coordinator = coordinator();
+            revocationTransport.failure = new IOException("offline");
+            coordinator.commit(
+                coordinator.begin(
+                    TENANT_B,
+                    4,
+                    credential(TENANT_A, AUTHORITY_A)
+                ).transaction(),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+            AndroidPushIdentityStorage.State rebound = storage.load();
+            assertTrue(
+                followUp,
+                rebound.pendingRevocationRequiresAuthenticationLogout()
+            );
+            revocationTransport.failure = null;
+            storage.recordToken(
+                TENANT_B,
+                4,
+                rebound.installationId(),
+                TOKEN + "-b"
+            );
+            storage.markRegistered(
+                storage.snapshot(),
+                "1".repeat(64),
+                "2".repeat(64)
+            );
+
+            AndroidPushRebindCoordinator.Outcome outcome;
+            if (followUp.equals("failure")) {
+                cipher.failOnceTombstoneCleared = true;
+                outcome = coordinator().logout(
+                    credential(TENANT_B, AUTHORITY_B),
+                    new NativeAuthHttpClient.CancellationSignal()
+                );
+                assertEquals(
+                    followUp,
+                    AndroidPushRebindCoordinator.Outcome.Kind.FAILED,
+                    outcome.kind()
+                );
+            } else {
+                outcome = coordinator().logout(
+                    credential(TENANT_A, AUTHORITY_A),
+                    new NativeAuthHttpClient.CancellationSignal()
+                );
+                assertEquals(
+                    followUp,
+                    AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+                    outcome.cleanup()
+                );
+            }
+
+            assertTrue(followUp, outcome.retiredAuthenticationAuthority());
+        }
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
@@ -1733,6 +1794,7 @@ public class AndroidPushRebindCoordinatorTest {
         private final Map<String, String> plaintextByCiphertext = new HashMap<>();
         private int sequence;
         private boolean unavailable;
+        private boolean failOnceTombstoneCleared;
         private Runnable rebindAfterNextRead;
 
         @Override
@@ -1748,6 +1810,10 @@ public class AndroidPushRebindCoordinatorTest {
             requireAvailable();
             String plaintext = plaintextByCiphertext.get(payload.getCiphertext());
             assertNotNull(plaintext);
+            if (failOnceTombstoneCleared
+                && !plaintext.contains("pendingRevocationApiOrigin")) {
+                throw new IllegalStateException("keystore unavailable");
+            }
             Runnable pending = rebindAfterNextRead;
             if (pending != null) {
                 rebindAfterNextRead = null;
