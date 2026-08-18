@@ -132,11 +132,10 @@ final class AndroidPushRebindCoordinator {
         }
 
         private boolean describes(AndroidPushIdentityStorage.State current) {
-            if (current == null) {
-                return stagedInstallationId == null;
+            if (stagedInstallationId == null || current == null) {
+                return stagedInstallationId == null && current == null;
             }
-            if (stagedInstallationId != null
-                && !stagedInstallationId.equals(current.installationId())) {
+            if (!stagedInstallationId.equals(current.installationId())) {
                 return false;
             }
             if (!current.hasServerRegistration()) {
@@ -299,8 +298,7 @@ final class AndroidPushRebindCoordinator {
             storage.prepareRuntimeRebind(
                 normalizedOrigin,
                 previous == null ? null : previous.authority,
-                current == null ? null : current.apiOrigin(),
-                current == null ? null : current.installationId()
+                current
             );
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
@@ -337,14 +335,17 @@ final class AndroidPushRebindCoordinator {
             return publish(Outcome.of(Outcome.Kind.CANCELLED));
         }
         try {
-            if (!handle.describes(storage.load())) {
+            AndroidPushIdentityStorage.State validated = storage.load();
+            if (!handle.describes(validated)) {
                 return publish(
                     terminate(handle, Outcome.of(Outcome.Kind.STALE))
                 );
             }
             AndroidPushIdentityStorage.State bound = storage.bindRuntime(
                 handle.nextApiOrigin(),
-                handle.nextMetadataRevision
+                handle.nextMetadataRevision,
+                null,
+                validated
             );
             if (bound.hasPendingRebind()) {
                 storage.cancelPreparedRuntimeRebind(handle.nextApiOrigin());
@@ -610,7 +611,8 @@ final class AndroidPushRebindCoordinator {
             }
             storage.retainCurrentRegistrationForRevocation(
                 credential.authority,
-                requiresAuthenticationLogout
+                requiresAuthenticationLogout,
+                current
             );
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));

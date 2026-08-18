@@ -36,8 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resumed through cold-start recovery instead of being overwritten, an unchanged
   credential is validated against the current binding before it is reported as
   needing no cleanup, a stale rollback no longer reports a terminal transition,
-  and a rejected legacy tombstone no longer leaves the live registration behind
-  (issue #617).
+  and a rejected legacy tombstone no longer leaves the live registration behind.
+  Every transition that acts on a caller credential now applies as a
+  compare-and-set against the binding it was validated against, matching the
+  registration and revocation coordinators, so a binding that changes in between
+  can no longer inherit another origin's authority (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

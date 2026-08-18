@@ -314,6 +314,19 @@ final class AndroidPushIdentityStorage {
         int metadataRevision,
         String previousAuthToken
     ) throws TokenStorageException {
+        return bindRuntime(apiOrigin, metadataRevision, previousAuthToken, null);
+    }
+
+    /**
+     * Binds the runtime, applying only while the binding still matches
+     * {@code expected}. See {@link #requireUnchangedBinding}.
+     */
+    synchronized State bindRuntime(
+        String apiOrigin,
+        int metadataRevision,
+        String previousAuthToken,
+        State expected
+    ) throws TokenStorageException {
         String normalizedOrigin = requireApiOrigin(apiOrigin);
         if (metadataRevision <= 0) {
             throw new TokenStorageException(
@@ -323,6 +336,7 @@ final class AndroidPushIdentityStorage {
         }
 
         State current = load();
+        requireUnchangedBinding(expected, current);
         if (current != null
             && normalizedOrigin.equals(current.apiOrigin())
             && metadataRevision == current.metadataRevision()) {
@@ -392,37 +406,21 @@ final class AndroidPushIdentityStorage {
         String nextApiOrigin,
         String previousAuthToken
     ) throws TokenStorageException {
-        prepareRuntimeRebind(nextApiOrigin, previousAuthToken, null, null);
+        prepareRuntimeRebind(nextApiOrigin, previousAuthToken, null);
     }
 
     /**
-     * Stages a runtime rebind only while the binding still matches the caller's
-     * expectation.
-     *
-     * <p>The retained authority belongs to the binding the caller validated it
-     * against. Staging it against a binding that changed in the meantime would
-     * hand one origin's authority to another, so a mismatch fails instead.
-     * Passing {@code null} expectations stages against whatever is current.</p>
+     * Stages a runtime rebind, applying only while the binding still matches
+     * {@code expected}. See {@link #requireUnchangedBinding}.
      */
     synchronized void prepareRuntimeRebind(
         String nextApiOrigin,
         String previousAuthToken,
-        String expectedApiOrigin,
-        String expectedInstallationId
+        State expected
     ) throws TokenStorageException {
         String normalizedOrigin = requireApiOrigin(nextApiOrigin);
         State current = load();
-        if (expectedApiOrigin != null
-            && (current == null
-                || !current.apiOrigin().equals(
-                    requireApiOrigin(expectedApiOrigin)
-                )
-                || !current.installationId().equals(expectedInstallationId))) {
-            throw new TokenStorageException(
-                "Android push runtime binding changed before the rebind was staged",
-                new IllegalStateException("runtimeBinding")
-            );
-        }
+        requireUnchangedBinding(expected, current);
         if (current == null
             || !current.hasServerRegistration()) {
             return;
@@ -573,7 +571,25 @@ final class AndroidPushIdentityStorage {
         boolean revokeAuthentication
     )
         throws TokenStorageException {
+        return retainCurrentRegistrationForRevocation(
+            authToken,
+            revokeAuthentication,
+            null
+        );
+    }
+
+    /**
+     * Retains the current registration for revocation, applying only while the
+     * binding still matches {@code expected}. See {@link #requireUnchangedBinding}.
+     */
+    synchronized State retainCurrentRegistrationForRevocation(
+        String authToken,
+        boolean revokeAuthentication,
+        State expected
+    )
+        throws TokenStorageException {
         State current = load();
+        requireUnchangedBinding(expected, current);
         if (current == null || !current.hasServerRegistration()) {
             return current;
         }
@@ -1186,6 +1202,28 @@ final class AndroidPushIdentityStorage {
             throw new TokenStorageException(
                 "Failed to invalidate unreadable Android push identity",
                 new IllegalStateException("SharedPreferences commit failed")
+            );
+        }
+    }
+
+    /**
+     * Fails unless the durable binding still matches what the caller validated.
+     *
+     * <p>Every transition that acts on a caller credential validates it against a
+     * loaded state and then mutates a state this class reloads. Without this
+     * check the two can differ, and the credential of one binding would be
+     * retained for another. A {@code null} expectation means the caller has none,
+     * which is only true for the initial binding.</p>
+     */
+    private void requireUnchangedBinding(State expected, State current)
+        throws TokenStorageException {
+        if (expected == null) {
+            return;
+        }
+        if (!sameRegistrationBinding(expected, current)) {
+            throw new TokenStorageException(
+                "Android push runtime binding changed before the transition applied",
+                new IllegalStateException("runtimeBinding")
             );
         }
     }

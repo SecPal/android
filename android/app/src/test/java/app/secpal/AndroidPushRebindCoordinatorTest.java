@@ -1124,6 +1124,100 @@ public class AndroidPushRebindCoordinatorTest {
         assertFalse(storage.load().hasServerRegistration());
     }
 
+    /**
+     * Every transition validates a credential against a loaded state and then
+     * calls a storage method that reloads the state itself. This rebinds the
+     * runtime in between, so any transition that is not compare-and-set would
+     * carry tenant A's authority into the tenant B binding.
+     */
+    @Test
+    public void noTransitionAppliesToABindingThatChangedAfterValidation()
+        throws Exception {
+        for (String transition : List.of("begin", "logout", "replace")) {
+            setUp();
+            cipher.rebindAfterNextRead = () -> {
+                try {
+                    storage.bindRuntime(TENANT_B, 4, AUTHORITY_A);
+                } catch (TokenStorageException exception) {
+                    throw new AssertionError(exception);
+                }
+            };
+
+            AndroidPushRebindCoordinator.Outcome outcome;
+            switch (transition) {
+                case "begin":
+                    outcome = coordinator().begin(
+                        "https://tenant-c.example",
+                        5,
+                        credential(TENANT_A, AUTHORITY_A)
+                    );
+                    break;
+                case "logout":
+                    outcome = coordinator().logout(
+                        credential(TENANT_A, AUTHORITY_A),
+                        new NativeAuthHttpClient.CancellationSignal()
+                    );
+                    break;
+                default:
+                    outcome = coordinator().replaceCredential(
+                        credential(TENANT_A, AUTHORITY_A),
+                        credential(TENANT_A, "tenant-a-replacement-token"),
+                        new NativeAuthHttpClient.CancellationSignal()
+                    );
+            }
+
+            assertEquals(
+                transition,
+                AndroidPushRebindCoordinator.Outcome.Kind.FAILED,
+                outcome.kind()
+            );
+            AndroidPushIdentityStorage.State current = storage.load();
+            assertEquals(transition, TENANT_B, current.apiOrigin());
+            assertFalse(transition, current.hasPendingRebind());
+            for (FakeRevocationTransport.Call call : revocationTransport.calls) {
+                assertEquals(transition, TENANT_A, call.apiOrigin);
+            }
+            if (current.hasPendingRevocation()) {
+                assertEquals(
+                    transition,
+                    TENANT_A,
+                    current.pendingRevocationApiOrigin()
+                );
+            }
+        }
+    }
+
+    @Test
+    public void aTransactionStagedAgainstAnEmptyStoreRefusesANewIdentity()
+        throws Exception {
+        storage.clear();
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            null
+        ).transaction();
+        AndroidPushIdentityStorage.State appeared = storage.bindRuntime(
+            TENANT_A,
+            3
+        );
+        storage.recordToken(TENANT_A, 3, appeared.installationId(), TOKEN);
+
+        AndroidPushRebindCoordinator.Outcome stale = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertEquals(TENANT_A, current.apiOrigin());
+        assertEquals(appeared.installationId(), current.installationId());
+        assertEquals(TOKEN, current.token());
+    }
+
     @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
@@ -1306,6 +1400,7 @@ public class AndroidPushRebindCoordinatorTest {
         private final Map<String, String> plaintextByCiphertext = new HashMap<>();
         private int sequence;
         private boolean unavailable;
+        private Runnable rebindAfterNextRead;
 
         @Override
         public EncryptedTokenPayload encrypt(String plaintext) {
@@ -1320,6 +1415,11 @@ public class AndroidPushRebindCoordinatorTest {
             requireAvailable();
             String plaintext = plaintextByCiphertext.get(payload.getCiphertext());
             assertNotNull(plaintext);
+            Runnable pending = rebindAfterNextRead;
+            if (pending != null) {
+                rebindAfterNextRead = null;
+                pending.run();
+            }
             return plaintext;
         }
 
