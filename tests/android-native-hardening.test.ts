@@ -69,9 +69,17 @@ describe("Android native hardening", () => {
       "native:normalize:cordova-config"
     );
     const capCopyScript = packageJson.scripts["cap:copy"];
-    expect(
-      capCopyScript.indexOf("native:normalize:cordova-gradle")
-    ).toBeGreaterThan(capCopyScript.indexOf("npx cap copy android"));
+    const capacitorCopyIndex = capCopyScript.indexOf("npx cap copy android");
+    const cordovaNormalizerIndex = capCopyScript.indexOf(
+      "native:normalize:cordova-gradle"
+    );
+    const webAssetInventoryIndex = capCopyScript.indexOf(
+      "native:inventory:web-assets"
+    );
+
+    expect(capacitorCopyIndex).toBeGreaterThanOrEqual(0);
+    expect(cordovaNormalizerIndex).toBeGreaterThan(capacitorCopyIndex);
+    expect(webAssetInventoryIndex).toBeGreaterThan(cordovaNormalizerIndex);
   });
 
   it("keeps only Android resources with proven runtime or build-time callers", () => {
