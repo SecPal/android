@@ -105,6 +105,19 @@ if (( api_level != 37 )); then
     exit "$attempt_status"
 fi
 
+has_recovered_other_package_install_failure() {
+    local recovered_failure
+
+    for recovered_failure in "${recovered_api37_failures[@]}"; do
+        if [[ "$recovered_failure" == package-manager-* ]] &&
+            [[ "$recovered_failure" != "package-manager-install-write" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 classify_api37_failure() {
     retry_key=""
     retry_limit=1
@@ -116,6 +129,9 @@ classify_api37_failure() {
         retry_key="package-manager-install-write"
         retry_reason="PackageManager install-write failure"
         reboot_before_retry=true
+        if has_recovered_other_package_install_failure; then
+            retry_limit=2
+        fi
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
         grep -Fq "Failed to commit install session" "$attempt_log" &&

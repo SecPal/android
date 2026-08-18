@@ -598,6 +598,8 @@ exit 1
         | "split-install-broken-pipe-twice"
         | "split-install-broken-pipe-always"
         | "split-install-broken-pipe-then-test"
+        | "split-install-broken-pipe-then-install-write-twice"
+        | "split-install-broken-pipe-then-install-write-always"
         | "missing-package-service"
         | "missing-package-service-always"
         | "install-write"
@@ -661,6 +663,12 @@ elif [[ "${failureMode}" == "split-install-broken-pipe-then-test" ]]; then
     attempt_failure_mode="split-install-broken-pipe"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="test"
+  fi
+elif [[ "${failureMode}" == split-install-broken-pipe-then-install-write-* ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="split-install-broken-pipe"
+  elif [[ "${failureMode}" == *-always || "$attempt" -le 3 ]]; then
+    attempt_failure_mode="install-write"
   fi
 elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -983,6 +991,52 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(testFailureAfterSplitInstallRecovery.waits).toEqual([
+      "emulator-5570 60",
+    ]);
+
+    const chainedPackageInstallRecovery = runScenario(
+      37,
+      "split-install-broken-pipe-then-install-write-twice"
+    );
+    expect(chainedPackageInstallRecovery.result.status).toBe(0);
+    expect(chainedPackageInstallRecovery.attempts).toBe(4);
+    expect(chainedPackageInstallRecovery.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(chainedPackageInstallRecovery.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+    expect(chainedPackageInstallRecovery.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:3",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:4",
+    ]);
+
+    const persistentChainedPackageInstallFailure = runScenario(
+      37,
+      "split-install-broken-pipe-then-install-write-always"
+    );
+    expect(persistentChainedPackageInstallFailure.result.status).toBe(1);
+    expect(persistentChainedPackageInstallFailure.attempts).toBe(4);
+    expect(persistentChainedPackageInstallFailure.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(persistentChainedPackageInstallFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
       "emulator-5570 60",
     ]);
 
