@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added repository-wide regression coverage for active licensing metadata and
+  metadata-generation paths while migrating SecPal-owned Android material to
+  plain `AGPL-3.0-or-later` (issue #593).
 - Added a native-only Android push JSON transport restricted to canonical
   notification-installation `PUT` and `DELETE` requests, with dedicated 256 KiB
   request and response bounds, plus named Firebase token refresh, rotation, and

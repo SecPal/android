@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 SecPal Contributors
-// SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -10,7 +10,7 @@ export const androidWebAssetInventoryName = "secpal-web-assets.json";
 
 const inventorySchemaVersion = 1;
 const inventorySpdx =
-  "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later AND LicenseRef-SecPal-Attribution";
+  "SPDX-FileCopyrightText: 2026 SecPal Contributors; SPDX-License-Identifier: AGPL-3.0-or-later";
 const sha256Pattern = /^[0-9a-f]{64}$/;
 const androidAssetIgnorePolicyPath = fileURLToPath(
   new URL("../android/app/aapt-ignore-assets.json", import.meta.url)

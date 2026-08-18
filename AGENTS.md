@@ -56,7 +56,7 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 
 - Use `AGPL-3.0-or-later` for SecPal-owned AI instruction material migrated by
   the licensing rollout. Once an instruction file is migrated, never add or
-  restore `LicenseRef-SecPal-Attribution` to it.
+  restore the obsolete attribution addendum to it.
 - Preserve deliberately different licenses, including `CC0-1.0`, `MIT`,
   `Apache-2.0`, licenses still explicitly assigned by repository policy,
   third-party and generated-file licenses, and unrelated custom license

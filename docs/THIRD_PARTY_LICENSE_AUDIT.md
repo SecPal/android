@@ -12,9 +12,9 @@ separate SecPal attribution terms work in issue #313.
 
 ## REUSE and committed files
 
-`reuse lint` reports that all 267 tracked files have copyright and license
-information. `LICENSES/` contains the texts for every identifier REUSE uses:
-`AGPL-3.0-or-later`, `Apache-2.0`, `CC0-1.0`, `MIT`, and
+At the time of this audit, `reuse lint` reported that all 267 tracked files had
+copyright and license information. `LICENSES/` contained the texts for every
+identifier REUSE used: `AGPL-3.0-or-later`, `Apache-2.0`, `CC0-1.0`, `MIT`, and
 `LicenseRef-SecPal-Attribution`.
 
 The audit corrected the attribution of the Gradle Wrapper files. `gradlew` and
