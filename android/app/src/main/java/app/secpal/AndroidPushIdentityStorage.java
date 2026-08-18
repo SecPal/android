@@ -21,6 +21,8 @@ final class AndroidPushIdentityStorage {
     static final String STATE_IV_KEY = "android_push_state_iv";
     static final String TOKEN_ROTATION_REQUIRED_KEY =
         "android_push_token_rotation_required";
+    static final String TOKEN_ROTATION_STATE_INITIALIZED_KEY =
+        "android_push_token_rotation_state_initialized";
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
@@ -854,6 +856,9 @@ final class AndroidPushIdentityStorage {
             )) {
             return false;
         }
+        boolean rejectedPreparedRebind = current.hasPendingRebind()
+            && expectedAuthToken.equals(current.pendingRebindAuthToken());
+        requiresTokenRotation(current);
         State cleared = new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -867,11 +872,11 @@ final class AndroidPushIdentityStorage {
             null,
             null,
             false,
-            current.pendingRebindApiOrigin(),
-            current.pendingRebindAuthToken(),
+            rejectedPreparedRebind ? null : current.pendingRebindApiOrigin(),
+            rejectedPreparedRebind ? null : current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(cleared, false, true);
+        save(cleared);
         return true;
     }
 
@@ -1015,8 +1020,35 @@ final class AndroidPushIdentityStorage {
     }
 
     synchronized boolean requiresTokenRotation() throws TokenStorageException {
+        return requiresTokenRotation(load());
+    }
+
+    private boolean requiresTokenRotation(State current)
+        throws TokenStorageException {
         try {
-            return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
+            boolean required = preferences.getBoolean(
+                TOKEN_ROTATION_REQUIRED_KEY,
+                false
+            );
+            boolean initialized = preferences.getBoolean(
+                TOKEN_ROTATION_STATE_INITIALIZED_KEY,
+                false
+            );
+            if (!initialized && current != null && current.hasPendingRevocation()) {
+                SharedPreferences.Editor editor = preferences.edit()
+                    .putBoolean(TOKEN_ROTATION_STATE_INITIALIZED_KEY, true);
+                if (!required) {
+                    editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
+                }
+                if (!editor.commit()) {
+                    throw new TokenStorageException(
+                        "Failed to migrate Android push token rotation requirement",
+                        new IllegalStateException("SharedPreferences commit failed")
+                    );
+                }
+                return true;
+            }
+            return required;
         } catch (ClassCastException exception) {
             invalidateUnreadableIdentityForTokenRotation();
             throw new TokenStorageException(
@@ -1027,7 +1059,8 @@ final class AndroidPushIdentityStorage {
     }
 
     synchronized Snapshot snapshot() throws TokenStorageException {
-        return new Snapshot(load(), requiresTokenRotation());
+        State current = load();
+        return new Snapshot(current, requiresTokenRotation(current));
     }
 
     synchronized void clear() throws TokenStorageException {
@@ -1035,6 +1068,7 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
+            .remove(TOKEN_ROTATION_STATE_INITIALIZED_KEY)
             .commit()) {
             throw new TokenStorageException(
                 "Failed to clear Android push identity",
@@ -1063,9 +1097,11 @@ final class AndroidPushIdentityStorage {
                 .remove(STATE_CIPHERTEXT_KEY)
                 .remove(STATE_IV_KEY);
             if (snapshot.tokenRotationRequired) {
-                editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
+                editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true)
+                    .putBoolean(TOKEN_ROTATION_STATE_INITIALIZED_KEY, true);
             } else {
-                editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
+                editor.remove(TOKEN_ROTATION_REQUIRED_KEY)
+                    .remove(TOKEN_ROTATION_STATE_INITIALIZED_KEY);
             }
             if (!editor.commit()) {
                 throw new TokenStorageException(
@@ -1102,9 +1138,11 @@ final class AndroidPushIdentityStorage {
                 .putString(STATE_CIPHERTEXT_KEY, encrypted.getCiphertext())
                 .putString(STATE_IV_KEY, encrypted.getInitializationVector());
             if (completeTokenRotation) {
-                editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
+                editor.remove(TOKEN_ROTATION_REQUIRED_KEY)
+                    .putBoolean(TOKEN_ROTATION_STATE_INITIALIZED_KEY, true);
             } else if (requireTokenRotation) {
-                editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
+                editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true)
+                    .putBoolean(TOKEN_ROTATION_STATE_INITIALIZED_KEY, true);
             }
             if (!editor.commit()) {
                 throw new TokenStorageException(
@@ -1131,6 +1169,7 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true)
+            .putBoolean(TOKEN_ROTATION_STATE_INITIALIZED_KEY, true)
             .commit()) {
             throw new TokenStorageException(
                 "Failed to invalidate unreadable Android push identity",

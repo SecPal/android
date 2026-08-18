@@ -657,6 +657,89 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void rejectedRevocationClearsMatchingPreparedRebindAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, AUTH_TOKEN);
+        String legacyInstallationId = "00000000-0000-4000-8000-999999999999";
+        storage.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            AUTH_TOKEN
+        );
+
+        boolean rejected = storage.markPendingRevocationAuthorityRejected(
+            API_ORIGIN,
+            legacyInstallationId,
+            AUTH_TOKEN
+        );
+
+        assertTrue(rejected);
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertFalse(current.hasPendingRevocation());
+        assertFalse(current.hasPendingRebind());
+        assertTrue(current.hasServerRegistration());
+    }
+
+    @Test
+    public void rejectedRevocationPreservesDifferentPreparedRebindAuthority()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        storage.prepareRuntimeRebind(NEXT_API_ORIGIN, AUTH_TOKEN);
+        String legacyInstallationId = "00000000-0000-4000-8000-999999999999";
+        String legacyAuthority = "legacy-auth-token";
+        storage.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            legacyAuthority
+        );
+
+        boolean rejected = storage.markPendingRevocationAuthorityRejected(
+            API_ORIGIN,
+            legacyInstallationId,
+            legacyAuthority
+        );
+
+        assertTrue(rejected);
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertFalse(current.hasPendingRevocation());
+        assertTrue(current.hasPendingRebind());
+        assertEquals(AUTH_TOKEN, current.pendingRebindAuthToken());
+    }
+
+    @Test
+    public void rejectedRevocationPreservesCompletedTokenRotation()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(storage);
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTH_TOKEN, false);
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated"
+        );
+        assertFalse(storage.requiresTokenRotation());
+
+        boolean rejected = storage.markPendingRevocationAuthorityRejected(
+            API_ORIGIN,
+            registered.installationId(),
+            AUTH_TOKEN
+        );
+
+        assertTrue(rejected);
+        assertFalse(storage.load().hasPendingRevocation());
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void pendingRuntimeClearRotatesOnlyTheCurrentIdentity() throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
             new InMemorySharedPreferences()

@@ -199,6 +199,57 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void legacyPendingRevocationBackfillsRotationRequirementOnce()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
+        coordinator.synchronize(
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTHORITY, false);
+        preferences.edit()
+            .remove(AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY)
+            .remove(AndroidPushIdentityStorage.TOKEN_ROTATION_STATE_INITIALIZED_KEY)
+            .commit();
+        storage = createStorage();
+
+        AndroidPushRegistrationCoordinator.Outcome blocked = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(
+            "new-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            blocked.kind()
+        );
+        assertEquals(1, transport.callCount);
+        assertTrue(storage.requiresTokenRotation());
+
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated-after-upgrade"
+        );
+        AndroidPushRegistrationCoordinator.Outcome registered = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(
+            "new-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
+            registered.kind()
+        );
+        assertEquals(2, transport.callCount);
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void missingAndOversizedAuthorityNeverReachTransport() throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
 
