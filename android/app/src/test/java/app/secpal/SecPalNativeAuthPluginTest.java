@@ -1079,7 +1079,10 @@ public class SecPalNativeAuthPluginTest {
             new FakeTokenStorage(),
             new AndroidPushRuntimeManager(firebaseBackend),
             null,
-            bootstrap -> completionCalled.set(true)
+            bootstrap -> {
+                assertNull(bootstrap);
+                completionCalled.set(true);
+            }
         );
 
         assertFalse("Firebase work must not run inline during plugin load", applyCalled.get());
