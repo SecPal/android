@@ -412,6 +412,75 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void reconfigurationMarkedDuringSuccessfulPutOverridesSuccess()
+        throws Exception {
+        markReconfigurationBeforeResponse();
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RECONFIGURATION_REQUIRED,
+            publisher.lastStatus
+        );
+        assertTrue(storage.load().isReconfigurationRequired());
+        assertEquals(1, transport.callCount);
+    }
+
+    @Test
+    public void reconfigurationMarkedDuringAuthenticationRejectionOverridesIt()
+        throws Exception {
+        transport.response = new AndroidPushRegistrationCoordinator.Transport.Response(
+            401,
+            null
+        );
+        markReconfigurationBeforeResponse();
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RECONFIGURATION_REQUIRED,
+            publisher.lastStatus
+        );
+        assertTrue(storage.load().isReconfigurationRequired());
+    }
+
+    @Test
+    public void reconfigurationMarkedDuringRetryableResponseOverridesRetry()
+        throws Exception {
+        transport.response = new AndroidPushRegistrationCoordinator.Transport.Response(
+            503,
+            null
+        );
+        markReconfigurationBeforeResponse();
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RECONFIGURATION_REQUIRED,
+            publisher.lastStatus
+        );
+        assertTrue(storage.load().isReconfigurationRequired());
+    }
+
+    @Test
     public void transportFailureAndCancellationRemainTyped() throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         transport.failure = new IOException("offline");
@@ -483,6 +552,17 @@ public class AndroidPushRegistrationCoordinatorTest {
             metadata,
             publisher
         );
+    }
+
+    private void markReconfigurationBeforeResponse() {
+        transport.beforeResponse = () -> {
+            try {
+                AndroidPushIdentityStorage.State current = storage.load();
+                storage.markReconfigurationRequired(current);
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
     }
 
     private AndroidPushIdentityStorage createStorage() {
