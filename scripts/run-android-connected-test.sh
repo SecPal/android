@@ -114,6 +114,7 @@ classify_api37_failure() {
     if grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then
         retry_key="package-manager-install-write"
+        retry_limit=2
         retry_reason="PackageManager install-write failure"
         reboot_before_retry=true
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&

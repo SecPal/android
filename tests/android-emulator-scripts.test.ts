@@ -598,6 +598,7 @@ exit 1
         | "split-install-broken-pipe-twice"
         | "split-install-broken-pipe-always"
         | "split-install-broken-pipe-then-test"
+        | "split-install-broken-pipe-then-install-write-twice"
         | "missing-package-service"
         | "missing-package-service-always"
         | "install-write"
@@ -661,6 +662,12 @@ elif [[ "${failureMode}" == "split-install-broken-pipe-then-test" ]]; then
     attempt_failure_mode="split-install-broken-pipe"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="test"
+  fi
+elif [[ "${failureMode}" == "split-install-broken-pipe-then-install-write-twice" ]]; then
+  if [[ "$attempt" == "1" ]]; then
+    attempt_failure_mode="split-install-broken-pipe"
+  elif (( attempt <= 3 )); then
+    attempt_failure_mode="install-write"
   fi
 elif [[ "${failureMode}" == "instrumentation-crash-then-install-write" ]]; then
   if [[ "$attempt" == "1" ]]; then
@@ -986,6 +993,23 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "emulator-5570 60",
     ]);
 
+    const recoveredSplitInstallThenInstallWriteFailures = runScenario(
+      37,
+      "split-install-broken-pipe-then-install-write-twice"
+    );
+    expect(recoveredSplitInstallThenInstallWriteFailures.result.status).toBe(0);
+    expect(recoveredSplitInstallThenInstallWriteFailures.attempts).toBe(4);
+    expect(recoveredSplitInstallThenInstallWriteFailures.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(recoveredSplitInstallThenInstallWriteFailures.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
+
     const missingPackageServiceAfterPackageManagerFailure = runScenario(
       37,
       "package-manager-then-missing-package-service"
@@ -1019,11 +1043,15 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "install-write-always"
     );
     expect(persistentInstallWriteFailure.result.status).toBe(1);
-    expect(persistentInstallWriteFailure.attempts).toBe(2);
+    expect(persistentInstallWriteFailure.attempts).toBe(3);
     expect(persistentInstallWriteFailure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
+      "adb -s emulator-5570 reboot",
     ]);
-    expect(persistentInstallWriteFailure.waits).toEqual(["emulator-5570 60"]);
+    expect(persistentInstallWriteFailure.waits).toEqual([
+      "emulator-5570 60",
+      "emulator-5570 60",
+    ]);
 
     const installWriteAfterTestStart = runScenario(
       37,
