@@ -470,8 +470,10 @@ final class AndroidPushRebindCoordinator {
         String normalizedOrigin = AndroidPushIdentityStorage.normalizeApiOrigin(
             apiOrigin
         );
-        if (metadataRevision > 0
-            && current.pendingRebindApiOrigin().equals(normalizedOrigin)) {
+        if (normalizedOrigin == null || metadataRevision <= 0) {
+            return publish(Outcome.of(Outcome.Kind.FAILED));
+        }
+        if (current.pendingRebindApiOrigin().equals(normalizedOrigin)) {
             activeTransaction = new Transaction(
                 normalizedOrigin,
                 metadataRevision,
@@ -610,6 +612,9 @@ final class AndroidPushRebindCoordinator {
         Outcome drained = null;
         try {
             current = storage.load();
+            if (current != null && current.hasPendingRebind()) {
+                return publish(Outcome.of(Outcome.Kind.CONFLICT));
+            }
             if (current != null && current.hasPendingRevocation()) {
                 drained = drain(Outcome.Kind.CLEANED, cancellation);
                 current = storage.load();
@@ -655,20 +660,32 @@ final class AndroidPushRebindCoordinator {
         Outcome.Kind kind,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
-        boolean deferredLogout;
-        try {
-            AndroidPushIdentityStorage.State current = storage.load();
-            deferredLogout = current != null
-                && current.pendingRevocationRequiresAuthenticationLogout();
-        } catch (TokenStorageException | RuntimeException exception) {
-            deferredLogout = false;
-        }
+        boolean deferredLogout = sampleDeferredLogout();
         Cleanup cleanup = cleanupRetainedRegistration(cancellation);
         return Outcome.cleaned(
             kind,
             cleanup,
-            deferredLogout && cleanup == Cleanup.COMPLETED
+            deferredLogout && !sampleDeferredLogout()
         );
+    }
+
+    /**
+     * Reports whether a tombstone whose session invalidation is deferred is
+     * currently retained.
+     *
+     * <p>The authority is retired once that tombstone is gone, which a definitive
+     * response reaches even when a late cancellation masks the reported result.
+     * Comparing before and after the drain therefore describes the retirement
+     * better than the reported cleanup does.</p>
+     */
+    private boolean sampleDeferredLogout() {
+        try {
+            AndroidPushIdentityStorage.State current = storage.load();
+            return current != null
+                && current.pendingRevocationRequiresAuthenticationLogout();
+        } catch (TokenStorageException | RuntimeException exception) {
+            return false;
+        }
     }
 
     private Cleanup cleanupRetainedRegistration(

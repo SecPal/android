@@ -1284,6 +1284,105 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aLateCancellationStillReportsARetiredAuthority()
+        throws Exception {
+        revocationTransport.failure = new IOException("offline");
+        coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        revocationTransport.failure = null;
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        revocationTransport.cancelAfterResponse = cancellation;
+
+        AndroidPushRebindCoordinator.Outcome outcome = coordinator().cleanup(
+            cancellation
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.CANCELLED,
+            outcome.cleanup()
+        );
+        assertFalse(storage.load().hasPendingRevocation());
+        assertTrue(outcome.retiredAuthenticationAuthority());
+    }
+
+    @Test
+    public void aDurableStagedRebindBlocksCredentialCleanupAfterARestart()
+        throws Exception {
+        coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));
+
+        AndroidPushRebindCoordinator restarted = coordinator();
+        AndroidPushRebindCoordinator.Outcome loggedOut = restarted.logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome replaced =
+            restarted.replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential(TENANT_A, "tenant-a-replacement-token"),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            loggedOut.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            replaced.kind()
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertTrue(current.hasPendingRebind());
+        assertEquals(AUTHORITY_A, current.pendingRebindAuthToken());
+        assertTrue(current.hasServerRegistration());
+    }
+
+    @Test
+    public void unusableRecoveryMetadataNeverDiscardsAStagedAuthority()
+        throws Exception {
+        coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));
+
+        AndroidPushRebindCoordinator restarted = coordinator();
+        AndroidPushRebindCoordinator.Outcome malformed = restarted.recover(
+            "http://tenant-b.example",
+            4,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome unconfigured = restarted.recover(
+            TENANT_B,
+            0,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.FAILED,
+            malformed.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.FAILED,
+            unconfigured.kind()
+        );
+        AndroidPushIdentityStorage.State staged = storage.load();
+        assertTrue(staged.hasPendingRebind());
+        assertEquals(TENANT_B, staged.pendingRebindApiOrigin());
+        assertEquals(AUTHORITY_A, staged.pendingRebindAuthToken());
+
+        AndroidPushRebindCoordinator.Outcome resumed = restarted.recover(
+            TENANT_B,
+            4,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.RESUMED,
+            resumed.kind()
+        );
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
@@ -1392,6 +1491,7 @@ public class AndroidPushRebindCoordinatorTest {
         private int statusCode = 204;
         private IOException failure;
         private boolean cancelDuringRequest;
+        private NativeAuthHttpClient.CancellationSignal cancelAfterResponse;
 
         @Override
         public int delete(
@@ -1407,6 +1507,9 @@ public class AndroidPushRebindCoordinatorTest {
             }
             if (failure != null) {
                 throw failure;
+            }
+            if (cancelAfterResponse != null) {
+                cancelAfterResponse.cancel();
             }
             return statusCode;
         }

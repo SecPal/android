@@ -44,7 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cleanup it completed instead of falling through to an idle result, and a
   completed cleanup states whether it retired an authority whose session
   invalidation was deferred until then, which is the only signal left once the
-  durable marker is cleared (issue #617).
+  durable marker is cleared, and that statement survives a late cancellation that
+  masks an already persisted result. A durable staged rebind blocks logout and
+  credential replacement after a restart just as it does before one, and
+  unusable recovery metadata fails without discarding the staged authority
+  (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards
