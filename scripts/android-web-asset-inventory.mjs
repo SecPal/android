@@ -208,7 +208,7 @@ function assertNoMismatchedPaths(mismatchedPaths, sourceLabel) {
   }
 }
 
-export function writeAndroidWebAssetInventory(assetRoot) {
+export function writeAndroidWebAssetInventory(assetRoot, mirrorInventoryPath) {
   const inventory = {
     $comment: inventorySpdx,
     schema_version: inventorySchemaVersion,
@@ -218,7 +218,11 @@ export function writeAndroidWebAssetInventory(assetRoot) {
     })),
   };
   const inventoryPath = join(assetRoot, androidWebAssetInventoryName);
-  writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`);
+  const inventorySource = `${JSON.stringify(inventory, null, 2)}\n`;
+  writeFileSync(inventoryPath, inventorySource);
+  if (mirrorInventoryPath && mirrorInventoryPath !== inventoryPath) {
+    writeFileSync(mirrorInventoryPath, inventorySource);
+  }
   return inventoryPath;
 }
 

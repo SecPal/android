@@ -8,13 +8,16 @@ import { isDirectNodeExecution } from "./inject-native-auth-bridge.mjs";
 
 if (isDirectNodeExecution(import.meta.url)) {
   try {
-    const [, , assetRoot] = process.argv;
+    const [, , assetRoot, mirrorInventoryPath] = process.argv;
     if (!assetRoot) {
       throw new Error(
-        "Usage: node scripts/generate-android-web-asset-inventory.mjs <web-asset-directory>"
+        "Usage: node scripts/generate-android-web-asset-inventory.mjs <web-asset-directory> [mirror-inventory-path]"
       );
     }
-    writeAndroidWebAssetInventory(resolve(assetRoot));
+    writeAndroidWebAssetInventory(
+      resolve(assetRoot),
+      mirrorInventoryPath ? resolve(mirrorInventoryPath) : undefined
+    );
     console.log("ANDROID_WEB_ASSET_INVENTORY_OK");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

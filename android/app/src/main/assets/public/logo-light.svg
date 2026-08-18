@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="logo-light-title logo-light-desc">
+  <title id="logo-light-title">SecPal Mark</title>
+  <desc id="logo-light-desc">Light-context SecPal shield logo rendered from the canonical frontend light asset.</desc>
+  <image width="512" height="512" href="logo-light-512.png" preserveAspectRatio="xMidYMid meet"/>
+</svg>

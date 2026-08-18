@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added repository-wide regression coverage for active licensing metadata and
   metadata-generation paths while migrating SecPal-owned Android material to
   plain `AGPL-3.0-or-later` (issue #593).
+- Added a native-only Android push JSON transport restricted to canonical
+  notification-installation `PUT` and `DELETE` requests, with dedicated 256 KiB
+  request and response bounds, plus named Firebase token refresh, rotation, and
+  synchronous deletion primitives that delete tokens before runtime application
+  teardown; matching runtimes are reused during asynchronous plugin restoration,
+  raw push identities no longer cross the WebView bridge, legacy browser copies
+  are purged on bootstrap, and unavailable passkey capability fallbacks remain
+  deterministic (issue #614).
 - Added an encrypted, runtime-bound native Android state model for push tokens,
   installation identity, registration fingerprints, and pending lifecycle work,
   including fail-closed corruption recovery and token-rotation markers (issue
@@ -41,6 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Normalized generated Cordova artifacts after `cap:copy` so frontend-only
+  refreshes preserve the tracked Android manifest's final newline (issue #622).
+- Refreshed and checked in the complete packaged Android frontend from the
+  pinned frontend revision with a commit-derived reproducible build timestamp
+  and its exact generated web asset inventory, pinning the Android smoke
+  checkout to the same revision, enforcing LF checkouts for the revision lock
+  and inventoried text assets, rejecting ignored frontend build inputs,
+  comparing both regenerated and finally packaged files with the reviewed
+  package, keeping direct runtime-schema verification non-mutating, removing
+  retired enrollment-session requests and preventing unsupported caller forms
+  or missing and stale chunks from bypassing fail-closed native route-contract
+  extraction (issue #618).
 - Stabilized native Android session-transition cancellation coverage by waiting
   for the running transition to observe its cancellation interrupt before
   releasing the transition body and asserting managed-task gate cleanup (issue

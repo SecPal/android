@@ -56,18 +56,76 @@ public class NativeAuthRequestPolicyTest {
             NativeAuthRequestPolicy.ResponseKind.JSON
         );
         assertAuthorized(
-            "PUT",
-            "/v1/me/notification-installations/7cb38f42-8d47-44f6-8d1f-12ff7c24fe38",
-            "application/json; charset=UTF-8",
-            128,
-            NativeAuthRequestPolicy.ResponseKind.JSON
-        );
-        assertAuthorized(
             "POST",
             "/v1/onboarding-review/employees/employee-7/confirm",
             "application/json",
             64,
             NativeAuthRequestPolicy.ResponseKind.JSON
+        );
+    }
+
+    @Test
+    public void authorizesOnlyCanonicalNotificationInstallationRoutesForNativePush()
+        throws Exception {
+        NativeAuthRequestPolicy.authorizeAndroidPush(
+            "PUT",
+            "/v1/me/notification-installations/7cb38f42-8d47-44f6-8d1f-12ff7c24fe38",
+            "application/json; charset=UTF-8",
+            "application/json",
+            128
+        );
+        NativeAuthRequestPolicy.authorizeAndroidPush(
+            "DELETE",
+            "/v1/me/notification-installations/7cb38f42-8d47-44f6-8d1f-12ff7c24fe38",
+            null,
+            "application/json",
+            0
+        );
+
+        assertNativePushRejected("GET", "/v1/me", null, 0);
+        assertNativePushRejected(
+            "POST",
+            "/v1/me/notification-installations/device-1",
+            "application/json",
+            2
+        );
+        assertNativePushRejected(
+            "PUT",
+            "/v1/me/notification-installations/device-1?replace=true",
+            "application/json",
+            2
+        );
+        assertNativePushRejected(
+            "DELETE",
+            "/v1/me/notification-installations/device-1/rotate",
+            null,
+            0
+        );
+    }
+
+    @Test
+    public void rejectsNotificationInstallationIdentityRoutesFromTheWebViewInventory() {
+        assertRejected(
+            "PUT",
+            "/v1/me/notification-installations/device-1",
+            "application/json",
+            2
+        );
+        assertRejected(
+            "DELETE",
+            "/v1/me/notification-installations/device-1",
+            null,
+            0
+        );
+    }
+
+    @Test
+    public void rejectsOversizedNativePushRequestBodiesBeforeAuthorization() {
+        assertNativePushRejected(
+            "PUT",
+            "/v1/me/notification-installations/device-1",
+            "application/json",
+            NativeAuthRequestPolicy.MAX_ANDROID_PUSH_REQUEST_BODY_BYTES + 1
         );
     }
 
@@ -85,8 +143,6 @@ public class NativeAuthRequestPolicyTest {
             { "POST", "/v1/me/mfa/totp/enrollment", null, 0 },
             { "POST", "/v1/me/mfa/totp/enrollment/confirm", "application/json", 2 },
             { "POST", "/v1/me/mfa/recovery-codes/regenerate", "application/json", 2 },
-            { "PUT", "/v1/me/notification-installations/device-1", "application/json", 2 },
-            { "DELETE", "/v1/me/notification-installations/device-1", null, 0 },
             { "GET", "/v1/addresses/de/streets?name=Main&postal_code=10115&locality=Berlin&limit=10", null, 0 },
             { "GET", "/v1/addresses/de/localities?postal_code=10115&locality=Berlin&limit=10", null, 0 },
             { "GET", "/v1/organizational-units?type=branch&parent_id=null&is_active=1&is_assignable=1&per_page=25&page=1", "application/json", 0 },
@@ -329,6 +385,26 @@ public class NativeAuthRequestPolicyTest {
             fail("Expected native authenticated request Accept header to be rejected");
         } catch (NativeAuthHttpException expected) {
             // Expected fail-closed policy decision.
+        }
+    }
+
+    private static void assertNativePushRejected(
+        String method,
+        String path,
+        String contentType,
+        int bodyLength
+    ) {
+        try {
+            NativeAuthRequestPolicy.authorizeAndroidPush(
+                method,
+                path,
+                contentType,
+                "application/json",
+                bodyLength
+            );
+            fail("Expected native push request to be rejected: " + method + " " + path);
+        } catch (NativeAuthHttpException expected) {
+            // Expected fail-closed native-only policy decision.
         }
     }
 

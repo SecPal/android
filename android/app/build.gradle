@@ -217,8 +217,7 @@ androidComponents.onVariants(androidComponents.selector().all()) { variant ->
 
 tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
     group = "verification"
-    description = "Fails when generated Android web assets drift from their inventory or canonical schema-4 bridge."
-    dependsOn("prepareAndroidRuntimeSchemaAsset")
+    description = "Fails when the current Android web assets drift from their inventory or canonical schema-4 bridge."
     inputs.files(
         runtimeSchemaVerifier,
         runtimeAssetInventory,
@@ -240,6 +239,10 @@ tasks.register("verifyAndroidRuntimeSchemaAsset", Exec) {
         androidStringsXml.absolutePath,
         fallbackAndroidWebAssetInventory.absolutePath
     )
+}
+
+tasks.named("verifyAndroidRuntimeSchemaAsset").configure {
+    mustRunAfter("prepareAndroidRuntimeSchemaAsset")
 }
 
 tasks.register("verifyAndroidWebAssetOverlays", Exec) {
@@ -305,6 +308,7 @@ tasks.matching { it.name in ["preReleaseBuild", "preCtRegressionBuild"] }.config
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(frontendPackagingGuard)
+    dependsOn("prepareAndroidRuntimeSchemaAsset")
     dependsOn("verifyAndroidWebAssetOverlays")
     dependsOn("verifyAndroidRuntimeSchemaAsset")
 }

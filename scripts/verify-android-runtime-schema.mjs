@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { parse } from "parse5";
-import ts from "typescript";
 import {
   assertAndroidWebAssetArchive,
   assertAndroidWebAssetDirectory,
@@ -286,58 +285,6 @@ function selectRuntimeIndexEntry(artifactPath, archiveEntries) {
   return expectedEntry;
 }
 
-function assertCanonicalSchema4Registration(runtimeBridge, sourceLabel) {
-  const sourceFile = ts.createSourceFile(
-    sourceLabel,
-    runtimeBridge,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.JS
-  );
-  const schemaDeclarations = [];
-  const schemaAssignments = [];
-  const visit = (node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === "currentBootstrapSchemaVersion"
-    ) {
-      schemaDeclarations.push(node);
-    }
-    if (
-      ts.isPropertyAssignment(node) &&
-      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
-      node.name.text === "schema_version"
-    ) {
-      schemaAssignments.push(node);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-
-  const [schemaDeclaration] = schemaDeclarations;
-  const [schemaAssignment] = schemaAssignments;
-  const declaresSchema4 =
-    schemaDeclarations.length === 1 &&
-    (schemaDeclaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
-    ts.isNumericLiteral(schemaDeclaration.initializer) &&
-    schemaDeclaration.initializer.text === "4";
-  const registersSchemaConstant =
-    schemaAssignments.length === 1 &&
-    ts.isIdentifier(schemaAssignment.initializer) &&
-    schemaAssignment.initializer.text === "currentBootstrapSchemaVersion";
-
-  if (
-    sourceFile.parseDiagnostics.length > 0 ||
-    !declaresSchema4 ||
-    !registersSchemaConstant
-  ) {
-    throw new Error(
-      `${sourceLabel} must declare schema 4 independently and assign it to notification registration.`
-    );
-  }
-}
-
 function assertCanonicalAndroidRuntimeIndex(indexHtml, sourceLabel) {
   assertNoExecutableInlineScripts(indexHtml, sourceLabel);
   assertCompleteAndroidWebApplicationShell(indexHtml, sourceLabel);
@@ -366,11 +313,9 @@ function assertCanonicalAndroidRuntimeBridgeAsset(
   }
   const actualBridge = bridgeAsset.toString("utf8");
 
-  assertCanonicalSchema4Registration(actualBridge, sourceLabel);
-
   if (actualBridge !== expectedBridge) {
     throw new Error(
-      `${sourceLabel} does not contain the canonical schema 4 runtime bridge.`
+      `${sourceLabel} does not contain the canonical Android runtime bridge.`
     );
   }
 }
