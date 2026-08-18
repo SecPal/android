@@ -1189,6 +1189,15 @@ final class AndroidPushIdentityStorage {
         );
     }
 
+    /** Returns the canonical origin, or {@code null} when it is not a bare HTTPS origin. */
+    static String normalizeApiOrigin(String value) {
+        try {
+            return requireApiOrigin(value);
+        } catch (TokenStorageException exception) {
+            return null;
+        }
+    }
+
     private static String requireApiOrigin(String value) throws TokenStorageException {
         String normalized = value == null ? "" : value.trim();
         try {

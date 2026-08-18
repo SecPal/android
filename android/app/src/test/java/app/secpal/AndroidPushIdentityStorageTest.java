@@ -69,7 +69,16 @@ public class AndroidPushIdentityStorageTest {
             } catch (TokenStorageException expected) {
                 assertTrue(expected.getCause() instanceof IllegalArgumentException);
             }
+            assertNull(
+                AndroidPushIdentityStorage.normalizeApiOrigin(invalidOrigin)
+            );
         }
+        assertEquals(
+            API_ORIGIN,
+            AndroidPushIdentityStorage.normalizeApiOrigin(
+                " HTTPS://Tenant-A.Example:443 "
+            )
+        );
     }
 
     @Test
