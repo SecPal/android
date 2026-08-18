@@ -193,7 +193,11 @@ final class AndroidPushIdentityStorage {
             return hasServerRegistration()
                 && (registeredCredentialFingerprint != null
                     ? !registeredCredentialFingerprint.equals(normalizedFingerprint)
-                    : tokenReceivedAt > registeredAt);
+                    : tokenChangedSinceRegistration());
+        }
+
+        boolean tokenChangedSinceRegistration() {
+            return hasServerRegistration() && tokenReceivedAt > registeredAt;
         }
 
         JSONObject toJson() throws JSONException {
@@ -460,7 +464,7 @@ final class AndroidPushIdentityStorage {
                 null,
                 current.isReconfigurationRequired()
             );
-            save(prepared, false, true);
+            save(prepared);
             return;
         }
         if (!current.hasServerRegistration()) {
@@ -497,7 +501,6 @@ final class AndroidPushIdentityStorage {
                 && normalizedInstallationId.equals(
                     current.pendingRevocationInstallationId()
                 )) {
-                save(current, false, true);
                 return;
             }
             throw new TokenStorageException(
@@ -575,7 +578,12 @@ final class AndroidPushIdentityStorage {
             null,
             false
         );
-        save(retained, false, true);
+        boolean tokenRotationComplete = current.tokenChangedSinceRegistration();
+        save(
+            retained,
+            tokenRotationComplete,
+            !tokenRotationComplete
+        );
         return retained;
     }
 

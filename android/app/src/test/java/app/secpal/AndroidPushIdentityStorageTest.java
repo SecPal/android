@@ -245,6 +245,29 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void tokenRefreshBeforeRetentionCompletesRequiredRotation()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(storage);
+        AndroidPushIdentityStorage.State refreshed = storage.recordToken(
+            API_ORIGIN,
+            3,
+            registered.installationId(),
+            TOKEN + "-refreshed-before-retention"
+        );
+
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTH_TOKEN, false);
+
+        assertTrue(retained.hasPendingRevocation());
+        assertEquals(TOKEN + "-refreshed-before-retention", retained.token());
+        assertTrue(refreshed.tokenReceivedAt() > registered.tokenReceivedAt());
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void directRegisteredRuntimeRebindWithoutAuthorityFailsClosed()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
@@ -831,6 +854,64 @@ public class AndroidPushIdentityStorageTest {
         AndroidPushIdentityStorage.State retained = storage.load();
         assertEquals(legacyInstallationId, retained.pendingRevocationInstallationId());
         assertEquals(AUTH_TOKEN, retained.pendingRevocationAuthToken());
+    }
+
+    @Test
+    public void legacyRevocationRetryPreservesCompletedTokenRotation()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        String legacyInstallationId = "00000000-0000-4000-8000-999999999999";
+        storage.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            AUTH_TOKEN
+        );
+        AndroidPushIdentityStorage.State retained = storage.load();
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated-before-retry"
+        );
+        assertFalse(storage.requiresTokenRotation());
+
+        storage.retainLegacyInstallationForRevocation(
+            legacyInstallationId,
+            null
+        );
+
+        assertFalse(storage.requiresTokenRotation());
+        assertEquals(
+            AUTH_TOKEN,
+            storage.load().pendingRevocationAuthToken()
+        );
+    }
+
+    @Test
+    public void runtimeResetPreparationPreservesCompletedTokenRotation()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        registerCurrentIdentity(storage);
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTH_TOKEN, false);
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated-before-reset"
+        );
+        assertFalse(storage.requiresTokenRotation());
+
+        storage.prepareRuntimeReset(AUTH_TOKEN);
+
+        assertTrue(
+            storage.load().pendingRevocationRequiresAuthenticationLogout()
+        );
+        assertFalse(storage.requiresTokenRotation());
     }
 
     @Test
