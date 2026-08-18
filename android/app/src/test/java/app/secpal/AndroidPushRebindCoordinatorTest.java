@@ -451,6 +451,39 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aResumedTransactionCarriesTheCurrentRuntimeRevision()
+        throws Exception {
+        coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));
+
+        AndroidPushRebindCoordinator restarted = coordinator();
+        AndroidPushRebindCoordinator.Outcome resumed = restarted.recover(
+            TENANT_B,
+            5,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome committed = restarted.commit(
+            resumed.transaction(),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.RESUMED,
+            resumed.kind()
+        );
+        assertEquals(TENANT_B, resumed.transaction().nextApiOrigin());
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.COMMITTED,
+            committed.kind()
+        );
+        AndroidPushIdentityStorage.State bound = storage.load();
+        assertEquals(TENANT_B, bound.apiOrigin());
+        assertEquals(5, bound.metadataRevision());
+        assertEquals(1, revocationTransport.calls.size());
+        assertEquals(TENANT_A, revocationTransport.calls.get(0).apiOrigin);
+        assertEquals(AUTHORITY_A, revocationTransport.calls.get(0).authority);
+    }
+
+    @Test
     public void coldStartRecoveryInvalidatesAnObsoleteStagedTransaction()
         throws Exception {
         coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));

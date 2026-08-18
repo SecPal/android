@@ -430,7 +430,10 @@ final class AndroidPushRebindCoordinator {
      *
      * <p>A staged transition is resumed only when its origin still matches the
      * runtime the caller is starting; otherwise the staged authority is
-     * discarded. Durable cleanup always runs first because a retained tombstone
+     * discarded. The transaction owns the target origin, not the metadata
+     * revision: the resumed transaction always carries the revision the runtime
+     * reports now, because a revision captured before the restart may no longer
+     * describe the runtime the device is actually configured for. Durable cleanup always runs first because a retained tombstone
      * owns the transition until it is resolved. A transaction that is still open
      * in this process owns the transition and is never replaced.</p>
      */
