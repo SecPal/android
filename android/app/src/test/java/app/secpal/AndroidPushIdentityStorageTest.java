@@ -439,21 +439,7 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
-    public void registrationFingerprintTracksRegistrationInputs() throws Exception {
-        AndroidPushIdentityStorage storage = createStorage(
-            new InMemorySharedPreferences()
-        );
-        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(storage);
-
-        assertFalse(registered.needsRegistration(AUTH_TOKEN, "1.2.3", 7));
-        assertTrue(registered.needsRegistration("other-token", "1.2.3", 7));
-        assertTrue(registered.needsRegistration(AUTH_TOKEN, "1.2.4", 7));
-        assertTrue(registered.needsRegistration(AUTH_TOKEN, "1.2.3", 8));
-    }
-
-    @Test
-    public void registrationFingerprintNormalizesNullableInputsWithoutMissingAuth()
-        throws Exception {
+    public void registrationFingerprintTracksPayloadInsteadOfAuthority() throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
             new InMemorySharedPreferences()
         );
@@ -464,15 +450,36 @@ public class AndroidPushIdentityStorageTest {
             bound.installationId(),
             TOKEN
         );
+        String fingerprint = fingerprint('a');
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
             candidate,
-            "  " + AUTH_TOKEN + "  ",
-            null,
-            7
+            fingerprint,
+            fingerprint('c')
         );
 
-        assertFalse(registered.needsRegistration(AUTH_TOKEN, "", 7));
-        assertTrue(registered.needsRegistration(null, null, 7));
+        assertFalse(registered.needsRegistration(fingerprint));
+        assertTrue(registered.needsRegistration(fingerprint('b')));
+    }
+
+    @Test
+    public void tokenRotationRemainsDistinguishableAfterRestart()
+        throws Exception {
+        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+        MemoryCipher cipher = new MemoryCipher();
+        AtomicInteger ids = new AtomicInteger();
+        AndroidPushIdentityStorage storage = createStorage(preferences, cipher, ids);
+        AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
+        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+            API_ORIGIN,
+            3,
+            bound.installationId(),
+            TOKEN
+        );
+        AndroidPushIdentityStorage.State registered = storage.markRegistered(
+            candidate,
+            fingerprint('a'),
+            fingerprint('c')
+        );
 
         AndroidPushIdentityStorage.State rotated = storage.recordToken(
             API_ORIGIN,
@@ -480,30 +487,14 @@ public class AndroidPushIdentityStorageTest {
             registered.installationId(),
             TOKEN + "-rotated"
         );
-        assertEquals(
-            rotated.token(),
-            storage.markRegistered(registered, null, null, 7).token()
-        );
+        assertTrue(rotated.tokenChangedSinceRegistration(fingerprint('d')));
 
-        AndroidPushIdentityStorage freshStorage = createStorage(
-            new InMemorySharedPreferences()
-        );
-        AndroidPushIdentityStorage.State freshBound = freshStorage.bindRuntime(
-            API_ORIGIN,
-            3
-        );
-        AndroidPushIdentityStorage.State freshCandidate = freshStorage.recordToken(
-            API_ORIGIN,
-            3,
-            freshBound.installationId(),
-            TOKEN
-        );
-        try {
-            freshStorage.markRegistered(freshCandidate, null, "1.2.3", 7);
-            fail("Expected missing registration authority failure");
-        } catch (TokenStorageException expected) {
-            assertTrue(expected.getCause() instanceof IllegalArgumentException);
-        }
+        AndroidPushIdentityStorage.State restored = createStorage(
+            preferences,
+            cipher,
+            ids
+        ).load();
+        assertTrue(restored.tokenChangedSinceRegistration(fingerprint('d')));
     }
 
     @Test
@@ -526,9 +517,8 @@ public class AndroidPushIdentityStorageTest {
 
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
             reconfiguration,
-            AUTH_TOKEN,
-            "1.2.3",
-            7
+            fingerprint('a'),
+            fingerprint('c')
         );
         assertTrue(registered.hasServerRegistration());
         assertTrue(registered.isReconfigurationRequired());
@@ -779,7 +769,7 @@ public class AndroidPushIdentityStorageTest {
             registered.withoutServerRegistration();
 
         assertFalse(unregistered.hasServerRegistration());
-        assertTrue(unregistered.needsRegistration(AUTH_TOKEN, "1.2.3", 7));
+        assertTrue(unregistered.needsRegistration(fingerprint('a')));
     }
 
     private static AndroidPushIdentityStorage.State registerCurrentIdentity(
@@ -792,7 +782,15 @@ public class AndroidPushIdentityStorageTest {
             bound.installationId(),
             TOKEN
         );
-        return storage.markRegistered(candidate, AUTH_TOKEN, "1.2.3", 7);
+        return storage.markRegistered(
+            candidate,
+            fingerprint('a'),
+            fingerprint('c')
+        );
+    }
+
+    private static String fingerprint(char value) {
+        return String.valueOf(value).repeat(64);
     }
 
     private static AndroidPushIdentityStorage createStorage(

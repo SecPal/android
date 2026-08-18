@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an isolated native Android push registration coordinator with
+  authority validation before network access, idempotent protected
+  fingerprints across token callbacks and restarts, distinct
+  `credential_rotated` and `client_updated` PUT lifecycle events, and typed
+  abstract outcomes for synchronization, authentication rejection,
+  reconfiguration, retry, and cancellation (issue #615).
 - Added repository-wide regression coverage for active licensing metadata and
   metadata-generation paths while migrating SecPal-owned Android material to
   plain `AGPL-3.0-or-later` (issue #593).

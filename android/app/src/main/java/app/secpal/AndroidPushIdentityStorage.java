@@ -13,9 +13,6 @@ import org.json.JSONObject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -27,7 +24,7 @@ final class AndroidPushIdentityStorage {
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
-    private static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
+    static final int MAX_AUTH_TOKEN_CHARACTERS = 64 * 1024;
 
     interface InstallationIdFactory {
         String create();
@@ -44,6 +41,7 @@ final class AndroidPushIdentityStorage {
         private final String token;
         private final long tokenReceivedAt;
         private final String registeredFingerprint;
+        private final String registeredCredentialFingerprint;
         private final long registeredAt;
         private final String pendingRevocationApiOrigin;
         private final String pendingRevocationInstallationId;
@@ -60,6 +58,7 @@ final class AndroidPushIdentityStorage {
             String token,
             long tokenReceivedAt,
             String registeredFingerprint,
+            String registeredCredentialFingerprint,
             long registeredAt,
             String pendingRevocationApiOrigin,
             String pendingRevocationInstallationId,
@@ -75,6 +74,8 @@ final class AndroidPushIdentityStorage {
             this.token = token;
             this.tokenReceivedAt = tokenReceivedAt;
             this.registeredFingerprint = registeredFingerprint;
+            this.registeredCredentialFingerprint =
+                registeredCredentialFingerprint;
             this.registeredAt = registeredAt;
             this.pendingRevocationApiOrigin = pendingRevocationApiOrigin;
             this.pendingRevocationInstallationId = pendingRevocationInstallationId;
@@ -145,6 +146,7 @@ final class AndroidPushIdentityStorage {
                 token,
                 tokenReceivedAt,
                 null,
+                null,
                 0,
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
@@ -156,22 +158,22 @@ final class AndroidPushIdentityStorage {
             );
         }
 
-        boolean needsRegistration(
-            String authToken,
-            String packageVersionName,
-            long packageVersionCode
-        ) {
-            String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
+        boolean needsRegistration(String registrationFingerprint) {
             return token != null
                 && !token.isEmpty()
-                && (normalizedAuthToken.isEmpty()
-                    || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS
-                    || !registrationFingerprint(
-                        this,
-                        normalizedAuthToken,
-                        packageVersionName,
-                        packageVersionCode
-                    ).equals(registeredFingerprint));
+                && !normalizeRegistrationFingerprint(
+                    registrationFingerprint
+                ).equals(registeredFingerprint);
+        }
+
+        boolean tokenChangedSinceRegistration(String credentialFingerprint) {
+            String normalizedFingerprint = normalizeRegistrationFingerprint(
+                credentialFingerprint
+            );
+            return hasServerRegistration()
+                && (registeredCredentialFingerprint != null
+                    ? !registeredCredentialFingerprint.equals(normalizedFingerprint)
+                    : tokenReceivedAt > registeredAt);
         }
 
         JSONObject toJson() throws JSONException {
@@ -187,6 +189,12 @@ final class AndroidPushIdentityStorage {
             }
             if (registeredFingerprint != null) {
                 json.put("registeredFingerprint", registeredFingerprint);
+            }
+            if (registeredCredentialFingerprint != null) {
+                json.put(
+                    "registeredCredentialFingerprint",
+                    registeredCredentialFingerprint
+                );
             }
             if (hasPendingRevocation()) {
                 json.put("pendingRevocationApiOrigin", pendingRevocationApiOrigin);
@@ -330,6 +338,7 @@ final class AndroidPushIdentityStorage {
             null,
             0,
             null,
+            null,
             0,
             pendingRevocationApiOrigin,
             pendingRevocationInstallationId,
@@ -373,6 +382,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
@@ -412,6 +422,7 @@ final class AndroidPushIdentityStorage {
                 current.token(),
                 current.tokenReceivedAt(),
                 current.registeredFingerprint,
+                current.registeredCredentialFingerprint,
                 current.registeredAt,
                 current.pendingRevocationApiOrigin(),
                 current.pendingRevocationInstallationId(),
@@ -479,6 +490,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             current.apiOrigin(),
             normalizedInstallationId,
@@ -524,6 +536,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             null,
+            null,
             0,
             current.apiOrigin(),
             current.installationId(),
@@ -566,6 +579,7 @@ final class AndroidPushIdentityStorage {
             installationIdFactory.create(),
             null,
             0,
+            null,
             null,
             0,
             current.pendingRevocationApiOrigin(),
@@ -625,14 +639,25 @@ final class AndroidPushIdentityStorage {
         if (normalizedToken.equals(current.token())) {
             return current;
         }
+        long latestTransitionAt = Math.max(
+            current.tokenReceivedAt(),
+            current.registeredAt
+        );
+        if (latestTransitionAt == Long.MAX_VALUE) {
+            throw new TokenStorageException(
+                "Android push token timestamp cannot advance",
+                new IllegalStateException("tokenReceivedAt")
+            );
+        }
 
         State updated = new State(
             current.apiOrigin(),
             current.metadataRevision(),
             current.installationId(),
             normalizedToken,
-            clock.currentTimeMillis(),
+            Math.max(clock.currentTimeMillis(), latestTransitionAt + 1L),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
@@ -648,20 +673,27 @@ final class AndroidPushIdentityStorage {
 
     synchronized State markRegistered(
         State expected,
-        String authToken,
-        String packageVersionName,
-        long packageVersionCode
+        String registrationFingerprint,
+        String credentialFingerprint
     ) throws TokenStorageException {
         State current = load();
-        if (!sameRegistrationCandidate(current, expected)) {
+        if (!sameRegistrationBinding(current, expected)
+            || expected.token() == null) {
             return current;
         }
-        String normalizedAuthToken = normalizeRegistrationAuthToken(authToken);
-        if (normalizedAuthToken.isEmpty()
-            || normalizedAuthToken.length() > MAX_AUTH_TOKEN_CHARACTERS) {
+        String normalizedFingerprint;
+        String normalizedCredentialFingerprint;
+        try {
+            normalizedFingerprint = normalizeRegistrationFingerprint(
+                registrationFingerprint
+            );
+            normalizedCredentialFingerprint = normalizeRegistrationFingerprint(
+                credentialFingerprint
+            );
+        } catch (IllegalArgumentException exception) {
             throw new TokenStorageException(
-                "Android push registration authority is invalid",
-                new IllegalArgumentException("authToken")
+                "Android push registration fingerprint is invalid",
+                exception
             );
         }
         State registered = new State(
@@ -670,13 +702,12 @@ final class AndroidPushIdentityStorage {
             current.installationId(),
             current.token(),
             current.tokenReceivedAt(),
-            registrationFingerprint(
-                current,
-                normalizedAuthToken,
-                packageVersionName,
-                packageVersionCode
+            normalizedFingerprint,
+            normalizedCredentialFingerprint,
+            Math.max(
+                clock.currentTimeMillis(),
+                Math.max(expected.tokenReceivedAt(), current.registeredAt)
             ),
-            clock.currentTimeMillis(),
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
             current.pendingRevocationAuthToken(),
@@ -692,7 +723,7 @@ final class AndroidPushIdentityStorage {
     synchronized State markReconfigurationRequired(State expected)
         throws TokenStorageException {
         State current = load();
-        if (!sameRegistrationCandidate(current, expected)) {
+        if (!sameRegistrationBinding(current, expected)) {
             return current;
         }
         if (current.isReconfigurationRequired()) {
@@ -705,6 +736,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
@@ -729,6 +761,7 @@ final class AndroidPushIdentityStorage {
             current.installationId(),
             current.token(),
             current.tokenReceivedAt(),
+            null,
             null,
             0,
             null,
@@ -763,6 +796,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             null,
             null,
@@ -815,6 +849,17 @@ final class AndroidPushIdentityStorage {
             if (registeredFingerprint != null
                 && !registeredFingerprint.matches("[0-9a-f]{64}")) {
                 throw new JSONException("Invalid Android push registration fingerprint");
+            }
+            String registeredCredentialFingerprint = json.has(
+                "registeredCredentialFingerprint"
+            )
+                ? json.getString("registeredCredentialFingerprint").trim()
+                : null;
+            if (registeredCredentialFingerprint != null
+                && !registeredCredentialFingerprint.matches("[0-9a-f]{64}")) {
+                throw new JSONException(
+                    "Invalid Android push registration credential fingerprint"
+                );
             }
             String pendingRevocationApiOrigin = json.has(
                 "pendingRevocationApiOrigin"
@@ -873,6 +918,7 @@ final class AndroidPushIdentityStorage {
                 token,
                 tokenReceivedAt,
                 registeredFingerprint,
+                registeredCredentialFingerprint,
                 registeredAt,
                 pendingRevocationApiOrigin,
                 pendingRevocationInstallationId,
@@ -1019,14 +1065,12 @@ final class AndroidPushIdentityStorage {
         }
     }
 
-    private static boolean sameRegistrationCandidate(State left, State right) {
+    private static boolean sameRegistrationBinding(State left, State right) {
         return left != null
             && right != null
             && left.apiOrigin().equals(right.apiOrigin())
             && left.metadataRevision() == right.metadataRevision()
-            && left.installationId().equals(right.installationId())
-            && left.token() != null
-            && left.token().equals(right.token());
+            && left.installationId().equals(right.installationId());
     }
 
     private static State withoutPendingRebind(State current) {
@@ -1037,6 +1081,7 @@ final class AndroidPushIdentityStorage {
             current.token(),
             current.tokenReceivedAt(),
             current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
             current.registeredAt,
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
@@ -1046,37 +1091,6 @@ final class AndroidPushIdentityStorage {
             null,
             current.isReconfigurationRequired()
         );
-    }
-
-    private static String registrationFingerprint(
-        State state,
-        String authToken,
-        String packageVersionName,
-        long packageVersionCode
-    ) {
-        String material = state.apiOrigin()
-            + "\n"
-            + state.metadataRevision()
-            + "\n"
-            + state.token()
-            + "\n"
-            + normalizeRegistrationAuthToken(authToken)
-            + "\n"
-            + normalizePackageVersionName(packageVersionName)
-            + "\n"
-            + packageVersionCode;
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(
-                material.getBytes(StandardCharsets.UTF_8)
-            );
-            StringBuilder encoded = new StringBuilder(digest.length * 2);
-            for (byte value : digest) {
-                encoded.append(String.format("%02x", value & 0xff));
-            }
-            return encoded.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is unavailable", exception);
-        }
     }
 
     private static String requireApiOrigin(String value) throws TokenStorageException {
@@ -1114,12 +1128,12 @@ final class AndroidPushIdentityStorage {
         }
     }
 
-    private static String normalizeRegistrationAuthToken(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private static String normalizePackageVersionName(String value) {
-        return value == null ? "" : value.trim();
+    private static String normalizeRegistrationFingerprint(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (!normalized.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("registrationFingerprint");
+        }
+        return normalized;
     }
 
     private static String normalizePendingAuthToken(String value)
