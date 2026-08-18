@@ -861,6 +861,15 @@ final class AndroidPushIdentityStorage {
                     "Invalid Android push registration credential fingerprint"
                 );
             }
+            if ((registeredFingerprint == null
+                    && (registeredCredentialFingerprint != null
+                        || registeredAt != 0))
+                || (registeredFingerprint != null
+                    && (registeredAt == 0 || token == null))) {
+                throw new JSONException(
+                    "Inconsistent Android push registration metadata"
+                );
+            }
             String pendingRevocationApiOrigin = json.has(
                 "pendingRevocationApiOrigin"
             )

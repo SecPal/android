@@ -283,17 +283,17 @@ final class AndroidPushRegistrationCoordinator {
         String registrationAuthority,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
-        String authority = normalizeAuthority(registrationAuthority);
-        if (authority == null) {
-            return publish(
-                Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED),
-                Status.AUTHENTICATION_REJECTED
-            );
-        }
-
+        AndroidPushIdentityStorage.State candidate = null;
         try {
             cancellation.throwIfCancelled();
-            AndroidPushIdentityStorage.State candidate = storage.load();
+            String authority = normalizeAuthority(registrationAuthority);
+            if (authority == null) {
+                return publish(
+                    Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED),
+                    Status.AUTHENTICATION_REJECTED
+                );
+            }
+            candidate = storage.load();
             if (candidate == null || candidate.token() == null) {
                 return publish(
                     Outcome.success(LifecycleEvent.UNCHANGED),
@@ -373,13 +373,17 @@ final class AndroidPushRegistrationCoordinator {
                 );
             }
             if (response.statusCode() == 401 || response.statusCode() == 403) {
-                return publish(
-                    Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED),
-                    Status.AUTHENTICATION_REJECTED
-                );
+                return publishAuthenticationRejection(candidate);
             }
             if (isReconfiguration(response)) {
-                storage.markReconfigurationRequired(candidate);
+                AndroidPushIdentityStorage.State reconfigured =
+                    storage.markReconfigurationRequired(candidate);
+                if (!sameRegistrationBinding(candidate, reconfigured)) {
+                    return publish(
+                        Outcome.of(Outcome.Kind.RETRYABLE_FAILURE),
+                        Status.RETRY_PENDING
+                    );
+                }
                 return publish(
                     Outcome.of(Outcome.Kind.RECONFIGURATION_REQUIRED),
                     Status.RECONFIGURATION_REQUIRED
@@ -390,6 +394,12 @@ final class AndroidPushRegistrationCoordinator {
                 Status.RETRY_PENDING
             );
         } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            if ("REQUEST_TIMEOUT".equals(exception.getReasonCode())) {
+                return publish(
+                    Outcome.of(Outcome.Kind.RETRYABLE_FAILURE),
+                    Status.RETRY_PENDING
+                );
+            }
             return publish(
                 Outcome.of(Outcome.Kind.CANCELLED),
                 Status.CANCELLED
@@ -397,10 +407,7 @@ final class AndroidPushRegistrationCoordinator {
         } catch (NativeAuthHttpException exception) {
             if (exception.getStatusCode() == 401
                 || exception.getStatusCode() == 403) {
-                return publish(
-                    Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED),
-                    Status.AUTHENTICATION_REJECTED
-                );
+                return publishAuthenticationRejection(candidate);
             }
             return publish(
                 Outcome.of(Outcome.Kind.RETRYABLE_FAILURE),
@@ -422,6 +429,28 @@ final class AndroidPushRegistrationCoordinator {
     private Outcome publish(Outcome outcome, Status status) {
         statusPublisher.publish(status);
         return outcome;
+    }
+
+    private Outcome publishAuthenticationRejection(
+        AndroidPushIdentityStorage.State candidate
+    ) {
+        try {
+            if (!sameRegistrationBinding(candidate, storage.load())) {
+                return publish(
+                    Outcome.of(Outcome.Kind.RETRYABLE_FAILURE),
+                    Status.RETRY_PENDING
+                );
+            }
+        } catch (TokenStorageException exception) {
+            return publish(
+                Outcome.of(Outcome.Kind.RETRYABLE_FAILURE),
+                Status.RETRY_PENDING
+            );
+        }
+        return publish(
+            Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED),
+            Status.AUTHENTICATION_REJECTED
+        );
     }
 
     private static LifecycleEvent resolveLifecycleEvent(

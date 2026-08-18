@@ -439,6 +439,59 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void inconsistentRegistrationMetadataFailsClosed() throws Exception {
+        String installationId = "00000000-0000-4000-8000-000000000001";
+        String baseState = "{\"schemaVersion\":1,\"apiOrigin\":\""
+            + API_ORIGIN
+            + "\",\"metadataRevision\":3,\"installationId\":\""
+            + installationId
+            + "\",\"tokenReceivedAt\":0,";
+        String[] inconsistentStates = {
+            baseState
+                + "\"registeredAt\":0,\"registeredCredentialFingerprint\":\""
+                + fingerprint('c')
+                + "\"}",
+            baseState + "\"registeredAt\":1}",
+            baseState
+                + "\"registeredAt\":0,\"token\":\""
+                + TOKEN
+                + "\",\"registeredFingerprint\":\""
+                + fingerprint('a')
+                + "\"}",
+            baseState
+                + "\"registeredAt\":1,\"registeredFingerprint\":\""
+                + fingerprint('a')
+                + "\"}"
+        };
+
+        for (String inconsistentState : inconsistentStates) {
+            InMemorySharedPreferences preferences = new InMemorySharedPreferences();
+            MemoryCipher cipher = new MemoryCipher();
+            AndroidPushIdentityStorage storage = createStorage(
+                preferences,
+                cipher,
+                new AtomicInteger()
+            );
+            storage.bindRuntime(API_ORIGIN, 3);
+            cipher.replacePlaintext(
+                preferences.getString(
+                    AndroidPushIdentityStorage.STATE_CIPHERTEXT_KEY,
+                    null
+                ),
+                inconsistentState
+            );
+
+            try {
+                storage.load();
+                fail("Expected inconsistent registration metadata failure");
+            } catch (TokenStorageException expected) {
+                assertNull(storage.load());
+                assertTrue(storage.requiresTokenRotation());
+            }
+        }
+    }
+
+    @Test
     public void registrationFingerprintTracksPayloadInsteadOfAuthority() throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
             new InMemorySharedPreferences()

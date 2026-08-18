@@ -214,6 +214,116 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void staleRuntimeReconfigurationIsRetriedWithoutPublishingIt()
+        throws Exception {
+        String originalInstallationId = storage.load().installationId();
+        transport.response = new AndroidPushRegistrationCoordinator.Transport.Response(
+            409,
+            "NOTIFICATION_RUNTIME_STATE_INVALID"
+        );
+        transport.beforeResponse = () -> {
+            try {
+                storage.bindRuntime("https://tenant-b.example", 4);
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        AndroidPushIdentityStorage.State rebound = storage.load();
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RETRY_PENDING,
+            publisher.lastStatus
+        );
+        assertNotEquals(originalInstallationId, rebound.installationId());
+        assertFalse(rebound.isReconfigurationRequired());
+        assertEquals(1, transport.callCount);
+    }
+
+    @Test
+    public void staleAuthenticationRejectionIsRetriedWithoutPublishingIt()
+        throws Exception {
+        String originalInstallationId = storage.load().installationId();
+        transport.response = new AndroidPushRegistrationCoordinator.Transport.Response(
+            401,
+            null
+        );
+        transport.beforeResponse = () -> {
+            try {
+                storage.bindRuntime("https://tenant-b.example", 4);
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        AndroidPushIdentityStorage.State rebound = storage.load();
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RETRY_PENDING,
+            publisher.lastStatus
+        );
+        assertNotEquals(originalInstallationId, rebound.installationId());
+        assertEquals(1, transport.callCount);
+    }
+
+    @Test
+    public void callerCancellationTakesPrecedenceOverInvalidAuthority()
+        throws Exception {
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        cancellation.cancel();
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(" ", cancellation);
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.CANCELLED,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.CANCELLED,
+            publisher.lastStatus
+        );
+        assertEquals(0, transport.callCount);
+    }
+
+    @Test
+    public void transportRequestTimeoutRemainsRetryable() throws Exception {
+        transport.failure = new NativeAuthHttpClient.NativeAuthCancelledException(
+            "REQUEST_TIMEOUT",
+            null
+        );
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            outcome.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RETRY_PENDING,
+            publisher.lastStatus
+        );
+    }
+
+    @Test
     public void authenticationStatusSurvivesTransportResponseValidationFailure()
         throws Exception {
         transport.httpFailure = new NativeAuthHttpException(
