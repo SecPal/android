@@ -106,6 +106,26 @@ final class AndroidPushIdentityStorage {
                 && pendingRevocationInstallationId != null;
         }
 
+        boolean hasPendingRevocation(
+            String expectedApiOrigin,
+            String expectedInstallationId
+        ) {
+            return hasPendingRevocation()
+                && pendingRevocationApiOrigin.equals(expectedApiOrigin)
+                && pendingRevocationInstallationId.equals(expectedInstallationId);
+        }
+
+        boolean hasPendingRevocation(
+            String expectedApiOrigin,
+            String expectedInstallationId,
+            String expectedAuthToken
+        ) {
+            return hasPendingRevocation(
+                expectedApiOrigin,
+                expectedInstallationId
+            ) && pendingRevocationAuthToken.equals(expectedAuthToken);
+        }
+
         String pendingRevocationApiOrigin() {
             return pendingRevocationApiOrigin;
         }
@@ -238,6 +258,10 @@ final class AndroidPushIdentityStorage {
             return state;
         }
 
+        boolean tokenRotationRequired() {
+            return tokenRotationRequired;
+        }
+
         Snapshot withState(State replacementState) {
             return new Snapshot(replacementState, tokenRotationRequired);
         }
@@ -348,7 +372,11 @@ final class AndroidPushIdentityStorage {
             null,
             false
         );
-        save(replacement);
+        save(
+            replacement,
+            false,
+            replacement.hasPendingRevocation()
+        );
         return replacement;
     }
 
@@ -432,7 +460,7 @@ final class AndroidPushIdentityStorage {
                 null,
                 current.isReconfigurationRequired()
             );
-            save(prepared);
+            save(prepared, false, true);
             return;
         }
         if (!current.hasServerRegistration()) {
@@ -469,6 +497,7 @@ final class AndroidPushIdentityStorage {
                 && normalizedInstallationId.equals(
                     current.pendingRevocationInstallationId()
                 )) {
+                save(current, false, true);
                 return;
             }
             throw new TokenStorageException(
@@ -500,7 +529,7 @@ final class AndroidPushIdentityStorage {
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(retained);
+        save(retained, false, true);
     }
 
     synchronized State retainCurrentRegistrationForRevocation(
@@ -546,7 +575,7 @@ final class AndroidPushIdentityStorage {
             null,
             false
         );
-        save(retained);
+        save(retained, false, true);
         return retained;
     }
 
@@ -782,9 +811,8 @@ final class AndroidPushIdentityStorage {
     ) throws TokenStorageException {
         State current = load();
         if (current == null
-            || !current.hasPendingRevocation()
-            || !current.pendingRevocationApiOrigin().equals(expectedApiOrigin)
-            || !current.pendingRevocationInstallationId().equals(
+            || !current.hasPendingRevocation(
+                expectedApiOrigin,
                 expectedInstallationId
             )) {
             return current;
@@ -808,6 +836,41 @@ final class AndroidPushIdentityStorage {
         );
         save(cleared);
         return cleared;
+    }
+
+    synchronized boolean markPendingRevocationAuthorityRejected(
+        String expectedApiOrigin,
+        String expectedInstallationId,
+        String expectedAuthToken
+    ) throws TokenStorageException {
+        State current = load();
+        if (current == null
+            || !current.hasPendingRevocation(
+                expectedApiOrigin,
+                expectedInstallationId,
+                expectedAuthToken
+            )) {
+            return false;
+        }
+        State cleared = new State(
+            current.apiOrigin(),
+            current.metadataRevision(),
+            current.installationId(),
+            current.token(),
+            current.tokenReceivedAt(),
+            current.registeredFingerprint,
+            current.registeredCredentialFingerprint,
+            current.registeredAt,
+            null,
+            null,
+            null,
+            false,
+            current.pendingRebindApiOrigin(),
+            current.pendingRebindAuthToken(),
+            current.isReconfigurationRequired()
+        );
+        save(cleared, false, true);
+        return true;
     }
 
     synchronized State load() throws TokenStorageException {

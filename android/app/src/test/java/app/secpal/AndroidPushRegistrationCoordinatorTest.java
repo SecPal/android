@@ -150,6 +150,55 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void pendingRevocationBlocksRegistrationUntilAFreshTokenCompletesRotation()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
+        coordinator.synchronize(
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTHORITY, false);
+
+        AndroidPushRegistrationCoordinator.Outcome blocked = coordinator.synchronize(
+            "new-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            blocked.kind()
+        );
+        assertEquals(1, transport.callCount);
+        assertTrue(storage.requiresTokenRotation());
+
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated"
+        );
+        AndroidPushRegistrationCoordinator.Outcome registered =
+            coordinator.synchronize(
+                "new-auth-token",
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
+            registered.kind()
+        );
+        assertEquals(2, transport.callCount);
+        assertEquals(
+            TOKEN + "-rotated",
+            transport.payload
+                .getJSONObject("registration")
+                .getString("push_token")
+        );
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
     public void missingAndOversizedAuthorityNeverReachTransport() throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
 

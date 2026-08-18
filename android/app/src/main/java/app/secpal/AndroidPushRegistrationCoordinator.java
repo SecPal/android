@@ -300,7 +300,11 @@ final class AndroidPushRegistrationCoordinator {
             if (authority == null) {
                 return publish(Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED));
             }
-            candidate = storage.load();
+            AndroidPushIdentityStorage.Snapshot snapshot = storage.snapshot();
+            candidate = snapshot.state();
+            if (snapshot.tokenRotationRequired()) {
+                return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
+            }
             if (candidate == null || candidate.token() == null) {
                 return publish(Outcome.success(LifecycleEvent.UNCHANGED));
             }

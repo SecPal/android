@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an isolated native Android push revocation coordinator that retries
+  origin-bound protected tombstones with their retained authority, treats
+  `200`, `204`, and `404` DELETE responses idempotently, durably discards
+  rejected `401`/`403` authority, requires FCM token rotation before a
+  replacement registration can proceed, and preserves ambiguous cleanup across
+  cancellation, offline failure, and process restart (issue #616).
 - Added an isolated native Android push registration coordinator with
   authority validation before network access, idempotent protected
   fingerprints across token callbacks and restarts, distinct

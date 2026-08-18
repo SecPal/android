@@ -423,10 +423,20 @@ class NativeAuthHttpClient {
             return new RequestResponse(statusCode, responseBody, connection.getContentType());
         } catch (IOException exception) {
             if (exception instanceof NativeAuthCancelledException) {
-                throw exception;
+                NativeAuthCancelledException cancellationException =
+                    (NativeAuthCancelledException) exception;
+                if (statusCode > 0
+                    && cancellationException.getResponseStatusCode() == 0) {
+                    throw new NativeAuthCancelledException(
+                        cancellationException.getReasonCode(),
+                        cancellationException,
+                        statusCode
+                    );
+                }
+                throw cancellationException;
             }
             if (cancellation.isCancelled()) {
-                throw cancellation.cancelledException(exception);
+                throw cancellation.cancelledException(exception, statusCode);
             }
             if (statusCode >= 400) {
                 throw new NativeAuthHttpException(
@@ -869,8 +879,15 @@ class NativeAuthHttpClient {
             return new NativeAuthCancelledException(reasonCode, null);
         }
 
-        private NativeAuthCancelledException cancelledException(IOException cause) {
-            return new NativeAuthCancelledException(reasonCode, cause);
+        private NativeAuthCancelledException cancelledException(
+            IOException cause,
+            int responseStatusCode
+        ) {
+            return new NativeAuthCancelledException(
+                reasonCode,
+                cause,
+                responseStatusCode
+            );
         }
 
         private static void closeQuietly(Closeable closeable) {
@@ -887,14 +904,24 @@ class NativeAuthHttpClient {
 
     static final class NativeAuthCancelledException extends InterruptedIOException {
         private final String reasonCode;
+        private final int responseStatusCode;
 
         NativeAuthCancelledException(String reasonCode, IOException cause) {
+            this(reasonCode, cause, 0);
+        }
+
+        NativeAuthCancelledException(
+            String reasonCode,
+            IOException cause,
+            int responseStatusCode
+        ) {
             super(
                 "REQUEST_TIMEOUT".equals(reasonCode)
                     ? "Android authenticated request exceeded its lifetime limit"
                     : "Android authenticated request was cancelled"
             );
             this.reasonCode = reasonCode;
+            this.responseStatusCode = responseStatusCode;
             if (cause != null) {
                 initCause(cause);
             }
@@ -902,6 +929,10 @@ class NativeAuthHttpClient {
 
         String getReasonCode() {
             return reasonCode;
+        }
+
+        int getResponseStatusCode() {
+            return responseStatusCode;
         }
     }
 
