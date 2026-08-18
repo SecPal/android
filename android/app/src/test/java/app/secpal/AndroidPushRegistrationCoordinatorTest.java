@@ -406,7 +406,7 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
-    public void aStagedSameOriginRebindDoesNotSuspendSynchronization()
+    public void aStagedSameOriginRebindAlsoSuspendsSynchronization()
         throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(
             client("1.2.3", 7)
@@ -424,7 +424,21 @@ public class AndroidPushRegistrationCoordinatorTest {
         );
         storage.prepareRuntimeRebind(API_ORIGIN, AUTHORITY);
 
-        AndroidPushRegistrationCoordinator.Outcome outcome =
+        AndroidPushRegistrationCoordinator.Outcome suspended =
+            coordinator.synchronize(
+                API_ORIGIN,
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            suspended.kind()
+        );
+        assertEquals(1, transport.callCount);
+
+        storage.cancelPreparedRuntimeRebind(API_ORIGIN);
+        AndroidPushRegistrationCoordinator.Outcome resumed =
             coordinator.synchronize(
                 API_ORIGIN,
                 AUTHORITY,
@@ -433,7 +447,7 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
-            outcome.kind()
+            resumed.kind()
         );
         assertEquals(2, transport.callCount);
     }

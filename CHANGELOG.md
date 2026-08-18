@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session. Every push transition now takes a caller credential together with
   the origin that issued it and refuses to act when that origin is not the
   current binding, registration synchronization is blocked while a cross-origin
-  rebind is staged, and a logout or credential replacement no longer reports a
+  rebind is staged, including a rebind that keeps the origin, and a logout or
+  credential replacement no longer reports a
   completed cleanup while its own registration is still live on the server, so
   a credential can never reach an origin that did not produce it and a
   completed or stale handle can no longer revoke a newer registration. A

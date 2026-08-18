@@ -22,8 +22,8 @@ import java.security.NoSuchAlgorithmException;
  *
  * <p>This coordinator deliberately owns no revocation, runtime-rebind, logout, or
  * authentication-session transitions. It only refuses to act on them: a caller
- * authority is used exclusively against the origin that issued it, and a staged
- * cross-origin rebind suspends synchronization until its owning transaction is
+ * authority is used exclusively against the origin that issued it, and any
+ * staged rebind suspends synchronization until its owning transaction is
  * terminal. Its publisher receives only abstract state; registration identity
  * and request data remain inside native collaborators.</p>
  */
@@ -298,9 +298,11 @@ final class AndroidPushRegistrationCoordinator {
      *
      * <p>{@code authorityApiOrigin} is the origin the caller authenticated
      * against. The authority is only ever sent there, so a credential can never
-     * reach the origin of a superseded or not yet committed binding. A staged
-     * cross-origin rebind additionally blocks synchronization until its owning
-     * transaction reaches a terminal state.</p>
+     * reach the origin of a superseded or not yet committed binding. Any staged
+     * rebind additionally suspends synchronization until its owning transaction
+     * reaches a terminal state, including a rebind that keeps the origin: the
+     * commit replaces and revokes the installation this request would target, so
+     * a response arriving afterwards would recreate a superseded server row.</p>
      */
     synchronized Outcome synchronize(
         String authorityApiOrigin,
@@ -326,7 +328,7 @@ final class AndroidPushRegistrationCoordinator {
                             authorityApiOrigin
                         )
                     )
-                    || hasStagedCrossOriginRebind(candidate))) {
+                    || candidate.hasPendingRebind())) {
                 return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
             }
             if (candidate == null || candidate.token() == null) {
@@ -491,13 +493,6 @@ final class AndroidPushRegistrationCoordinator {
         }
         return "NOTIFICATION_RUNTIME_STATE_INVALID".equals(response.errorCode())
             || "NOTIFICATION_CHANNEL_UNSUPPORTED".equals(response.errorCode());
-    }
-
-    private static boolean hasStagedCrossOriginRebind(
-        AndroidPushIdentityStorage.State candidate
-    ) {
-        return candidate.hasPendingRebind()
-            && !candidate.pendingRebindApiOrigin().equals(candidate.apiOrigin());
     }
 
     private static String normalizeAuthority(String value) {
