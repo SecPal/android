@@ -938,6 +938,193 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void anOversizedAuthorityIsRefusedBeforeAnyDestructiveCleanup()
+        throws Exception {
+        String oversized = "a".repeat(
+            AndroidPushIdentityStorage.MAX_AUTH_TOKEN_CHARACTERS + 1
+        );
+
+        AndroidPushRebindCoordinator.Outcome staged = coordinator().begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, oversized)
+        );
+        AndroidPushRebindCoordinator.Outcome replaced =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential(TENANT_A, oversized),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+        AndroidPushRebindCoordinator.Outcome loggedOut = coordinator().logout(
+            credential(TENANT_A, oversized),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            staged.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+            staged.cleanup()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            replaced.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+            loggedOut.cleanup()
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertTrue(current.hasServerRegistration());
+        assertFalse(current.hasPendingRebind());
+        assertFalse(current.hasPendingRevocation());
+    }
+
+    @Test
+    public void aDurableStagedRebindIsResumedByRecoveryAndNeverOverwritten()
+        throws Exception {
+        coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));
+
+        AndroidPushRebindCoordinator restarted = coordinator();
+        AndroidPushRebindCoordinator.Outcome overwritten = restarted.begin(
+            "https://tenant-c.example",
+            5,
+            credential(TENANT_A, AUTHORITY_A)
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            overwritten.kind()
+        );
+        AndroidPushIdentityStorage.State staged = storage.load();
+        assertEquals(TENANT_B, staged.pendingRebindApiOrigin());
+        assertEquals(AUTHORITY_A, staged.pendingRebindAuthToken());
+
+        AndroidPushRebindCoordinator.Outcome resumed = restarted.recover(
+            TENANT_B,
+            4,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.RESUMED,
+            resumed.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.COMMITTED,
+            restarted.commit(
+                resumed.transaction(),
+                new NativeAuthHttpClient.CancellationSignal()
+            ).kind()
+        );
+        assertEquals(TENANT_B, storage.load().apiOrigin());
+    }
+
+    @Test
+    public void anUnchangedCredentialFromAnotherOriginIsNotReportedAsNoCleanup()
+        throws Exception {
+        AndroidPushRebindCoordinator.Outcome foreign =
+            coordinator().replaceCredential(
+                credential(TENANT_B, AUTHORITY_B),
+                credential(TENANT_B, AUTHORITY_B),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+        AndroidPushRebindCoordinator.Outcome owned =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential(TENANT_A, AUTHORITY_A),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+            foreign.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+            foreign.cleanup()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.NOT_REQUIRED,
+            owned.cleanup()
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+        assertTrue(storage.load().hasServerRegistration());
+    }
+
+    @Test
+    public void aRollbackAgainstAReplacedIdentityIsStaleInsteadOfTerminal()
+        throws Exception {
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, AUTHORITY_A)
+        ).transaction();
+        storage.retainCurrentRegistrationForRevocation(AUTHORITY_A, false);
+        storage.clearPendingRevocation(
+            TENANT_A,
+            tenantAInstallationId,
+            AUTHORITY_A
+        );
+        String replacedInstallationId = storage.load().installationId();
+
+        AndroidPushRebindCoordinator.Outcome stale = coordinator.rollback(
+            transaction
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        assertTrue(transaction.isTerminal());
+        assertNotEquals(tenantAInstallationId, replacedInstallationId);
+        assertEquals(
+            replacedInstallationId,
+            storage.load().installationId()
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+    }
+
+    @Test
+    public void aRejectedLegacyTombstoneStillRemovesTheLiveRegistration()
+        throws Exception {
+        storage.retainLegacyInstallationForRevocation(
+            "00000000-0000-4000-8000-999999999999",
+            "expired-legacy-authority"
+        );
+        revocationTransport.statusCode = 401;
+
+        AndroidPushRebindCoordinator.Outcome outcome = coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CLEANED,
+            outcome.kind()
+        );
+        assertEquals(2, revocationTransport.calls.size());
+        assertEquals(
+            "00000000-0000-4000-8000-999999999999",
+            revocationTransport.calls.get(0).installationId
+        );
+        assertEquals(
+            "expired-legacy-authority",
+            revocationTransport.calls.get(0).authority
+        );
+        assertEquals(
+            tenantAInstallationId,
+            revocationTransport.calls.get(1).installationId
+        );
+        assertEquals(AUTHORITY_A, revocationTransport.calls.get(1).authority);
+        assertFalse(storage.load().hasServerRegistration());
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(

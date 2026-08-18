@@ -79,7 +79,10 @@ final class AndroidPushRebindCoordinator {
         }
 
         private boolean isUsable() {
-            return apiOrigin != null && !authority.isEmpty();
+            return apiOrigin != null
+                && !authority.isEmpty()
+                && authority.length()
+                    <= AndroidPushIdentityStorage.MAX_AUTH_TOKEN_CHARACTERS;
         }
 
         private boolean canAuthorize(AndroidPushIdentityStorage.State state) {
@@ -280,6 +283,9 @@ final class AndroidPushRebindCoordinator {
                     Outcome.of(Outcome.Kind.CONFLICT, Cleanup.PENDING)
                 );
             }
+            if (current != null && current.hasPendingRebind()) {
+                return publish(Outcome.of(Outcome.Kind.CONFLICT));
+            }
             if (current != null
                 && current.hasServerRegistration()
                 && (previous == null || !previous.canAuthorize(current))) {
@@ -292,7 +298,9 @@ final class AndroidPushRebindCoordinator {
             }
             storage.prepareRuntimeRebind(
                 normalizedOrigin,
-                previous == null ? null : previous.authority
+                previous == null ? null : previous.authority,
+                current == null ? null : current.apiOrigin(),
+                current == null ? null : current.installationId()
             );
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
@@ -360,7 +368,10 @@ final class AndroidPushRebindCoordinator {
      *
      * <p>Rollback is only available before the commit. Once the superseded
      * registration became a durable tombstone, cleanup is forward-only: reviving
-     * a registration that may already be revoked on its origin is never safe.</p>
+     * a registration that may already be revoked on its origin is never safe.
+     * A handle that no longer describes the staged transition is stale here for
+     * the same reason it is stale on commit: it must not discard a staging that
+     * belongs to a newer binding.</p>
      */
     synchronized Outcome rollback(Transaction handle) {
         Outcome replayed = replayTerminalOutcome(handle);
@@ -368,6 +379,11 @@ final class AndroidPushRebindCoordinator {
             return publish(replayed);
         }
         try {
+            if (!handle.describes(storage.load())) {
+                return publish(
+                    terminate(handle, Outcome.of(Outcome.Kind.STALE))
+                );
+            }
             storage.cancelPreparedRuntimeRebind(handle.nextApiOrigin());
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
@@ -492,11 +508,38 @@ final class AndroidPushRebindCoordinator {
             );
         }
         if (next.sameAuthorityAs(previous)) {
-            return publish(
-                Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED)
-            );
+            return publish(unchangedCredentialOutcome(previous));
         }
         return retainAndClean(previous, false, cancellation);
+    }
+
+    /**
+     * Answers a replacement that changes nothing, without ever claiming that
+     * there is no cleanup for a registration this credential does not own.
+     */
+    private Outcome unchangedCredentialOutcome(Credential credential) {
+        try {
+            AndroidPushIdentityStorage.State current = storage.load();
+            if (current == null
+                || (!current.hasServerRegistration()
+                    && !current.hasPendingRevocation())) {
+                return Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED);
+            }
+            if (credential == null || !credential.canAuthorize(current)) {
+                return Outcome.of(
+                    Outcome.Kind.CONFLICT,
+                    Cleanup.AUTHORITY_UNAVAILABLE
+                );
+            }
+            return Outcome.of(
+                Outcome.Kind.CLEANED,
+                current.hasPendingRevocation()
+                    ? Cleanup.PENDING
+                    : Cleanup.NOT_REQUIRED
+            );
+        } catch (TokenStorageException | RuntimeException exception) {
+            return Outcome.of(Outcome.Kind.FAILED);
+        }
     }
 
     /** Retries durable cleanup without starting a new transition. */
@@ -526,6 +569,11 @@ final class AndroidPushRebindCoordinator {
      * Drains an already retained tombstone and then removes the registration
      * that is still live, so a credential transition never reports a completed
      * cleanup while its own registration remains on the server.
+     *
+     * <p>A rejected tombstone also frees the slot, so its registration is still
+     * removed afterwards instead of being orphaned by another cleanup's dead
+     * authority. Only a drain that keeps the tombstone blocks the transition,
+     * because the slot holds exactly one retained registration.</p>
      */
     private Outcome retainAndClean(
         Credential credential,
@@ -541,12 +589,13 @@ final class AndroidPushRebindCoordinator {
             current = storage.load();
             if (current != null && current.hasPendingRevocation()) {
                 drained = cleanupRetainedRegistration(cancellation);
-                if (drained != Cleanup.COMPLETED) {
+                current = storage.load();
+                if (drained == Cleanup.CANCELLED
+                    || (current != null && current.hasPendingRevocation())) {
                     return publish(
                         Outcome.of(Outcome.Kind.CLEANED, drained)
                     );
                 }
-                current = storage.load();
             }
             if (current == null || !current.hasServerRegistration()) {
                 return publish(Outcome.of(Outcome.Kind.CLEANED, drained));

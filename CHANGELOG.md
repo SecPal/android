@@ -29,7 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replacement credential that is absent, unusable, or issued by another origin
   is refused instead of being reported as a finished transition, and a stale
   commit handle releases its transition so a later logout or rebind can still
-  clean up, while a cancelled or failed commit stays staged for a retry
+  clean up, while a cancelled or failed commit stays staged for a retry.
+  Authorities beyond the shared maximum length are refused before any
+  destructive cleanup, staging compares the expected binding so a concurrent
+  rebind cannot inherit another origin's authority, a durable staged rebind is
+  resumed through cold-start recovery instead of being overwritten, an unchanged
+  credential is validated against the current binding before it is reported as
+  needing no cleanup, a stale rollback no longer reports a terminal transition,
+  and a rejected legacy tombstone no longer leaves the live registration behind
   (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats

@@ -318,6 +318,53 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
+    public void runtimeRebindPreparationRejectsAChangedBinding()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(
+            storage
+        );
+
+        try {
+            storage.prepareRuntimeRebind(
+                NEXT_API_ORIGIN,
+                AUTH_TOKEN,
+                API_ORIGIN,
+                "00000000-0000-4000-8000-999999999999"
+            );
+            fail("Expected changed runtime binding failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalStateException);
+        }
+        try {
+            storage.prepareRuntimeRebind(
+                NEXT_API_ORIGIN,
+                AUTH_TOKEN,
+                NEXT_API_ORIGIN,
+                registered.installationId()
+            );
+            fail("Expected changed runtime binding failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalStateException);
+        }
+        assertFalse(storage.load().hasPendingRebind());
+
+        storage.prepareRuntimeRebind(
+            NEXT_API_ORIGIN,
+            AUTH_TOKEN,
+            API_ORIGIN,
+            registered.installationId()
+        );
+
+        assertEquals(
+            NEXT_API_ORIGIN,
+            storage.load().pendingRebindApiOrigin()
+        );
+    }
+
+    @Test
     public void runtimeRebindPreparationWithoutAuthorityFailsClosed()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(

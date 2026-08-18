@@ -392,8 +392,37 @@ final class AndroidPushIdentityStorage {
         String nextApiOrigin,
         String previousAuthToken
     ) throws TokenStorageException {
+        prepareRuntimeRebind(nextApiOrigin, previousAuthToken, null, null);
+    }
+
+    /**
+     * Stages a runtime rebind only while the binding still matches the caller's
+     * expectation.
+     *
+     * <p>The retained authority belongs to the binding the caller validated it
+     * against. Staging it against a binding that changed in the meantime would
+     * hand one origin's authority to another, so a mismatch fails instead.
+     * Passing {@code null} expectations stages against whatever is current.</p>
+     */
+    synchronized void prepareRuntimeRebind(
+        String nextApiOrigin,
+        String previousAuthToken,
+        String expectedApiOrigin,
+        String expectedInstallationId
+    ) throws TokenStorageException {
         String normalizedOrigin = requireApiOrigin(nextApiOrigin);
         State current = load();
+        if (expectedApiOrigin != null
+            && (current == null
+                || !current.apiOrigin().equals(
+                    requireApiOrigin(expectedApiOrigin)
+                )
+                || !current.installationId().equals(expectedInstallationId))) {
+            throw new TokenStorageException(
+                "Android push runtime binding changed before the rebind was staged",
+                new IllegalStateException("runtimeBinding")
+            );
+        }
         if (current == null
             || !current.hasServerRegistration()) {
             return;
