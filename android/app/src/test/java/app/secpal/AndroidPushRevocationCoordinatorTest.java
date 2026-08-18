@@ -337,7 +337,11 @@ public class AndroidPushRevocationCoordinatorTest {
             "00000000-0000-4000-8000-999999999999";
         transport.beforeResponse = () -> {
             try {
-                storage.clearPendingRevocation(API_ORIGIN, revokedInstallationId);
+                storage.clearPendingRevocation(
+                    API_ORIGIN,
+                    revokedInstallationId,
+                    AUTHORITY
+                );
                 storage.retainLegacyInstallationForRevocation(
                     newerInstallationId,
                     "newer-durable-authority"
@@ -358,6 +362,37 @@ public class AndroidPushRevocationCoordinatorTest {
         AndroidPushIdentityStorage.State current = storage.load();
         assertTrue(current.hasServerRegistration());
         assertEquals(newerInstallationId, current.pendingRevocationInstallationId());
+        assertEquals(
+            "newer-durable-authority",
+            current.pendingRevocationAuthToken()
+        );
+    }
+
+    @Test
+    public void staleDeleteResponseCannotClearTombstoneWithNewerAuthority()
+        throws Exception {
+        transport.beforeResponse = () -> {
+            try {
+                storage.prepareRuntimeReset("newer-durable-authority");
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
+
+        AndroidPushRevocationCoordinator.Outcome outcome = coordinator().retry(
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRevocationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            outcome.kind()
+        );
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertTrue(current.hasPendingRevocation());
+        assertEquals(
+            revokedInstallationId,
+            current.pendingRevocationInstallationId()
+        );
         assertEquals(
             "newer-durable-authority",
             current.pendingRevocationAuthToken()

@@ -186,7 +186,8 @@ final class AndroidPushRevocationCoordinator {
                 AndroidPushIdentityStorage.State current =
                     storage.clearPendingRevocation(
                         tombstone.pendingRevocationApiOrigin(),
-                        tombstone.pendingRevocationInstallationId()
+                        tombstone.pendingRevocationInstallationId(),
+                        tombstone.pendingRevocationAuthToken()
                     );
                 return current != null && current.hasPendingRevocation()
                     ? Outcome.Kind.RETRYABLE_FAILURE

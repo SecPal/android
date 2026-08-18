@@ -586,7 +586,8 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
-    public void pendingRevocationClearsOnlyForMatchingIdentity() throws Exception {
+    public void pendingRevocationClearsOnlyForMatchingIdentityAndAuthority()
+        throws Exception {
         AndroidPushIdentityStorage storage = createStorage(
             new InMemorySharedPreferences()
         );
@@ -596,13 +597,23 @@ public class AndroidPushIdentityStorageTest {
 
         AndroidPushIdentityStorage.State unchanged = storage.clearPendingRevocation(
             API_ORIGIN,
-            "00000000-0000-4000-8000-999999999999"
+            "00000000-0000-4000-8000-999999999999",
+            AUTH_TOKEN
         );
         assertTrue(unchanged.hasPendingRevocation());
 
+        AndroidPushIdentityStorage.State staleAuthority =
+            storage.clearPendingRevocation(
+                API_ORIGIN,
+                registered.installationId(),
+                "stale-auth-token"
+            );
+        assertTrue(staleAuthority.hasPendingRevocation());
+
         AndroidPushIdentityStorage.State cleared = storage.clearPendingRevocation(
             API_ORIGIN,
-            registered.installationId()
+            registered.installationId(),
+            AUTH_TOKEN
         );
         assertFalse(cleared.hasPendingRevocation());
         assertEquals(retained.installationId(), cleared.installationId());

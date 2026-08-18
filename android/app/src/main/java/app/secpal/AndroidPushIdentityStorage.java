@@ -807,13 +807,15 @@ final class AndroidPushIdentityStorage {
 
     synchronized State clearPendingRevocation(
         String expectedApiOrigin,
-        String expectedInstallationId
+        String expectedInstallationId,
+        String expectedAuthToken
     ) throws TokenStorageException {
         State current = load();
         if (current == null
             || !current.hasPendingRevocation(
                 expectedApiOrigin,
-                expectedInstallationId
+                expectedInstallationId,
+                expectedAuthToken
             )) {
             return current;
         }
