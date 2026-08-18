@@ -49,9 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Allowed one additional bounded API-37 emulator recovery after repeated
-  PackageManager install-write failures, including after a prior split-install
-  connection failure (issue #625).
 - Normalized generated Cordova artifacts after `cap:copy` so frontend-only
   refreshes preserve the tracked Android manifest's final newline (issue #622).
 - Refreshed and checked in the complete packaged Android frontend from the
