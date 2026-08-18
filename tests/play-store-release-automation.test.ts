@@ -1509,6 +1509,7 @@ system("sh", "-eu", "-c", script, exception: true)
       await loadNativeAuthBridgeInjectorModule();
     const tempRoot = mkdtempSync(join(tmpdir(), "android-runtime-directory-"));
     const assetRoot = join(tempRoot, "public");
+    const fallbackInventoryPath = join(tempRoot, "web-assets-fallback.json");
     const stringsXmlPath = join(tempRoot, "strings.xml");
     const apiBaseUrl = "https://runtime-bootstrap-required.secpal.dev";
 
@@ -1540,6 +1541,7 @@ system("sh", "-eu", "-c", script, exception: true)
         [
           join(repoRoot, "scripts", "generate-android-web-asset-inventory.mjs"),
           assetRoot,
+          fallbackInventoryPath,
         ],
         { encoding: "utf8" }
       );
@@ -1550,6 +1552,10 @@ system("sh", "-eu", "-c", script, exception: true)
       const inventory = JSON.parse(
         readFileSync(join(assetRoot, "secpal-web-assets.json"), "utf8")
       ) as { files: Array<{ path: string }> };
+      const fallbackInventory = JSON.parse(
+        readFileSync(fallbackInventoryPath, "utf8")
+      ) as { files: Array<{ path: string }> };
+      expect(fallbackInventory).toEqual(inventory);
       expect(inventory.files.map(({ path }) => path)).toEqual(
         expect.arrayContaining(["cordova.js", "cordova_plugins.js"])
       );

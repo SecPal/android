@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: CC0-1.0
+
+# Pinned SecPal/frontend revision for the packaged Android web assets.
+8c950220d8ae582a536135eed75c8ecb2a4858c8

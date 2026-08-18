@@ -14,9 +14,9 @@
 *.md text
 *.sh text eol=lf
 *.bash text eol=lf
-android/app/src/main/assets/public/index.html text eol=lf
-android/app/src/main/assets/public/build-metadata.json text eol=lf
-android/app/src/main/assets/public/secpal-native-auth-bridge.*.js text eol=lf
+android/frontend-revision.txt text eol=lf
+android/app/src/main/assets/public/** text=auto eol=lf
+android/app/src/main/web-assets-fallback.json text eol=lf
 
 # Denote all files that are truly binary and should not be modified
 *.png binary
