@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allowed a second bounded API 37 `install-write` reboot-and-retry after a
+  different recognized package-install recovery, covering chained split-install
+  broken-pipe failures without increasing the standalone retry budget (issue
+  #625).
 - Normalized generated Cordova artifacts after `cap:copy` so frontend-only
   refreshes preserve the tracked Android manifest's final newline (issue #622).
 - Refreshed and checked in the complete packaged Android frontend from the
