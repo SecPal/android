@@ -532,7 +532,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "36d2e1c2f563bd9a1ef613a844a7eac0d50e03f110b0663738c3fd5457c3f0a2"
+      "sha256": "8510d1ddee4715a4b2a33bfaff98bab3df57e180909f6b47d906af7963e770eb"
     },
     {
       "path": "logo-dark-128.png",
@@ -631,8 +631,8 @@
       "sha256": "84fae14aa8ff69c3074df0b113e64e431f2f3b1f5747b5613098177dd69529b2"
     },
     {
-      "path": "secpal-native-auth-bridge.b95286adefec841e13051dc1a93a0a3875d9c2b367f92d1cfd1f8a0a354943ae.js",
-      "sha256": "b95286adefec841e13051dc1a93a0a3875d9c2b367f92d1cfd1f8a0a354943ae"
+      "path": "secpal-native-auth-bridge.e80ffe645abed9673dd26448bc5caabae2e237069adb8e47d6ce9c61ad074ead.js",
+      "sha256": "e80ffe645abed9673dd26448bc5caabae2e237069adb8e47d6ce9c61ad074ead"
     },
     {
       "path": "sw.js",

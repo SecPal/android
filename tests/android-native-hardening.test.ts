@@ -1040,19 +1040,6 @@ describe("Android native hardening", () => {
     expect(deviceAdminReceiver).not.toContain("ProvisioningBootstrap");
   });
 
-  it("uses only the canonical bootstrap schema for Android push registration", () => {
-    const bridgeScript = readRepoFile(
-      "scripts",
-      "inject-native-auth-bridge.mjs"
-    );
-
-    expect(bridgeScript).toContain("const currentBootstrapSchemaVersion = 4;");
-    expect(
-      bridgeScript.match(/const currentBootstrapSchemaVersion = 4;/g)
-    ).toHaveLength(1);
-    expect(bridgeScript).not.toMatch(/schema_version:\s*[0-3]\b/);
-  });
-
   it("runs strict-CSP browser coverage when Chromium is available", () => {
     const browserTest = readRepoFile(
       "tests",
@@ -1310,6 +1297,23 @@ describe("Android native hardening", () => {
     ).not.toMatch(
       /minimumSupportedAppVersion|minimumSupportedAppBuild|minimum_supported_app_version|minimum_supported_app_build/
     );
+  });
+
+  it("keeps raw Android push identities out of the WebView plugin contract", () => {
+    const nativeAuthPlugin = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SecPalNativeAuthPlugin.java"
+    );
+
+    expect(nativeAuthPlugin).not.toContain('"androidPushInstallationId"');
+    expect(nativeAuthPlugin).not.toMatch(/payload\.put\(\s*"token"/);
+    expect(nativeAuthPlugin).not.toContain("androidPushTokenReceived");
   });
 
   it("blocks screenshots for SecPal activities and managed device modes", () => {

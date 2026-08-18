@@ -24,12 +24,14 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Reviewed least-privilege inventory for requests that the packaged Android frontend makes through
- * the bearer-token broker. Authentication, bootstrap, discovery, and health endpoints use their
- * dedicated native flows and deliberately do not appear here.
+ * Reviewed least-privilege request policies for Android bearer-token use. {@link #authorize}
+ * contains the routes available to the packaged WebView broker. The native push transport uses
+ * the narrower {@link #authorizeAndroidPush} inventory. Authentication, bootstrap, discovery,
+ * and health endpoints use dedicated native flows and deliberately do not appear here.
  */
 final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024;
+    static final int MAX_ANDROID_PUSH_REQUEST_BODY_BYTES = 256 * 1024;
     static final int MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;
     static final int MAX_REQUEST_TARGET_CHARACTERS = 8 * 1024;
     static final int MAX_MEDIA_TYPE_CHARACTERS = 512;
@@ -44,7 +46,8 @@ final class NativeAuthRequestPolicy {
         "^[A-Za-z0-9'()+_,./:=?-]{1,70}$"
     );
 
-    private static final List<RouteSpec> ROUTES = buildRoutes();
+    private static final List<RouteSpec> WEBVIEW_ROUTES = buildWebViewRoutes();
+    private static final List<RouteSpec> ANDROID_PUSH_ROUTES = buildAndroidPushRoutes();
 
     private NativeAuthRequestPolicy() {}
 
@@ -74,10 +77,48 @@ final class NativeAuthRequestPolicy {
         String accept,
         int requestBodyLength
     ) throws NativeAuthHttpException {
+        return authorizeAgainst(
+            WEBVIEW_ROUTES,
+            MAX_REQUEST_BODY_BYTES,
+            method,
+            pathAndQuery,
+            contentType,
+            accept,
+            requestBodyLength
+        );
+    }
+
+    static AuthorizedRequest authorizeAndroidPush(
+        String method,
+        String pathAndQuery,
+        String contentType,
+        String accept,
+        int requestBodyLength
+    ) throws NativeAuthHttpException {
+        return authorizeAgainst(
+            ANDROID_PUSH_ROUTES,
+            MAX_ANDROID_PUSH_REQUEST_BODY_BYTES,
+            method,
+            pathAndQuery,
+            contentType,
+            accept,
+            requestBodyLength
+        );
+    }
+
+    private static AuthorizedRequest authorizeAgainst(
+        List<RouteSpec> routes,
+        int maximumRequestBodyBytes,
+        String method,
+        String pathAndQuery,
+        String contentType,
+        String accept,
+        int requestBodyLength
+    ) throws NativeAuthHttpException {
         if (method != null && method.length() > MAX_METHOD_CHARACTERS) {
             throw validationError("Android auth bridge request method exceeds the allowed size");
         }
-        if (requestBodyLength < 0 || requestBodyLength > MAX_REQUEST_BODY_BYTES) {
+        if (requestBodyLength < 0 || requestBodyLength > maximumRequestBodyBytes) {
             throw validationError("Android auth bridge request exceeds the allowed size");
         }
         if (isOversizedMediaValue(contentType) || isOversizedMediaValue(accept)) {
@@ -99,7 +140,7 @@ final class NativeAuthRequestPolicy {
             throw validationError("Android auth bridge requires an inventoried request content type");
         }
 
-        for (RouteSpec route : ROUTES) {
+        for (RouteSpec route : routes) {
             if (!route.method.equals(normalizedMethod) || !route.pathPattern.matcher(target.decodedPath).matches()) {
                 continue;
             }
@@ -130,7 +171,7 @@ final class NativeAuthRequestPolicy {
         return value != null && value.length() > MAX_MEDIA_TYPE_CHARACTERS;
     }
 
-    private static List<RouteSpec> buildRoutes() {
+    private static List<RouteSpec> buildWebViewRoutes() {
         List<RouteSpec> routes = new ArrayList<>();
 
         add(routes, "GET", "/v1/me", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
@@ -144,8 +185,6 @@ final class NativeAuthRequestPolicy {
         add(routes, "POST", "/v1/me/mfa/totp/enrollment", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/totp/enrollment/confirm", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/me/mfa/recovery-codes/regenerate", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "PUT", "/v1/me/notification-installations/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "DELETE", "/v1/me/notification-installations/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/streets", keys("name", "postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/addresses/de/localities", keys("postal_code", "locality", "limit"), NO_CONTENT, ResponseKind.JSON);
 
@@ -206,6 +245,17 @@ final class NativeAuthRequestPolicy {
         add(routes, "GET", "/v1/activity-logs/" + ID + "/verify", NO_QUERY, NO_CONTENT, ResponseKind.JSON);
 
         return Collections.unmodifiableList(routes);
+    }
+
+    private static List<RouteSpec> buildAndroidPushRoutes() {
+        List<RouteSpec> routes = new ArrayList<>();
+        addNotificationInstallationRoutes(routes);
+        return Collections.unmodifiableList(routes);
+    }
+
+    private static void addNotificationInstallationRoutes(List<RouteSpec> routes) {
+        add(routes, "PUT", "/v1/me/notification-installations/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
+        add(routes, "DELETE", "/v1/me/notification-installations/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
     }
 
     private static void add(
