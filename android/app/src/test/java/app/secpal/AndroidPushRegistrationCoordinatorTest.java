@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AndroidPushRegistrationCoordinatorTest {
     private static final String API_ORIGIN = "https://tenant-a.example";
     private static final String AUTHORITY = "native-auth-token";
+    private static final String PREDECESSOR_ROTATION_INITIALIZED_KEY =
+        "android_push_token_rotation_state_initialized";
     private static final String TOKEN =
         "fcm-token-one-1234567890abcdefghijklmnopqrstuvwxyz";
 
@@ -199,7 +201,7 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
-    public void legacyPendingRevocationBackfillsRotationRequirementOnce()
+    public void legacyPendingRevocationRetainsRotationRequirementAfterUpgrade()
         throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         coordinator.synchronize(
@@ -208,9 +210,14 @@ public class AndroidPushRegistrationCoordinatorTest {
         );
         AndroidPushIdentityStorage.State retained =
             storage.retainCurrentRegistrationForRevocation(AUTHORITY, false);
+        assertTrue(
+            preferences.getBoolean(
+                AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY,
+                false
+            )
+        );
         preferences.edit()
-            .remove(AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY)
-            .remove(AndroidPushIdentityStorage.TOKEN_ROTATION_STATE_INITIALIZED_KEY)
+            .remove(PREDECESSOR_ROTATION_INITIALIZED_KEY)
             .commit();
         storage = createStorage();
 
@@ -246,6 +253,53 @@ public class AndroidPushRegistrationCoordinatorTest {
             registered.kind()
         );
         assertEquals(2, transport.callCount);
+        assertFalse(storage.requiresTokenRotation());
+    }
+
+    @Test
+    public void legacyCompletedTokenRotationRemainsCompleteAfterUpgrade()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
+        coordinator.synchronize(
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushIdentityStorage.State retained =
+            storage.retainCurrentRegistrationForRevocation(AUTHORITY, false);
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            retained.installationId(),
+            TOKEN + "-rotated-before-upgrade"
+        );
+        assertFalse(
+            preferences.contains(
+                AndroidPushIdentityStorage.TOKEN_ROTATION_REQUIRED_KEY
+            )
+        );
+        preferences.edit()
+            .remove(PREDECESSOR_ROTATION_INITIALIZED_KEY)
+            .commit();
+        storage = createStorage();
+
+        AndroidPushRegistrationCoordinator.Outcome registered = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(
+            "new-auth-token",
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
+            registered.kind()
+        );
+        assertEquals(2, transport.callCount);
+        assertEquals(
+            TOKEN + "-rotated-before-upgrade",
+            transport.payload
+                .getJSONObject("registration")
+                .getString("push_token")
+        );
         assertFalse(storage.requiresTokenRotation());
     }
 
