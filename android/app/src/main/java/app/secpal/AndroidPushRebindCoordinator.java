@@ -657,7 +657,36 @@ final class AndroidPushRebindCoordinator {
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
-        return publish(drain(Outcome.Kind.CLEANED, current, cancellation));
+        return publish(
+            carryRetirement(
+                drain(Outcome.Kind.CLEANED, current, cancellation),
+                drained
+            )
+        );
+    }
+
+    /**
+     * Keeps a retirement reported by an earlier drain on the outcome that ends
+     * the transition.
+     *
+     * <p>A transition can drain two tombstones: an already retained one and the
+     * registration it then removes itself. Only the first can carry a deferred
+     * logout, because the second is created by this transition, and its durable
+     * marker is gone once it is drained. Reporting only the last result would
+     * therefore drop the single signal the authentication layer has.</p>
+     */
+    private static Outcome carryRetirement(Outcome outcome, Outcome earlier) {
+        if (earlier == null
+            || !earlier.retiredAuthenticationAuthority()
+            || outcome.retiredAuthenticationAuthority()) {
+            return outcome;
+        }
+        return new Outcome(
+            outcome.kind,
+            outcome.cleanup,
+            outcome.transaction,
+            true
+        );
     }
 
     /**

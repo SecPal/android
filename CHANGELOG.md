@@ -53,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retained at all, so a registration appearing during staging cannot make an
   unvalidated authority durable, and the retirement statement is derived from the
   cleanup that cleared the tombstone rather than from re-reading state that the
-  cleanup may already have removed (issue #617).
+  cleanup may already have removed and survives a transition that drains a
+  retained tombstone before removing its own registration (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

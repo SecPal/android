@@ -1496,6 +1496,58 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aRetirementSurvivesASecondDrainInTheSameTransition()
+        throws Exception {
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        revocationTransport.failure = new IOException("offline");
+        coordinator.commit(
+            coordinator.begin(
+                TENANT_B,
+                4,
+                credential(TENANT_A, AUTHORITY_A)
+            ).transaction(),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushIdentityStorage.State rebound = storage.load();
+        assertTrue(rebound.pendingRevocationRequiresAuthenticationLogout());
+
+        revocationTransport.failure = null;
+        storage.recordToken(TENANT_B, 4, rebound.installationId(), TOKEN + "-b");
+        storage.markRegistered(
+            storage.snapshot(),
+            "1".repeat(64),
+            "2".repeat(64)
+        );
+
+        AndroidPushRebindCoordinator.Outcome replaced =
+            coordinator().replaceCredential(
+                credential(TENANT_B, AUTHORITY_B),
+                credential(TENANT_B, "tenant-b-replacement-token"),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            replaced.cleanup()
+        );
+        assertTrue(replaced.retiredAuthenticationAuthority());
+        assertEquals(3, revocationTransport.calls.size());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            assertEquals(
+                TENANT_A,
+                revocationTransport.calls.get(attempt).apiOrigin
+            );
+            assertEquals(
+                AUTHORITY_A,
+                revocationTransport.calls.get(attempt).authority
+            );
+        }
+        assertEquals(TENANT_B, revocationTransport.calls.get(2).apiOrigin);
+        assertEquals(AUTHORITY_B, revocationTransport.calls.get(2).authority);
+        assertFalse(storage.load().hasPendingRevocation());
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
