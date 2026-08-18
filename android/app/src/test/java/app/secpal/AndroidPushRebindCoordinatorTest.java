@@ -325,6 +325,101 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aStaleCommitReleasesTheTransitionInsteadOfBlockingCleanup()
+        throws Exception {
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, AUTHORITY_A)
+        ).transaction();
+        storage.cancelPreparedRuntimeRebind(TENANT_B);
+
+        AndroidPushRebindCoordinator.Outcome stale = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome replayed = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome loggedOut = coordinator.logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        assertTrue(transaction.isTerminal());
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            replayed.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CLEANED,
+            loggedOut.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            loggedOut.cleanup()
+        );
+        assertEquals(1, revocationTransport.calls.size());
+        assertEquals(TENANT_A, revocationTransport.calls.get(0).apiOrigin);
+        assertEquals(
+            tenantAInstallationId,
+            revocationTransport.calls.get(0).installationId
+        );
+        assertFalse(storage.load().hasServerRegistration());
+    }
+
+    @Test
+    public void aFailedCommitKeepsTheTransactionStagedForARetry()
+        throws Exception {
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, AUTHORITY_A)
+        ).transaction();
+        cipher.unavailable = true;
+
+        AndroidPushRebindCoordinator.Outcome failed = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.FAILED,
+            failed.kind()
+        );
+        assertFalse(transaction.isTerminal());
+        assertEquals(
+            AndroidPushRebindCoordinator.Status.RETRY_PENDING,
+            publisher.lastStatus
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+
+        cipher.unavailable = false;
+        AndroidPushRebindCoordinator.Outcome retried = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.COMMITTED,
+            retried.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            retried.cleanup()
+        );
+        assertEquals(TENANT_B, storage.load().apiOrigin());
+        assertEquals(1, revocationTransport.calls.size());
+    }
+
+    @Test
     public void coldStartRecoveryResumesTheExactStagedTransaction()
         throws Exception {
         coordinator().begin(TENANT_B, 4, credential(TENANT_A, AUTHORITY_A));
@@ -797,6 +892,52 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void anUnusableReplacementIsRefusedInsteadOfReportingNoCleanup()
+        throws Exception {
+        AndroidPushRebindCoordinator.Outcome absent =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                null,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+        AndroidPushRebindCoordinator.Outcome blankAuthority =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential(TENANT_A, "  "),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+        AndroidPushRebindCoordinator.Outcome unusableOrigin =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential("http://tenant-a.example", "tenant-a-replacement"),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        for (AndroidPushRebindCoordinator.Outcome refused : List.of(
+            absent,
+            blankAuthority,
+            unusableOrigin
+        )) {
+            assertEquals(
+                AndroidPushRebindCoordinator.Outcome.Kind.CONFLICT,
+                refused.kind()
+            );
+            assertEquals(
+                AndroidPushRebindCoordinator.Cleanup.AUTHORITY_UNAVAILABLE,
+                refused.cleanup()
+            );
+        }
+        assertEquals(
+            AndroidPushRebindCoordinator.Status.CLEANUP_REJECTED,
+            publisher.lastStatus
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertTrue(current.hasServerRegistration());
+        assertFalse(current.hasPendingRevocation());
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
@@ -977,9 +1118,11 @@ public class AndroidPushRebindCoordinatorTest {
     private static final class MemoryCipher implements TokenCipher {
         private final Map<String, String> plaintextByCiphertext = new HashMap<>();
         private int sequence;
+        private boolean unavailable;
 
         @Override
         public EncryptedTokenPayload encrypt(String plaintext) {
+            requireAvailable();
             String ciphertext = "encrypted-" + ++sequence;
             plaintextByCiphertext.put(ciphertext, plaintext);
             return new EncryptedTokenPayload(ciphertext, "iv-" + sequence);
@@ -987,9 +1130,16 @@ public class AndroidPushRebindCoordinatorTest {
 
         @Override
         public String decrypt(EncryptedTokenPayload payload) {
+            requireAvailable();
             String plaintext = plaintextByCiphertext.get(payload.getCiphertext());
             assertNotNull(plaintext);
             return plaintext;
+        }
+
+        private void requireAvailable() {
+            if (unavailable) {
+                throw new IllegalStateException("keystore unavailable");
+            }
         }
     }
 }

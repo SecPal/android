@@ -309,10 +309,13 @@ final class AndroidPushRebindCoordinator {
      * Binds the staged origin and then removes the superseded registration from
      * the origin it belonged to.
      *
-     * <p>An already cancelled signal leaves the transaction staged so the caller
-     * can commit it later; every other path is terminal. Because a terminal
-     * handle replays its recorded outcome, an unfinished cleanup is retried
-     * through {@link #cleanup} rather than by committing again.</p>
+     * <p>A cancelled signal and a storage failure leave the transaction staged
+     * so the caller can commit it again. A commit and a stale handle are
+     * terminal: a handle that no longer describes the staged transition can
+     * never succeed, so it releases the transition instead of blocking every
+     * later cleanup. Because a terminal handle replays its recorded outcome, an
+     * unfinished cleanup is retried through {@link #cleanup} rather than by
+     * committing again.</p>
      */
     synchronized Outcome commit(
         Transaction handle,
@@ -327,7 +330,9 @@ final class AndroidPushRebindCoordinator {
         }
         try {
             if (!handle.describes(storage.load())) {
-                return publish(Outcome.of(Outcome.Kind.STALE));
+                return publish(
+                    terminate(handle, Outcome.of(Outcome.Kind.STALE))
+                );
             }
             AndroidPushIdentityStorage.State bound = storage.bindRuntime(
                 handle.nextApiOrigin(),
@@ -339,13 +344,15 @@ final class AndroidPushRebindCoordinator {
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
-        activeTransaction = null;
-        Outcome committed = Outcome.of(
-            Outcome.Kind.COMMITTED,
-            cleanupRetainedRegistration(cancellation)
+        return publish(
+            terminate(
+                handle,
+                Outcome.of(
+                    Outcome.Kind.COMMITTED,
+                    cleanupRetainedRegistration(cancellation)
+                )
+            )
         );
-        handle.terminate(committed);
-        return publish(committed);
     }
 
     /**
@@ -365,10 +372,9 @@ final class AndroidPushRebindCoordinator {
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
-        activeTransaction = null;
-        Outcome rolledBack = Outcome.of(Outcome.Kind.ROLLED_BACK);
-        handle.terminate(rolledBack);
-        return publish(rolledBack);
+        return publish(
+            terminate(handle, Outcome.of(Outcome.Kind.ROLLED_BACK))
+        );
     }
 
     /**
@@ -461,10 +467,14 @@ final class AndroidPushRebindCoordinator {
      * Removes the registration created by a credential that is being replaced.
      *
      * <p>The superseded registration is revoked with the authority that produced
-     * it, never with the replacement credential. An absent or identical
-     * replacement changes nothing; use {@link #logout} when no credential takes
-     * the place of the current one, and {@link #begin} when the replacement
-     * belongs to another origin.</p>
+     * it, never with the replacement credential. Only an identical replacement
+     * changes nothing, because the registration stays live under a credential
+     * that is still valid. A replacement that is absent, unusable, or issued by
+     * another origin is refused instead of being reported as a finished
+     * transition: the registration would stay live on its origin while the only
+     * authority that could still remove it is dropped. Use {@link #logout} when
+     * no credential takes the place of the current one, and {@link #begin} when
+     * the replacement belongs to another origin.</p>
      */
     synchronized Outcome replaceCredential(
         Credential previous,
@@ -473,17 +483,17 @@ final class AndroidPushRebindCoordinator {
     ) {
         if (next == null
             || !next.isUsable()
-            || next.sameAuthorityAs(previous)) {
-            return publish(
-                Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED)
-            );
-        }
-        if (!next.sameOriginAs(previous)) {
+            || !next.sameOriginAs(previous)) {
             return publish(
                 Outcome.of(
                     Outcome.Kind.CONFLICT,
                     Cleanup.AUTHORITY_UNAVAILABLE
                 )
+            );
+        }
+        if (next.sameAuthorityAs(previous)) {
+            return publish(
+                Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED)
             );
         }
         return retainAndClean(previous, false, cancellation);
@@ -577,6 +587,18 @@ final class AndroidPushRebindCoordinator {
             default:
                 return Cleanup.PENDING;
         }
+    }
+
+    /**
+     * Records the single terminal outcome of {@code handle} and releases the
+     * transition it owned, so a finished handle never blocks a later transition.
+     */
+    private Outcome terminate(Transaction handle, Outcome outcome) {
+        if (handle == activeTransaction) {
+            activeTransaction = null;
+        }
+        handle.terminate(outcome);
+        return outcome;
     }
 
     private Outcome replayTerminalOutcome(Transaction handle) {
