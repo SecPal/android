@@ -31,8 +31,10 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 @CapacitorPlugin(name = "SecPalNativeAuth")
 public class SecPalNativeAuthPlugin extends Plugin {
@@ -59,11 +61,6 @@ public class SecPalNativeAuthPlugin extends Plugin {
             throws IOException, JSONException, NativeAuthHttpException;
     }
 
-    @FunctionalInterface
-    interface AndroidPushTokenDeleter {
-        void delete();
-    }
-
     private TokenStorage tokenStorage;
     private KeystoreVaultRootKeyWrapper vaultRootKeyWrapper;
     private NativeAuthHttpClient httpClient;
@@ -87,15 +84,19 @@ public class SecPalNativeAuthPlugin extends Plugin {
         if (persistedRuntimeBootstrap == null) {
             clearRejectedLegacyRuntimeState(getNativeAuthPreferences(), tokenStorage);
         }
-        persistedRuntimeBootstrap = applyPersistedRuntimeBootstrap(
-            getNativeAuthPreferences(),
-            tokenStorage,
-            androidPushRuntimeManager,
-            persistedRuntimeBootstrap
-        );
         apiBaseUrl = persistedRuntimeBootstrap != null
             ? persistedRuntimeBootstrap.optString("apiOrigin", null)
             : null;
+        schedulePersistedRuntimeBootstrapApplication(
+            this::execute,
+            getNativeAuthPreferences(),
+            tokenStorage,
+            androidPushRuntimeManager,
+            persistedRuntimeBootstrap,
+            appliedBootstrap -> apiBaseUrl = appliedBootstrap != null
+                ? appliedBootstrap.optString("apiOrigin", null)
+                : null
+        );
         vaultRootKeyWrapper = new KeystoreVaultRootKeyWrapper();
         httpClient = new NativeAuthHttpClient();
         networkState = new NetworkState();
@@ -777,10 +778,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                     }
 
                     if (!taskExecutor.completeAuthenticatedMutation(requestId, () -> {
-                        clearNativeCredentialAfterPushTokenDeletion(
-                            androidPushRuntimeManager::deleteToken,
-                            tokenStorage
-                        );
+                        clearNativeCredentialForLogout(tokenStorage);
                         localCredentialCleared.set(true);
                     })) {
                         return;
@@ -1679,6 +1677,30 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
+    static void schedulePersistedRuntimeBootstrapApplication(
+        Executor executor,
+        SharedPreferences preferences,
+        TokenStorage tokenStorage,
+        AndroidPushRuntimeManager androidPushRuntimeManager,
+        JSObject persistedRuntimeBootstrap,
+        Consumer<JSObject> completion
+    ) {
+        executor.execute(() -> {
+            JSObject appliedBootstrap = null;
+            try {
+                appliedBootstrap = applyPersistedRuntimeBootstrap(
+                    preferences,
+                    tokenStorage,
+                    androidPushRuntimeManager,
+                    persistedRuntimeBootstrap
+                );
+            } catch (RuntimeException ignored) {
+                // Startup recovery already clears rejected native runtime state.
+            }
+            completion.accept(appliedBootstrap);
+        });
+    }
+
     static boolean clearRuntimeBootstrapState(
         SharedPreferences preferences,
         TokenStorage tokenStorage
@@ -1803,11 +1825,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
         }
     }
 
-    static void clearNativeCredentialAfterPushTokenDeletion(
-        AndroidPushTokenDeleter pushTokenDeleter,
-        TokenStorage tokenStorage
-    ) {
-        pushTokenDeleter.delete();
+    static void clearNativeCredentialForLogout(TokenStorage tokenStorage) {
         tokenStorage.clearToken();
     }
 
