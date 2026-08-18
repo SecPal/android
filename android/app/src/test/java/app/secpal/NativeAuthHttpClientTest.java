@@ -197,6 +197,55 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void cancellationDuringErrorBodyReadPreservesKnownResponseStatus()
+        throws Exception {
+        NativeAuthHttpClient.CancellationSignal cancellation =
+            new NativeAuthHttpClient.CancellationSignal();
+        NativeAuthHttpClient client = new NativeAuthHttpClient(
+            url -> new StubHttpURLConnection(
+                url,
+                404,
+                null,
+                new byte[0],
+                "application/json"
+            ) {
+                @Override
+                public long getContentLengthLong() {
+                    return -1L;
+                }
+
+                @Override
+                public InputStream getErrorStream() {
+                    return new InputStream() {
+                        @Override
+                        public int read() throws IOException {
+                            cancellation.cancel();
+                            throw new IOException("cancelled response body");
+                        }
+                    };
+                }
+            }
+        );
+
+        try {
+            client.requestAuxiliaryJson(
+                "https://api.secpal.dev",
+                "auth-token",
+                "DELETE",
+                "/v1/me/notification-installations/device-1",
+                null,
+                null,
+                "application/json",
+                cancellation
+            );
+            throw new AssertionError("Expected response body cancellation");
+        } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
+            assertEquals("REQUEST_CANCELLED", exception.getReasonCode());
+            assertEquals(404, exception.getResponseStatusCode());
+        }
+    }
+
+    @Test
     public void authenticatedRedirectStatusesAlwaysFailClosed() {
         int[] redirectStatuses = { 301, 302, 303, 307, 308 };
 
@@ -958,6 +1007,7 @@ public class NativeAuthHttpClientTest {
             throw new AssertionError("Expected cancellation to terminate the response");
         } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
             assertEquals(expectedReasonCode, exception.getReasonCode());
+            assertEquals(401, exception.getResponseStatusCode());
         }
     }
 
