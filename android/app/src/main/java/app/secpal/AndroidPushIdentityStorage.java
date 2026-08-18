@@ -266,8 +266,12 @@ final class AndroidPushIdentityStorage {
             return tokenRotationRequired;
         }
 
-        Snapshot withState(State replacementState) {
-            return new Snapshot(replacementState, tokenRotationRequired);
+        boolean canApplyRegistrationResponseTo(Snapshot current) {
+            State currentState = current == null ? null : current.state;
+            return current != null
+                && !tokenRotationRequired
+                && !current.tokenRotationRequired
+                && sameRegistrationBinding(state, currentState);
         }
     }
 
@@ -709,14 +713,17 @@ final class AndroidPushIdentityStorage {
     }
 
     synchronized State markRegistered(
-        State expected,
+        Snapshot expected,
         String registrationFingerprint,
         String credentialFingerprint
     ) throws TokenStorageException {
-        State current = load();
-        if (!sameRegistrationBinding(current, expected)
-            || expected.token() == null) {
-            return current;
+        Snapshot currentSnapshot = snapshot();
+        State current = currentSnapshot.state();
+        if (expected == null
+            || !expected.canApplyRegistrationResponseTo(currentSnapshot)
+            || expected.state() == null
+            || expected.state().token() == null) {
+            return null;
         }
         String normalizedFingerprint;
         String normalizedCredentialFingerprint;
@@ -743,7 +750,10 @@ final class AndroidPushIdentityStorage {
             normalizedCredentialFingerprint,
             Math.max(
                 clock.currentTimeMillis(),
-                Math.max(expected.tokenReceivedAt(), current.registeredAt)
+                Math.max(
+                    expected.state().tokenReceivedAt(),
+                    current.registeredAt
+                )
             ),
             current.pendingRevocationApiOrigin(),
             current.pendingRevocationInstallationId(),
@@ -757,11 +767,13 @@ final class AndroidPushIdentityStorage {
         return registered;
     }
 
-    synchronized State markReconfigurationRequired(State expected)
+    synchronized State markReconfigurationRequired(Snapshot expected)
         throws TokenStorageException {
-        State current = load();
-        if (!sameRegistrationBinding(current, expected)) {
-            return current;
+        Snapshot currentSnapshot = snapshot();
+        State current = currentSnapshot.state();
+        if (expected == null
+            || !expected.canApplyRegistrationResponseTo(currentSnapshot)) {
+            return null;
         }
         if (current.isReconfigurationRequired()) {
             return current;

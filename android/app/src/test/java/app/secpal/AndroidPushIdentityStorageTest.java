@@ -522,7 +522,7 @@ public class AndroidPushIdentityStorageTest {
             new InMemorySharedPreferences()
         );
         AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             bound.installationId(),
@@ -530,7 +530,7 @@ public class AndroidPushIdentityStorageTest {
         );
         String fingerprint = fingerprint('a');
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
-            candidate,
+            storage.snapshot(),
             fingerprint,
             fingerprint('c')
         );
@@ -547,14 +547,14 @@ public class AndroidPushIdentityStorageTest {
         AtomicInteger ids = new AtomicInteger();
         AndroidPushIdentityStorage storage = createStorage(preferences, cipher, ids);
         AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             bound.installationId(),
             TOKEN
         );
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
-            candidate,
+            storage.snapshot(),
             fingerprint('a'),
             fingerprint('c')
         );
@@ -582,7 +582,7 @@ public class AndroidPushIdentityStorageTest {
             new InMemorySharedPreferences()
         );
         AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             bound.installationId(),
@@ -590,11 +590,11 @@ public class AndroidPushIdentityStorageTest {
         );
 
         AndroidPushIdentityStorage.State reconfiguration =
-            storage.markReconfigurationRequired(candidate);
+            storage.markReconfigurationRequired(storage.snapshot());
         assertTrue(reconfiguration.isReconfigurationRequired());
 
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
-            reconfiguration,
+            storage.snapshot(),
             fingerprint('a'),
             fingerprint('c')
         );
@@ -1044,14 +1044,14 @@ public class AndroidPushIdentityStorageTest {
         AndroidPushIdentityStorage storage
     ) throws Exception {
         AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             bound.installationId(),
             TOKEN
         );
         return storage.markRegistered(
-            candidate,
+            storage.snapshot(),
             fingerprint('a'),
             fingerprint('c')
         );

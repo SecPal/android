@@ -293,6 +293,7 @@ final class AndroidPushRegistrationCoordinator {
         String registrationAuthority,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
+        AndroidPushIdentityStorage.Snapshot attempt = null;
         AndroidPushIdentityStorage.State candidate = null;
         try {
             cancellation.throwIfCancelled();
@@ -300,9 +301,9 @@ final class AndroidPushRegistrationCoordinator {
             if (authority == null) {
                 return publish(Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED));
             }
-            AndroidPushIdentityStorage.Snapshot snapshot = storage.snapshot();
-            candidate = snapshot.state();
-            if (snapshot.tokenRotationRequired()) {
+            attempt = storage.snapshot();
+            candidate = attempt.state();
+            if (attempt.tokenRotationRequired()) {
                 return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
             }
             if (candidate == null || candidate.token() == null) {
@@ -346,11 +347,11 @@ final class AndroidPushRegistrationCoordinator {
 
             if (response.statusCode() == 200 || response.statusCode() == 201) {
                 AndroidPushIdentityStorage.State registered = storage.markRegistered(
-                    candidate,
+                    attempt,
                     fingerprint,
                     credentialFingerprint
                 );
-                if (!sameRegistrationBinding(candidate, registered)) {
+                if (registered == null) {
                     return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
                 }
                 if (registered.isReconfigurationRequired()) {
@@ -371,29 +372,29 @@ final class AndroidPushRegistrationCoordinator {
                 return publish(Outcome.success(lifecycleEvent));
             }
             if (response.statusCode() == 401 || response.statusCode() == 403) {
-                return publishForCurrentBinding(
-                    candidate,
+                return publishForCurrentAttempt(
+                    attempt,
                     Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED)
                 );
             }
             if (isReconfiguration(response)) {
                 AndroidPushIdentityStorage.State reconfigured =
-                    storage.markReconfigurationRequired(candidate);
-                if (!sameRegistrationBinding(candidate, reconfigured)) {
+                    storage.markReconfigurationRequired(attempt);
+                if (reconfigured == null) {
                     return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
                 }
                 return publish(
                     Outcome.of(Outcome.Kind.RECONFIGURATION_REQUIRED)
                 );
             }
-            return publishForCurrentBinding(
-                candidate,
+            return publishForCurrentAttempt(
+                attempt,
                 Outcome.of(Outcome.Kind.RETRYABLE_FAILURE)
             );
         } catch (NativeAuthHttpClient.NativeAuthCancelledException exception) {
             if ("REQUEST_TIMEOUT".equals(exception.getReasonCode())) {
-                return publishForCurrentBinding(
-                    candidate,
+                return publishForCurrentAttempt(
+                    attempt,
                     Outcome.of(Outcome.Kind.RETRYABLE_FAILURE)
                 );
             }
@@ -401,13 +402,13 @@ final class AndroidPushRegistrationCoordinator {
         } catch (NativeAuthHttpException exception) {
             if (exception.getStatusCode() == 401
                 || exception.getStatusCode() == 403) {
-                return publishForCurrentBinding(
-                    candidate,
+                return publishForCurrentAttempt(
+                    attempt,
                     Outcome.of(Outcome.Kind.AUTHENTICATION_REJECTED)
                 );
             }
-            return publishForCurrentBinding(
-                candidate,
+            return publishForCurrentAttempt(
+                attempt,
                 Outcome.of(Outcome.Kind.RETRYABLE_FAILURE)
             );
         } catch (
@@ -416,8 +417,8 @@ final class AndroidPushRegistrationCoordinator {
                 | JSONException
                 | RuntimeException exception
         ) {
-            return publishForCurrentBinding(
-                candidate,
+            return publishForCurrentAttempt(
+                attempt,
                 Outcome.of(Outcome.Kind.RETRYABLE_FAILURE)
             );
         }
@@ -428,16 +429,17 @@ final class AndroidPushRegistrationCoordinator {
         return outcome;
     }
 
-    private Outcome publishForCurrentBinding(
-        AndroidPushIdentityStorage.State candidate,
+    private Outcome publishForCurrentAttempt(
+        AndroidPushIdentityStorage.Snapshot attempt,
         Outcome intendedOutcome
     ) {
         try {
-            AndroidPushIdentityStorage.State current = storage.load();
-            if (!sameRegistrationBinding(candidate, current)) {
+            AndroidPushIdentityStorage.Snapshot current = storage.snapshot();
+            if (attempt == null
+                || !attempt.canApplyRegistrationResponseTo(current)) {
                 return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
             }
-            if (current.isReconfigurationRequired()) {
+            if (current.state().isReconfigurationRequired()) {
                 return publish(
                     Outcome.of(Outcome.Kind.RECONFIGURATION_REQUIRED)
                 );
@@ -466,17 +468,6 @@ final class AndroidPushRegistrationCoordinator {
         }
         return "NOTIFICATION_RUNTIME_STATE_INVALID".equals(response.errorCode())
             || "NOTIFICATION_CHANNEL_UNSUPPORTED".equals(response.errorCode());
-    }
-
-    private static boolean sameRegistrationBinding(
-        AndroidPushIdentityStorage.State expected,
-        AndroidPushIdentityStorage.State actual
-    ) {
-        return expected != null
-            && actual != null
-            && expected.apiOrigin().equals(actual.apiOrigin())
-            && expected.metadataRevision() == actual.metadataRevision()
-            && expected.installationId().equals(actual.installationId());
     }
 
     private static String normalizeAuthority(String value) {

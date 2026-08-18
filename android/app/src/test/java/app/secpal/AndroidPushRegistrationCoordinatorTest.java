@@ -540,6 +540,39 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void legacyRetentionDuringPutInvalidatesRegistrationAttempt()
+        throws Exception {
+        String legacyInstallationId =
+            "00000000-0000-4000-8000-999999999999";
+        transport.beforeResponse = () -> {
+            try {
+                storage.retainLegacyInstallationForRevocation(
+                    legacyInstallationId,
+                    AUTHORITY
+                );
+            } catch (TokenStorageException exception) {
+                throw new AssertionError(exception);
+            }
+        };
+
+        AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
+            client("1.2.3", 7)
+        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            outcome.kind()
+        );
+        assertTrue(
+            current.hasPendingRevocation(API_ORIGIN, legacyInstallationId)
+        );
+        assertFalse(current.hasServerRegistration());
+        assertTrue(storage.requiresTokenRotation());
+        assertEquals(1, transport.callCount);
+    }
+
+    @Test
     public void runtimeBindingChangedDuringPutDoesNotConfirmTheStaleCandidate()
         throws Exception {
         String originalInstallationId = storage.load().installationId();
@@ -711,8 +744,7 @@ public class AndroidPushRegistrationCoordinatorTest {
     private void markReconfigurationBeforeResponse() {
         transport.beforeResponse = () -> {
             try {
-                AndroidPushIdentityStorage.State current = storage.load();
-                storage.markReconfigurationRequired(current);
+                storage.markReconfigurationRequired(storage.snapshot());
             } catch (TokenStorageException exception) {
                 throw new AssertionError(exception);
             }

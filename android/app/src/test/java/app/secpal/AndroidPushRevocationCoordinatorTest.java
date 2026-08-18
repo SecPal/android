@@ -52,14 +52,14 @@ public class AndroidPushRevocationCoordinatorTest {
         ids = new AtomicInteger();
         storage = createStorage();
         AndroidPushIdentityStorage.State bound = storage.bindRuntime(API_ORIGIN, 3);
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             bound.installationId(),
             TOKEN
         );
         AndroidPushIdentityStorage.State registered = storage.markRegistered(
-            candidate,
+            storage.snapshot(),
             "a".repeat(64),
             "b".repeat(64)
         );
@@ -326,13 +326,17 @@ public class AndroidPushRevocationCoordinatorTest {
     public void staleDeleteResponseCannotClearANewerTombstoneOrRegistration()
         throws Exception {
         AndroidPushIdentityStorage.State retained = storage.load();
-        AndroidPushIdentityStorage.State candidate = storage.recordToken(
+        storage.recordToken(
             API_ORIGIN,
             3,
             retained.installationId(),
             TOKEN + "-new"
         );
-        storage.markRegistered(candidate, "c".repeat(64), "d".repeat(64));
+        storage.markRegistered(
+            storage.snapshot(),
+            "c".repeat(64),
+            "d".repeat(64)
+        );
         String newerInstallationId =
             "00000000-0000-4000-8000-999999999999";
         transport.beforeResponse = () -> {
