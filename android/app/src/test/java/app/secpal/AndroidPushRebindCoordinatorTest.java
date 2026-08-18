@@ -513,12 +513,77 @@ public class AndroidPushRebindCoordinatorTest {
         );
 
         assertEquals(
-            AndroidPushRebindCoordinator.Outcome.Kind.IDLE,
+            AndroidPushRebindCoordinator.Outcome.Kind.CLEANED,
             recovered.kind()
         );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            recovered.cleanup()
+        );
+        assertTrue(recovered.retiredAuthenticationAuthority());
         assertFalse(storage.load().hasPendingRevocation());
         assertEquals(2, revocationTransport.calls.size());
         assertEquals(AUTHORITY_A, revocationTransport.calls.get(1).authority);
+    }
+
+    @Test
+    public void aCompletedLogoutCleanupStaysReportableAfterARestart()
+        throws Exception {
+        revocationTransport.failure = new IOException("offline");
+        coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        assertTrue(
+            storage.load().pendingRevocationRequiresAuthenticationLogout()
+        );
+
+        revocationTransport.failure = null;
+        AndroidPushRebindCoordinator.Outcome recovered = coordinator().recover(
+            TENANT_A,
+            3,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.CLEANED,
+            recovered.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            recovered.cleanup()
+        );
+        assertTrue(recovered.retiredAuthenticationAuthority());
+        assertFalse(storage.load().hasPendingRevocation());
+
+        AndroidPushRebindCoordinator.Outcome settled = coordinator().recover(
+            TENANT_A,
+            3,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.IDLE,
+            settled.kind()
+        );
+        assertFalse(settled.retiredAuthenticationAuthority());
+    }
+
+    @Test
+    public void aCredentialReplacementDoesNotClaimToRetireAnAuthority()
+        throws Exception {
+        AndroidPushRebindCoordinator.Outcome replaced =
+            coordinator().replaceCredential(
+                credential(TENANT_A, AUTHORITY_A),
+                credential(TENANT_A, "tenant-a-replacement-token"),
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Cleanup.COMPLETED,
+            replaced.cleanup()
+        );
+        assertFalse(replaced.retiredAuthenticationAuthority());
     }
 
     @Test

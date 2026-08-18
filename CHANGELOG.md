@@ -40,7 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Every transition that acts on a caller credential now applies as a
   compare-and-set against the binding it was validated against, matching the
   registration and revocation coordinators, so a binding that changes in between
-  can no longer inherit another origin's authority (issue #617).
+  can no longer inherit another origin's authority. Cold-start recovery reports a
+  cleanup it completed instead of falling through to an idle result, and a
+  completed cleanup states whether it retired an authority whose session
+  invalidation was deferred until then, which is the only signal left once the
+  durable marker is cleared (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

@@ -164,23 +164,43 @@ final class AndroidPushRebindCoordinator {
         private final Kind kind;
         private final Cleanup cleanup;
         private final Transaction transaction;
+        private final boolean retiredAuthenticationAuthority;
 
-        private Outcome(Kind kind, Cleanup cleanup, Transaction transaction) {
+        private Outcome(
+            Kind kind,
+            Cleanup cleanup,
+            Transaction transaction,
+            boolean retiredAuthenticationAuthority
+        ) {
             this.kind = kind;
             this.cleanup = cleanup;
             this.transaction = transaction;
+            this.retiredAuthenticationAuthority = retiredAuthenticationAuthority;
         }
 
         static Outcome of(Kind kind) {
-            return new Outcome(kind, Cleanup.NOT_REQUIRED, null);
+            return new Outcome(kind, Cleanup.NOT_REQUIRED, null, false);
         }
 
         static Outcome of(Kind kind, Cleanup cleanup) {
-            return new Outcome(kind, cleanup, null);
+            return new Outcome(kind, cleanup, null, false);
         }
 
         static Outcome of(Kind kind, Transaction transaction) {
-            return new Outcome(kind, Cleanup.NOT_REQUIRED, transaction);
+            return new Outcome(kind, Cleanup.NOT_REQUIRED, transaction, false);
+        }
+
+        static Outcome cleaned(
+            Kind kind,
+            Cleanup cleanup,
+            boolean retiredAuthenticationAuthority
+        ) {
+            return new Outcome(
+                kind,
+                cleanup,
+                null,
+                retiredAuthenticationAuthority
+            );
         }
 
         Kind kind() {
@@ -193,6 +213,18 @@ final class AndroidPushRebindCoordinator {
 
         Transaction transaction() {
             return transaction;
+        }
+
+        /**
+         * Reports that a completed cleanup retired an authority whose session
+         * invalidation was deferred until that cleanup finished.
+         *
+         * <p>The durable marker is cleared together with the tombstone, so this
+         * is the only remaining signal that the authentication layer may now
+         * release the retained authority.</p>
+         */
+        boolean retiredAuthenticationAuthority() {
+            return retiredAuthenticationAuthority;
         }
 
         Status status() {
@@ -354,13 +386,7 @@ final class AndroidPushRebindCoordinator {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
         return publish(
-            terminate(
-                handle,
-                Outcome.of(
-                    Outcome.Kind.COMMITTED,
-                    cleanupRetainedRegistration(cancellation)
-                )
-            )
+            terminate(handle, drain(Outcome.Kind.COMMITTED, cancellation))
         );
     }
 
@@ -421,10 +447,11 @@ final class AndroidPushRebindCoordinator {
         if (current == null) {
             return publish(Outcome.of(Outcome.Kind.IDLE));
         }
+        Outcome drained = null;
         if (current.hasPendingRevocation()) {
-            Cleanup cleanup = cleanupRetainedRegistration(cancellation);
-            if (cleanup != Cleanup.COMPLETED) {
-                return publish(Outcome.of(Outcome.Kind.CLEANED, cleanup));
+            drained = drain(Outcome.Kind.CLEANED, cancellation);
+            if (drained.cleanup() != Cleanup.COMPLETED) {
+                return publish(drained);
             }
             try {
                 current = storage.load();
@@ -432,13 +459,13 @@ final class AndroidPushRebindCoordinator {
                 return publish(Outcome.of(Outcome.Kind.FAILED));
             }
             if (current == null) {
-                return publish(
-                    Outcome.of(Outcome.Kind.CLEANED, Cleanup.COMPLETED)
-                );
+                return publish(drained);
             }
         }
         if (!current.hasPendingRebind()) {
-            return publish(Outcome.of(Outcome.Kind.IDLE));
+            return publish(
+                drained == null ? Outcome.of(Outcome.Kind.IDLE) : drained
+            );
         }
         String normalizedOrigin = AndroidPushIdentityStorage.normalizeApiOrigin(
             apiOrigin
@@ -558,12 +585,7 @@ final class AndroidPushRebindCoordinator {
                 Outcome.of(Outcome.Kind.CLEANED, Cleanup.NOT_REQUIRED)
             );
         }
-        return publish(
-            Outcome.of(
-                Outcome.Kind.CLEANED,
-                cleanupRetainedRegistration(cancellation)
-            )
-        );
+        return publish(drain(Outcome.Kind.CLEANED, cancellation));
     }
 
     /**
@@ -585,21 +607,26 @@ final class AndroidPushRebindCoordinator {
             return publish(Outcome.of(Outcome.Kind.CONFLICT));
         }
         AndroidPushIdentityStorage.State current;
-        Cleanup drained = Cleanup.NOT_REQUIRED;
+        Outcome drained = null;
         try {
             current = storage.load();
             if (current != null && current.hasPendingRevocation()) {
-                drained = cleanupRetainedRegistration(cancellation);
+                drained = drain(Outcome.Kind.CLEANED, cancellation);
                 current = storage.load();
-                if (drained == Cleanup.CANCELLED
+                if (drained.cleanup() == Cleanup.CANCELLED
                     || (current != null && current.hasPendingRevocation())) {
-                    return publish(
-                        Outcome.of(Outcome.Kind.CLEANED, drained)
-                    );
+                    return publish(drained);
                 }
             }
             if (current == null || !current.hasServerRegistration()) {
-                return publish(Outcome.of(Outcome.Kind.CLEANED, drained));
+                return publish(
+                    drained == null
+                        ? Outcome.of(
+                            Outcome.Kind.CLEANED,
+                            Cleanup.NOT_REQUIRED
+                        )
+                        : drained
+                );
             }
             if (credential == null || !credential.canAuthorize(current)) {
                 return publish(
@@ -617,11 +644,30 @@ final class AndroidPushRebindCoordinator {
         } catch (TokenStorageException | RuntimeException exception) {
             return publish(Outcome.of(Outcome.Kind.FAILED));
         }
-        return publish(
-            Outcome.of(
-                Outcome.Kind.CLEANED,
-                cleanupRetainedRegistration(cancellation)
-            )
+        return publish(drain(Outcome.Kind.CLEANED, cancellation));
+    }
+
+    /**
+     * Drains the retained tombstone and reports the outcome together with the
+     * deferred-logout marker the drain destroys.
+     */
+    private Outcome drain(
+        Outcome.Kind kind,
+        NativeAuthHttpClient.CancellationSignal cancellation
+    ) {
+        boolean deferredLogout;
+        try {
+            AndroidPushIdentityStorage.State current = storage.load();
+            deferredLogout = current != null
+                && current.pendingRevocationRequiresAuthenticationLogout();
+        } catch (TokenStorageException | RuntimeException exception) {
+            deferredLogout = false;
+        }
+        Cleanup cleanup = cleanupRetainedRegistration(cancellation);
+        return Outcome.cleaned(
+            kind,
+            cleanup,
+            deferredLogout && cleanup == Cleanup.COMPLETED
         );
     }
 
