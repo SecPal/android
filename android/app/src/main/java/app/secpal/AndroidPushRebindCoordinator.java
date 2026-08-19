@@ -108,18 +108,21 @@ final class AndroidPushRebindCoordinator {
         private final int nextMetadataRevision;
         private final String stagedInstallationId;
         private final long stagedGeneration;
+        private final boolean durablyStaged;
         private Outcome terminalOutcome;
 
         private Transaction(
             String nextApiOrigin,
             int nextMetadataRevision,
             String stagedInstallationId,
-            long stagedGeneration
+            long stagedGeneration,
+            boolean durablyStaged
         ) {
             this.nextApiOrigin = nextApiOrigin;
             this.nextMetadataRevision = nextMetadataRevision;
             this.stagedInstallationId = stagedInstallationId;
             this.stagedGeneration = stagedGeneration;
+            this.durablyStaged = durablyStaged;
         }
 
         String nextApiOrigin() {
@@ -134,22 +137,32 @@ final class AndroidPushRebindCoordinator {
             terminalOutcome = outcome;
         }
 
+        /**
+         * Reports whether this handle still describes the staged transition.
+         *
+         * <p>A transaction that was staged durably keeps requiring its staging.
+         * Erasing the staging also erases the retained cleanup authority, so a
+         * handle that outlived it must not bind a transition whose cleanup can no
+         * longer happen, even when the identity and generation are unchanged.</p>
+         */
         private boolean describes(AndroidPushIdentityStorage.Snapshot current) {
             if (current.rebindGeneration() != stagedGeneration) {
                 return false;
             }
             AndroidPushIdentityStorage.State state = current.state();
             if (stagedInstallationId == null || state == null) {
-                return stagedInstallationId == null && state == null;
+                return !durablyStaged
+                    && stagedInstallationId == null
+                    && state == null;
             }
             if (!stagedInstallationId.equals(state.installationId())) {
                 return false;
             }
-            if (!state.hasServerRegistration()) {
-                return true;
+            if (durablyStaged || state.hasServerRegistration()) {
+                return state.hasPendingRebind()
+                    && nextApiOrigin.equals(state.pendingRebindApiOrigin());
             }
-            return state.hasPendingRebind()
-                && nextApiOrigin.equals(state.pendingRebindApiOrigin());
+            return true;
         }
     }
 
@@ -319,7 +332,8 @@ final class AndroidPushRebindCoordinator {
             normalizedOrigin,
             nextMetadataRevision,
             current == null ? null : current.installationId(),
-            observed.rebindGeneration()
+            observed.rebindGeneration(),
+            observed.state() != null && observed.state().hasPendingRebind()
         );
         return publish(Outcome.of(Outcome.Kind.STAGED, activeTransaction));
     }
@@ -484,7 +498,8 @@ final class AndroidPushRebindCoordinator {
                 normalizedOrigin,
                 metadataRevision,
                 current.installationId(),
-                observed.rebindGeneration()
+                observed.rebindGeneration(),
+                true
             );
             return Outcome.of(Outcome.Kind.RESUMED, activeTransaction);
         }

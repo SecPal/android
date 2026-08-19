@@ -1546,6 +1546,31 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void aHandleWhoseStagingWasErasedCannotCommitTheTransition()
+        throws Exception {
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, AUTHORITY_A)
+        ).transaction();
+        storage.clearRegistrationAuthority();
+        assertFalse(storage.load().hasPendingRebind());
+
+        AndroidPushRebindCoordinator.Outcome stale = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        assertEquals(TENANT_A, storage.load().apiOrigin());
+        assertTrue(revocationTransport.calls.isEmpty());
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
