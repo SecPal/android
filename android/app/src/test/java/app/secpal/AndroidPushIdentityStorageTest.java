@@ -318,53 +318,6 @@ public class AndroidPushIdentityStorageTest {
     }
 
     @Test
-    public void aClearedDeferredLogoutTombstoneRetiresItsAuthorityAtomically()
-        throws Exception {
-        InMemorySharedPreferences preferences = new InMemorySharedPreferences();
-        AndroidPushIdentityStorage storage = createStorage(preferences);
-        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(
-            storage
-        );
-        storage.retainCurrentRegistrationForRevocation(AUTH_TOKEN, true);
-        int commitsBefore = preferences.commitCount();
-
-        storage.clearPendingRevocation(
-            API_ORIGIN,
-            registered.installationId(),
-            AUTH_TOKEN
-        );
-
-        assertFalse(storage.load().hasPendingRevocation());
-        assertTrue(storage.hasRetiredAuthenticationAuthority());
-        assertEquals(1, preferences.commitCount() - commitsBefore);
-
-        storage.acknowledgeRetiredAuthenticationAuthority(
-            storage.retiredAuthenticationAuthorityGeneration()
-        );
-
-        assertFalse(storage.hasRetiredAuthenticationAuthority());
-    }
-
-    @Test
-    public void aCleanupWithoutADeferredLogoutRetiresNothing() throws Exception {
-        AndroidPushIdentityStorage storage = createStorage(
-            new InMemorySharedPreferences()
-        );
-        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(
-            storage
-        );
-        storage.retainCurrentRegistrationForRevocation(AUTH_TOKEN, false);
-
-        storage.clearPendingRevocation(
-            API_ORIGIN,
-            registered.installationId(),
-            AUTH_TOKEN
-        );
-
-        assertFalse(storage.hasRetiredAuthenticationAuthority());
-    }
-
-    @Test
     public void runtimeRebindPreparationRejectsAChangedBinding()
         throws Exception {
         AndroidPushIdentityStorage storage = createStorage(

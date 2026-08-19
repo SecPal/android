@@ -171,8 +171,6 @@ final class AndroidPushRebindCoordinator {
         private final Kind kind;
         private final Cleanup cleanup;
         private final Transaction transaction;
-        private boolean retiredAuthenticationAuthority;
-        private long retiredAuthorityGeneration;
 
         private Outcome(Kind kind, Cleanup cleanup, Transaction transaction) {
             this.kind = kind;
@@ -204,23 +202,6 @@ final class AndroidPushRebindCoordinator {
             return transaction;
         }
 
-        /**
-         * Reports that an authority whose session invalidation was deferred is no
-         * longer needed by this layer.
-         *
-         * <p>The retirement is recorded durably when the tombstone is cleared and
-         * stays reportable until
-         * {@link AndroidPushRebindCoordinator#acknowledgeRetiredAuthority()}, so
-         * neither a failure nor a process restart can lose it.</p>
-         */
-        boolean retiredAuthenticationAuthority() {
-            return retiredAuthenticationAuthority;
-        }
-
-        /** Identifies the retirement this outcome reported, for acknowledgement. */
-        long retiredAuthorityGeneration() {
-            return retiredAuthorityGeneration;
-        }
 
         Status status() {
             if (cleanup != Cleanup.NOT_REQUIRED) {
@@ -663,9 +644,9 @@ final class AndroidPushRebindCoordinator {
     /**
      * Resolves the transition once any already retained tombstone was drained.
      *
-     * <p>Split out so {@link #retainAndClean} has a single exit: every result,
-     * including a failure, passes through the same retirement carry, because a
-     * drain that already happened cannot be reported by any later attempt.</p>
+     * <p>Split out so {@link #retainAndClean} keeps a single exit: a drain that
+     * already cleared a retained tombstone must not be reported as if nothing had
+     * happened, whatever the remaining steps produce.</p>
      */
     private Outcome retainAndCleanRemaining(
         AndroidPushIdentityStorage.Snapshot observed,
@@ -742,32 +723,10 @@ final class AndroidPushRebindCoordinator {
             : Outcome.of(Outcome.Kind.STALE);
     }
 
-    /**
-     * Publishes an outcome and attaches the durable retirement to it.
-     *
-     * <p>Every result of this coordinator passes through here, so the retirement
-     * cannot be lost by a control path that builds its own outcome. A read
-     * failure only defers the report to the next call, because the record is
-     * durable.</p>
-     */
     private Outcome publish(Outcome outcome) {
-        outcome.retiredAuthenticationAuthority =
-            storage.hasRetiredAuthenticationAuthority();
-        outcome.retiredAuthorityGeneration =
-            storage.retiredAuthenticationAuthorityGeneration();
         statusPublisher.publish(outcome.status());
         return outcome;
     }
 
-    /**
-     * Clears the durable retirement once the authentication layer has released
-     * the authority it describes.
-     */
-    synchronized void acknowledgeRetiredAuthority(Outcome observed)
-        throws TokenStorageException {
-        storage.acknowledgeRetiredAuthenticationAuthority(
-            observed == null ? 0L : observed.retiredAuthorityGeneration()
-        );
-    }
 
 }

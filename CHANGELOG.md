@@ -14,52 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added an explicit native Android push runtime-rebind transaction with a
-  single owning handle, single-terminal and idempotent commit and rollback,
-  cold-start recovery that either resumes the exact staged transition or
-  safely invalidates it, and logout plus credential-replacement hooks that
-  report typed cleanup outcomes without invalidating any authentication
-  session. Every push transition now takes a caller credential together with
-  the origin that issued it and refuses to act when that origin is not the
-  current binding, registration synchronization is blocked while a cross-origin
-  rebind is staged, including a rebind that keeps the origin, and a logout or
-  credential replacement no longer reports a
-  completed cleanup while its own registration is still live on the server, so
-  a credential can never reach an origin that did not produce it and a
-  completed or stale handle can no longer revoke a newer registration. A
-  replacement credential that is absent, unusable, or issued by another origin
-  is refused instead of being reported as a finished transition, and a stale
-  commit handle releases its transition so a later logout or rebind can still
-  clean up, while a cancelled or failed commit stays staged for a retry.
-  Authorities beyond the shared maximum length are refused before any
-  destructive cleanup, staging compares the expected binding so a concurrent
-  rebind cannot inherit another origin's authority, a durable staged rebind is
-  resumed through cold-start recovery instead of being overwritten, an unchanged
-  credential is validated against the current binding before it is reported as
-  needing no cleanup, a stale rollback no longer reports a terminal transition,
-  and a rejected legacy tombstone no longer leaves the live registration behind.
-  Every transition that acts on a caller credential now applies as a
-  compare-and-set against the binding it was validated against, matching the
-  registration and revocation coordinators, so a binding that changes in between
-  can no longer inherit another origin's authority. Cold-start recovery reports a
-  cleanup it completed instead of falling through to an idle result, and a
-  completed cleanup states whether it retired an authority whose session
-  invalidation was deferred until then, which is the only signal left once the
-  durable marker is cleared, and that statement survives a late cancellation that
-  masks an already persisted result. A durable staged rebind blocks logout and
-  credential replacement after a restart just as it does before one, and
-  unusable recovery metadata fails without discarding the staged authority. A
-  caller credential is validated against the current binding before it is
-  retained at all, so a registration appearing during staging cannot make an
-  unvalidated authority durable, and the retirement statement is derived from the
-  cleanup that cleared the tombstone rather than from re-reading state that the
-  cleanup may already have removed and survives a transition that drains a
-  retained tombstone before removing its own registration. The retirement is
-  recorded durably when the tombstone is cleared and stays reportable until the
-  authentication layer acknowledges the exact retirement it observed, so no
-  control path, failure, process restart, or second retirement can lose it, and every staging carries a durable generation so a
-  transition staged again for the same target is never mistaken for an older
-  handle (issue #617).
+- Added an explicit native Android push runtime-rebind transaction with a single
+  owning handle, single-terminal and idempotent commit and rollback, cold-start
+  recovery that resumes the staged transition or safely invalidates it, and
+  logout plus credential-replacement hooks that report typed cleanup outcomes
+  without invalidating any authentication session. Every transition takes a
+  caller credential together with the origin that issued it and refuses to act
+  when that origin is not the current binding, so a credential can never be
+  retained for, or sent to, an origin that did not produce it. Transitions apply
+  as a compare-and-set against the binding they were validated against, matching
+  the registration and revocation coordinators, and every staging carries a
+  durable generation, so a binding or staging that changes in between is detected
+  and a transition staged again for the same target is never mistaken for an
+  older handle. Registration synchronization is suspended while any rebind is
+  staged, a logout or credential replacement never reports a completed cleanup
+  while its own registration is still live, and a completed or stale handle can
+  no longer revoke or rotate a newer registration (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

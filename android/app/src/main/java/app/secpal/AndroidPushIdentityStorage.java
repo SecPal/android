@@ -21,10 +21,6 @@ final class AndroidPushIdentityStorage {
     static final String STATE_IV_KEY = "android_push_state_iv";
     static final String TOKEN_ROTATION_REQUIRED_KEY =
         "android_push_token_rotation_required";
-    static final String RETIRED_AUTHORITY_KEY =
-        "android_push_retired_authentication_authority";
-    static final String ACKNOWLEDGED_AUTHORITY_KEY =
-        "android_push_acknowledged_authentication_authority";
     static final String REBIND_GENERATION_KEY =
         "android_push_rebind_generation";
     private static final String PREFERENCES_NAME = "secpal_native_auth";
@@ -933,7 +929,7 @@ final class AndroidPushIdentityStorage {
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(cleared, false, false, retires(current));
+        save(cleared);
         return cleared;
     }
 
@@ -970,7 +966,7 @@ final class AndroidPushIdentityStorage {
             rejectedPreparedRebind ? null : current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(cleared, false, false, retires(current));
+        save(cleared);
         return true;
     }
 
@@ -1113,64 +1109,6 @@ final class AndroidPushIdentityStorage {
         }
     }
 
-    /**
-     * Durably records that a retained authority whose session invalidation was
-     * deferred is no longer needed by this layer.
-     *
-     * <p>The marker lives with the tombstone and is destroyed together with it.
-     * Recording the retirement durably means no control path, failure, or process
-     * death can lose it: it stays reportable until the authentication layer
-     * acknowledges it.</p>
-     */
-    private static boolean retires(State clearedTombstone) {
-        return clearedTombstone.pendingRevocationRequiresAuthenticationLogout();
-    }
-
-    /**
-     * Counts the authorities this layer retired.
-     *
-     * <p>A counter rather than a flag, because retirements are events: two can
-     * happen before the authentication layer consumes the first, and collapsing
-     * them would let one acknowledgement erase the other.</p>
-     */
-    synchronized long retiredAuthenticationAuthorityGeneration() {
-        return counter(RETIRED_AUTHORITY_KEY);
-    }
-
-    synchronized boolean hasRetiredAuthenticationAuthority() {
-        return counter(RETIRED_AUTHORITY_KEY)
-            > counter(ACKNOWLEDGED_AUTHORITY_KEY);
-    }
-
-    /**
-     * Acknowledges retirements up to {@code observedGeneration} only, so a
-     * retirement recorded after the caller observed one stays reportable.
-     */
-    synchronized void acknowledgeRetiredAuthenticationAuthority(
-        long observedGeneration
-    ) throws TokenStorageException {
-        long acknowledged = Math.min(
-            Math.max(observedGeneration, counter(ACKNOWLEDGED_AUTHORITY_KEY)),
-            counter(RETIRED_AUTHORITY_KEY)
-        );
-        if (!preferences.edit()
-            .putLong(ACKNOWLEDGED_AUTHORITY_KEY, acknowledged)
-            .commit()) {
-            throw new TokenStorageException(
-                "Failed to acknowledge the retired Android push authority",
-                new IllegalStateException("SharedPreferences commit failed")
-            );
-        }
-    }
-
-    private long counter(String key) {
-        try {
-            return preferences.getLong(key, 0L);
-        } catch (ClassCastException exception) {
-            return 0L;
-        }
-    }
-
     synchronized boolean requiresTokenRotation() throws TokenStorageException {
         try {
             return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
@@ -1215,8 +1153,6 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
-            .remove(RETIRED_AUTHORITY_KEY)
-            .remove(ACKNOWLEDGED_AUTHORITY_KEY)
             .remove(REBIND_GENERATION_KEY)
             .commit()) {
             throw new TokenStorageException(
@@ -1279,15 +1215,6 @@ final class AndroidPushIdentityStorage {
         boolean completeTokenRotation,
         boolean requireTokenRotation
     ) throws TokenStorageException {
-        save(state, completeTokenRotation, requireTokenRotation, false);
-    }
-
-    private void save(
-        State state,
-        boolean completeTokenRotation,
-        boolean requireTokenRotation,
-        boolean recordRetiredAuthority
-    ) throws TokenStorageException {
         try {
             EncryptedTokenPayload encrypted = cipher.encrypt(state.toJson().toString());
             SharedPreferences.Editor editor = preferences.edit()
@@ -1297,12 +1224,6 @@ final class AndroidPushIdentityStorage {
                 editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
             } else if (requireTokenRotation) {
                 editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
-            }
-            if (recordRetiredAuthority) {
-                editor.putLong(
-                    RETIRED_AUTHORITY_KEY,
-                    counter(RETIRED_AUTHORITY_KEY) + 1L
-                );
             }
             if (!editor.commit()) {
                 throw new TokenStorageException(
