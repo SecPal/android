@@ -21,6 +21,10 @@ final class AndroidPushIdentityStorage {
     static final String STATE_IV_KEY = "android_push_state_iv";
     static final String TOKEN_ROTATION_REQUIRED_KEY =
         "android_push_token_rotation_required";
+    static final String RETIRED_AUTHORITY_KEY =
+        "android_push_retired_authentication_authority";
+    static final String REBIND_GENERATION_KEY =
+        "android_push_rebind_generation";
     private static final String PREFERENCES_NAME = "secpal_native_auth";
     private static final int STATE_SCHEMA_VERSION = 1;
     private static final int MAX_PUSH_TOKEN_CHARACTERS = 4 * 1024;
@@ -252,10 +256,20 @@ final class AndroidPushIdentityStorage {
     static final class Snapshot {
         private final State state;
         private final boolean tokenRotationRequired;
+        private final long rebindGeneration;
 
         Snapshot(State state, boolean tokenRotationRequired) {
+            this(state, tokenRotationRequired, 0L);
+        }
+
+        Snapshot(
+            State state,
+            boolean tokenRotationRequired,
+            long rebindGeneration
+        ) {
             this.state = state;
             this.tokenRotationRequired = tokenRotationRequired;
+            this.rebindGeneration = rebindGeneration;
         }
 
         State state() {
@@ -264,6 +278,18 @@ final class AndroidPushIdentityStorage {
 
         boolean tokenRotationRequired() {
             return tokenRotationRequired;
+        }
+
+        /**
+         * Identifies the staged transition this snapshot observed.
+         *
+         * <p>The counter advances on every staging and never resets, so a
+         * transition staged again for the same target is a different generation.
+         * Comparing it distinguishes a restaged transaction from an older handle
+         * that happens to describe the same origin and installation.</p>
+         */
+        long rebindGeneration() {
+            return rebindGeneration;
         }
 
         boolean canApplyRegistrationResponseTo(Snapshot current) {
@@ -325,7 +351,7 @@ final class AndroidPushIdentityStorage {
         String apiOrigin,
         int metadataRevision,
         String previousAuthToken,
-        State expected
+        Snapshot expected
     ) throws TokenStorageException {
         String normalizedOrigin = requireApiOrigin(apiOrigin);
         if (metadataRevision <= 0) {
@@ -335,8 +361,9 @@ final class AndroidPushIdentityStorage {
             );
         }
 
-        State current = load();
-        requireUnchangedBinding(expected, current);
+        Snapshot currentSnapshot = snapshot();
+        State current = currentSnapshot.state();
+        requireUnchangedBinding(expected, currentSnapshot);
         if (current != null
             && normalizedOrigin.equals(current.apiOrigin())
             && metadataRevision == current.metadataRevision()) {
@@ -416,11 +443,12 @@ final class AndroidPushIdentityStorage {
     synchronized void prepareRuntimeRebind(
         String nextApiOrigin,
         String previousAuthToken,
-        State expected
+        Snapshot expected
     ) throws TokenStorageException {
         String normalizedOrigin = requireApiOrigin(nextApiOrigin);
-        State current = load();
-        requireUnchangedBinding(expected, current);
+        Snapshot currentSnapshot = snapshot();
+        State current = currentSnapshot.state();
+        requireUnchangedBinding(expected, currentSnapshot);
         if (current == null
             || !current.hasServerRegistration()) {
             return;
@@ -455,6 +483,7 @@ final class AndroidPushIdentityStorage {
             normalizedAuthToken,
             current.isReconfigurationRequired()
         );
+        advanceRebindGeneration();
         save(prepared);
     }
 
@@ -585,11 +614,12 @@ final class AndroidPushIdentityStorage {
     synchronized State retainCurrentRegistrationForRevocation(
         String authToken,
         boolean revokeAuthentication,
-        State expected
+        Snapshot expected
     )
         throws TokenStorageException {
-        State current = load();
-        requireUnchangedBinding(expected, current);
+        Snapshot currentSnapshot = snapshot();
+        State current = currentSnapshot.state();
+        requireUnchangedBinding(expected, currentSnapshot);
         if (current == null || !current.hasServerRegistration()) {
             return current;
         }
@@ -884,6 +914,7 @@ final class AndroidPushIdentityStorage {
             )) {
             return current;
         }
+        recordRetiredAuthenticationAuthority(current);
         State cleared = new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -919,6 +950,7 @@ final class AndroidPushIdentityStorage {
             )) {
             return false;
         }
+        recordRetiredAuthenticationAuthority(current);
         boolean rejectedPreparedRebind = current.hasPendingRebind()
             && expectedAuthToken.equals(current.pendingRebindAuthToken());
         State cleared = new State(
@@ -1081,6 +1113,39 @@ final class AndroidPushIdentityStorage {
         }
     }
 
+    /**
+     * Durably records that a retained authority whose session invalidation was
+     * deferred is no longer needed by this layer.
+     *
+     * <p>The marker lives with the tombstone and is destroyed together with it.
+     * Recording the retirement durably means no control path, failure, or process
+     * death can lose it: it stays reportable until the authentication layer
+     * acknowledges it.</p>
+     */
+    private void recordRetiredAuthenticationAuthority(State cleared) {
+        if (cleared.pendingRevocationRequiresAuthenticationLogout()) {
+            preferences.edit().putBoolean(RETIRED_AUTHORITY_KEY, true).commit();
+        }
+    }
+
+    synchronized boolean hasRetiredAuthenticationAuthority() {
+        try {
+            return preferences.getBoolean(RETIRED_AUTHORITY_KEY, false);
+        } catch (ClassCastException exception) {
+            return false;
+        }
+    }
+
+    synchronized void acknowledgeRetiredAuthenticationAuthority()
+        throws TokenStorageException {
+        if (!preferences.edit().remove(RETIRED_AUTHORITY_KEY).commit()) {
+            throw new TokenStorageException(
+                "Failed to acknowledge the retired Android push authority",
+                new IllegalStateException("SharedPreferences commit failed")
+            );
+        }
+    }
+
     synchronized boolean requiresTokenRotation() throws TokenStorageException {
         try {
             return preferences.getBoolean(TOKEN_ROTATION_REQUIRED_KEY, false);
@@ -1094,7 +1159,30 @@ final class AndroidPushIdentityStorage {
     }
 
     synchronized Snapshot snapshot() throws TokenStorageException {
-        return new Snapshot(load(), requiresTokenRotation());
+        return new Snapshot(load(), requiresTokenRotation(), rebindGeneration());
+    }
+
+    /**
+     * Advances the staging counter so an earlier snapshot can never be mistaken
+     * for the transition staged now.
+     */
+    private void advanceRebindGeneration() throws TokenStorageException {
+        if (!preferences.edit()
+            .putLong(REBIND_GENERATION_KEY, rebindGeneration() + 1L)
+            .commit()) {
+            throw new TokenStorageException(
+                "Failed to advance the Android push rebind generation",
+                new IllegalStateException("SharedPreferences commit failed")
+            );
+        }
+    }
+
+    private long rebindGeneration() {
+        try {
+            return preferences.getLong(REBIND_GENERATION_KEY, 0L);
+        } catch (ClassCastException exception) {
+            return 0L;
+        }
     }
 
     synchronized void clear() throws TokenStorageException {
@@ -1102,6 +1190,8 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
+            .remove(RETIRED_AUTHORITY_KEY)
+            .remove(REBIND_GENERATION_KEY)
             .commit()) {
             throw new TokenStorageException(
                 "Failed to clear Android push identity",
@@ -1215,12 +1305,13 @@ final class AndroidPushIdentityStorage {
      * retained for another. A {@code null} expectation means the caller has none,
      * which is only true for the initial binding.</p>
      */
-    private void requireUnchangedBinding(State expected, State current)
+    private void requireUnchangedBinding(Snapshot expected, Snapshot current)
         throws TokenStorageException {
         if (expected == null) {
             return;
         }
-        if (!sameRegistrationBinding(expected, current)) {
+        if (expected.rebindGeneration() != current.rebindGeneration()
+            || !sameRegistrationBinding(expected.state(), current.state())) {
             throw new TokenStorageException(
                 "Android push runtime binding changed before the transition applied",
                 new IllegalStateException("runtimeBinding")

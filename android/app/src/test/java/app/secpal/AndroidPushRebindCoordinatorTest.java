@@ -589,6 +589,20 @@ public class AndroidPushRebindCoordinatorTest {
         assertTrue(recovered.retiredAuthenticationAuthority());
         assertFalse(storage.load().hasPendingRevocation());
 
+        AndroidPushRebindCoordinator restarted = coordinator();
+        AndroidPushRebindCoordinator.Outcome afterRestart = restarted.recover(
+            TENANT_A,
+            3,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.IDLE,
+            afterRestart.kind()
+        );
+        assertTrue(afterRestart.retiredAuthenticationAuthority());
+
+        restarted.acknowledgeRetiredAuthority();
         AndroidPushRebindCoordinator.Outcome settled = coordinator().recover(
             TENANT_A,
             3,
@@ -1606,6 +1620,96 @@ public class AndroidPushRebindCoordinatorTest {
 
             assertTrue(followUp, outcome.retiredAuthenticationAuthority());
         }
+    }
+
+    @Test
+    public void aRetirementSurvivesProcessDeathBeforeItIsConsumed()
+        throws Exception {
+        revocationTransport.failure = new IOException("offline");
+        coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        revocationTransport.failure = null;
+
+        coordinator().cleanup(new NativeAuthHttpClient.CancellationSignal());
+
+        assertFalse(storage.load().hasPendingRevocation());
+        assertTrue(storage.hasRetiredAuthenticationAuthority());
+        AndroidPushRebindCoordinator afterRestart = coordinator();
+        assertTrue(
+            afterRestart.cleanup(
+                new NativeAuthHttpClient.CancellationSignal()
+            ).retiredAuthenticationAuthority()
+        );
+
+        afterRestart.acknowledgeRetiredAuthority();
+
+        assertFalse(
+            coordinator().cleanup(
+                new NativeAuthHttpClient.CancellationSignal()
+            ).retiredAuthenticationAuthority()
+        );
+    }
+
+    @Test
+    public void aRestagedTransactionIsDistinguishedFromTheOlderHandle()
+        throws Exception {
+        AndroidPushRebindCoordinator first = coordinator();
+        AndroidPushRebindCoordinator.Transaction older = first.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, AUTHORITY_A)
+        ).transaction();
+
+        AndroidPushRebindCoordinator second = coordinator();
+        AndroidPushRebindCoordinator.Outcome resumed = second.recover(
+            TENANT_B,
+            4,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        AndroidPushRebindCoordinator.Outcome rolledBack = second.rollback(
+            resumed.transaction()
+        );
+        AndroidPushRebindCoordinator.Transaction restaged = second.begin(
+            TENANT_B,
+            4,
+            credential(TENANT_A, "restaged-authority")
+        ).transaction();
+
+        AndroidPushRebindCoordinator.Outcome stale = first.commit(
+            older,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.ROLLED_BACK,
+            rolledBack.kind()
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        assertTrue(revocationTransport.calls.isEmpty());
+        assertEquals(TENANT_A, storage.load().apiOrigin());
+        assertEquals(
+            "restaged-authority",
+            storage.load().pendingRebindAuthToken()
+        );
+
+        AndroidPushRebindCoordinator.Outcome committed = second.commit(
+            restaged,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.COMMITTED,
+            committed.kind()
+        );
+        assertEquals(
+            "restaged-authority",
+            revocationTransport.calls.get(0).authority
+        );
     }
 
     @Test

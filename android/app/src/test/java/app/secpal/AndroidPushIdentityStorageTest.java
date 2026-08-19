@@ -327,7 +327,7 @@ public class AndroidPushIdentityStorageTest {
             storage
         );
 
-        AndroidPushIdentityStorage.State stale = storage.load();
+        AndroidPushIdentityStorage.Snapshot stale = storage.snapshot();
         storage.bindRuntime(NEXT_API_ORIGIN, 4, AUTH_TOKEN);
         storage.clearPendingRevocation(
             API_ORIGIN,
@@ -1241,7 +1241,8 @@ public class AndroidPushIdentityStorageTest {
 
                 @Override
                 public Editor putLong(String key, long value) {
-                    throw new UnsupportedOperationException();
+                    values.put(key, value);
+                    return this;
                 }
 
                 @Override
@@ -1269,7 +1270,14 @@ public class AndroidPushIdentityStorageTest {
 
         @Override
         public long getLong(String key, long defaultValue) {
-            throw new UnsupportedOperationException();
+            Object value = values.get(key);
+            if (value == null) {
+                return defaultValue;
+            }
+            if (!(value instanceof Long)) {
+                throw new ClassCastException(key + " is not a Long");
+            }
+            return (Long) value;
         }
 
         @Override
