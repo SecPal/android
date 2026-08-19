@@ -338,7 +338,9 @@ public class AndroidPushIdentityStorageTest {
         assertTrue(storage.hasRetiredAuthenticationAuthority());
         assertEquals(1, preferences.commitCount() - commitsBefore);
 
-        storage.acknowledgeRetiredAuthenticationAuthority();
+        storage.acknowledgeRetiredAuthenticationAuthority(
+            storage.retiredAuthenticationAuthorityGeneration()
+        );
 
         assertFalse(storage.hasRetiredAuthenticationAuthority());
     }

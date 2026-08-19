@@ -56,8 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cleanup may already have removed and survives a transition that drains a
   retained tombstone before removing its own registration. The retirement is
   recorded durably when the tombstone is cleared and stays reportable until the
-  authentication layer acknowledges it, so no control path, failure, or process
-  restart can lose it, and every staging carries a durable generation so a
+  authentication layer acknowledges the exact retirement it observed, so no
+  control path, failure, process restart, or second retirement can lose it, and every staging carries a durable generation so a
   transition staged again for the same target is never mistaken for an older
   handle (issue #617).
 - Added an isolated native Android push revocation coordinator that retries

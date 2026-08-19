@@ -23,6 +23,8 @@ final class AndroidPushIdentityStorage {
         "android_push_token_rotation_required";
     static final String RETIRED_AUTHORITY_KEY =
         "android_push_retired_authentication_authority";
+    static final String ACKNOWLEDGED_AUTHORITY_KEY =
+        "android_push_acknowledged_authentication_authority";
     static final String REBIND_GENERATION_KEY =
         "android_push_rebind_generation";
     private static final String PREFERENCES_NAME = "secpal_native_auth";
@@ -1124,21 +1126,48 @@ final class AndroidPushIdentityStorage {
         return clearedTombstone.pendingRevocationRequiresAuthenticationLogout();
     }
 
-    synchronized boolean hasRetiredAuthenticationAuthority() {
-        try {
-            return preferences.getBoolean(RETIRED_AUTHORITY_KEY, false);
-        } catch (ClassCastException exception) {
-            return false;
-        }
+    /**
+     * Counts the authorities this layer retired.
+     *
+     * <p>A counter rather than a flag, because retirements are events: two can
+     * happen before the authentication layer consumes the first, and collapsing
+     * them would let one acknowledgement erase the other.</p>
+     */
+    synchronized long retiredAuthenticationAuthorityGeneration() {
+        return counter(RETIRED_AUTHORITY_KEY);
     }
 
-    synchronized void acknowledgeRetiredAuthenticationAuthority()
-        throws TokenStorageException {
-        if (!preferences.edit().remove(RETIRED_AUTHORITY_KEY).commit()) {
+    synchronized boolean hasRetiredAuthenticationAuthority() {
+        return counter(RETIRED_AUTHORITY_KEY)
+            > counter(ACKNOWLEDGED_AUTHORITY_KEY);
+    }
+
+    /**
+     * Acknowledges retirements up to {@code observedGeneration} only, so a
+     * retirement recorded after the caller observed one stays reportable.
+     */
+    synchronized void acknowledgeRetiredAuthenticationAuthority(
+        long observedGeneration
+    ) throws TokenStorageException {
+        long acknowledged = Math.min(
+            Math.max(observedGeneration, counter(ACKNOWLEDGED_AUTHORITY_KEY)),
+            counter(RETIRED_AUTHORITY_KEY)
+        );
+        if (!preferences.edit()
+            .putLong(ACKNOWLEDGED_AUTHORITY_KEY, acknowledged)
+            .commit()) {
             throw new TokenStorageException(
                 "Failed to acknowledge the retired Android push authority",
                 new IllegalStateException("SharedPreferences commit failed")
             );
+        }
+    }
+
+    private long counter(String key) {
+        try {
+            return preferences.getLong(key, 0L);
+        } catch (ClassCastException exception) {
+            return 0L;
         }
     }
 
@@ -1187,6 +1216,7 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
             .remove(RETIRED_AUTHORITY_KEY)
+            .remove(ACKNOWLEDGED_AUTHORITY_KEY)
             .remove(REBIND_GENERATION_KEY)
             .commit()) {
             throw new TokenStorageException(
@@ -1269,7 +1299,10 @@ final class AndroidPushIdentityStorage {
                 editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
             }
             if (recordRetiredAuthority) {
-                editor.putBoolean(RETIRED_AUTHORITY_KEY, true);
+                editor.putLong(
+                    RETIRED_AUTHORITY_KEY,
+                    counter(RETIRED_AUTHORITY_KEY) + 1L
+                );
             }
             if (!editor.commit()) {
                 throw new TokenStorageException(

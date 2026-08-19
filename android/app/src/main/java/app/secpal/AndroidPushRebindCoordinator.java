@@ -172,6 +172,7 @@ final class AndroidPushRebindCoordinator {
         private final Cleanup cleanup;
         private final Transaction transaction;
         private boolean retiredAuthenticationAuthority;
+        private long retiredAuthorityGeneration;
 
         private Outcome(Kind kind, Cleanup cleanup, Transaction transaction) {
             this.kind = kind;
@@ -214,6 +215,11 @@ final class AndroidPushRebindCoordinator {
          */
         boolean retiredAuthenticationAuthority() {
             return retiredAuthenticationAuthority;
+        }
+
+        /** Identifies the retirement this outcome reported, for acknowledgement. */
+        long retiredAuthorityGeneration() {
+            return retiredAuthorityGeneration;
         }
 
         Status status() {
@@ -747,6 +753,8 @@ final class AndroidPushRebindCoordinator {
     private Outcome publish(Outcome outcome) {
         outcome.retiredAuthenticationAuthority =
             storage.hasRetiredAuthenticationAuthority();
+        outcome.retiredAuthorityGeneration =
+            storage.retiredAuthenticationAuthorityGeneration();
         statusPublisher.publish(outcome.status());
         return outcome;
     }
@@ -755,8 +763,11 @@ final class AndroidPushRebindCoordinator {
      * Clears the durable retirement once the authentication layer has released
      * the authority it describes.
      */
-    synchronized void acknowledgeRetiredAuthority() throws TokenStorageException {
-        storage.acknowledgeRetiredAuthenticationAuthority();
+    synchronized void acknowledgeRetiredAuthority(Outcome observed)
+        throws TokenStorageException {
+        storage.acknowledgeRetiredAuthenticationAuthority(
+            observed == null ? 0L : observed.retiredAuthorityGeneration()
+        );
     }
 
 }

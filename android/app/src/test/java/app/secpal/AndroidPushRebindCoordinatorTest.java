@@ -602,7 +602,7 @@ public class AndroidPushRebindCoordinatorTest {
         );
         assertTrue(afterRestart.retiredAuthenticationAuthority());
 
-        restarted.acknowledgeRetiredAuthority();
+        restarted.acknowledgeRetiredAuthority(afterRestart);
         AndroidPushRebindCoordinator.Outcome settled = coordinator().recover(
             TENANT_A,
             3,
@@ -1644,13 +1644,12 @@ public class AndroidPushRebindCoordinatorTest {
         assertFalse(storage.load().hasPendingRevocation());
         assertTrue(storage.hasRetiredAuthenticationAuthority());
         AndroidPushRebindCoordinator afterRestart = coordinator();
-        assertTrue(
-            afterRestart.cleanup(
-                new NativeAuthHttpClient.CancellationSignal()
-            ).retiredAuthenticationAuthority()
+        AndroidPushRebindCoordinator.Outcome observed = afterRestart.cleanup(
+            new NativeAuthHttpClient.CancellationSignal()
         );
+        assertTrue(observed.retiredAuthenticationAuthority());
 
-        afterRestart.acknowledgeRetiredAuthority();
+        afterRestart.acknowledgeRetiredAuthority(observed);
 
         assertFalse(
             coordinator().cleanup(
@@ -1717,6 +1716,37 @@ public class AndroidPushRebindCoordinatorTest {
             "restaged-authority",
             revocationTransport.calls.get(0).authority
         );
+    }
+
+    @Test
+    public void acknowledgingOneRetirementNeverErasesANewerOne()
+        throws Exception {
+        AndroidPushRebindCoordinator.Outcome first = coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        assertTrue(first.retiredAuthenticationAuthority());
+
+        AndroidPushIdentityStorage.State reset = storage.load();
+        storage.recordToken(TENANT_A, 3, reset.installationId(), TOKEN + "-two");
+        storage.markRegistered(
+            storage.snapshot(),
+            "3".repeat(64),
+            "4".repeat(64)
+        );
+        AndroidPushRebindCoordinator.Outcome second = coordinator().logout(
+            credential(TENANT_A, AUTHORITY_A),
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        assertTrue(second.retiredAuthenticationAuthority());
+
+        coordinator().acknowledgeRetiredAuthority(first);
+
+        assertTrue(storage.hasRetiredAuthenticationAuthority());
+
+        coordinator().acknowledgeRetiredAuthority(second);
+
+        assertFalse(storage.hasRetiredAuthenticationAuthority());
     }
 
     @Test
