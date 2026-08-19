@@ -1304,11 +1304,18 @@ public class AndroidPushRebindCoordinatorTest {
         throws Exception {
         storage.clear();
         AndroidPushRebindCoordinator coordinator = coordinator();
-        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+        AndroidPushRebindCoordinator.Outcome staged = coordinator.begin(
             TENANT_B,
             4,
             null
-        ).transaction();
+        );
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STAGED,
+            staged.kind()
+        );
+        AndroidPushRebindCoordinator.Transaction transaction =
+            staged.transaction();
+        assertNotNull(transaction);
         AndroidPushIdentityStorage.State appeared = storage.bindRuntime(
             TENANT_A,
             3

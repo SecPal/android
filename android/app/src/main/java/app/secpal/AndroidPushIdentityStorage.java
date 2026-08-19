@@ -914,7 +914,6 @@ final class AndroidPushIdentityStorage {
             )) {
             return current;
         }
-        recordRetiredAuthenticationAuthority(current);
         State cleared = new State(
             current.apiOrigin(),
             current.metadataRevision(),
@@ -932,7 +931,7 @@ final class AndroidPushIdentityStorage {
             current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(cleared);
+        save(cleared, false, false, retires(current));
         return cleared;
     }
 
@@ -950,7 +949,6 @@ final class AndroidPushIdentityStorage {
             )) {
             return false;
         }
-        recordRetiredAuthenticationAuthority(current);
         boolean rejectedPreparedRebind = current.hasPendingRebind()
             && expectedAuthToken.equals(current.pendingRebindAuthToken());
         State cleared = new State(
@@ -970,7 +968,7 @@ final class AndroidPushIdentityStorage {
             rejectedPreparedRebind ? null : current.pendingRebindAuthToken(),
             current.isReconfigurationRequired()
         );
-        save(cleared);
+        save(cleared, false, false, retires(current));
         return true;
     }
 
@@ -1122,10 +1120,8 @@ final class AndroidPushIdentityStorage {
      * death can lose it: it stays reportable until the authentication layer
      * acknowledges it.</p>
      */
-    private void recordRetiredAuthenticationAuthority(State cleared) {
-        if (cleared.pendingRevocationRequiresAuthenticationLogout()) {
-            preferences.edit().putBoolean(RETIRED_AUTHORITY_KEY, true).commit();
-        }
+    private static boolean retires(State clearedTombstone) {
+        return clearedTombstone.pendingRevocationRequiresAuthenticationLogout();
     }
 
     synchronized boolean hasRetiredAuthenticationAuthority() {
@@ -1253,6 +1249,15 @@ final class AndroidPushIdentityStorage {
         boolean completeTokenRotation,
         boolean requireTokenRotation
     ) throws TokenStorageException {
+        save(state, completeTokenRotation, requireTokenRotation, false);
+    }
+
+    private void save(
+        State state,
+        boolean completeTokenRotation,
+        boolean requireTokenRotation,
+        boolean recordRetiredAuthority
+    ) throws TokenStorageException {
         try {
             EncryptedTokenPayload encrypted = cipher.encrypt(state.toJson().toString());
             SharedPreferences.Editor editor = preferences.edit()
@@ -1262,6 +1267,9 @@ final class AndroidPushIdentityStorage {
                 editor.remove(TOKEN_ROTATION_REQUIRED_KEY);
             } else if (requireTokenRotation) {
                 editor.putBoolean(TOKEN_ROTATION_REQUIRED_KEY, true);
+            }
+            if (recordRetiredAuthority) {
+                editor.putBoolean(RETIRED_AUTHORITY_KEY, true);
             }
             if (!editor.commit()) {
                 throw new TokenStorageException(
@@ -1311,12 +1319,18 @@ final class AndroidPushIdentityStorage {
             return;
         }
         if (expected.rebindGeneration() != current.rebindGeneration()
-            || !sameRegistrationBinding(expected.state(), current.state())) {
+            || !sameBinding(expected.state(), current.state())) {
             throw new TokenStorageException(
                 "Android push runtime binding changed before the transition applied",
                 new IllegalStateException("runtimeBinding")
             );
         }
+    }
+
+    /** An absent binding matches an absent binding; see {@link #requireUnchangedBinding}. */
+    private static boolean sameBinding(State left, State right) {
+        return (left == null && right == null)
+            || sameRegistrationBinding(left, right);
     }
 
     private static boolean sameRegistrationBinding(State left, State right) {
