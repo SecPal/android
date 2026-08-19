@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the registration and revocation coordinators, and every staging carries a
   durable generation, so a binding or staging that changes in between is detected
   and a transition staged again for the same target is never mistaken for an
-  older handle. A handle whose staging was erased can no longer commit, because
+  older handle, and clearing the identity permanently invalidates handles that
+  outlived it. A handle whose staging was erased can no longer commit, because
   the retained cleanup authority is erased with it. Registration synchronization is suspended while any rebind is
   staged, a logout or credential replacement never reports a completed cleanup
   while its own registration is still live, and a completed or stale handle can

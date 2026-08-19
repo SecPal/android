@@ -281,10 +281,11 @@ final class AndroidPushIdentityStorage {
         /**
          * Identifies the staged transition this snapshot observed.
          *
-         * <p>The counter advances on every staging and never resets, so a
-         * transition staged again for the same target is a different generation.
-         * Comparing it distinguishes a restaged transaction from an older handle
-         * that happens to describe the same origin and installation.</p>
+         * <p>The counter advances on every staging and on every clear, and never
+         * resets, so a transition staged again for the same target is a different
+         * generation and clearing the identity permanently invalidates handles
+         * that outlived it. Comparing it distinguishes a restaged transaction
+         * from an older handle describing the same origin and installation.</p>
          */
         long rebindGeneration() {
             return rebindGeneration;
@@ -1153,7 +1154,7 @@ final class AndroidPushIdentityStorage {
             .remove(STATE_CIPHERTEXT_KEY)
             .remove(STATE_IV_KEY)
             .remove(TOKEN_ROTATION_REQUIRED_KEY)
-            .remove(REBIND_GENERATION_KEY)
+            .putLong(REBIND_GENERATION_KEY, rebindGeneration() + 1L)
             .commit()) {
             throw new TokenStorageException(
                 "Failed to clear Android push identity",

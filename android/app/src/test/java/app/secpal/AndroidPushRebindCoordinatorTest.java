@@ -1571,6 +1571,32 @@ public class AndroidPushRebindCoordinatorTest {
     }
 
     @Test
+    public void clearingTheIdentityPermanentlyInvalidatesOutstandingHandles()
+        throws Exception {
+        storage.clear();
+        AndroidPushRebindCoordinator coordinator = coordinator();
+        AndroidPushRebindCoordinator.Transaction transaction = coordinator.begin(
+            TENANT_B,
+            4,
+            null
+        ).transaction();
+        storage.bindRuntime(TENANT_A, 3);
+        storage.clear();
+
+        AndroidPushRebindCoordinator.Outcome stale = coordinator.commit(
+            transaction,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+
+        assertEquals(
+            AndroidPushRebindCoordinator.Outcome.Kind.STALE,
+            stale.kind()
+        );
+        assertNull(storage.load());
+        assertTrue(revocationTransport.calls.isEmpty());
+    }
+
+    @Test
     public void anUnusableRuntimeOriginFailsInsteadOfStagingATransition()
         throws Exception {
         AndroidPushRebindCoordinator.Outcome outcome = coordinator().begin(
