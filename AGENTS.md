@@ -19,6 +19,59 @@ Edit this file first. Keep the focused overlay files below aligned when a rule a
 These instructions are self-contained for the `android` repository at runtime.
 Do not assume instructions from sibling repositories or comment-based inheritance are loaded.
 
+## Canonical Work Graph And Finite Governance
+
+- `SecPal/.github/docs/work-graph-contract.md` is the single authoritative
+  definition of generic work-graph and engineering-governance semantics. It
+  owns node roles, GitHub-native hierarchy/dependencies/order, derived states
+  including `READY` and `NEXT`, decomposition, replanning, delivery, and
+  evidence rules. This repository must delegate those semantics and must not
+  redefine them.
+- GitHub-native issue state, parent/sub-issue relationships, dependencies, and
+  sibling order are graph authority. Body checkboxes and `Parent:`, `Order:`,
+  `Blocked by:`, status, `READY`, or `NEXT` text are mirrors only and never
+  authority. A blocked issue or non-leaf issue is not executable.
+- Each leaf owns one reviewable delivery contract and one primary delivery pull
+  request. Decompose by independently deliverable responsibilities, not pull
+  request count, diff size, or duration; promote a node containing multiple
+  contracts to a sub-epic with child leaves.
+- Replan the native graph before affected implementation continues: a missing
+  prerequisite becomes a native dependency to its owning node; a new responsibility
+  that is material becomes a sibling or child according to the canonical
+  hierarchy; multiple contracts require sub-epic promotion. Preferred order is
+  native sibling order, never an inferred dependency.
+- A follow-up node is required only for an outside-contract discovery that is
+  proven, material, actionable, non-duplicate, and still relevant. Missing real
+  prerequisites and unsatisfied acceptance-contract gaps always require graph
+  action. Cosmetic, speculative, redundant, already-tracked, and non-material
+  observations do not.
+- For behavior changes, write contract-focused behavior tests first and observe
+  them fail. A behavior-preserving refactor may use existing behavior tests or
+  characterization, structural, security, or source-shape evidence instead of
+  manufacturing a new failing test. One scenario may cover several criteria;
+  stop at the smallest non-redundant evidence set.
+- Review is finite: perform one bounded full review, remediate named in-contract
+  blocking findings, perform delta-only verification, and stop when the contract
+  and evidence are satisfied. New independent responsibilities follow the
+  materiality and replanning rules instead of extending review indefinitely.
+- Every semantic invariant has one authoritative definition. Consistent
+  enforcement may remain at multiple trust boundaries, including independent
+  last-line-of-defense checks. Prefer maintained platform or library primitives
+  for cryptography, authentication/token handling, URL/URI parsing,
+  canonicalization, and lifecycle/platform state; custom Android domain policy
+  remains valid. Use allowlists only for finite, closed, known sets.
+
+## Android Security And Lifecycle Boundaries
+
+- Preserve fail-closed Device Owner and Profile Owner state handling, WebView
+  origin and main-frame boundaries, native bridge exposure controls,
+  bearer-token isolation, push identity and FCM registration lifecycle,
+  runtime/tenant transitions, the credential boundary, artifact integrity,
+  signing and version identity, and packaged WebView validation.
+- Security review remains required and proportionate to the touched boundary.
+  Canonical finite-review and evidence rules bound the review without weakening
+  these independent Android trust-boundary checks.
+
 ## Always-On Rules
 
 - Run `git status --short --branch` before any write action. For new work,
@@ -27,15 +80,16 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
   branch. When continuing existing work in a dirty worktree, first identify the
   existing changes, keep the current topic scope, and never overwrite changes
   you did not make.
-- TDD is mandatory for behavior and code changes. Write or update the smallest relevant failing test FIRST, then implement, then refactor with tests green.
+- Apply the contract-oriented TDD and evidence rules above to behavior and code
+  changes.
 - Quality first. Do not trade correctness, review depth, validation depth, or issue tracking for speed.
 - Keep one topic per change. 1 topic = 1 PR = 1 branch. Do not mix unrelated fixes, features, refactors, docs, or governance cleanup.
 - Never use bypasses such as `--no-verify` or force-push.
 - Update `CHANGELOG.md` in the same change set for real fixes, features, or breaking changes.
-- Create a GitHub issue immediately for every real out-of-scope bug, technical debt, missing test, documentation gap, warning, audit finding, or deprecation you cannot fix now. Do not leave untracked `TODO`, `FIXME`, or follow-up work.
-- Use EPIC plus sub-issues before implementation whenever work will span more than one PR; if in doubt, choose EPIC plus sub-issues.
 - Keep GitHub-facing communication in English and reference files and lines instead of pasting large code blocks.
-- Treat warnings, audit findings, and deprecations as actionable. Fix them in scope or track them immediately.
+- Classify warnings, audit findings, and deprecations under the current contract
+  and canonical materiality threshold. Fix in-contract defects; replan material
+  outside-contract responsibilities; do not create noise for immaterial leads.
 - Never reply to AI review comments with GitHub comment tools. Fix the code, push, and resolve threads through
   the approved non-comment workflow.
 - Do not add AI self-references, generated-by text, promotional AI wording, or AI attribution to commits,
@@ -78,17 +132,21 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 
 - DRY: eliminate duplicated logic and repeated bridge or policy handling before it drifts.
 - KISS: prefer the simplest solution that satisfies the current requirement and remains easy to maintain.
-- YAGNI: implement only what the current issue or acceptance criteria require; track future ideas as issues instead of building them now.
+- YAGNI: implement only what the current issue or acceptance criteria require;
+  track future ideas only when they meet the canonical materiality threshold.
 - SOLID: keep responsibilities narrow, interfaces small, and extension points explicit.
 - Fail fast: validate early, stop on the first failed check, and do not accumulate known breakage.
 
 ## Issue And PR Discipline
 
-- Every real out-of-scope finding becomes a GitHub issue immediately; no untracked follow-up work is allowed.
-- Complex work uses EPIC plus sub-issues before implementation. PRs should close sub-issues, not the epic, until the final linked step.
-- When local review finds zero issues, commit and push the finished branch before opening any PR.
+- Use the canonical contract-count threshold for epics. A leaf closes through
+  exactly one primary pull request; a pull request never closes an epic or more
+  than one leaf.
+- Finish the bounded review and evidence stop condition before publishing the
+  completed branch.
 - The first PR state must be draft. Do not open a normal PR first.
-- Mark a draft PR ready only after the final self-review in the PR view still finds zero issues.
+- Mark a draft PR ready only after the bounded review, remediation, and
+  delta-only verification satisfy the delivery contract.
 - When creating or editing PRs programmatically, write multi-line body content to a file and use `--body-file` to prevent shell escaping issues.
 
 ## Required Validation
@@ -97,21 +155,29 @@ Before any commit, PR, or merge, announce the checklist you are executing and st
 At minimum verify:
 
 - the active branch and PR scope still address exactly one topic
-- TDD happened for any behavior or code change: the relevant test failed first and now passes
+- behavior changes have failing-first contract evidence, while
+  behavior-preserving changes identify the appropriate structural,
+  characterization, security, or existing evidence
 - the smallest relevant validation for the touched area passed: tests, typecheck, and lint when applicable
-- out-of-scope findings were turned into GitHub issues immediately
+- in-contract defects were resolved and outside-contract discoveries were
+  classified by the canonical materiality threshold
 - `CHANGELOG.md` was updated for real changes
 - commits are GPG-signed
 - REUSE compliance was checked when changed files require it
 - when a fix alters observable behavior, state lifecycle, error handling, or security constraints, the corresponding tests were identified and updated in the same commit
 - before pushing behavioral or security-critical changes, affected tests were run locally by invoking the relevant test runner directly
-- the local 4-pass review was completed, including DRY, KISS, YAGNI, SOLID, quality-first, and issue-management checks
+- one bounded full review and any required delta-only verification covered DRY,
+  KISS, YAGNI, SOLID, quality-first, security boundaries, and graph hygiene
 - no bypass was used
 
 ## AI Findings Triage
 
 - Treat AI findings and AI-generated fix PRs as hints, not proof.
 - Before merge, prove the defect with a failing test, a reproducible defect, or a stated invariant and why the current code violates it.
+- Classify each proven finding as an in-contract defect, missing prerequisite,
+  new responsibility, material follow-up, or invalid finding. A finding does not
+  require its own test unless it identifies a contract distinction or failure
+  class absent from the current evidence.
 - Green CI alone is not enough for AI-generated changes, especially test, lifecycle, shell, regex, or refactor diffs; review the semantic risk explicitly.
 - Reject AI-generated bridge or auth cleanups, including back-navigation or managed-mode refactors, that do not prove listener-handle behavior, teardown ordering, WebView history, or device-owner/profile-owner state semantics with focused tests.
 - Reject AI-generated compatibility keep-alives that preserve obsolete
@@ -170,17 +236,18 @@ This file auto-applies to all files in this repo so strict SecPal governance sta
 
 - `AGENTS.md` is the authoritative runtime baseline for this repo.
   `.github/copilot-instructions.md` is only a compatibility mirror.
-- Non-negotiable: TDD first, quality first, 1 topic = 1 PR = 1 branch,
-  immediate GitHub issue creation for every real out-of-scope finding, and no
-  bypass.
-- If work needs more than one PR, or probably will, create an EPIC with linked
-  sub-issues before implementation.
+- Non-negotiable: contract-oriented TDD/evidence, quality first, one delivery
+  contract per leaf and primary PR, canonical materiality triage, and no bypass.
+- Delegate generic graph, decomposition, replanning, review-stop, and evidence
+  semantics to `SecPal/.github/docs/work-graph-contract.md`; native GitHub state
+  is authoritative and body mirrors are not.
 - Design discipline is always-on: DRY, KISS, YAGNI, SOLID, and fail fast.
 - GitHub communication stays in English and uses file and line references instead of large verbatim code quotes.
 - Do not add AI self-references, generated-by text, tool promotion, or AI
   attribution unless the task explicitly requires documenting AI tooling.
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.
-- Apply the SecPal domain policy and immediate warning and issue triage rules from the repo baseline.
+- Apply the SecPal domain policy and finite warning/finding triage rules from the
+  repo baseline.
 - Apply the baseline licensing and REUSE rules: plain `AGPL-3.0-or-later` for
   migrated SecPal-owned AI instruction material, existing repository-declared
   licenses preserved elsewhere until explicitly migrated, third-party metadata
