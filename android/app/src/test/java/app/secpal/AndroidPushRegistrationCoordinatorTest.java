@@ -68,10 +68,12 @@ public class AndroidPushRegistrationCoordinatorTest {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
 
         AndroidPushRegistrationCoordinator.Outcome first = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
         AndroidPushRegistrationCoordinator.Outcome duplicate = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -82,6 +84,7 @@ public class AndroidPushRegistrationCoordinatorTest {
             publisher
         );
         AndroidPushRegistrationCoordinator.Outcome afterRestart = restarted.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -115,6 +118,7 @@ public class AndroidPushRegistrationCoordinatorTest {
     @Test
     public void tokenAndClientChangesUseDistinctLifecycleEvents() throws Exception {
         coordinator(client("1.2.3", 7)).synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -128,7 +132,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome rotated = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.LifecycleEvent.CREDENTIAL_ROTATED,
@@ -141,7 +149,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome clientUpdated = coordinator(
             client("1.2.4", 8)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.LifecycleEvent.CLIENT_UPDATED,
@@ -156,6 +168,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -163,6 +176,7 @@ public class AndroidPushRegistrationCoordinatorTest {
             storage.retainCurrentRegistrationForRevocation(AUTHORITY, false);
 
         AndroidPushRegistrationCoordinator.Outcome blocked = coordinator.synchronize(
+            API_ORIGIN,
             "new-auth-token",
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -182,6 +196,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         );
         AndroidPushRegistrationCoordinator.Outcome registered =
             coordinator.synchronize(
+                API_ORIGIN,
                 "new-auth-token",
                 new NativeAuthHttpClient.CancellationSignal()
             );
@@ -205,6 +220,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -224,6 +240,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         AndroidPushRegistrationCoordinator.Outcome blocked = coordinator(
             client("1.2.3", 7)
         ).synchronize(
+            API_ORIGIN,
             "new-auth-token",
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -244,6 +261,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         AndroidPushRegistrationCoordinator.Outcome registered = coordinator(
             client("1.2.3", 7)
         ).synchronize(
+            API_ORIGIN,
             "new-auth-token",
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -261,6 +279,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -285,6 +304,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         AndroidPushRegistrationCoordinator.Outcome registered = coordinator(
             client("1.2.3", 7)
         ).synchronize(
+            API_ORIGIN,
             "new-auth-token",
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -304,14 +324,145 @@ public class AndroidPushRegistrationCoordinatorTest {
     }
 
     @Test
+    public void anAuthorityIsNeverSentToAnOriginThatDidNotIssueIt()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(
+            client("1.2.3", 7)
+        );
+
+        AndroidPushRegistrationCoordinator.Outcome foreignOrigin =
+            coordinator.synchronize(
+                "https://tenant-b.example",
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+        AndroidPushRegistrationCoordinator.Outcome unusableOrigin =
+            coordinator.synchronize(
+                "http://tenant-a.example",
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            foreignOrigin.kind()
+        );
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            unusableOrigin.kind()
+        );
+        assertEquals(0, transport.callCount);
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Status.RETRY_PENDING,
+            publisher.lastStatus
+        );
+    }
+
+    @Test
+    public void aStagedCrossOriginRebindSuspendsSynchronizationUntilItEnds()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(
+            client("1.2.3", 7)
+        );
+        coordinator.synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            storage.load().installationId(),
+            TOKEN + "-rotated"
+        );
+        storage.prepareRuntimeRebind("https://tenant-b.example", AUTHORITY);
+
+        AndroidPushRegistrationCoordinator.Outcome suspended =
+            coordinator.synchronize(
+                API_ORIGIN,
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            suspended.kind()
+        );
+        assertEquals(1, transport.callCount);
+
+        storage.cancelPreparedRuntimeRebind("https://tenant-b.example");
+        AndroidPushRegistrationCoordinator.Outcome resumed =
+            coordinator.synchronize(
+                API_ORIGIN,
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
+            resumed.kind()
+        );
+        assertEquals(2, transport.callCount);
+    }
+
+    @Test
+    public void aStagedSameOriginRebindAlsoSuspendsSynchronization()
+        throws Exception {
+        AndroidPushRegistrationCoordinator coordinator = coordinator(
+            client("1.2.3", 7)
+        );
+        coordinator.synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
+        storage.recordToken(
+            API_ORIGIN,
+            3,
+            storage.load().installationId(),
+            TOKEN + "-rotated"
+        );
+        storage.prepareRuntimeRebind(API_ORIGIN, AUTHORITY);
+
+        AndroidPushRegistrationCoordinator.Outcome suspended =
+            coordinator.synchronize(
+                API_ORIGIN,
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
+            suspended.kind()
+        );
+        assertEquals(1, transport.callCount);
+
+        storage.cancelPreparedRuntimeRebind(API_ORIGIN);
+        AndroidPushRegistrationCoordinator.Outcome resumed =
+            coordinator.synchronize(
+                API_ORIGIN,
+                AUTHORITY,
+                new NativeAuthHttpClient.CancellationSignal()
+            );
+
+        assertEquals(
+            AndroidPushRegistrationCoordinator.Outcome.Kind.SUCCESS,
+            resumed.kind()
+        );
+        assertEquals(2, transport.callCount);
+    }
+
+    @Test
     public void missingAndOversizedAuthorityNeverReachTransport() throws Exception {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
 
         AndroidPushRegistrationCoordinator.Outcome missing = coordinator.synchronize(
-            "   ",
+            API_ORIGIN,
+            " ",
             new NativeAuthHttpClient.CancellationSignal()
         );
         AndroidPushRegistrationCoordinator.Outcome oversized = coordinator.synchronize(
+            API_ORIGIN,
             "a".repeat(AndroidPushIdentityStorage.MAX_AUTH_TOKEN_CHARACTERS + 1),
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -340,6 +491,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         );
 
         AndroidPushRegistrationCoordinator.Outcome authentication = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -348,6 +500,7 @@ public class AndroidPushRegistrationCoordinatorTest {
             "NOTIFICATION_RUNTIME_STATE_INVALID"
         );
         AndroidPushRegistrationCoordinator.Outcome reconfiguration = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -385,7 +538,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         AndroidPushIdentityStorage.State rebound = storage.load();
         assertEquals(
@@ -419,7 +576,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         AndroidPushIdentityStorage.State rebound = storage.load();
         assertEquals(
@@ -443,7 +604,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(" ", cancellation);
+        ).synchronize(
+            API_ORIGIN,
+            " ",
+            cancellation
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.CANCELLED,
@@ -465,7 +630,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
@@ -487,7 +656,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.AUTHENTICATION_REJECTED,
@@ -518,11 +691,19 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome staleSuccess = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
         transport.beforeResponse = null;
         AndroidPushRegistrationCoordinator.Outcome rotated = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.RETRYABLE_FAILURE,
@@ -557,7 +738,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         AndroidPushIdentityStorage.State current = storage.load();
         assertEquals(
@@ -586,7 +771,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         AndroidPushIdentityStorage.State rebound = storage.load();
         assertEquals(
@@ -605,7 +794,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
@@ -630,7 +823,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
@@ -654,7 +851,11 @@ public class AndroidPushRegistrationCoordinatorTest {
 
         AndroidPushRegistrationCoordinator.Outcome outcome = coordinator(
             client("1.2.3", 7)
-        ).synchronize(AUTHORITY, new NativeAuthHttpClient.CancellationSignal());
+        ).synchronize(
+            API_ORIGIN,
+            AUTHORITY,
+            new NativeAuthHttpClient.CancellationSignal()
+        );
 
         assertEquals(
             AndroidPushRegistrationCoordinator.Outcome.Kind.RECONFIGURATION_REQUIRED,
@@ -672,6 +873,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         AndroidPushRegistrationCoordinator coordinator = coordinator(client("1.2.3", 7));
         transport.failure = new IOException("offline");
         AndroidPushRegistrationCoordinator.Outcome retryable = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
@@ -679,6 +881,7 @@ public class AndroidPushRegistrationCoordinatorTest {
         transport.failure = null;
         transport.cancelBeforeResponse = true;
         AndroidPushRegistrationCoordinator.Outcome cancelled = coordinator.synchronize(
+            API_ORIGIN,
             AUTHORITY,
             new NativeAuthHttpClient.CancellationSignal()
         );
