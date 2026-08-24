@@ -93,7 +93,7 @@
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.63.0",
     "@typescript-eslint/parser": "^8.63.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "@xmldom/xmldom": "0.9.11",
     "entities": "^8.0.0",
     "eslint": "^10.8.1",
