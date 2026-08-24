@@ -164,10 +164,8 @@ SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-acco
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
   npm run fastlane:android:deploy:internal:with-metadata
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk:beta
 ```
 
@@ -208,10 +206,14 @@ Every Fastlane publishing lane, including Direct Stable and Direct Beta, expects
 
 - `SECPAL_ANDROID_PLAY_JSON_KEY_PATH`
 
-Direct APK upload to the SecPal VPS expects:
+Direct APK upload defaults to `SECPAL_ANDROID_DIRECT_SSH_HOST=secpal-uberspace`
+and `/var/www/virtual/secpal/apk.secpal.app` on Uberspace. The local signing
+workstation therefore needs an SSH configuration entry named
+`secpal-uberspace`. Override either setting only for a deliberate alternate
+publication target:
 
 - `SECPAL_ANDROID_DIRECT_SSH_HOST`
-- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
+- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/var/www/virtual/secpal/apk.secpal.app`
 - `SECPAL_ANDROID_DIRECT_CHANNEL` when you want to publish to `beta` instead of the default `stable`
 
 Samsung managed-device hard-key partner metadata can also be injected through environment variables when your Knox distribution path provides those values:

@@ -206,8 +206,8 @@ Fastlane lanes in this repository call the existing signed Gradle build flow and
 - `SECPAL_ANDROID_CONFIG_DIR` when the complete release context should live outside the default `~/.config/secpal`
 - `SECPAL_ANDROID_RELEASE_ENV_FILE` when you do not use the default `~/.config/secpal/android-release.env`
 - `SECPAL_ANDROID_PLAY_JSON_KEY_PATH` for every publication, including Direct Stable and Direct Beta
-- `SECPAL_ANDROID_DIRECT_SSH_HOST` when publishing the direct APK to a non-default SSH host
-- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/home/secpal/www/apk.secpal.app`
+- `SECPAL_ANDROID_DIRECT_SSH_HOST` when publishing the direct APK to a non-default SSH host; the default is `secpal-uberspace`
+- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/var/www/virtual/secpal/apk.secpal.app`
 - `SECPAL_ANDROID_DIRECT_CHANNEL` when publishing to the `beta` direct-download channel instead of `stable`
 
 Signed build-only commands do not reserve or persist a code. Both native signed-build scripts and the Fastlane `build_signed_apk` and `build_signed_aab` lanes require an explicit valid `SECPAL_ANDROID_VERSION_CODE` in `YYYYMMDDXX` format and abort if it is absent. Debug and store-listing builds keep their independent Gradle defaults.
@@ -216,7 +216,7 @@ All publishing lanes share one allocator. It reads the local baseline, Direct St
 
 The allocator uses UTC ranges `YYYYMMDD01` through `YYYYMMDD99`. It selects `01` when today has no known code, otherwise increments today's highest known code. It aborts on `99`, on a known future code, or on invalid source data. A `SECPAL_ANDROID_DEPLOY_VERSION_CODE` override must use the same format, fall in today's UTC range, and exceed every known code. Historical nine-digit codes remain valid monotonic floors but are never generated. Google Play's `2,100,000,000` limit means this date scheme is valid through 2099 and intentionally fails for 2100 dates.
 
-The SecPal VPS is currently the only authorized release runner. Google Play, Direct Stable, and Direct Beta publishing all hold the same non-blocking local `flock`-backed `android-publish.lock` for source collection, allocation, build, upload, and baseline persistence. The shell loader exports the exact release env file it selected so Fastlane reads and persists the same context even when loaded values change `HOME`. Independently, the lock is runner-account-wide at `~/.config/secpal/android-publish.lock`; its home directory comes from the operating-system account, so `SECPAL_ANDROID_CONFIG_DIR`, `SECPAL_ANDROID_RELEASE_ENV_FILE`, and a process-level `HOME` override cannot split publishers across different locks. A missing lock directory is created with mode `700`; symlinked, foreign-owned, or group/world-accessible lock directories are rejected. A concurrent process aborts, and the lock is released on success, failure, or process termination. This runner-local lock is not a substitute for a future central release reservation service.
+The local signing workstation is the authorized release runner; Uberspace is the authorized release publication target. Google Play, Direct Stable, and Direct Beta publishing all hold the same non-blocking local `flock`-backed `android-publish.lock` for source collection, allocation, build, upload, and baseline persistence. The shell loader exports the exact release env file it selected so Fastlane reads and persists the same context even when loaded values change `HOME`. Independently, the lock is runner-account-wide at `~/.config/secpal/android-publish.lock`; its home directory comes from the operating-system account, so `SECPAL_ANDROID_CONFIG_DIR`, `SECPAL_ANDROID_RELEASE_ENV_FILE`, and a process-level `HOME` override cannot split publishers across different locks. A missing lock directory is created with mode `700`; symlinked, foreign-owned, or group/world-accessible lock directories are rejected. A concurrent process aborts, and the lock is released on success, failure, or process termination. This runner-local lock is not a substitute for a future central release reservation service.
 
 Fastlane writes `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` only after the upload has succeeded. During build and upload, the selected code exists only as `SECPAL_ANDROID_VERSION_CODE` and is removed afterwards.
 
@@ -235,7 +235,7 @@ For direct APK publication on `apk.secpal.app`, the repository now treats the ca
 - `https://apk.secpal.app/android/releases/{version}/app.secpal-{version}.apk`
 - `https://apk.secpal.app/android/releases/{version}/SHA256SUMS.txt`
 
-The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to the SecPal VPS, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
+The `fastlane android deploy_direct_apk` lane builds the signed release APK, uploads the versioned release files to Uberspace, refreshes the `stable` channel under `/android/stable/`, and also refreshes the stable aliases under `/android/`.
 The `fastlane android deploy_direct_apk_beta` lane publishes the same signed release APK under `/android/beta/` without replacing the stable aliases.
 Direct Stable/Beta deploys hold the same canonical remote artifact-root lock from version selection through publication. A second deployment fails before changing remote state. If an ungraceful process or host termination leaves the empty `${SECPAL_ANDROID_DIRECT_ROOT}.release.lock` directory behind, verify that no direct release mutation is still running and remove only that empty directory with `rmdir` before retrying.
 All repository-provided signed build lanes and npm commands first verify that
@@ -270,13 +270,11 @@ SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-acco
 
 ```bash
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk
 ```
 
 ```bash
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  SECPAL_ANDROID_DIRECT_SSH_HOST=secpal \
   npm run fastlane:android:deploy:direct-apk:beta
 ```
 

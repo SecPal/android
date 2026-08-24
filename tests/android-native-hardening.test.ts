@@ -1580,6 +1580,10 @@ describe("Android native hardening", () => {
       "docs",
       "ANDROID_RELEASE_DISTRIBUTION.md"
     );
+    const firstReleaseChecklist = readRepoFile(
+      "docs",
+      "ANDROID_FIRST_RELEASE_CHECKLIST.md"
+    );
     const schema3WithdrawalEvidence = readRepoFile(
       "docs",
       "release-evidence",
@@ -1702,6 +1706,17 @@ describe("Android native hardening", () => {
     expect(fastfile).toContain("deploy_direct_apk");
     expect(fastfile).toContain("deploy_direct_apk_beta");
     expect(fastfile).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(fastfile).toMatch(
+      /ENV\.fetch\(\s*"SECPAL_ANDROID_DIRECT_SSH_HOST",\s*"secpal-uberspace"\s*\)/
+    );
+    expect(fastfile).toContain('"/var/www/virtual/secpal/apk.secpal.app"');
+    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST=secpal-uberspace");
+    expect(distributionDoc).toContain(
+      "Uberspace is the authorized release publication target"
+    );
+    expect(firstReleaseChecklist).toContain(
+      "authorized local signing workstation, publishes direct APKs to Uberspace"
+    );
     expect(fastfile).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
     expect(fastfile).toContain("APK_DIRECT_CHANNELS = %w[stable beta].freeze");
     expect(fastfile).toContain('APK_UPDATE_CHANNEL = "stable"');
