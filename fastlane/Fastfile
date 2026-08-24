@@ -30,10 +30,13 @@ APK_UPDATE_CHANNEL = "stable"
 APK_DIRECT_CHANNELS = %w[stable beta].freeze
 APK_SIGNING_KEY_SHARED_WITH_GOOGLE_PLAY = true
 RETIRED_ANDROID_VERSION_CODE_FLOOR = 261_932_119
-APK_DIRECT_SSH_HOST = ENV.fetch("SECPAL_ANDROID_DIRECT_SSH_HOST", "secpal")
+APK_DIRECT_SSH_HOST = ENV.fetch(
+  "SECPAL_ANDROID_DIRECT_SSH_HOST",
+  "secpal-uberspace"
+)
 APK_DIRECT_ROOT = ENV.fetch(
   "SECPAL_ANDROID_DIRECT_ROOT",
-  "/home/secpal/www/apk.secpal.app"
+  "/var/www/virtual/secpal/apk.secpal.app"
 )
 RELEASE_PATHS = SecPalAndroidPublishLock.release_paths(environment: ENV)
 DEFAULT_RELEASE_ENV_FILE = RELEASE_PATHS.fetch(:release_env_file)
