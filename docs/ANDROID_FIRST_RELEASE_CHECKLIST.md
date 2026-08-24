@@ -40,7 +40,7 @@ This checklist is the baseline for the first real SecPal Android release.
 - `VERSION`, `package.json`, and `package-lock.json` identify the visible release consistently
 - the shared UTC `YYYYMMDDXX` version code is above the local baseline, both Direct channels, and all configured Play tracks
 - Google Play credentials are available even for Direct publication
-- the release is running on the authorized SecPal VPS and the shared publishing lock is available
+- the release is running on the authorized local signing workstation, publishes direct APKs to Uberspace, and the shared publishing lock is available
 - upgrade path from older internal builds is understood
 - installation instructions for enterprise customers are prepared
 - DPC-related onboarding assumes the same app package and signature as the public app
