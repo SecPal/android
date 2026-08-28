@@ -69,7 +69,16 @@ public class AndroidPushIdentityStorageTest {
             } catch (TokenStorageException expected) {
                 assertTrue(expected.getCause() instanceof IllegalArgumentException);
             }
+            assertNull(
+                AndroidPushIdentityStorage.normalizeApiOrigin(invalidOrigin)
+            );
         }
+        assertEquals(
+            API_ORIGIN,
+            AndroidPushIdentityStorage.normalizeApiOrigin(
+                " HTTPS://Tenant-A.Example:443 "
+            )
+        );
     }
 
     @Test
@@ -306,6 +315,57 @@ public class AndroidPushIdentityStorageTest {
         assertTrue(restored.hasPendingRebind());
         assertEquals(NEXT_API_ORIGIN, restored.pendingRebindApiOrigin());
         assertEquals(AUTH_TOKEN, restored.pendingRebindAuthToken());
+    }
+
+    @Test
+    public void runtimeRebindPreparationRejectsAChangedBinding()
+        throws Exception {
+        AndroidPushIdentityStorage storage = createStorage(
+            new InMemorySharedPreferences()
+        );
+        AndroidPushIdentityStorage.State registered = registerCurrentIdentity(
+            storage
+        );
+
+        AndroidPushIdentityStorage.Snapshot stale = storage.snapshot();
+        storage.bindRuntime(NEXT_API_ORIGIN, 4, AUTH_TOKEN);
+        storage.clearPendingRevocation(
+            API_ORIGIN,
+            registered.installationId(),
+            AUTH_TOKEN
+        );
+
+        try {
+            storage.prepareRuntimeRebind(
+                "https://tenant-c.example",
+                AUTH_TOKEN,
+                stale
+            );
+            fail("Expected changed runtime binding failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalStateException);
+        }
+        try {
+            storage.retainCurrentRegistrationForRevocation(
+                AUTH_TOKEN,
+                false,
+                stale
+            );
+            fail("Expected changed runtime binding failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalStateException);
+        }
+        try {
+            storage.bindRuntime("https://tenant-c.example", 5, AUTH_TOKEN, stale);
+            fail("Expected changed runtime binding failure");
+        } catch (TokenStorageException expected) {
+            assertTrue(expected.getCause() instanceof IllegalStateException);
+        }
+
+        AndroidPushIdentityStorage.State current = storage.load();
+        assertEquals(NEXT_API_ORIGIN, current.apiOrigin());
+        assertFalse(current.hasPendingRebind());
+        assertNotEquals(registered.installationId(), current.installationId());
     }
 
     @Test
@@ -1181,7 +1241,8 @@ public class AndroidPushIdentityStorageTest {
 
                 @Override
                 public Editor putLong(String key, long value) {
-                    throw new UnsupportedOperationException();
+                    values.put(key, value);
+                    return this;
                 }
 
                 @Override
@@ -1209,7 +1270,14 @@ public class AndroidPushIdentityStorageTest {
 
         @Override
         public long getLong(String key, long defaultValue) {
-            throw new UnsupportedOperationException();
+            Object value = values.get(key);
+            if (value == null) {
+                return defaultValue;
+            }
+            if (!(value instanceof Long)) {
+                throw new ClassCastException(key + " is not a Long");
+            }
+            return (Long) value;
         }
 
         @Override

@@ -21,8 +21,11 @@ import java.security.NoSuchAlgorithmException;
  * Synchronizes one runtime-bound native FCM identity with its server installation.
  *
  * <p>This coordinator deliberately owns no revocation, runtime-rebind, logout, or
- * authentication-session transitions. Its publisher receives only abstract state;
- * registration identity and request data remain inside native collaborators.</p>
+ * authentication-session transitions. It only refuses to act on them: a caller
+ * authority is used exclusively against the origin that issued it, and any
+ * staged rebind suspends synchronization until its owning transaction is
+ * terminal. Its publisher receives only abstract state; registration identity
+ * and request data remain inside native collaborators.</p>
  */
 final class AndroidPushRegistrationCoordinator {
     enum LifecycleEvent {
@@ -289,7 +292,20 @@ final class AndroidPushRegistrationCoordinator {
         this.statusPublisher = statusPublisher;
     }
 
+    /**
+     * Synchronizes the bound identity with the origin that issued
+     * {@code registrationAuthority}.
+     *
+     * <p>{@code authorityApiOrigin} is the origin the caller authenticated
+     * against. The authority is only ever sent there, so a credential can never
+     * reach the origin of a superseded or not yet committed binding. Any staged
+     * rebind additionally suspends synchronization until its owning transaction
+     * reaches a terminal state, including a rebind that keeps the origin: the
+     * commit replaces and revokes the installation this request would target, so
+     * a response arriving afterwards would recreate a superseded server row.</p>
+     */
     synchronized Outcome synchronize(
+        String authorityApiOrigin,
         String registrationAuthority,
         NativeAuthHttpClient.CancellationSignal cancellation
     ) {
@@ -304,6 +320,15 @@ final class AndroidPushRegistrationCoordinator {
             attempt = storage.snapshot();
             candidate = attempt.state();
             if (attempt.tokenRotationRequired()) {
+                return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
+            }
+            if (candidate != null
+                && (!candidate.apiOrigin().equals(
+                        AndroidPushIdentityStorage.normalizeApiOrigin(
+                            authorityApiOrigin
+                        )
+                    )
+                    || candidate.hasPendingRebind())) {
                 return publish(Outcome.of(Outcome.Kind.RETRYABLE_FAILURE));
             }
             if (candidate == null || candidate.token() == null) {
