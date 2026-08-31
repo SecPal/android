@@ -34,7 +34,7 @@ permissions:
 jobs:
   auto-merge:
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@7792f97b8a274f4ddd19a4dbd166adcb142534de # main
+    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@47a3b9fa831f2139d3d2fdae2c9218918b42331d # main
     with:
       phase: "1" # Phase 1: Only PATCH updates auto-merge
       merge-method: "squash" # Use squash merge for cleaner history
