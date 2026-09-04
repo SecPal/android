@@ -103,7 +103,7 @@
     "parse5": "^8.0.1",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.67.0",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.11",
     "yaml": "^2.9.0",
     "yauzl": "3.4.0"
