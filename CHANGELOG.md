@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an explicit native Android push runtime-rebind transaction with a single
+  owning handle, single-terminal and idempotent commit and rollback, cold-start
+  recovery that resumes the staged transition or safely invalidates it, and
+  logout plus credential-replacement hooks that report typed cleanup outcomes
+  without invalidating any authentication session. Every transition takes a
+  caller credential together with the origin that issued it and refuses to act
+  when that origin is not the current binding, so a credential can never be
+  retained for, or sent to, an origin that did not produce it. Transitions apply
+  as a compare-and-set against the binding they were validated against, matching
+  the registration and revocation coordinators, and every staging carries a
+  durable generation, so a binding or staging that changes in between is detected
+  and a transition staged again for the same target is never mistaken for an
+  older handle, and clearing the identity permanently invalidates handles that
+  outlived it. A handle whose staging was erased can no longer commit, because
+  the retained cleanup authority is erased with it. Registration synchronization is suspended while any rebind is
+  staged, a logout or credential replacement never reports a completed cleanup
+  while its own registration is still live, and a completed or stale handle can
+  no longer revoke or rotate a newer registration (issue #617).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards
