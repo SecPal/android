@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added complete Dependabot coverage for active Gradle, Bundler, and pre-commit
+  manifests (issue #640).
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards
