@@ -17,34 +17,34 @@ permissions:
 jobs:
   reuse:
     name: Check REUSE Compliance
-    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
 
   license-compatibility:
     name: Check License Compatibility
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
 
   prettier:
     name: Formatting Check
-    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
 
   markdown-lint:
     name: Markdown Lint
-    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
 
   ai-instructions:
     name: AI Instructions
-    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
 
   eslint:
     name: ESLint
-    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
     with:
       node-version: "22"
 
   typecheck:
     name: TypeScript Check
-    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
     with:
       node-version: "22"
       build-command: "npm run typecheck"
