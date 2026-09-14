@@ -52,14 +52,14 @@ jobs:
     name: Project automation
     needs: check-project-automation-secrets
     if: needs.check-project-automation-secrets.outputs.available == 'true'
-    uses: SecPal/.github/.github/workflows/project-automation-core.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/project-automation-core.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
     secrets:
       APP_ID: ${{ secrets.APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 
   draft-reminder:
     name: Draft PR Reminder
-    uses: SecPal/.github/.github/workflows/draft-pr-reminder.yml@71f924762bef8ace1327060f4c82fcf0e7247706 # main
+    uses: SecPal/.github/.github/workflows/draft-pr-reminder.yml@3d08f411f42a819eb5a4262672591691b9e13818 # main
     permissions:
       issues: write
       pull-requests: write
