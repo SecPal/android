@@ -34,6 +34,11 @@ fnm install 22
 fnm use 22
 ```
 
+Regenerating launcher icons or splash assets with `npm run brand:sync` also
+requires ImageMagick. The script accepts the ImageMagick 7 `magick` command or
+the ImageMagick 6 `convert` command. Install it with `sudo dnf install
+ImageMagick` on Fedora or `sudo apt install imagemagick` on Debian and Ubuntu.
+
 The Android repository expects Java 21 and an Android SDK that is available under `~/Android/Sdk` unless you override it explicitly.
 
 Required SDK components:
@@ -201,6 +206,23 @@ npm run native:assemble:debug
 ./scripts/with-android-env.sh bash -lc 'adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk'
 ./scripts/with-android-env.sh bash -lc 'adb shell dpm set-device-owner app.secpal/.SecPalDeviceAdminReceiver'
 ```
+
+The current native provisioning flow accepts these managed configuration keys:
+
+- `secpal_kiosk_mode_enabled` enables dedicated-device kiosk policy.
+- `secpal_lock_task_enabled` controls lock task while kiosk policy is active and
+  defaults to enabled when omitted.
+- `secpal_allow_phone` and `secpal_allow_sms` expose compatible handlers from
+  the dedicated-device home surface.
+- `secpal_allowed_packages` adds packages to the managed launcher allowlist.
+- `secpal_prefer_gesture_navigation` requests gesture navigation, defaults to
+  enabled with kiosk mode, and may hand off to the official system navigation
+  screen when an OEM does not accept the managed setting directly.
+
+These controls have real policy authority only when SecPal is Device Owner or
+Profile Owner. The debug receiver described below can exercise the application
+surface on an unmanaged device, but it cannot grant owner privileges, persistent
+HOME routing, or lock task.
 
 Rollback path for the debug build:
 

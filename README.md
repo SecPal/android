@@ -5,325 +5,144 @@ SPDX-License-Identifier: CC0-1.0
 
 # SecPal Android
 
-Android app for SecPal — operations software for German private security services. Built with Capacitor on top of the shared web frontend from `../frontend`.
+> SecPal – A guard's best friend
 
-## Goals
+[![Quality Gates](https://github.com/SecPal/android/actions/workflows/quality.yml/badge.svg)](https://github.com/SecPal/android/actions/workflows/quality.yml)
+[![CodeQL](https://github.com/SecPal/android/actions/workflows/codeql.yml/badge.svg)](https://github.com/SecPal/android/actions/workflows/codeql.yml)
+[![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3+-blue.svg)](LICENSE)
 
-- Ship a secure SecPal mobile app for Android first
-- Keep iOS support possible via Capacitor without coupling Android-specific code into shared app logic
-- Prepare staged Android Enterprise support (DPC, profile owner/device owner flows)
+## About
 
-## Frontend Source of Truth
+SecPal supports professional security operations, including private security
+services, in-house security, plant protection (`Werkschutz`), corporate
+security (`Unternehmensschutz`), and comparable professional security
+organisations. This repository contains the native Android application shell
+for the main SecPal product.
 
-This repository does not maintain a separate production frontend implementation.
-Capacitor consumes the web build output from the sibling `frontend` repository:
+The app packages the shared React/TypeScript interface from
+[`SecPal/frontend`](https://github.com/SecPal/frontend) with Capacitor and adds
+the Android-specific integration and security boundaries required for a native
+application.
 
-- source: `../frontend`
-- web assets used by Capacitor: `../frontend/dist`
+## Repository responsibilities
 
-This keeps one single UI codebase and avoids divergence between web and mobile UI.
+This repository owns:
 
-The Android-specific responsibility in this repository is therefore limited to:
+- the Capacitor configuration and native Android project;
+- Android platform integration, permissions, and managed-device behavior;
+- native authentication, bearer-credential custody, and the authenticated
+  request boundary;
+- customer-instance discovery and native runtime binding;
+- native push integration bound to the selected deployment and signed-in user;
+- Android packaging, signing inputs, release artifacts, and publication tooling;
+  and
+- DPC registration, Device Owner/Profile Owner-aware managed-state handling,
+  and dedicated-device integration present in the native project.
 
-- Capacitor configuration
-- Native Android project files
-- DPC and Android Enterprise bridge code
-- Repo-local governance, CI, and validation
+The shared product UI and UX remain in `SecPal/frontend`. The Android shell
+consumes a pinned `android-native` frontend build and verifies its build metadata
+before packaging it. Server authentication, authorization, tenant isolation,
+and business behavior belong to `SecPal/api`; public schemas belong to
+`SecPal/contracts`; infrastructure and self-hosting belong to
+`SecPal/deployment`.
 
-## Authentication Boundary
+Native code and tests establish which managed-device capabilities are shipped.
+The Android Enterprise roadmap records planned direction; it does not by itself
+establish that a capability is implemented.
 
-The shared UI codebase does **not** imply shared authentication mechanics.
+## Native security and trust boundaries
 
-- **Web / PWA:** session-based Laravel Sanctum SPA auth with httpOnly cookies and CSRF
-- **Android app:** native bearer-token auth via `POST /v1/auth/token`
+The Android wrapper is a security boundary, not only a packaging layer:
 
-Android bearer tokens must be stored in Android-native secure storage and must never be persisted in JavaScript-accessible storage such as `localStorage`, `sessionStorage`, IndexedDB, cookies, or Capacitor `Preferences`.
+- Android bearer credentials remain under native custody and are encrypted with
+  an Android Keystore-backed key rather than exposed to WebView storage.
+- The WebView-to-native bridge constrains origin, frame, plugin, and authenticated
+  request access. Shared frontend code does not make browser-session and Android
+  authentication mechanics identical.
+- Customer-instance discovery, runtime confirmation, switching, and reset cross
+  a native trust boundary so credentials, browser state, and tenant-bound state
+  cannot be silently rebound.
+- Native push identity and registration are bound to the confirmed runtime and
+  authenticated user context.
+- Platform permissions, endpoint trust policy, packaged web assets, and signed
+  APK/AAB artifacts are validated at Android-specific boundaries.
+- Debug builds permit local inspection and controlled test hooks; release builds
+  disable WebView debugging and protect sensitive activity screenshots.
 
-See `docs/ANDROID_AUTH_ARCHITECTURE.md` for the mandatory long-term Android auth design and the prohibited shortcuts.
+Detailed invariants and operational procedures live in the focused documents
+below.
 
-## Binding To A Customer Deployment
+## Technology
 
-The shipped Android app is generic. It does not assume a default SecPal production API origin at login time.
+- Capacitor and the shared React/TypeScript frontend
+- Native Android/Java with Gradle
+- Android Keystore-backed credential encryption
+- Firebase Cloud Messaging initialized from confirmed deployment metadata
+- Fastlane-based release tooling
 
-To bind the app to a customer-hosted deployment:
+## Quick start
 
-1. Ask your supervisor for the secure HTTPS instance URL.
-2. Open the app. The discovery gate appears before login.
-3. Enter the instance URL and select the preferred language if needed.
-4. Tap `Check instance`. The app calls the public `GET /v1/bootstrap` endpoint, validates compatibility, and shows the resolved instance name.
-5. Tap `Continue to login` only after the shown instance matches the expected customer deployment.
-
-The app stores the canonical API origin returned by bootstrap only after this confirmation step. If the deployment must be changed later, use the instance hint below the passkey button on the login screen. Confirming that reset clears local sign-in state, offline data, and cached tenant state on the device before returning to discovery.
-
-After a deployment is confirmed, runtime restore after restart is driven by the native runtime-bootstrap payload through `SecPalNativeAuthBridge.getRuntimeBootstrap()`. The Android WebView no longer restores or confirms a deployment from browser session storage, a legacy `apiOrigin`-only payload, `SecPalNativeAuth.setApiBaseUrl(...)`, or a baked-in production origin. Runtime selection and reset require a single-use native confirmation through `SecPalNativeAuth.confirmRuntimeBootstrap(...)` or `SecPalNativeAuth.confirmRuntimeReset()`; the dialog identifies the natively validated canonical API origin, and the obsolete raw setters are not exported. An approved reset removes native bootstrap persistence, tenant-scoped credentials and browser state, retained Android push state, and injected runtime state before discovery appears again. It also best-effort revokes the push installation and authenticated server session against that confirmed origin. A persisted browser marker completes tenant-state cleanup after an interrupted reset. Cancelling the confirmation or failing native teardown leaves the existing JavaScript runtime binding and tenant browser state unchanged.
-
-Use the customer-facing instance URL that the user received, not a copied API path such as `/v1/...`. If onboarding links are distributed centrally, the Android discovery gate can also consume `instance_url`, `server_url`, or `bootstrap_url` query parameters, but the same bootstrap validation and confirmation still happens before login.
-
-For the current SecPal live deployment, the bootstrap/input host is `https://api.secpal.dev`. `https://app.secpal.dev` remains the browser frontend host and does not currently expose `GET /v1/bootstrap` for Android runtime binding.
-
-When the validated bootstrap enables `features.notification_channels.android_fcm`, the generic app initializes a deployment-scoped native Firebase runtime named `secpal-runtime-push` from `notification_channels.android_fcm.public_runtime_metadata`. It does not fall back to a bundled `google-services.json`, a SecPal-owned sender configuration, or token events emitted by another Firebase app instance.
-
-The native shell requests the FCM token on-device, but the authenticated device binding is created only after native login succeeds against the selected customer API. The app then registers `PUT /v1/me/push-devices/{installationId}` on that canonical API origin, updates the same binding when the token rotates, and revokes it on logout or `Log out and switch instance` before clearing local runtime state. If that authenticated registration later fails with `409 NOTIFICATION_RUNTIME_STATE_INVALID` or `409 NOTIFICATION_CHANNEL_UNSUPPORTED`, the app clears the selected runtime and tenant-scoped browser state before returning to discovery so stale push metadata cannot survive a deployment switch.
-
-For operator validation on a real device, confirm the app binds to the intended customer instance, login triggers the push-device registration on the customer API host, logout or instance reset revokes that registration, and no push traffic falls back to any SecPal-owned API or legacy Firebase setup.
-
-## Local Setup
+Local development requires Node.js 22 or later, npm 10 or later, Java 21, and an
+Android SDK. By default, the repository expects `SecPal/frontend` as a sibling
+checkout. Check out the exact frontend revision recorded in
+[`android/frontend-revision.txt`](android/frontend-revision.txt) before syncing.
 
 ```bash
 npm ci
 npm --prefix ../frontend ci
-```
-
-If you need to regenerate launcher icons or splash assets with `npm run brand:sync`, install ImageMagick first so its `magick` (version 7) or `convert` (version 6) CLI is available in your shell.
-
-For Fedora-based local builds, keep the Android toolchain available in your shell:
-
-```bash
-source ~/.zshrc
-java -version
-sdkmanager --version
-```
-
-On Fedora, install the required binary with `sudo dnf install ImageMagick`. On Debian or Ubuntu, use `sudo apt install imagemagick`.
-
-Install Git hooks after cloning:
-
-```bash
-./scripts/setup-pre-commit.sh
-./scripts/setup-pre-push.sh
-```
-
-See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
-
-For a repeatable live-device login smoke against the real WebView DOM, forward the current debug WebView socket and run the repo-owned smoke script with test credentials:
-
-```bash
-adb shell cat /proc/net/unix | grep webview_devtools_remote
-adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>
-SECPAL_TEST_EMAIL=test@example.com \
-SECPAL_TEST_PASSWORD=password \
-npm run test:live:webview-auth-smoke
-```
-
-The script keeps the configured runtime (or completes discovery first when needed), fills the React-controlled login form through the DOM, waits for native auth completion, and then verifies the authenticated Android push registration sync for the selected deployment when the login WebView already has a hydrated Android push token. Override `SECPAL_RUNTIME_URL`, `SECPAL_WEBVIEW_DEVTOOLS_URL`, or `SECPAL_WEBVIEW_TARGET_PATTERN` if your test target differs. If the app restarts and the `webview_devtools_remote_<pid>` socket changes, redo the `adb forward` step before rerunning the smoke command. The logout `/` -> `/login` reroute path from issue `#248` is covered by this smoke when the WebView starts from a fresh logged-out, unsynced state: the script now aborts if native auth or push sync already completed before the DOM login step, so a green run proves a fresh rehydrate-plus-login-plus-sync transition instead of reusing stale session state.
-
-## Capacitor Setup
-
-```bash
-npm run cap:add:android
-npm run cap:sync
-npm run cap:open:android
-```
-
-`npm run cap:sync` automatically builds the shared frontend through its
-`android-native` surface, verifies its deterministic `build-metadata.json`, and
-packages the native-auth bootstrap as a content-hashed same-origin JavaScript
-asset before the application module. The generated document keeps the
-frontend's self-only script CSP and contains no executable inline script.
-
-The generated native Android project is committed in this repository and validated by the local test suite.
-
-## Native Android Builds
-
-Debug APK:
-
-```bash
 npm run cap:sync
 npm run native:assemble:debug
 ```
 
-Release artifacts without Play Store publishing:
-
-```bash
-npm run native:assemble:release
-npm run native:bundle:release
-```
-
-Release builds always keep screenshot protection enabled on the visible SecPal activities and do not enable WebView debugging. Use debug builds when you need local WebView inspection during device testing.
-
-Signed release artifacts with a local upload key:
-
-```bash
-bash ./scripts/setup-android-release-keystore.sh
-SECPAL_ANDROID_VERSION_CODE=2026072201 \
-  npm run native:assemble:release:signed
-SECPAL_ANDROID_VERSION_CODE=2026072201 \
-  npm run native:bundle:release:signed
-```
-
-Fastlane can drive the same local signing flow and optionally upload the signed AAB to the Google Play internal testing track:
-
-```bash
-npm run fastlane:install
-npm run fastlane:android:sync:play-assets
-npm run fastlane:android:validate:play-assets
-SECPAL_ANDROID_VERSION_CODE=2026072201 \
-  npm run fastlane:android:build:signed-aab
-SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  npm run fastlane:android:deploy:internal
-SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  npm run fastlane:android:deploy:internal:with-metadata
-SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  npm run fastlane:android:deploy:direct-apk
-SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
-  npm run fastlane:android:deploy:direct-apk:beta
-```
-
-`VERSION` is the only visible app-version source and currently contains `0.1.0`; `npm run version:check` verifies its SemVer syntax, including numeric prerelease rules, and confirms that both npm metadata files match it. `SECPAL_ANDROID_VERSION_NAME` is obsolete and ignored.
-Publishing lanes reserve a UTC `YYYYMMDDXX` code from `01` through `99` after reading the local baseline, Direct Stable, Direct Beta, and the configured Google Play tracks. `SECPAL_ANDROID_DEPLOY_VERSION_CODE` is the only manual publishing override. `SECPAL_ANDROID_VERSION_CODE` is only the temporary Gradle value; signed build-only commands require it explicitly and never reuse the published baseline.
-`fastlane:android:sync:play-assets` imports curated texts, screenshots, and localized graphics from `./.local/play-assets` by default, or from `SECPAL_ANDROID_PLAY_ASSETS_SOURCE` when set, into `fastlane/metadata/android`, normalizing the icon to a Play-safe `512x512` canvas on the way.
-`fastlane:android:validate:play-assets` checks the copied assets for required text limits, image sizes, screenshot counts, promotion-eligibility sizing, Play-safe preview image color modes, and screenshot aspect-ratio limits before a Play upload.
-Every repository-provided signed release build command verifies that the signed APK and AAB embed the canonical schema-4 Android bridge before either artifact can reach a direct-download or Google Play upload step.
-`deploy_internal_with_metadata` uploads the signed AAB together with the local `fastlane/metadata/android` store-listing payload and auto-materializes localized versioned Play changelogs from `fastlane/metadata/android/*/changelogs/default.txt` when the exact `versionCode` file is still missing.
-`deploy_direct_apk` publishes the stable signed APK to `https://apk.secpal.app/android/stable/latest.json`, `https://apk.secpal.app/android/stable/app.secpal-latest.apk`, and `https://apk.secpal.app/android/stable/SHA256SUMS.txt`, refreshes the stable aliases at `https://apk.secpal.app/android/latest.json`, `https://apk.secpal.app/android/app.secpal-latest.apk`, and `https://apk.secpal.app/android/SHA256SUMS.txt`, and keeps versioned copies under `https://apk.secpal.app/android/releases/{version}/...`.
-`deploy_direct_apk_beta` and `npm run fastlane:android:deploy:direct-apk:beta` publish the same signed APK to the beta channel under `https://apk.secpal.app/android/beta/...` without touching the stable aliases.
-Direct Stable/Beta deploys share the canonical remote artifact-root lock from version selection through publication, so one deploy cannot race another. An ungraceful process or host termination can leave the empty `${SECPAL_ANDROID_DIRECT_ROOT}.release.lock` directory behind; after verifying that no direct release mutation is still running, remove only that empty directory with `rmdir` before retrying.
-Direct channel endpoints are therefore:
-
-- `https://apk.secpal.app/android/stable/latest.json`
-- `https://apk.secpal.app/android/stable/app.secpal-latest.apk`
-- `https://apk.secpal.app/android/stable/SHA256SUMS.txt`
-- `https://apk.secpal.app/android/latest.json`
-- `https://apk.secpal.app/android/app.secpal-latest.apk`
-- `https://apk.secpal.app/android/SHA256SUMS.txt`
-- `https://apk.secpal.app/android/beta/latest.json`
-- `https://apk.secpal.app/android/beta/app.secpal-latest.apk`
-- `https://apk.secpal.app/android/beta/SHA256SUMS.txt`
-
-Release signing and version-code state use these environment variables:
-
-- `SECPAL_ANDROID_CONFIG_DIR` to replace the default `~/.config/secpal` release context
-- `SECPAL_ANDROID_RELEASE_ENV_FILE` to select an explicit release env file
-- `SECPAL_ANDROID_LAST_PUBLISHED_VERSION_CODE` for the local successfully published baseline
-- `SECPAL_ANDROID_DEPLOY_VERSION_CODE` for an optional publishing override
-- `SECPAL_ANDROID_VERSION_CODE` for one explicit build-only invocation or Fastlane's temporary Gradle value
-- `SECPAL_ANDROID_KEYSTORE_PATH`
-- `SECPAL_ANDROID_KEYSTORE_PASSWORD`
-- `SECPAL_ANDROID_KEY_ALIAS`
-- `SECPAL_ANDROID_KEY_PASSWORD`
-
-Every Fastlane publishing lane, including Direct Stable and Direct Beta, expects:
-
-- `SECPAL_ANDROID_PLAY_JSON_KEY_PATH`
-
-Direct APK upload defaults to `SECPAL_ANDROID_DIRECT_SSH_HOST=secpal-uberspace`
-and `/var/www/virtual/secpal/apk.secpal.app` on Uberspace. The local signing
-workstation therefore needs an SSH configuration entry named
-`secpal-uberspace`. Override either setting only for a deliberate alternate
-publication target:
-
-- `SECPAL_ANDROID_DIRECT_SSH_HOST`
-- `SECPAL_ANDROID_DIRECT_ROOT` when the target root differs from `/var/www/virtual/secpal/apk.secpal.app`
-- `SECPAL_ANDROID_DIRECT_CHANNEL` when you want to publish to `beta` instead of the default `stable`
-
-Samsung managed-device hard-key partner metadata can also be injected through environment variables when your Knox distribution path provides those values:
-
-- `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA`
-- `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA`
-
-If those variables are unset, SecPal keeps the manifest entries present with empty values so the Android wrapper stays buildable across non-Samsung and local development flows.
-
-The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts. `SECPAL_ANDROID_CONFIG_DIR` changes the default release directory, while an explicit `SECPAL_ANDROID_RELEASE_ENV_FILE` takes precedence. The loader exports the exact file it selected so Fastlane reads and persists that same release context even if loaded values alter `HOME`. Fastlane keeps one runner-account-wide lock at `~/.config/secpal/android-publish.lock`, resolved from the operating-system account rather than the selected release env or process `HOME`, and creates its missing directory with mode `700`. The loader migrates an old `SECPAL_ANDROID_VERSION_CODE` baseline in memory, warns about and removes `SECPAL_ANDROID_VERSION_NAME` from the child environment, and never rewrites the file.
-For Fastlane-based Play deployment, keep the Play service-account JSON outside the repository as well, for example at `~/.config/secpal/google-play-service-account.json`.
-
-See `docs/ANDROID_RELEASE_DISTRIBUTION.md` for the distribution split between direct APK delivery and Google Play.
-See `docs/ANDROID_KEYSTORE_BACKUP_AND_RECOVERY.md` for the backup and recovery baseline for the Android upload key.
-See `docs/ANDROID_FIRST_RELEASE_CHECKLIST.md` for the first direct-download and Play Store release gate.
-See `docs/ANDROID_PLAY_CONSOLE_SETUP.md` for the concrete Play Console setup flow.
-See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for real-device installation and local validation on Fedora/Linux.
-
-The current release baseline uses:
-
-- public app name: `SecPal`
-- public developer or publisher name: `SecPal`
-- application ID: `app.secpal` (Android identifier only, not a web domain)
-- technical Android contact: `android@secpal.app`
-- public support contact: `support@secpal.app`
-
-## Quality Gates
-
-Run the same baseline checks as other SecPal repositories:
+`cap:sync` builds the pinned `android-native` frontend surface, verifies its
+consumer-side build metadata, installs the maintained native bridge asset, and
+synchronizes the committed Android project. Run the maintained local validation
+entry point with:
 
 ```bash
 ./scripts/preflight.sh
 ```
 
-The preflight script blocks direct pushes from `main`, runs formatting and governance checks, and executes lint, typecheck, tests, and native Android consistency checks.
+See [local and physical-device testing](docs/ANDROID_LOCAL_DEVICE_TESTING.md)
+for workstation setup, APK installation, WebView smoke testing, and managed
+device procedures.
 
-## Licensing
+## Documentation
 
-SecPal-owned AGPL-covered files use `AGPL-3.0-or-later`.
+| Intent                                                                  | Authority                                                                                                                                       |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Android authentication and native credential boundary                   | [Android authentication architecture](docs/ANDROID_AUTH_ARCHITECTURE.md)                                                                        |
+| Customer-instance discovery, runtime binding, reset, and push bootstrap | [Android runtime bootstrap contract](docs/ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md)                                                                |
+| Workstation, WebView, physical-device, and dedicated-device testing     | [Local Android device testing](docs/ANDROID_LOCAL_DEVICE_TESTING.md)                                                                            |
+| Future Android Enterprise and DPC direction                             | [Android Enterprise roadmap](docs/ANDROID_ENTERPRISE_ROADMAP.md)                                                                                |
+| Build, signing, Fastlane, Google Play, and direct APK distribution      | [Android release and distribution](docs/ANDROID_RELEASE_DISTRIBUTION.md) and [first release checklist](docs/ANDROID_FIRST_RELEASE_CHECKLIST.md) |
+| Google Play account and publication setup                               | [Android Play Console setup](docs/ANDROID_PLAY_CONSOLE_SETUP.md)                                                                                |
+| Upload-key backup and recovery                                          | [Android keystore backup and recovery](docs/ANDROID_KEYSTORE_BACKUP_AND_RECOVERY.md)                                                            |
 
-Official SecPal product surfaces retain their intentional `Powered by SecPal – A guard's best friend` branding. This branding is not an additional license condition.
+## Related repositories
 
-## Roadmap
+- [`SecPal/frontend`](https://github.com/SecPal/frontend) — shared
+  React/TypeScript UI and the `android-native` web artifact.
+- [`SecPal/api`](https://github.com/SecPal/api) — server authentication,
+  authorization, persistence, and business behavior.
+- [`SecPal/contracts`](https://github.com/SecPal/contracts) — public OpenAPI
+  contract shared by clients and the API.
+- [`SecPal/deployment`](https://github.com/SecPal/deployment) — integration,
+  infrastructure, self-hosting, and deployment authority.
 
-See `docs/ANDROID_ENTERPRISE_ROADMAP.md` for the staged approach to DPC and admin capabilities.
+## Contributing
 
-The current product decision is to keep DPC-related capability inside the same `SecPal` app, with behavior depending on installation path and managed state rather than a separate Android package.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md) before contributing. Use the repository's
+maintained validation and signed, issue-first delivery workflow.
 
-## Dedicated Device Mode
+## Security
 
-The same `SecPal` app can now run in two modes:
+Do not report vulnerabilities in public issues. Follow the private reporting
+process in [SECURITY.md](SECURITY.md).
 
-- normal Android app behavior when it is installed later on an already-running device without owner provisioning
-- dedicated-device behavior when the app is provisioned as the device policy controller during fully managed setup
+## License
 
-In dedicated-device mode, SecPal applies native Android policy from the DPC side instead of relying on the web layer:
-
-- SecPal becomes the persistent home activity for the device
-- a dedicated native home screen shows only approved apps such as SecPal, compatible Phone/SMS handlers, and other allowlisted packages in a homescreen-like icon grid
-- kiosk lock-task mode is entered automatically when policy enables it
-- launchable apps outside the allowlist are hidden from the launcher surface
-- status-bar shortcuts and common device-configuration surfaces are disabled while dedicated-device kiosk policy is active, and common Settings intents are redirected back to the managed home screen so users cannot pivot into Settings and change system state
-- SecPal itself remains the normal app experience when launched from that managed home screen
-
-The currently supported provisioning and managed-configuration keys are:
-
-- `secpal_kiosk_mode_enabled`: enable dedicated-device kiosk enforcement
-- `secpal_lock_task_enabled`: keep Android lock task active inside dedicated-device mode; set this to `false` only when SecPal should still act as the managed home screen but users should be able to move normally between allowed apps. If you omit this flag, SecPal keeps lock task enabled by default, including the Phone/SMS dedicated-device case.
-- `secpal_allow_phone`: allow launching a compatible dialer from the dedicated-device shell when Android exposes one on the device
-- `secpal_allow_sms`: allow launching a compatible SMS app from the dedicated-device shell when Android exposes one on the device
-- `secpal_prefer_gesture_navigation`: prefer gesture navigation for dedicated-device provisioning; if you omit this flag, SecPal now defaults it to `true` when kiosk mode is enabled and tries to apply gesture navigation during provisioning, falling back to the official system navigation screen on first launch when a device does not accept the managed settings silently
-- `secpal_allowed_packages`: additional package allowlist as a string array or comma-separated list
-
-If the app is not device owner or profile owner, these controls stay inactive and the package behaves like a normal Android application.
-
-For local dedicated-device testing, the debug variant is intentionally marked as a `testOnly` app. That keeps one important rollback path open: if you assign the debug build as device owner through `adb shell dpm set-device-owner`, you can remove it again with `adb shell dpm remove-active-admin app.secpal/.SecPalDeviceAdminReceiver` instead of being forced into a factory reset every time.
-
-That safety net is for debug testing only. Release builds must not rely on it.
-
-For debug-only kiosk testing on a real device, you can also inject enterprise policy locally over ADB without rebuilding the app around provisioning extras. The debug receiver accepts:
-
-- `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY`
-- `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`
-
-Example to enable the strict kiosk case with only SecPal visible:
-
-```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    app.secpal
-```
-
-On an unmanaged debug device, relaunching the app after that broadcast opens the dedicated-device home activity and exposes the configured kiosk tiles inside SecPal, but it does not grant real Android device-owner lock task or persistent HOME routing.
-
-Example to clear the debug policy again:
-
-```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal
-```
-
-Example to keep SecPal as the managed home screen but allow normal switching among approved apps:
-
-```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    --ez secpal_lock_task_enabled false \
-    --es secpal_allowed_packages 'com.example.approvedapp' \
-    app.secpal
-```
-
-The Android wrapper keeps the gesture-navigation settings hand-off inside the native provisioning flow instead of exposing lock-task exit to WebView JavaScript. Android does not offer a portable public API that lets SecPal silently force that OEM-specific system setting by itself, so devices that require the OEM settings UI are handled only during the provisioning hand-off.
-
-During dedicated-device provisioning, SecPal now also tries to apply the gesture-navigation preference automatically as part of the provisioning flow itself. On devices where Android accepts the managed secure/global settings directly, no extra user step is required. On devices that still insist on the OEM navigation settings UI, SecPal marks that setup as pending and opens the official gesture-navigation screen automatically on the first managed launch after provisioning so the remaining step still happens inside the provisioning hand-off instead of later from an app menu.
+Repository-owned code is licensed under `AGPL-3.0-or-later` where indicated.
+File-level SPDX and [REUSE](REUSE.toml) metadata are authoritative; see
+[LICENSE](LICENSE) for the license text.
