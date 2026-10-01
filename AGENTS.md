@@ -145,9 +145,38 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Finish the bounded review and evidence stop condition before publishing the
   completed branch.
 - The first PR state must be draft. Do not open a normal PR first.
-- Mark a draft PR ready only after the bounded review, remediation, and
-  delta-only verification satisfy the delivery contract.
+- Mark a draft PR ready when the maintained lifecycle authorizes external
+  review and the required local self-review and validation are complete.
 - When creating or editing PRs programmatically, write multi-line body content to a file and use `--body-file` to prevent shell escaping issues.
+
+### Initial Automated Review
+
+The following declarations govern ordinary delivery PR review acquisition;
+they do not grant readiness or review authority beyond the maintained lifecycle.
+
+- `PRIMARY_AUTOMATED_REVIEW_TRIGGER: DRAFT_TO_READY`
+- `PRIMARY_CODEX_COMMENT_TRIGGER_ALLOWED: NO`
+- `POST_READY_BOUNDED_COMMENT_FALLBACK: YES`
+
+Create every ordinary delivery PR as Draft. When the maintained lifecycle and
+current authority permit external review, perform the authenticated
+`Draft -> Ready for Review` transition. That transition is the canonical primary
+trigger for configured automatic Code and Security reviews. After Ready, observe
+automatic provider startup and terminality.
+
+Agents MUST NOT use `@codex review` or `@codex security review` as the primary
+initial review trigger, post either command while an ordinary delivery PR is
+still Draft merely because review is needed, or substitute a review-request
+comment for the required Ready transition. The ordinary delivery lifecycle MUST
+NOT require a human review-request comment.
+
+Either command is permitted only as a bounded post-Ready fallback when ALL are
+true: the PR is already authentically Ready; automatic startup for that exact
+review type has not appeared within the maintained observation window; current
+lifecycle authority permits the fallback; and no fallback for that review type
+has already been consumed. Allow at most one Code fallback request and one
+Security fallback request. A fallback creates neither another review cycle nor
+new authority.
 
 ## Required Validation
 
@@ -162,7 +191,9 @@ At minimum verify:
 - in-contract defects were resolved and outside-contract discoveries were
   classified by the canonical materiality threshold
 - `CHANGELOG.md` was updated for real changes
-- commits are GPG-signed
+- Local commits must be SSH-signed, not GPG/OpenPGP-signed. Preserve the
+  existing SSH signing identity and configuration; never bypass signing.
+  Every PR commit must have GitHub `verification.verified == true`.
 - REUSE compliance was checked when changed files require it
 - when a fix alters observable behavior, state lifecycle, error handling, or security constraints, the corresponding tests were identified and updated in the same commit
 - before pushing behavioral or security-critical changes, affected tests were run locally by invoking the relevant test runner directly
