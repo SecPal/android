@@ -13,7 +13,7 @@ We welcome contributions to SecPal! Please read our [Code of Conduct](CODE_OF_CO
 
 Ensure you have the following tools installed:
 
-- **Git** with GPG signing configured
+- **Git** with SSH signing configured
 - **Node.js** (v22.x) and npm
 - **Java 21** for Android/Gradle tooling
 - **Android Studio** and Android SDK for native development
@@ -112,7 +112,7 @@ These exclusions are configured in `.preflight-exclude` and match the GitHub CI 
 2. **Create a feature branch** using our naming convention (see below).
 3. **Write your code** and add tests where applicable.
 4. **Ensure all tests pass** locally by running `./scripts/preflight.sh`.
-5. **Sign your commits** with GPG (see below).
+5. **Sign your commits** with SSH (see below).
 6. **Push your branch** and open a pull request against `main`.
 
 All pull requests must target `main`. Direct pushes to `main` are blocked locally and should also be blocked by GitHub branch protection.
@@ -340,24 +340,27 @@ Closes #123"
 
 ## Signing Commits
 
-All commits must be signed with GPG. To set up commit signing:
+SecPal uses SSH signing, not GPG/OpenPGP. Follow the
+[canonical signing authority](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#532-signing-authority)
+for commits and role-specific lifecycle, attestation and publication signers.
+
+Preserve the existing SSH signing identity and configuration. Do not replace
+keys, reuse a transport key as a signing credential, disable signing, or switch
+to another signature format. If the required SSH identity is unavailable, stop
+at that credential boundary rather than provisioning an alternative.
+
+Verify local commits with the maintained SSH trust configuration:
 
 ```bash
-# Generate a GPG key (if you don't have one)
-gpg --gen-key
-
-# List your GPG keys
-gpg --list-secret-keys --keyid-format LONG
-
-# Configure Git to use your key
-git config --global user.signingkey <YOUR_KEY_ID>
-git config --global commit.gpgSign true
-
-# Add your GPG key to GitHub
-gpg --armor --export <YOUR_KEY_ID>
-# Copy the entire output (including the BEGIN and END PGP PUBLIC KEY BLOCK lines)
-# and paste it into GitHub under Settings → SSH and GPG keys → New GPG key.
+git config --get gpg.format
+git verify-commit HEAD
 ```
+
+The configured format must be `ssh`; Git's `gpg.format` option name does not
+mean GPG/OpenPGP is used. Every PR commit must satisfy the maintained GitHub
+Verified gate. GitHub-generated PGP signatures and strictly necessary immutable
+historical verification are provider/history evidence, never new SecPal signing
+authority.
 
 ## Pull Request Guidelines
 

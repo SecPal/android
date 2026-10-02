@@ -5,6 +5,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # SecPal/android Copilot Instructions
 
+## Canonical Review And Signing
+
+Apply `AGENTS.md` and the organization-wide [review-acquisition rule](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#531-initial-automated-review)
+and [SSH signing authority](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#532-signing-authority).
+This compatibility mirror defines no separate lifecycle or signing authority.
+
 This file mirrors the authoritative root `AGENTS.md` for tooling
 that automatically loads `.github/copilot-instructions.md`.
 Edit `AGENTS.md` first. Keep the focused overlay files aligned
@@ -148,8 +154,8 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Finish the bounded review and evidence stop condition before publishing the
   completed branch.
 - The first PR state must be draft. Do not open a normal PR first.
-- Mark a draft PR ready only after the bounded review, remediation, and
-  delta-only verification satisfy the delivery contract.
+- Mark a draft PR ready when the maintained lifecycle authorizes external
+  review and the required local self-review and validation are complete.
 - When creating or editing PRs programmatically, write multi-line body content to a file and use `--body-file` to prevent shell escaping issues.
 
 ## Required Validation
@@ -165,7 +171,7 @@ At minimum verify:
 - in-contract defects were resolved and outside-contract discoveries were
   classified by the canonical materiality threshold
 - `CHANGELOG.md` was updated for real changes
-- commits are GPG-signed
+- new SecPal commits are SSH-signed and every PR commit is GitHub Verified
 - REUSE compliance was checked when changed files require it
 - when a fix alters observable behavior, state lifecycle, error handling, or security constraints, the corresponding tests were identified and updated in the same commit
 - before pushing behavioral or security-critical changes, affected tests were run locally by invoking the relevant test runner directly
