@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2026 SecPal
+SPDX-FileCopyrightText: 2026 SecPal Contributors
 SPDX-License-Identifier: CC0-1.0
 -->
 
@@ -381,6 +381,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without weakening the corresponding release restriction.
 
 ### Changed
+
+- Separated privileged Android owner-policy enforcement into `DpcPolicyEnforcer`
+  from Work-side managed-state presentation, app launching, navigation, and
+  already-authorized lock-task use. Shared policy derivation remains single-owned;
+  admin callbacks and Android lifecycle wiring enforce management policy without
+  granting business authority or changing the `app.secpal` identity, signing, or
+  distribution (issue #711).
 
 - Migrated the authoritative AI instruction files to plain
   `AGPL-3.0-or-later` metadata, aligned their licensing, REUSE, copyright, and

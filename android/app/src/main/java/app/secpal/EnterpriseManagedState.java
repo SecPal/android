@@ -5,6 +5,7 @@
 
 package app.secpal;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ProviderInfo;
@@ -183,7 +184,7 @@ public final class EnterpriseManagedState {
             return resolveInfo.activityInfo.packageName;
         }
 
-        android.content.ComponentName fallbackComponent = EnterprisePolicyController.resolveFirstComponent(
+        ComponentName fallbackComponent = resolveFirstComponent(
             packageManager.queryIntentActivities(intent, 0)
         );
 
@@ -192,5 +193,24 @@ public final class EnterpriseManagedState {
         }
 
         return fallbackComponent.getPackageName();
+    }
+
+    static ComponentName resolveFirstComponent(List<ResolveInfo> resolveInfos) {
+        if (resolveInfos == null) {
+            return null;
+        }
+
+        for (ResolveInfo resolveInfo : resolveInfos) {
+            if (resolveInfo == null
+                || resolveInfo.activityInfo == null
+                || resolveInfo.activityInfo.packageName == null
+                || resolveInfo.activityInfo.name == null) {
+                continue;
+            }
+
+            return new ComponentName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name);
+        }
+
+        return null;
     }
 }

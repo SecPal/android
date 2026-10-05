@@ -19,8 +19,8 @@ public class DebugEnterprisePolicyReceiver extends BroadcastReceiver {
         String action = intent.getAction();
 
         if (ACTION_CLEAR_POLICY.equals(action)) {
-            EnterprisePolicyController.clearDebugPolicy(context);
-            EnterprisePolicyController.syncPolicy(context);
+            DpcPolicyEnforcer.clearDebugPolicy(context);
+            DpcPolicyEnforcer.syncPolicy(context);
             return;
         }
 
@@ -30,7 +30,7 @@ public class DebugEnterprisePolicyReceiver extends BroadcastReceiver {
 
         Bundle extras = intent.getExtras();
 
-        EnterprisePolicyController.persistDebugPolicy(context, extras == null ? Bundle.EMPTY : extras);
-        EnterprisePolicyController.syncPolicy(context);
+        DpcPolicyEnforcer.persistDebugPolicy(context, extras == null ? Bundle.EMPTY : extras);
+        DpcPolicyEnforcer.syncPolicy(context);
     }
 }

@@ -1345,7 +1345,7 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "EnterprisePolicyController.java"
+      "DpcPolicyEnforcer.java"
     );
     const buildGradle = readRepoFile("android", "app", "build.gradle");
 
@@ -1538,7 +1538,7 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "EnterprisePolicyController.java"
+      "DpcPolicyEnforcer.java"
     );
 
     expect(policyController).toContain(
@@ -1807,6 +1807,26 @@ describe("Android native hardening", () => {
       "secpal",
       "SystemNavigationController.java"
     );
+    const policyEnforcer = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "DpcPolicyEnforcer.java"
+    );
+    const navigationSettings = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "SystemNavigationSettings.java"
+    );
     const injector = readRepoFile("scripts", "inject-native-auth-bridge.mjs");
 
     expect(changelog).not.toContain(
@@ -1815,7 +1835,7 @@ describe("Android native hardening", () => {
     expect(plugin).not.toContain("openGestureNavigationSettings");
     expect(plugin).toContain("gestureNavigationEnabled");
     expect(plugin).toContain("gestureNavigationSettingsAvailable");
-    expect(navigationController).toContain(
+    expect(policyEnforcer).toContain(
       "applyProvisioningGestureNavigationIfRequested"
     );
     expect(navigationController).toContain(
@@ -1826,17 +1846,17 @@ describe("Android native hardening", () => {
       "managedState.isPreferGestureNavigation()"
     );
     expect(navigationController).toContain(
-      "EnterprisePolicyController.temporarilyExitLockTask(activity)"
+      "EnterprisePolicyClient.temporarilyExitLockTask(activity)"
     );
     expect(navigationController).toContain(
-      "EnterprisePolicyController.maybeEnterLockTask(activity)"
+      "EnterprisePolicyClient.maybeEnterLockTask(activity)"
     );
-    expect(navigationController).toContain("setSecureSetting(");
-    expect(navigationController).toContain("setGlobalSetting(");
-    expect(navigationController).toContain(
+    expect(policyEnforcer).toContain("setSecureSetting(");
+    expect(policyEnforcer).toContain("setGlobalSetting(");
+    expect(navigationSettings).toContain(
       "com.samsung.settings.NAVIGATION_BAR_SETTING"
     );
-    expect(navigationController).toContain(
+    expect(navigationSettings).toContain(
       "com.android.settings.GESTURE_NAVIGATION_SETTINGS"
     );
     expect(injector).toContain("SecPalEnterpriseBridge");
@@ -1852,7 +1872,7 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "EnterprisePolicyController.java"
+      "DpcPolicyEnforcer.java"
     );
     const managedState = readRepoFile(
       "android",
@@ -1889,7 +1909,17 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "EnterprisePolicyController.java"
+      "DpcPolicyEnforcer.java"
+    );
+    const policyClient = readRepoFile(
+      "android",
+      "app",
+      "src",
+      "main",
+      "java",
+      "app",
+      "secpal",
+      "EnterprisePolicyClient.java"
     );
     const managedState = readRepoFile(
       "android",
@@ -1913,19 +1943,17 @@ describe("Android native hardening", () => {
     );
 
     expect(managedState).toContain("queryIntentActivities(intent, 0)");
-    expect(policyController).toContain("resolveLaunchableIntent");
-    expect(policyController).toContain("resolveFirstComponent");
+    expect(policyClient).toContain("resolveLaunchableIntent");
+    expect(managedState).toContain("resolveFirstComponent");
     expect(policyController).toContain("applied_policy_signature");
     expect(policyController).toContain("buildAppliedPolicySignature");
     expect(policyController).toContain("managed_hidden_packages");
     expect(policyController).toContain("restoreManagedHiddenPackages");
-    expect(policyController).toContain("excludedPackages");
-    expect(policyController).toContain(
+    expect(policyClient).toContain("excludedPackages");
+    expect(policyClient).toContain(
       "managedState.resolveDialerPackage(context)"
     );
-    expect(policyController).toContain(
-      "managedState.resolveSmsPackage(context)"
-    );
+    expect(policyClient).toContain("managedState.resolveSmsPackage(context)");
     expect(managedState).toContain("ContactsContract.AUTHORITY");
     expect(managedState).toContain("ACTION_INSERT_OR_EDIT");
     expect(managedState).toContain("resolveContactSupportPackages");
@@ -1946,7 +1974,7 @@ describe("Android native hardening", () => {
       "java",
       "app",
       "secpal",
-      "EnterprisePolicyController.java"
+      "DpcPolicyEnforcer.java"
     );
     const readme = readRepoFile("README.md");
 

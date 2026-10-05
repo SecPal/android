@@ -20,6 +20,6 @@
 
 # The device-owner instrumentation test calls this package-private test seam
 # across the separately minified app and instrumentation APK boundary.
--keep class app.secpal.EnterprisePolicyController {
+-keep class app.secpal.DpcPolicyEnforcer {
     static void setKioskUserRestrictions(android.app.admin.DevicePolicyManager, android.content.ComponentName, boolean, boolean);
 }

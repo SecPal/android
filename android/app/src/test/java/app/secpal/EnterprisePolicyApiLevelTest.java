@@ -47,11 +47,11 @@ public class EnterprisePolicyApiLevelTest {
         assertEquals(adminComponent, shadowDevicePolicyManager.getStatusBarAdmin());
         assertTrue(shadowDevicePolicyManager.isStatusBarDisabled());
 
-        EnterprisePolicyController.persistDebugPolicy(
+        DpcPolicyEnforcer.persistDebugPolicy(
             context,
             new LinkedHashMap<>()
         );
-        EnterprisePolicyController.syncPolicy(context);
+        DpcPolicyEnforcer.syncPolicy(context);
 
         assertEquals(adminComponent, shadowDevicePolicyManager.getStatusBarAdmin());
         assertFalse(shadowDevicePolicyManager.isStatusBarDisabled());
@@ -60,10 +60,10 @@ public class EnterprisePolicyApiLevelTest {
     @Test
     @Config(sdk = 27)
     public void api27OmitsAndroid28EnterprisePolicies() {
-        assertNull(EnterprisePolicyController.resolveLockTaskFeatures(true));
-        assertNull(EnterprisePolicyController.resolveLockTaskFeatures(false));
+        assertNull(DpcPolicyEnforcer.resolveLockTaskFeatures(true));
+        assertNull(DpcPolicyEnforcer.resolveLockTaskFeatures(false));
         assertFalse(
-            EnterprisePolicyController.resolveKioskUserRestrictions()
+            DpcPolicyEnforcer.resolveKioskUserRestrictions()
                 .contains("no_config_date_time")
         );
 
@@ -79,10 +79,10 @@ public class EnterprisePolicyApiLevelTest {
     public void api28IncludesKioskEnterprisePolicies() {
         assertEquals(
             Integer.valueOf(DevicePolicyManager.LOCK_TASK_FEATURE_HOME),
-            EnterprisePolicyController.resolveLockTaskFeatures(true)
+            DpcPolicyEnforcer.resolveLockTaskFeatures(true)
         );
         assertTrue(
-            EnterprisePolicyController.resolveKioskUserRestrictions()
+            DpcPolicyEnforcer.resolveKioskUserRestrictions()
                 .contains(UserManager.DISALLOW_CONFIG_DATE_TIME)
         );
 
@@ -112,7 +112,7 @@ public class EnterprisePolicyApiLevelTest {
                     | DevicePolicyManager.LOCK_TASK_FEATURE_NOTIFICATIONS
                     | DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO
             ),
-            EnterprisePolicyController.resolveLockTaskFeatures(false)
+            DpcPolicyEnforcer.resolveLockTaskFeatures(false)
         );
     }
 
@@ -120,11 +120,11 @@ public class EnterprisePolicyApiLevelTest {
     @Config(sdk = 28)
     public void debugKioskPolicyKeepsManagedPackageUpdatesAvailable() {
         assertFalse(
-            EnterprisePolicyController.resolveKioskUserRestrictions(true)
+            DpcPolicyEnforcer.resolveKioskUserRestrictions(true)
                 .contains(UserManager.DISALLOW_INSTALL_APPS)
         );
         assertTrue(
-            EnterprisePolicyController.resolveKioskUserRestrictions(true)
+            DpcPolicyEnforcer.resolveKioskUserRestrictions(true)
                 .contains(UserManager.DISALLOW_UNINSTALL_APPS)
         );
 
@@ -135,7 +135,7 @@ public class EnterprisePolicyApiLevelTest {
             SecPalDeviceAdminReceiver.class
         );
 
-        EnterprisePolicyController.setKioskUserRestrictions(
+        DpcPolicyEnforcer.setKioskUserRestrictions(
             devicePolicyManager,
             adminComponent,
             true,
@@ -151,7 +151,7 @@ public class EnterprisePolicyApiLevelTest {
     @Config(sdk = 28)
     public void releaseKioskPolicyRetainsInstallRestriction() {
         assertTrue(
-            EnterprisePolicyController.resolveKioskUserRestrictions(false)
+            DpcPolicyEnforcer.resolveKioskUserRestrictions(false)
                 .contains(UserManager.DISALLOW_INSTALL_APPS)
         );
 
@@ -162,7 +162,7 @@ public class EnterprisePolicyApiLevelTest {
             SecPalDeviceAdminReceiver.class
         );
 
-        EnterprisePolicyController.setKioskUserRestrictions(
+        DpcPolicyEnforcer.setKioskUserRestrictions(
             devicePolicyManager,
             adminComponent,
             true,
@@ -194,7 +194,7 @@ public class EnterprisePolicyApiLevelTest {
                 .hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
         );
 
-        EnterprisePolicyController.setKioskUserRestrictions(
+        DpcPolicyEnforcer.setKioskUserRestrictions(
             devicePolicyManager,
             adminComponent,
             true,
@@ -223,8 +223,8 @@ public class EnterprisePolicyApiLevelTest {
             UserManager.DISALLOW_INSTALL_APPS
         );
         policyValues.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
-        EnterprisePolicyController.persistDebugPolicy(context, policyValues);
-        EnterprisePolicyController.syncPolicy(context);
+        DpcPolicyEnforcer.persistDebugPolicy(context, policyValues);
+        DpcPolicyEnforcer.syncPolicy(context);
 
         assertEquals(
             !BuildConfig.DEBUG,
@@ -240,22 +240,22 @@ public class EnterprisePolicyApiLevelTest {
             EnterpriseManagedState.MODE_DEVICE_OWNER,
             EnterprisePolicyConfig.disabled()
         );
-        String api24Signature = EnterprisePolicyController.buildAppliedPolicySignature(
+        String api24Signature = DpcPolicyEnforcer.buildAppliedPolicySignature(
             context,
             managedState,
             24
         );
-        String api27Signature = EnterprisePolicyController.buildAppliedPolicySignature(
+        String api27Signature = DpcPolicyEnforcer.buildAppliedPolicySignature(
             context,
             managedState,
             27
         );
-        String api28Signature = EnterprisePolicyController.buildAppliedPolicySignature(
+        String api28Signature = DpcPolicyEnforcer.buildAppliedPolicySignature(
             context,
             managedState,
             28
         );
-        String api36Signature = EnterprisePolicyController.buildAppliedPolicySignature(
+        String api36Signature = DpcPolicyEnforcer.buildAppliedPolicySignature(
             context,
             managedState,
             36
@@ -272,8 +272,8 @@ public class EnterprisePolicyApiLevelTest {
         Map<String, Object> policyValues = new LinkedHashMap<>();
 
         policyValues.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
-        EnterprisePolicyController.persistDebugPolicy(context, policyValues);
-        EnterprisePolicyController.syncPolicy(context);
+        DpcPolicyEnforcer.persistDebugPolicy(context, policyValues);
+        DpcPolicyEnforcer.syncPolicy(context);
 
         return devicePolicyManager;
     }
