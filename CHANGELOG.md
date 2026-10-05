@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Required a valid `device_provisioned` response for emulator readiness and
+  waited once before retrying API 37 zero-test APK installation failures caused
+  by SettingsProvider initialization, without rebooting the initializing system
+  or retrying persistent provider failures.
 - Recognized API 37 PackageManager `install-create` broken-pipe failures before
   instrumentation starts, sharing the existing bounded split-install
   reboot-and-retry budget with `install-commit` failures.

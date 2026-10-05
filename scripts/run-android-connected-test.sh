@@ -143,6 +143,12 @@ classify_api37_failure() {
         retry_limit=2
         retry_reason="PackageManager split-install connection failure"
         reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
+        grep -Fq "package install-create" "$attempt_log" &&
+        grep -Fq "Cannot access system provider: 'settings' before system providers are installed!" "$attempt_log"; then
+        retry_key="package-manager-settings-provider-unavailable"
+        retry_reason="SettingsProvider initialization during package installation"
     elif {
         grep -Fq "Failed to commit install session" "$attempt_log" &&
             grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
