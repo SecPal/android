@@ -70,7 +70,7 @@ public class SecPalEnterprisePlugin extends Plugin {
 
     @PluginMethod
     public void getManagedState(PluginCall call) {
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(getContext());
+        EnterpriseManagedState managedState = EnterprisePolicyClient.getManagedState(getContext());
         boolean phoneAvailable = managedState.isAllowPhone()
             && managedState.resolveDialerPackage(getContext()) != null;
         boolean smsAvailable = managedState.isAllowSms()
@@ -79,9 +79,9 @@ public class SecPalEnterprisePlugin extends Plugin {
             managedState,
             phoneAvailable,
             smsAvailable,
-            SystemNavigationController.isGestureNavigationEnabled(getContext()),
-            SystemNavigationController.canOpenGestureNavigationSettings(getContext()),
-            EnterprisePolicyController.resolveAllowedLaunchApps(getContext())
+            SystemNavigationSettings.isGestureNavigationEnabled(getContext()),
+            SystemNavigationSettings.canOpenGestureNavigationSettings(getContext()),
+            EnterprisePolicyClient.resolveAllowedLaunchApps(getContext())
         );
 
         call.resolve(payload);
@@ -93,7 +93,7 @@ public class SecPalEnterprisePlugin extends Plugin {
         boolean smsAvailable,
         boolean gestureNavigationEnabled,
         boolean gestureNavigationSettingsAvailable,
-        List<EnterprisePolicyController.AllowedLaunchApp> allowedLaunchApps
+        List<EnterprisePolicyClient.AllowedLaunchApp> allowedLaunchApps
     ) {
         JSObject payload = new JSObject();
         JSArray allowedApps = new JSArray();
@@ -107,7 +107,7 @@ public class SecPalEnterprisePlugin extends Plugin {
         payload.put("gestureNavigationEnabled", gestureNavigationEnabled);
         payload.put("gestureNavigationSettingsAvailable", gestureNavigationSettingsAvailable);
 
-        for (EnterprisePolicyController.AllowedLaunchApp allowedApp : allowedLaunchApps) {
+        for (EnterprisePolicyClient.AllowedLaunchApp allowedApp : allowedLaunchApps) {
             JSObject entry = new JSObject();
 
             entry.put("packageName", allowedApp.getPackageName());
@@ -522,7 +522,7 @@ public class SecPalEnterprisePlugin extends Plugin {
 
     @PluginMethod
     public void launchPhone(PluginCall call) {
-        if (EnterprisePolicyController.launchPhone(getContext())) {
+        if (EnterprisePolicyClient.launchPhone(getContext())) {
             call.resolve();
             return;
         }
@@ -532,7 +532,7 @@ public class SecPalEnterprisePlugin extends Plugin {
 
     @PluginMethod
     public void launchSms(PluginCall call) {
-        if (EnterprisePolicyController.launchSms(getContext())) {
+        if (EnterprisePolicyClient.launchSms(getContext())) {
             call.resolve();
             return;
         }
@@ -544,7 +544,7 @@ public class SecPalEnterprisePlugin extends Plugin {
     public void launchAllowedApp(PluginCall call) {
         String packageName = call.getString("packageName");
 
-        if (EnterprisePolicyController.launchAllowedApp(getContext(), packageName)) {
+        if (EnterprisePolicyClient.launchAllowedApp(getContext(), packageName)) {
             call.resolve();
             return;
         }

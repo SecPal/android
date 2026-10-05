@@ -21,7 +21,7 @@ import java.util.Set;
 
 import org.junit.Test;
 
-public class EnterprisePolicyControllerPersistenceTest {
+public class DpcPolicyEnforcerPersistenceTest {
 
     @Test
     public void persistDebugPolicyCommitsSynchronously() {
@@ -31,7 +31,7 @@ public class EnterprisePolicyControllerPersistenceTest {
 
         values.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
 
-        EnterprisePolicyController.persistDebugPolicy(context, values);
+        DpcPolicyEnforcer.persistDebugPolicy(context, values);
 
         assertTrue(preferences.wasCommitCalled());
         assertFalse(preferences.wasApplyCalled());
@@ -51,7 +51,7 @@ public class EnterprisePolicyControllerPersistenceTest {
             .commit();
         preferences.resetEditorTracking();
 
-        EnterprisePolicyController.clearDebugPolicy(context);
+        DpcPolicyEnforcer.clearDebugPolicy(context);
 
         assertTrue(preferences.wasCommitCalled());
         assertFalse(preferences.wasApplyCalled());

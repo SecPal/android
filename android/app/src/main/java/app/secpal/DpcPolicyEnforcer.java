@@ -5,16 +5,13 @@
 
 package app.secpal;
 
-import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.os.Bundle;
@@ -27,17 +24,16 @@ import androidx.annotation.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public final class EnterprisePolicyController {
+/** Owns privileged Android management enforcement, independently of Work runtime and authorization. */
+public final class DpcPolicyEnforcer {
     private static final String LOG_TAG = "SecPalEnterprise";
-    static final String ENTERPRISE_PREFS = "secpal_enterprise_policy";
-    private static final String PREF_MANAGED_MODE = "managed_mode";
+    private static final String GESTURE_NAVIGATION_LOG_TAG = "SecPalSystemNavigation";
     private static final String PREF_APPLIED_SCREEN_CAPTURE_POLICY = "applied_screen_capture_policy";
     private static final String PREF_APPLIED_POLICY_SIGNATURE = "applied_policy_signature";
     private static final String PREF_MANAGED_HIDDEN_PACKAGES = "managed_hidden_packages";
@@ -68,24 +64,43 @@ public final class EnterprisePolicyController {
         UserManager.DISALLOW_FACTORY_RESET
     };
 
-    private EnterprisePolicyController() {
+    private DpcPolicyEnforcer() {
+    }
+
+    static void onAdminEnabled(Context context, Intent intent, ComponentName adminComponent) {
+        persistProvisioningConfig(context, extractProvisioningAdminExtras(intent));
+        EnterpriseManagedState managedState = syncPolicy(context);
+        applyProvisioningGestureNavigationIfRequested(context, adminComponent, managedState);
+    }
+
+    static CharSequence onDisableRequested(Context context) {
+        return syncPolicy(context).isManaged()
+            ? context.getString(R.string.enterprise_disable_warning)
+            : null;
+    }
+
+    static void onProfileProvisioningComplete(Context context, Intent intent, ComponentName adminComponent) {
+        persistProvisioningConfig(context, extractProvisioningAdminExtras(intent));
+        EnterpriseManagedState managedState = syncPolicy(context);
+        applyProvisioningGestureNavigationIfRequested(context, adminComponent, managedState);
+        if (managedState.isProfileOwner()) {
+            DevicePolicyManager manager = context.getSystemService(DevicePolicyManager.class);
+            manager.setProfileName(adminComponent, context.getString(R.string.enterprise_profile_name));
+            manager.setProfileEnabled(adminComponent);
+        }
+        Intent launchIntent = new Intent().setComponent(
+            new ComponentName(context.getPackageName(), "app.secpal.MainActivity")
+        );
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        context.startActivity(launchIntent);
     }
 
     public static EnterpriseManagedState syncPolicy(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(
-            ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
-        EnterprisePolicyConfig policyConfig = resolveCurrentPolicyConfig(context, preferences);
-        String managedMode = resolveManagedMode(context);
-
-        preferences.edit().putString(PREF_MANAGED_MODE, managedMode).apply();
-
-        EnterpriseManagedState managedState = new EnterpriseManagedState(
-            managedMode,
-            policyConfig,
-            shouldEnableDebugKioskHome(managedMode, policyConfig)
-        );
+        EnterpriseManagedState managedState = EnterprisePolicyState.read(context);
         String screenCapturePolicySignature = buildScreenCapturePolicySignature(managedState);
         String previousScreenCapturePolicySignature = preferences.getString(
             PREF_APPLIED_SCREEN_CAPTURE_POLICY,
@@ -130,7 +145,7 @@ public final class EnterprisePolicyController {
         }
 
         SharedPreferences preferences = context.getSharedPreferences(
-            ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
         SharedPreferences.Editor editor = preferences.edit();
@@ -140,7 +155,7 @@ public final class EnterprisePolicyController {
     }
 
     public static void clearManagedState(Context context) {
-        context.getSharedPreferences(ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .edit()
             .clear()
             .apply();
@@ -162,7 +177,7 @@ public final class EnterprisePolicyController {
 
     static void persistDebugPolicy(Context context, Map<String, ?> values) {
         SharedPreferences preferences = context.getSharedPreferences(
-            ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
         SharedPreferences.Editor editor = preferences.edit();
@@ -176,7 +191,7 @@ public final class EnterprisePolicyController {
 
     public static void clearDebugPolicy(Context context) {
         SharedPreferences.Editor editor = context.getSharedPreferences(
-            ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         ).edit();
 
@@ -192,152 +207,6 @@ public final class EnterprisePolicyController {
         }
     }
 
-    public static void maybeEnterLockTask(Activity activity) {
-        EnterpriseManagedState managedState = syncPolicy(activity);
-        ActivityManager activityManager = activity.getSystemService(ActivityManager.class);
-
-        if (!managedState.isLockTaskEnabled()) {
-            if (activityManager != null
-                && activityManager.getLockTaskModeState() != ActivityManager.LOCK_TASK_MODE_NONE) {
-                activity.stopLockTask();
-            }
-
-            return;
-        }
-
-        DevicePolicyManager devicePolicyManager = activity.getSystemService(DevicePolicyManager.class);
-        if (devicePolicyManager == null || !devicePolicyManager.isLockTaskPermitted(activity.getPackageName())) {
-            return;
-        }
-
-        if (activityManager != null
-            && activityManager.getLockTaskModeState() != ActivityManager.LOCK_TASK_MODE_NONE) {
-            return;
-        }
-
-        activity.startLockTask();
-    }
-
-    static boolean temporarilyExitLockTask(Activity activity) {
-        ActivityManager activityManager = activity.getSystemService(ActivityManager.class);
-
-        if (activityManager == null
-            || activityManager.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
-            return true;
-        }
-
-        try {
-            activity.stopLockTask();
-            return true;
-        } catch (RuntimeException exception) {
-            Log.w(LOG_TAG, "Failed to exit lock task for a temporary system settings flow", exception);
-            return false;
-        }
-    }
-
-    public static boolean launchPhone(Context context) {
-        EnterpriseManagedState managedState = syncPolicy(context);
-
-        if (!managedState.isAllowPhone()) {
-            return false;
-        }
-
-        return launchIntent(
-            context,
-            new Intent(Intent.ACTION_DIAL).setData(android.net.Uri.parse("tel:"))
-        );
-    }
-
-    public static boolean launchSms(Context context) {
-        EnterpriseManagedState managedState = syncPolicy(context);
-
-        if (!managedState.isAllowSms()) {
-            return false;
-        }
-
-        return launchIntent(
-            context,
-            new Intent(Intent.ACTION_SENDTO).setData(android.net.Uri.parse("smsto:"))
-        );
-    }
-
-    public static List<AllowedLaunchApp> resolveAllowedLaunchApps(Context context) {
-        EnterpriseManagedState managedState = syncPolicy(context);
-
-        if (!managedState.isKioskActive()) {
-            return Collections.emptyList();
-        }
-
-        PackageManager packageManager = context.getPackageManager();
-        List<AllowedLaunchApp> apps = new ArrayList<>();
-        Set<String> excludedPackages = new LinkedHashSet<>();
-
-        if (managedState.isAllowPhone()) {
-            String dialerPackage = managedState.resolveDialerPackage(context);
-
-            if (dialerPackage != null) {
-                excludedPackages.add(dialerPackage);
-            }
-        }
-
-        if (managedState.isAllowSms()) {
-            String smsPackage = managedState.resolveSmsPackage(context);
-
-            if (smsPackage != null) {
-                excludedPackages.add(smsPackage);
-            }
-        }
-
-        for (String packageName : managedState.resolveAllowedPackages(context)) {
-            if (context.getPackageName().equals(packageName) || excludedPackages.contains(packageName)) {
-                continue;
-            }
-
-            Intent launchIntent = resolveLaunchIntentForPackage(context, packageName);
-
-            if (launchIntent == null) {
-                continue;
-            }
-
-            try {
-                ApplicationInfo applicationInfo = packageManager.getApplicationInfo(packageName, 0);
-                String label = String.valueOf(packageManager.getApplicationLabel(applicationInfo));
-
-                apps.add(new AllowedLaunchApp(packageName, label));
-            } catch (PackageManager.NameNotFoundException exception) {
-                Log.w(LOG_TAG, "Allowed package disappeared before it could be launched: " + packageName, exception);
-            }
-        }
-
-        apps.sort(Comparator.comparing(AllowedLaunchApp::getLabel, String.CASE_INSENSITIVE_ORDER));
-
-        return apps;
-    }
-
-    public static boolean launchAllowedApp(Context context, String packageName) {
-        if (packageName == null || packageName.trim().isEmpty()) {
-            return false;
-        }
-
-        EnterpriseManagedState managedState = syncPolicy(context);
-        String normalizedPackageName = packageName.trim();
-
-        if (!managedState.isKioskActive() || !managedState.resolveAllowedPackages(context).contains(normalizedPackageName)) {
-            return false;
-        }
-
-        Intent launchIntent = resolveLaunchIntentForPackage(context, normalizedPackageName);
-
-        if (launchIntent == null) {
-            return false;
-        }
-
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(launchIntent);
-
-        return true;
-    }
-
     public static PersistableBundle extractProvisioningAdminExtras(Intent intent) {
         if (intent == null) {
             return null;
@@ -351,100 +220,6 @@ public final class EnterprisePolicyController {
         }
 
         return getProvisioningAdminExtrasLegacy(intent);
-    }
-
-    static String resolveManagedMode(boolean deviceOwner, boolean profileOwner) {
-        if (deviceOwner) {
-            return EnterpriseManagedState.MODE_DEVICE_OWNER;
-        }
-
-        if (profileOwner) {
-            return EnterpriseManagedState.MODE_PROFILE_OWNER;
-        }
-
-        return EnterpriseManagedState.MODE_NONE;
-    }
-
-    static boolean shouldOpenDedicatedHomeOnLaunch(
-        Intent intent,
-        EnterpriseManagedState managedState
-    ) {
-        if (intent == null) {
-            return false;
-        }
-
-        return shouldOpenDedicatedHomeOnLaunch(
-            intent.getAction(),
-            intent.hasCategory(Intent.CATEGORY_LAUNCHER),
-            intent.hasCategory(Intent.CATEGORY_HOME),
-            managedState
-        );
-    }
-
-    static boolean shouldOpenDedicatedHomeOnLaunch(
-        String action,
-        boolean hasLauncherCategory,
-        boolean hasHomeCategory,
-        EnterpriseManagedState managedState
-    ) {
-        if (managedState == null || !managedState.usesDebugKioskHome()) {
-            return false;
-        }
-
-        if (!Intent.ACTION_MAIN.equals(action)) {
-            return false;
-        }
-
-        return hasLauncherCategory || hasHomeCategory;
-    }
-
-    private static EnterprisePolicyConfig resolveCurrentPolicyConfig(
-        Context context,
-        SharedPreferences preferences
-    ) {
-        Bundle applicationRestrictions = resolveApplicationRestrictions(context);
-
-        if (applicationRestrictions != null && !applicationRestrictions.isEmpty()) {
-            EnterprisePolicyConfig policyConfig = EnterprisePolicyConfig.fromBundle(applicationRestrictions);
-            SharedPreferences.Editor editor = preferences.edit();
-            policyConfig.writeToPreferences(editor);
-            editor.apply();
-            return policyConfig;
-        }
-
-        return EnterprisePolicyConfig.fromPreferences(preferences);
-    }
-
-    private static Bundle resolveApplicationRestrictions(Context context) {
-        UserManager userManager = context.getSystemService(UserManager.class);
-
-        if (userManager == null) {
-            return null;
-        }
-
-        return userManager.getApplicationRestrictions(context.getPackageName());
-    }
-
-    private static String resolveManagedMode(Context context) {
-        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
-
-        if (devicePolicyManager == null) {
-            return EnterpriseManagedState.MODE_NONE;
-        }
-
-        return resolveManagedMode(
-            devicePolicyManager.isDeviceOwnerApp(context.getPackageName()),
-            devicePolicyManager.isProfileOwnerApp(context.getPackageName())
-        );
-    }
-
-    private static boolean shouldEnableDebugKioskHome(
-        String managedMode,
-        EnterprisePolicyConfig policyConfig
-    ) {
-        return BuildConfig.DEBUG
-            && EnterpriseManagedState.MODE_NONE.equals(managedMode)
-            && policyConfig.isKioskModeEnabled();
     }
 
     static boolean shouldDisableScreenCapture(EnterpriseManagedState managedState) {
@@ -533,7 +308,7 @@ public final class EnterprisePolicyController {
         DevicePolicyManager devicePolicyManager,
         ComponentName adminComponent
     ) {
-        ComponentName dedicatedHomeComponent = new ComponentName(context, DedicatedDeviceHomeActivity.class);
+        ComponentName dedicatedHomeComponent = new ComponentName(context.getPackageName(), "app.secpal.DedicatedDeviceHomeActivity");
 
         setDedicatedHomeEnabled(context, true);
         devicePolicyManager.clearPackagePersistentPreferredActivities(adminComponent, context.getPackageName());
@@ -753,7 +528,7 @@ public final class EnterprisePolicyController {
     }
 
     private static Set<String> readManagedHiddenPackages(Context context) {
-        Set<String> storedPackages = context.getSharedPreferences(ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        Set<String> storedPackages = context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .getStringSet(PREF_MANAGED_HIDDEN_PACKAGES, Collections.emptySet());
 
         return storedPackages == null
@@ -762,7 +537,7 @@ public final class EnterprisePolicyController {
     }
 
     private static void persistManagedHiddenPackages(Context context, Set<String> packageNames) {
-        context.getSharedPreferences(ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putStringSet(PREF_MANAGED_HIDDEN_PACKAGES, new LinkedHashSet<>(packageNames))
             .apply();
@@ -837,95 +612,13 @@ public final class EnterprisePolicyController {
         );
     }
 
-    private static boolean launchIntent(Context context, Intent intent) {
-        Intent resolvedIntent = resolveLaunchableIntent(context, intent);
-
-        if (resolvedIntent == null) {
-            return false;
-        }
-
-        resolvedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(resolvedIntent);
-        return true;
-    }
-
-    private static Intent resolveLaunchableIntent(Context context, Intent intent) {
-        PackageManager packageManager = context.getPackageManager();
-        ComponentName defaultComponent = intent.resolveActivity(packageManager);
-
-        if (defaultComponent != null) {
-            Intent resolvedIntent = new Intent(intent);
-
-            resolvedIntent.setComponent(defaultComponent);
-            return resolvedIntent;
-        }
-
-        ComponentName fallbackComponent = resolveFirstComponent(
-            packageManager.queryIntentActivities(intent, 0)
-        );
-
-        if (fallbackComponent == null) {
-            return null;
-        }
-
-        Intent resolvedIntent = new Intent(intent);
-
-        resolvedIntent.setComponent(fallbackComponent);
-        return resolvedIntent;
-    }
-
-    static ComponentName resolveFirstComponent(List<ResolveInfo> resolveInfos) {
-        if (resolveInfos == null) {
-            return null;
-        }
-
-        for (ResolveInfo resolveInfo : resolveInfos) {
-            if (resolveInfo == null
-                || resolveInfo.activityInfo == null
-                || resolveInfo.activityInfo.packageName == null
-                || resolveInfo.activityInfo.name == null) {
-                continue;
-            }
-
-            return new ComponentName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name);
-        }
-
-        return null;
-    }
-
-    private static Intent resolveLaunchIntentForPackage(Context context, String packageName) {
-        PackageManager packageManager = context.getPackageManager();
-        Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
-
-        launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-        launcherIntent.setPackage(packageName);
-
-        List<ResolveInfo> resolveInfos = packageManager.queryIntentActivities(launcherIntent, 0);
-
-        for (ResolveInfo resolveInfo : resolveInfos) {
-            if (resolveInfo.activityInfo == null || resolveInfo.activityInfo.name == null) {
-                continue;
-            }
-
-            Intent resolvedIntent = new Intent(launcherIntent);
-
-            resolvedIntent.setComponent(
-                new ComponentName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name)
-            );
-
-            return resolvedIntent;
-        }
-
-        return packageManager.getLaunchIntentForPackage(packageName);
-    }
-
     private static void setDedicatedHomeEnabled(Context context, boolean enabled) {
         int newState = enabled
             ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
             : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
 
         context.getPackageManager().setComponentEnabledSetting(
-            new ComponentName(context, DedicatedDeviceHomeActivity.class),
+            new ComponentName(context.getPackageName(), "app.secpal.DedicatedDeviceHomeActivity"),
             newState,
             PackageManager.DONT_KILL_APP
         );
@@ -941,21 +634,75 @@ public final class EnterprisePolicyController {
         return intent.getParcelableExtra(DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE);
     }
 
-    public static final class AllowedLaunchApp {
-        private final String packageName;
-        private final String label;
-
-        AllowedLaunchApp(String packageName, String label) {
-            this.packageName = packageName;
-            this.label = label;
+    static void applyProvisioningGestureNavigationIfRequested(
+        Context context,
+        ComponentName adminComponent,
+        EnterpriseManagedState managedState
+    ) {
+        if (!managedState.isDeviceOwner() || !managedState.isPreferGestureNavigation()) {
+            SystemNavigationSettings.setProvisioningGestureNavigationPending(context, false);
+            return;
         }
 
-        public String getPackageName() {
-            return packageName;
+        if (SystemNavigationSettings.isGestureNavigationEnabled(context)) {
+            SystemNavigationSettings.setProvisioningGestureNavigationPending(context, false);
+            return;
         }
 
-        public String getLabel() {
-            return label;
+        requestManagedGestureNavigationSettings(context, adminComponent);
+
+        if (SystemNavigationSettings.isGestureNavigationEnabled(context)) {
+            SystemNavigationSettings.setProvisioningGestureNavigationPending(context, false);
+            return;
+        }
+
+        SystemNavigationSettings.setProvisioningGestureNavigationPending(
+            context,
+            SystemNavigationSettings.canOpenGestureNavigationSettings(context)
+        );
+    }
+
+    private static void requestManagedGestureNavigationSettings(
+        Context context,
+        ComponentName adminComponent
+    ) {
+        DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
+
+        if (devicePolicyManager == null || adminComponent == null) {
+            return;
+        }
+
+        setSecureSetting(devicePolicyManager, adminComponent, SystemNavigationSettings.NAVIGATION_MODE_SETTING, "2");
+        setGlobalSetting(devicePolicyManager, adminComponent, "navigation_bar_gesture_hint", "1");
+        setGlobalSetting(devicePolicyManager, adminComponent, "navigation_bar_gesture_while_hidden", "1");
+        setGlobalSetting(devicePolicyManager, adminComponent, "navigation_bar_gesture_detail_type", "1");
+        setGlobalSetting(devicePolicyManager, adminComponent, "navigation_bar_button_to_hide_keyboard", "0");
+        setGlobalSetting(devicePolicyManager, adminComponent, "navigationbar_switch_apps_when_hint_hidden", "0");
+    }
+
+    private static void setSecureSetting(
+        DevicePolicyManager devicePolicyManager,
+        ComponentName adminComponent,
+        String name,
+        String value
+    ) {
+        try {
+            devicePolicyManager.setSecureSetting(adminComponent, name, value);
+        } catch (RuntimeException exception) {
+            Log.w(GESTURE_NAVIGATION_LOG_TAG, "Failed to set secure setting " + name + " for gesture navigation", exception);
+        }
+    }
+
+    private static void setGlobalSetting(
+        DevicePolicyManager devicePolicyManager,
+        ComponentName adminComponent,
+        String name,
+        String value
+    ) {
+        try {
+            devicePolicyManager.setGlobalSetting(adminComponent, name, value);
+        } catch (RuntimeException exception) {
+            Log.w(GESTURE_NAVIGATION_LOG_TAG, "Failed to set global setting " + name + " for gesture navigation", exception);
         }
     }
 }

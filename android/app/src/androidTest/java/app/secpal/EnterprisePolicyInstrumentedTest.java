@@ -37,7 +37,7 @@ public final class EnterprisePolicyInstrumentedTest {
         assertTrue(devicePolicyManager.isDeviceOwnerApp(context.getPackageName()));
 
         try {
-            EnterprisePolicyController.setKioskUserRestrictions(
+            DpcPolicyEnforcer.setKioskUserRestrictions(
                 devicePolicyManager,
                 adminComponent,
                 true,
@@ -47,7 +47,7 @@ public final class EnterprisePolicyInstrumentedTest {
                 userManager.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
             );
 
-            EnterprisePolicyController.setKioskUserRestrictions(
+            DpcPolicyEnforcer.setKioskUserRestrictions(
                 devicePolicyManager,
                 adminComponent,
                 true,
@@ -57,7 +57,7 @@ public final class EnterprisePolicyInstrumentedTest {
                 userManager.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
             );
         } finally {
-            EnterprisePolicyController.setKioskUserRestrictions(
+            DpcPolicyEnforcer.setKioskUserRestrictions(
                 devicePolicyManager,
                 adminComponent,
                 false,

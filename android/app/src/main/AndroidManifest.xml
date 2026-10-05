@@ -42,6 +42,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
     <!-- Passkeys require Android 14+; the Play services provider is intentionally excluded. -->
     <application
+        android:name=".DpcPolicyApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

@@ -43,7 +43,7 @@ describe("Android enterprise policy instrumentation contract", () => {
 
     expect(instrumentedTest).toContain("isDeviceOwnerApp");
     expect(instrumentedTest).toContain(
-      "EnterprisePolicyController.setKioskUserRestrictions"
+      "DpcPolicyEnforcer.setKioskUserRestrictions"
     );
     expect(instrumentedTest).toContain("UserManager.DISALLOW_INSTALL_APPS");
     expect(instrumentedTest).toContain("assertTrue");
@@ -75,9 +75,7 @@ describe("Android enterprise policy instrumentation contract", () => {
       "Finished calculating hasIncompatibleAccountsTask"
     );
     expect(devicePolicyWaitScript).toContain("dumpsys account");
-    expect(proguardRules).toContain(
-      "-keep class app.secpal.EnterprisePolicyController"
-    );
+    expect(proguardRules).toContain("-keep class app.secpal.DpcPolicyEnforcer");
     expect(proguardRules).toContain(
       "static void setKioskUserRestrictions(android.app.admin.DevicePolicyManager, android.content.ComponentName, boolean, boolean);"
     );

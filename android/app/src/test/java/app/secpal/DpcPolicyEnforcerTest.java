@@ -17,12 +17,12 @@ import java.util.Map;
 
 import org.junit.Test;
 
-public class EnterprisePolicyControllerTest {
+public class DpcPolicyEnforcerTest {
 
     @Test
     public void screenCapturePolicyAppliesToAllManagedModes() {
         assertTrue(
-            EnterprisePolicyController.shouldDisableScreenCapture(
+            DpcPolicyEnforcer.shouldDisableScreenCapture(
                 new EnterpriseManagedState(
                     EnterpriseManagedState.MODE_DEVICE_OWNER,
                     EnterprisePolicyConfig.disabled()
@@ -30,7 +30,7 @@ public class EnterprisePolicyControllerTest {
             )
         );
         assertTrue(
-            EnterprisePolicyController.shouldDisableScreenCapture(
+            DpcPolicyEnforcer.shouldDisableScreenCapture(
                 new EnterpriseManagedState(
                     EnterpriseManagedState.MODE_PROFILE_OWNER,
                     EnterprisePolicyConfig.disabled()
@@ -39,7 +39,7 @@ public class EnterprisePolicyControllerTest {
         );
         assertEquals(
             false,
-            EnterprisePolicyController.shouldDisableScreenCapture(
+            DpcPolicyEnforcer.shouldDisableScreenCapture(
                 new EnterpriseManagedState(
                     EnterpriseManagedState.MODE_NONE,
                     EnterprisePolicyConfig.disabled()
@@ -52,7 +52,7 @@ public class EnterprisePolicyControllerTest {
     public void deviceOwnerModeWinsOverProfileOwnerMode() {
         assertEquals(
             EnterpriseManagedState.MODE_DEVICE_OWNER,
-            EnterprisePolicyController.resolveManagedMode(true, true)
+            EnterprisePolicyState.resolveManagedMode(true, true)
         );
     }
 
@@ -60,7 +60,7 @@ public class EnterprisePolicyControllerTest {
     public void profileOwnerModeIsReportedWhenNoDeviceOwnerExists() {
         assertEquals(
             EnterpriseManagedState.MODE_PROFILE_OWNER,
-            EnterprisePolicyController.resolveManagedMode(false, true)
+            EnterprisePolicyState.resolveManagedMode(false, true)
         );
     }
 
@@ -68,24 +68,24 @@ public class EnterprisePolicyControllerTest {
     public void unmanagedModeIsReportedWhenNoOwnerRoleExists() {
         assertEquals(
             EnterpriseManagedState.MODE_NONE,
-            EnterprisePolicyController.resolveManagedMode(false, false)
+            EnterprisePolicyState.resolveManagedMode(false, false)
         );
     }
 
     @Test
     public void resolveFirstComponentReturnsNullWhenNothingLaunchableExists() {
-        assertNull(EnterprisePolicyController.resolveFirstComponent(Collections.emptyList()));
-        assertNull(EnterprisePolicyController.resolveFirstComponent(null));
+        assertNull(EnterpriseManagedState.resolveFirstComponent(Collections.emptyList()));
+        assertNull(EnterpriseManagedState.resolveFirstComponent(null));
     }
 
     @Test
     public void kioskSettingsRedirectFiltersCoverPlainAndDefaultCategoryIntents() {
-        List<EnterprisePolicyController.KioskSettingsRedirectFilterSpec> filters =
-            EnterprisePolicyController.buildKioskSettingsRedirectFilters();
+        List<DpcPolicyEnforcer.KioskSettingsRedirectFilterSpec> filters =
+            DpcPolicyEnforcer.buildKioskSettingsRedirectFilters();
         boolean foundWithoutCategory = false;
         boolean foundWithDefaultCategory = false;
 
-        for (EnterprisePolicyController.KioskSettingsRedirectFilterSpec filter : filters) {
+        for (DpcPolicyEnforcer.KioskSettingsRedirectFilterSpec filter : filters) {
             if (!"android.settings.SETTINGS".equals(filter.getAction())) {
                 continue;
             }
@@ -110,7 +110,7 @@ public class EnterprisePolicyControllerTest {
         values.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
 
         assertTrue(
-            EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(
+            EnterprisePolicyClient.shouldOpenDedicatedHomeOnLaunch(
                 "android.intent.action.MAIN",
                 true,
                 false,
@@ -130,7 +130,7 @@ public class EnterprisePolicyControllerTest {
         values.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
 
         assertFalse(
-            EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(
+            EnterprisePolicyClient.shouldOpenDedicatedHomeOnLaunch(
                 null,
                 false,
                 false,

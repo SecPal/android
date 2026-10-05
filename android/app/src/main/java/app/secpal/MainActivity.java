@@ -234,14 +234,14 @@ public class MainActivity extends BridgeActivity {
         if (!secureBridgeStarted) {
             return;
         }
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
+        EnterpriseManagedState managedState = EnterprisePolicyClient.getManagedState(this);
 
-        if (EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(getIntent(), managedState)) {
+        if (EnterprisePolicyClient.shouldOpenDedicatedHomeOnLaunch(getIntent(), managedState)) {
             openDedicatedHome();
             return;
         }
 
-        EnterprisePolicyController.maybeEnterLockTask(this);
+        EnterprisePolicyClient.maybeEnterLockTask(this);
         SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
     }
 

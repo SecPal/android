@@ -5,7 +5,6 @@
 
 package app.secpal;
 
-import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -44,13 +43,13 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         }
 
         String packageName = context.getPackageName();
-        DevicePolicyManager dpm = context.getSystemService(DevicePolicyManager.class);
+        String managedMode = EnterprisePolicyState.resolveManagedMode(context);
 
         String hardwareAction = resolveManagedHardwareAction(
             intent,
             packageName,
-            dpm != null && dpm.isDeviceOwnerApp(packageName),
-            dpm != null && dpm.isProfileOwnerApp(packageName)
+            EnterpriseManagedState.MODE_DEVICE_OWNER.equals(managedMode),
+            EnterpriseManagedState.MODE_PROFILE_OWNER.equals(managedMode)
         );
 
         if (hardwareAction == null) {
@@ -93,7 +92,7 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
 
     private static boolean isManagedOwner(boolean deviceOwner, boolean profileOwner) {
         return !EnterpriseManagedState.MODE_NONE.equals(
-            EnterprisePolicyController.resolveManagedMode(deviceOwner, profileOwner)
+            EnterprisePolicyState.resolveManagedMode(deviceOwner, profileOwner)
         );
     }
 }
