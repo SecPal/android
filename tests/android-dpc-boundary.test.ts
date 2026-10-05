@@ -58,12 +58,39 @@ function boundaryViolations(candidate: Map<string, string>): string[] {
       (match) => match[1]
     )
   );
+  const serviceCall = String.raw`getSystemService\s*\(\s*(?:DevicePolicyManager\s*\.\s*class|(?:Context\s*\.\s*)?DEVICE_POLICY_SERVICE)\s*\)`;
+  // Infer service-backed handles and their aliases without depending on an explicit type.
+  for (const assignment of state.matchAll(
+    new RegExp(String.raw`\b(\w+)\s*=\s*[^;]*?\b${serviceCall}`, "g")
+  )) {
+    managerNames.add(assignment[1]);
+  }
+  const aliases = Array.from(state.matchAll(/\b(\w+)\s*=\s*(\w+)\s*;/g));
+  let previousSize = -1;
+  while (previousSize !== managerNames.size) {
+    previousSize = managerNames.size;
+    for (const alias of aliases) {
+      if (managerNames.has(alias[2])) managerNames.add(alias[1]);
+    }
+  }
+  const methods = new Set(
+    Array.from(
+      state.matchAll(
+        new RegExp(
+          String.raw`\b${serviceCall}\s*(?:\)\s*)*\.\s*(\w+)\s*\(`,
+          "g"
+        )
+      ),
+      (match) => match[1]
+    )
+  );
   for (const name of managerNames) {
     const calls = new RegExp(`\\b${name}\\s*\\.\\s*(\\w+)\\s*\\(`, "g");
-    for (const call of state.matchAll(calls)) {
-      if (!permittedQueries.includes(call[1])) {
-        violations.push(`EnterprisePolicyState.java: ${call[1]}`);
-      }
+    for (const call of state.matchAll(calls)) methods.add(call[1]);
+  }
+  for (const method of methods) {
+    if (!permittedQueries.includes(method)) {
+      violations.push(`EnterprisePolicyState.java: ${method}`);
     }
   }
   return violations;
@@ -89,6 +116,38 @@ describe("Android DPC structural security boundary", () => {
     expect(receiver).not.toMatch(
       /EnterprisePolicyClient|EnterprisePolicyState|EnterpriseManagedState/
     );
+  });
+
+  it.each([
+    [
+      "a chained service call",
+      "context.getSystemService(DevicePolicyManager.class).setLockTaskPackages(admin, packages);",
+    ],
+    [
+      "implicitly typed aliases",
+      "var manager = context.getSystemService(DevicePolicyManager.class); var alias = manager; alias.setLockTaskPackages(admin, packages);",
+    ],
+  ])("rejects privileged mutation through %s", (_syntax, statement) => {
+    const mutated = new Map(sources);
+    const state = mutated.get("EnterprisePolicyState.java") ?? "";
+    mutated.set(
+      "EnterprisePolicyState.java",
+      state.replace(
+        /\n}\s*$/,
+        `\n static void mutation(Context context, android.content.ComponentName admin, String[] packages) { ${statement} }\n}\n`
+      )
+    );
+    expect(boundaryViolations(mutated)).toContain(
+      "EnterprisePolicyState.java: setLockTaskPackages"
+    );
+    mutated.set(
+      "EnterprisePolicyState.java",
+      (mutated.get("EnterprisePolicyState.java") ?? "").replace(
+        "setLockTaskPackages(admin, packages)",
+        "isDeviceOwnerApp(context.getPackageName())"
+      )
+    );
+    expect(boundaryViolations(mutated)).toEqual([]);
   });
 
   it("rejects mutation in shared state and privilege leaks through a helper", () => {
