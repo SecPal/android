@@ -16,7 +16,7 @@ describe("Android enterprise policy instrumentation contract", () => {
   it("proves managed install restrictions through the platform device-owner API", () => {
     const instrumentedTest = readRepoFile(
       "android",
-      "app",
+      "dpc",
       "src",
       "androidTest",
       "java",
@@ -28,11 +28,6 @@ describe("Android enterprise policy instrumentation contract", () => {
       ".github",
       "workflows",
       "android-enterprise-policy.yml"
-    );
-    const proguardRules = readRepoFile(
-      "android",
-      "app",
-      "ct-regression-proguard-rules.pro"
     );
     const devicePolicyWaitScript = readRepoFile(
       "scripts",
@@ -49,7 +44,16 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(instrumentedTest).toContain("assertTrue");
     expect(instrumentedTest).toContain("assertFalse");
 
+    expect(workflow).toContain(":app:signingReport");
+    expect(workflow).toContain("Variant: ctRegression");
+    expect(workflow).not.toContain("$HOME/.android/debug.keystore");
+    expect(workflow).toContain(":dpc:assembleCtRegressionAndroidTest");
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
+    expect(workflow).toContain("dpm set-profile-owner");
+    expect(workflow).toContain("EnterpriseManagementInstrumentedTest");
+    expect(workflow).toContain(
+      'test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"'
+    );
     expect(workflow.match(/android\/build\.gradle/g)).toHaveLength(2);
     expect(workflow.match(/android\/settings\.gradle/g)).toHaveLength(2);
     expect(workflow).not.toContain("use_unsafe_pre22_gencode");
@@ -59,10 +63,10 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(workflow).not.toContain(
       "system-images;android-35;google_apis;x86_64"
     );
-    expect(workflow).toContain("app-ctRegression.apk");
-    expect(workflow).toContain("app-ctRegression-androidTest.apk");
+    expect(workflow).toContain("dpc-ctRegression.apk");
+    expect(workflow).toContain("dpc-ctRegression-androidTest.apk");
     expect(workflow.match(/adb -s emulator-5570 install -t -r/g)).toHaveLength(
-      2
+      4
     );
     expect(workflow).toContain(devicePolicyWaitCommand);
     expect(workflow.indexOf(devicePolicyWaitCommand)).toBeLessThan(
@@ -75,9 +79,5 @@ describe("Android enterprise policy instrumentation contract", () => {
       "Finished calculating hasIncompatibleAccountsTask"
     );
     expect(devicePolicyWaitScript).toContain("dumpsys account");
-    expect(proguardRules).toContain("-keep class app.secpal.DpcPolicyEnforcer");
-    expect(proguardRules).toContain(
-      "static void setKioskUserRestrictions(android.app.admin.DevicePolicyManager, android.content.ComponentName, boolean, boolean);"
-    );
   });
 });

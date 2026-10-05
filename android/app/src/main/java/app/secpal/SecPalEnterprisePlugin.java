@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 @CapacitorPlugin(name = "SecPalEnterprise")
 public class SecPalEnterprisePlugin extends Plugin {
-    static final long HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS = 5000L;
+    static final long HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS = SamsungHardwareButtonLaunch.LONG_PRESS_THRESHOLD_MS;
     static final String HARDWARE_BUTTON_ORIGIN_ACTIVITY_DISPATCH = "activity_dispatch";
     static final String HARDWARE_BUTTON_ORIGIN_SAMSUNG_HARD_KEY = "samsung_hard_key";
     private static final String HARDWARE_BUTTON_PRESSED_EVENT = "hardwareButtonPressed";

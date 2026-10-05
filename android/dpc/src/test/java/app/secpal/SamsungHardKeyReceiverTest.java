@@ -16,7 +16,7 @@ public class SamsungHardKeyReceiverTest {
 
     @Test
     public void ignoresSamsungHardKeyBroadcastsOutsideManagedMode() {
-        FakeIntent intent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_PRESS);
+        FakeIntent intent = new FakeIntent(SamsungHardKeyContract.ACTION_HARD_KEY_PRESS);
 
         assertNull(
             SamsungHardKeyReceiver.resolveManagedHardwareAction(
@@ -44,7 +44,7 @@ public class SamsungHardKeyReceiverTest {
 
     @Test
     public void acceptsSamsungHardKeyBroadcastsForManagedOwners() {
-        FakeIntent intent = new FakeIntent(SamsungHardKeyReceiver.ACTION_HARD_KEY_PRESS);
+        FakeIntent intent = new FakeIntent(SamsungHardKeyContract.ACTION_HARD_KEY_PRESS);
 
         assertEquals(
             SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS,

@@ -5,30 +5,13 @@
 
 package app.secpal;
 
+import io.secpal.dpc.BuildConfig;
+
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
 public class SamsungHardKeyReceiver extends BroadcastReceiver {
-    static final String ACTION_HARD_KEY_PRESS =
-        "com.samsung.android.knox.intent.action.HARD_KEY_PRESS";
-    static final String ACTION_HARD_KEY_REPORT =
-        "com.samsung.android.knox.intent.action.HARD_KEY_REPORT";
-    static final String EXTRA_KEY_CODE =
-        "com.samsung.android.knox.intent.extra.KEY_CODE";
-    static final String EXTRA_REPORT_TYPE =
-        "com.samsung.android.knox.intent.extra.KEY_REPORT_TYPE";
-    static final String EXTRA_REPORT_TYPE_NEW =
-        "com.samsung.android.knox.intent.extra.KEY_REPORT_TYPE_NEW";
-    static final String EXTRA_REPORT_TYPE_NEW_LONG_UP =
-        "com.samsung.android.knox.intent.extra.EXTRA_REPORT_TYPE_NEW_LONG_UP";
-    static final int SAMSUNG_KEY_CODE_XCOVER = 1015;
-    static final int SAMSUNG_KEY_CODE_SOS = 1079;
-    static final int REPORT_TYPE_DOWN = 1;
-    static final int REPORT_TYPE_UP = 2;
-    static final int REPORT_TYPE_DOWN_UP = 3;
-    static final int REPORT_TYPE_LONG = 4;
-
     @Override
     public void onReceive(Context context, Intent intent) {
         if (context == null || intent == null) {
@@ -38,12 +21,12 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
         // The manifest restricts this exported receiver to Knox's
         // platform-signature-protected managed-key sender permission.
         String action = intent.getAction();
-        if (!ACTION_HARD_KEY_PRESS.equals(action) && !ACTION_HARD_KEY_REPORT.equals(action)) {
+        if (!SamsungHardKeyContract.ACTION_HARD_KEY_PRESS.equals(action) && !SamsungHardKeyContract.ACTION_HARD_KEY_REPORT.equals(action)) {
             return;
         }
 
         String packageName = context.getPackageName();
-        String managedMode = EnterprisePolicyState.resolveManagedMode(context);
+        String managedMode = DpcPolicyState.resolveManagedMode(context);
 
         String hardwareAction = resolveManagedHardwareAction(
             intent,
@@ -56,13 +39,12 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
             return;
         }
 
-        context.startActivity(
-            SamsungHardwareButtonLaunch.createLaunchIntent(
-                context,
-                hardwareAction,
-                SamsungHardwareButtonLaunch.resolveLaunchKeyCode(intent)
-            )
+        if (!ManagementPackageIdentity.matches(context, BuildConfig.WORK_APPLICATION_ID, BuildConfig.WORK_CERT_SHA256)) return;
+        Intent launchIntent = SamsungHardwareButtonLaunch.createLaunchIntent(
+            context, hardwareAction, SamsungHardwareButtonLaunch.resolveLaunchKeyCode(intent)
         );
+        launchIntent.setComponent(new android.content.ComponentName(BuildConfig.WORK_APPLICATION_ID, "app.secpal.MainActivity"));
+        context.startActivity(launchIntent);
     }
 
     static String resolveManagedHardwareAction(
@@ -79,11 +61,11 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
     }
 
     private static String resolveHardwareAction(Intent intent, String packageName) {
-        if (ACTION_HARD_KEY_PRESS.equals(intent.getAction())) {
+        if (SamsungHardKeyContract.ACTION_HARD_KEY_PRESS.equals(intent.getAction())) {
             return SamsungHardwareButtonLaunch.HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
         }
 
-        if (!ACTION_HARD_KEY_REPORT.equals(intent.getAction())) {
+        if (!SamsungHardKeyContract.ACTION_HARD_KEY_REPORT.equals(intent.getAction())) {
             return null;
         }
 
@@ -92,7 +74,7 @@ public class SamsungHardKeyReceiver extends BroadcastReceiver {
 
     private static boolean isManagedOwner(boolean deviceOwner, boolean profileOwner) {
         return !EnterpriseManagedState.MODE_NONE.equals(
-            EnterprisePolicyState.resolveManagedMode(deviceOwner, profileOwner)
+            DpcPolicyState.resolveManagedMode(deviceOwner, profileOwner)
         );
     }
 }

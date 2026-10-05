@@ -5,6 +5,9 @@
 
 package app.secpal;
 
+import io.secpal.dpc.BuildConfig;
+import io.secpal.dpc.R;
+
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -89,18 +92,20 @@ public final class DpcPolicyEnforcer {
             manager.setProfileEnabled(adminComponent);
         }
         Intent launchIntent = new Intent().setComponent(
-            new ComponentName(context.getPackageName(), "app.secpal.MainActivity")
+            new ComponentName(BuildConfig.WORK_APPLICATION_ID, "app.secpal.MainActivity")
         );
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        context.startActivity(launchIntent);
+        if (ManagementPackageIdentity.matches(context, BuildConfig.WORK_APPLICATION_ID, BuildConfig.WORK_CERT_SHA256)) {
+            context.startActivity(launchIntent);
+        }
     }
 
     public static EnterpriseManagedState syncPolicy(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(
-            EnterprisePolicyState.ENTERPRISE_PREFS,
+            DpcPolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
-        EnterpriseManagedState managedState = EnterprisePolicyState.read(context);
+        EnterpriseManagedState managedState = DpcPolicyState.read(context);
         String screenCapturePolicySignature = buildScreenCapturePolicySignature(managedState);
         String previousScreenCapturePolicySignature = preferences.getString(
             PREF_APPLIED_SCREEN_CAPTURE_POLICY,
@@ -136,6 +141,7 @@ public final class DpcPolicyEnforcer {
             preferences.edit().remove(PREF_APPLIED_POLICY_SIGNATURE).apply();
         }
 
+        DpcLegacyPolicyService.updateLifetime(context, managedState);
         return managedState;
     }
 
@@ -145,7 +151,7 @@ public final class DpcPolicyEnforcer {
         }
 
         SharedPreferences preferences = context.getSharedPreferences(
-            EnterprisePolicyState.ENTERPRISE_PREFS,
+            DpcPolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
         SharedPreferences.Editor editor = preferences.edit();
@@ -155,12 +161,11 @@ public final class DpcPolicyEnforcer {
     }
 
     public static void clearManagedState(Context context) {
-        context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(DpcPolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .edit()
             .clear()
             .apply();
 
-        setDedicatedHomeEnabled(context, false);
     }
 
     public static void persistDebugPolicy(Context context, Bundle extras) {
@@ -177,7 +182,7 @@ public final class DpcPolicyEnforcer {
 
     static void persistDebugPolicy(Context context, Map<String, ?> values) {
         SharedPreferences preferences = context.getSharedPreferences(
-            EnterprisePolicyState.ENTERPRISE_PREFS,
+            DpcPolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
         SharedPreferences.Editor editor = preferences.edit();
@@ -191,7 +196,7 @@ public final class DpcPolicyEnforcer {
 
     public static void clearDebugPolicy(Context context) {
         SharedPreferences.Editor editor = context.getSharedPreferences(
-            EnterprisePolicyState.ENTERPRISE_PREFS,
+            DpcPolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         ).edit();
 
@@ -227,6 +232,16 @@ public final class DpcPolicyEnforcer {
             && managedState.isManaged();
     }
 
+    private static Set<String> resolveAllowedPackages(Context context, EnterpriseManagedState state) {
+        Set<String> packages = state.resolveAllowedPackages(context);
+        // Never expose Work policy or preferred activities to a substituted package.
+        packages.remove(BuildConfig.WORK_APPLICATION_ID);
+        if (ManagementPackageIdentity.matches(context, BuildConfig.WORK_APPLICATION_ID, BuildConfig.WORK_CERT_SHA256)) {
+            packages.add(BuildConfig.WORK_APPLICATION_ID);
+        }
+        return packages;
+    }
+
     private static void applyDeviceOwnerPolicy(Context context, EnterpriseManagedState managedState) {
         DevicePolicyManager devicePolicyManager = context.getSystemService(DevicePolicyManager.class);
 
@@ -239,7 +254,7 @@ public final class DpcPolicyEnforcer {
 
         if (managedState.isKioskActive()) {
             restoreManagedHiddenPackages(devicePolicyManager, adminComponent, managedHiddenPackages);
-            Set<String> allowedPackages = managedState.resolveAllowedPackages(context);
+            Set<String> allowedPackages = resolveAllowedPackages(context, managedState);
 
             devicePolicyManager.setLockTaskPackages(
                 adminComponent,
@@ -265,22 +280,21 @@ public final class DpcPolicyEnforcer {
             return;
         }
 
-        setDedicatedHomeEnabled(context, false);
         restoreManagedHiddenPackages(devicePolicyManager, adminComponent, managedHiddenPackages);
 
-        devicePolicyManager.setLockTaskPackages(adminComponent, new String[] { context.getPackageName() });
+        devicePolicyManager.setLockTaskPackages(adminComponent, resolveAllowedPackages(context, managedState).toArray(new String[0]));
         setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, false);
 
         devicePolicyManager.setStatusBarDisabled(adminComponent, false);
 
         setKioskUserRestrictions(devicePolicyManager, adminComponent, false);
 
-        devicePolicyManager.clearPackagePersistentPreferredActivities(adminComponent, context.getPackageName());
+        devicePolicyManager.clearPackagePersistentPreferredActivities(adminComponent, BuildConfig.WORK_APPLICATION_ID);
         reconcileLauncherVisibility(
             context,
             devicePolicyManager,
             adminComponent,
-            managedState.resolveAllowedPackages(context),
+            resolveAllowedPackages(context, managedState),
             false
         );
         persistManagedHiddenPackages(context, Collections.emptySet());
@@ -308,10 +322,10 @@ public final class DpcPolicyEnforcer {
         DevicePolicyManager devicePolicyManager,
         ComponentName adminComponent
     ) {
-        ComponentName dedicatedHomeComponent = new ComponentName(context.getPackageName(), "app.secpal.DedicatedDeviceHomeActivity");
+        if (!ManagementPackageIdentity.matches(context, BuildConfig.WORK_APPLICATION_ID, BuildConfig.WORK_CERT_SHA256)) return;
+        ComponentName dedicatedHomeComponent = new ComponentName(BuildConfig.WORK_APPLICATION_ID, "app.secpal.DedicatedDeviceHomeActivity");
 
-        setDedicatedHomeEnabled(context, true);
-        devicePolicyManager.clearPackagePersistentPreferredActivities(adminComponent, context.getPackageName());
+        devicePolicyManager.clearPackagePersistentPreferredActivities(adminComponent, BuildConfig.WORK_APPLICATION_ID);
 
         IntentFilter homeIntentFilter = new IntentFilter(Intent.ACTION_MAIN);
 
@@ -528,7 +542,7 @@ public final class DpcPolicyEnforcer {
     }
 
     private static Set<String> readManagedHiddenPackages(Context context) {
-        Set<String> storedPackages = context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        Set<String> storedPackages = context.getSharedPreferences(DpcPolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .getStringSet(PREF_MANAGED_HIDDEN_PACKAGES, Collections.emptySet());
 
         return storedPackages == null
@@ -537,7 +551,7 @@ public final class DpcPolicyEnforcer {
     }
 
     private static void persistManagedHiddenPackages(Context context, Set<String> packageNames) {
-        context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(DpcPolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putStringSet(PREF_MANAGED_HIDDEN_PACKAGES, new LinkedHashSet<>(packageNames))
             .apply();
@@ -592,7 +606,7 @@ public final class DpcPolicyEnforcer {
         EnterpriseManagedState managedState,
         int sdkInt
     ) {
-        List<String> allowedPackages = new ArrayList<>(managedState.resolveAllowedPackages(context));
+        List<String> allowedPackages = new ArrayList<>(resolveAllowedPackages(context, managedState));
         List<String> launchablePackages = new ArrayList<>(resolveLaunchablePackages(context));
 
         Collections.sort(allowedPackages);
@@ -609,18 +623,6 @@ public final class DpcPolicyEnforcer {
             String.valueOf(managedState.isAllowSms()),
             String.join(",", allowedPackages),
             String.join(",", launchablePackages)
-        );
-    }
-
-    private static void setDedicatedHomeEnabled(Context context, boolean enabled) {
-        int newState = enabled
-            ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-            : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-
-        context.getPackageManager().setComponentEnabledSetting(
-            new ComponentName(context.getPackageName(), "app.secpal.DedicatedDeviceHomeActivity"),
-            newState,
-            PackageManager.DONT_KILL_APP
         );
     }
 

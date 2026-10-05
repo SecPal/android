@@ -1,0 +1,137 @@
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+apply plugin: 'com.android.application'
+
+// Independent DPC inputs: Work release credentials and distribution are never consumed.
+def dpcKeystorePath = System.getenv('SECPAL_DPC_KEYSTORE_PATH')
+def dpcKeystorePassword = System.getenv('SECPAL_DPC_KEYSTORE_PASSWORD')
+def dpcKeyAlias = System.getenv('SECPAL_DPC_KEY_ALIAS')
+def dpcKeyPassword = System.getenv('SECPAL_DPC_KEY_PASSWORD')
+def workCertificate = (System.getenv('SECPAL_WORK_CERT_SHA256') ?: '').trim().toLowerCase()
+if (workCertificate && !(workCertificate ==~ /[a-f0-9]{64}/)) {
+    throw new GradleException('SECPAL_WORK_CERT_SHA256 must be a SHA-256 certificate digest')
+}
+def signingInputs = [dpcKeystorePath, dpcKeystorePassword, dpcKeyAlias, dpcKeyPassword]
+if (signingInputs.any { it } && !signingInputs.every { it }) {
+    throw new GradleException('All four SECPAL_DPC signing inputs are required together')
+}
+def hasDpcSigning = signingInputs.every { it }
+def debugKeystore = rootProject.file('.gradle/dpc-debug.keystore')
+
+android {
+    namespace "io.secpal.dpc"
+    compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId "io.secpal.dpc"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "WORK_APPLICATION_ID", '"app.secpal"'
+        buildConfigField "String", "WORK_CERT_SHA256", "\"${workCertificate}\""
+        manifestPlaceholders = [
+            secpalWorkApplicationId: "app.secpal",
+            secpalSamsungAppKeyPttData: (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA') ?: '').trim(),
+            secpalSamsungAppKeySosData: (System.getenv('SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA') ?: '').trim(),
+        ]
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    signingConfigs {
+        debug {
+            storeFile debugKeystore
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (hasDpcSigning) {
+            release {
+                storeFile file(dpcKeystorePath)
+                storePassword dpcKeystorePassword
+                keyAlias dpcKeyAlias
+                keyPassword dpcKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            if (hasDpcSigning) signingConfig signingConfigs.release
+        }
+        ctRegression {
+            initWith debug
+            applicationIdSuffix '.ctregression'
+            buildConfigField "String", "WORK_APPLICATION_ID", '"app.secpal.ctregression"'
+            manifestPlaceholders.secpalWorkApplicationId = "app.secpal.ctregression"
+            matchingFallbacks = ['debug']
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testBuildType 'ctRegression'
+    testOptions { unitTests.includeAndroidResources = true }
+    sourceSets {
+        test.java.srcDir "../management/test/java"
+        main.java.srcDir '../management/java'
+        ctRegression {
+            manifest.srcFile 'src/debug/AndroidManifest.xml'
+            java.srcDirs = ['src/debug/java']
+        }
+    }
+}
+
+// A separate local test key proves the install/signing split; it is never release authority.
+def prepareDebugSigning = tasks.register('prepareDebugSigning', Exec) {
+    onlyIf { !debugKeystore.isFile() }
+    doFirst { debugKeystore.parentFile.mkdirs() }
+    commandLine "${System.getProperty('java.home')}/bin/keytool", '-genkeypair',
+        '-keystore', debugKeystore.absolutePath, '-storepass', 'android',
+        '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA',
+        '-keysize', '2048', '-validity', '10000', '-dname', 'CN=SecPal DPC Local Test'
+}
+tasks.matching { it.name in ['validateSigningDebug', 'validateSigningCtRegression'] }.configureEach {
+    dependsOn(prepareDebugSigning)
+}
+
+tasks.register('verifyDpcSigningAuthority') {
+    doLast {
+        if (!hasDpcSigning || !workCertificate) {
+            throw new GradleException('DPC release signing requires independent credentials and the Work certificate pin')
+        }
+        def keystore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+        file(dpcKeystorePath).withInputStream { keystore.load(it, dpcKeystorePassword.toCharArray()) }
+        def certificate = keystore.getCertificate(dpcKeyAlias)
+        if (certificate == null || !keystore.isKeyEntry(dpcKeyAlias)) {
+            throw new GradleException('DPC signing alias must identify a private signing key')
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(certificate.encoded).encodeHex().toString()
+        if (file(dpcKeystorePath).canonicalFile == debugKeystore.canonicalFile) {
+            throw new GradleException('Local DPC test signing is never release authority')
+        }
+        if (debugKeystore.isFile()) {
+            def debugStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+            debugKeystore.withInputStream { debugStore.load(it, 'android'.toCharArray()) }
+            if (java.util.Arrays.equals(certificate.encoded, debugStore.getCertificate('androiddebugkey').encoded)) {
+                throw new GradleException('Local DPC test signing is never release authority')
+            }
+        }
+        if (digest == workCertificate) {
+            throw new GradleException('DPC and Work must have independent signing authorities')
+        }
+    }
+}
+tasks.matching { it.name in ['packageRelease', 'packageReleaseBundle', 'signReleaseBundle', 'validateSigningRelease'] }.configureEach {
+    dependsOn('verifyDpcSigningAuthority')
+}
+
+dependencies {
+    implementation "androidx.core:core:$androidxCoreVersion"
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}

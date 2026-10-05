@@ -52,7 +52,7 @@ public class DpcPolicyEnforcerTest {
     public void deviceOwnerModeWinsOverProfileOwnerMode() {
         assertEquals(
             EnterpriseManagedState.MODE_DEVICE_OWNER,
-            EnterprisePolicyState.resolveManagedMode(true, true)
+            DpcPolicyState.resolveManagedMode(true, true)
         );
     }
 
@@ -60,7 +60,7 @@ public class DpcPolicyEnforcerTest {
     public void profileOwnerModeIsReportedWhenNoDeviceOwnerExists() {
         assertEquals(
             EnterpriseManagedState.MODE_PROFILE_OWNER,
-            EnterprisePolicyState.resolveManagedMode(false, true)
+            DpcPolicyState.resolveManagedMode(false, true)
         );
     }
 
@@ -68,7 +68,7 @@ public class DpcPolicyEnforcerTest {
     public void unmanagedModeIsReportedWhenNoOwnerRoleExists() {
         assertEquals(
             EnterpriseManagedState.MODE_NONE,
-            EnterprisePolicyState.resolveManagedMode(false, false)
+            DpcPolicyState.resolveManagedMode(false, false)
         );
     }
 
@@ -103,43 +103,4 @@ public class DpcPolicyEnforcerTest {
         assertTrue(foundWithDefaultCategory);
     }
 
-    @Test
-    public void debugKioskLauncherLaunchesDedicatedHomeOnUnmanagedDevices() {
-        Map<String, Object> values = new LinkedHashMap<>();
-
-        values.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
-
-        assertTrue(
-            EnterprisePolicyClient.shouldOpenDedicatedHomeOnLaunch(
-                "android.intent.action.MAIN",
-                true,
-                false,
-                new EnterpriseManagedState(
-                    EnterpriseManagedState.MODE_NONE,
-                    EnterprisePolicyConfig.fromMap(values),
-                    true
-                )
-            )
-        );
-    }
-
-    @Test
-    public void explicitMainActivityLaunchDoesNotRedirectIntoDedicatedHome() {
-        Map<String, Object> values = new LinkedHashMap<>();
-
-        values.put(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
-
-        assertFalse(
-            EnterprisePolicyClient.shouldOpenDedicatedHomeOnLaunch(
-                null,
-                false,
-                false,
-                new EnterpriseManagedState(
-                    EnterpriseManagedState.MODE_NONE,
-                    EnterprisePolicyConfig.fromMap(values),
-                    true
-                )
-            )
-        );
-    }
 }

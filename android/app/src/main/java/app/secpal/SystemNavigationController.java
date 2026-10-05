@@ -37,6 +37,7 @@ final class SystemNavigationController {
         Activity activity,
         EnterpriseManagedState managedState
     ) {
+        if (!managedState.isAvailable()) return false;
         if (!managedState.isDeviceOwner() || !managedState.isPreferGestureNavigation()) {
             SystemNavigationSettings.setProvisioningGestureNavigationPending(activity, false);
             return false;

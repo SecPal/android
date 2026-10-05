@@ -43,7 +43,7 @@ const domainReferenceCharacterSource = String.raw`\p{L}\p{M}\p{N}_*\-`;
 const secpalReferenceSource = String.raw`(?<![${domainReferenceCharacterSource}])(?=[${domainReferenceCharacterSource}.]*secpal)(?:[${domainReferenceCharacterSource}]+\.+)+[${domainReferenceCharacterSource}]+\.*(?![${domainReferenceCharacterSource}])`;
 const secpalReferencePattern = new RegExp(secpalReferenceSource, "gu");
 const androidTestApplicationIdPattern =
-  /^app\.secpal(?:\.test|\.ctregression(?:\.test)?)$/;
+  /^(?:app\.secpal|io\.secpal\.dpc)(?:\.test|\.ctregression(?:\.test)?)$/;
 const secpalNetworkPrefixSource = String.raw`(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})`;
 const secpalNetworkReferencePattern = new RegExp(
   `(${secpalNetworkPrefixSource})(${secpalReferenceSource})[A-Za-z0-9._~!$&'()*+,;=%:@/\\\\-]*`,
@@ -3039,12 +3039,28 @@ function isAllowedAndroidTestApplicationId(line, start, reference) {
   const prefix = line.slice(0, start);
   const suffix = line.slice(start + reference.length);
   return (
+    (/^[ \t]*buildConfigField[ \t]+"String",[ \t]+"(?:WORK|DPC)_APPLICATION_ID",[ \t]+'"$/.test(
+      prefix
+    ) &&
+      /^"'[ \t]*$/.test(suffix)) ||
+    (/^[ \t]*(?:manifestPlaceholders\.)?secpal(?:Work|Dpc)ApplicationId[ \t]*(?::|=)[ \t]*"$/.test(
+      prefix
+    ) &&
+      /^",?[ \t]*$/.test(suffix)) ||
     (/^[ \t]*uninstall[ \t]+$/.test(prefix) &&
       /^(?:[ \t]+(?:\|\||&&|;)|[ \t]*$)/.test(suffix)) ||
     (/^[ \t]*admin_component[ \t]*=[ \t]*["']?$/.test(prefix) &&
       /^\/app\.secpal\.[A-Z][A-Za-z0-9_]*["']?(?:[ \t]|$)/.test(suffix)) ||
     (/^[ \t]*$/.test(prefix) &&
       /^\/androidx\.test\.runner\.AndroidJUnitRunner(?:[ \t]|$)/.test(suffix))
+  );
+}
+
+function isDpcManagementUri(source, start, reference) {
+  return (
+    /^io\.secpal\.dpc(?:\.ctregression)?\.management$/.test(reference) &&
+    source.slice(Math.max(0, start - 10), start) === "content://" &&
+    /^(?:[ \t\r\n"']|$)/.test(source.slice(start + reference.length))
   );
 }
 
@@ -3057,6 +3073,7 @@ function secpalReferenceOutputs(file, lineOffset, source) {
       continue;
     }
     const referenceStart = match.index + match[1].length;
+    if (isDpcManagementUri(source, referenceStart, match[2])) continue;
     let nextLineBreak = source.indexOf("\n", networkLineCursor);
     while (nextLineBreak !== -1 && nextLineBreak < referenceStart) {
       networkLineNumber += 1;
@@ -3076,7 +3093,10 @@ function secpalReferenceOutputs(file, lineOffset, source) {
         continue;
       }
       const end = start + reference.length;
-      if (isAllowedAndroidTestApplicationId(line, start, reference)) {
+      if (
+        isAllowedAndroidTestApplicationId(line, start, reference) ||
+        isDpcManagementUri(line, start, reference)
+      ) {
         continue;
       }
       const emailPrefix = line[start - 1] === "@" ? "@" : "";

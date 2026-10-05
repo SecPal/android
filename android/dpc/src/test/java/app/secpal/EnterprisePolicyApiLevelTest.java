@@ -5,6 +5,8 @@
 
 package app.secpal;
 
+import io.secpal.dpc.BuildConfig;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;

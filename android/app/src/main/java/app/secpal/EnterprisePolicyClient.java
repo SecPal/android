@@ -30,11 +30,17 @@ public final class EnterprisePolicyClient {
     }
 
     public static EnterpriseManagedState getManagedState(Context context) {
-        return EnterprisePolicyState.read(context);
+        EnterpriseManagedState state = EnterprisePolicyState.read(context);
+        updateDedicatedHomeAvailability(context, state);
+        return state;
     }
 
     public static void maybeEnterLockTask(Activity activity) {
-        EnterpriseManagedState managedState = EnterprisePolicyState.read(activity);
+        maybeEnterLockTask(activity, getManagedState(activity));
+    }
+
+    static void maybeEnterLockTask(Activity activity, EnterpriseManagedState managedState) {
+        if (!managedState.isAvailable() || !managedState.isManaged()) return;
         ActivityManager activityManager = activity.getSystemService(ActivityManager.class);
 
         if (!managedState.isLockTaskEnabled()) {
@@ -178,37 +184,15 @@ public final class EnterprisePolicyClient {
         return true;
     }
 
-    static boolean shouldOpenDedicatedHomeOnLaunch(
-        Intent intent,
-        EnterpriseManagedState managedState
-    ) {
-        if (intent == null) {
-            return false;
+    static void updateDedicatedHomeAvailability(Context context, EnterpriseManagedState state) {
+        if (!state.isAvailable()) return;
+        PackageManager manager = context.getPackageManager();
+        ComponentName component = new ComponentName(context, DedicatedDeviceHomeActivity.class);
+        int desired = state.isKioskActive() ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        if (manager.getComponentEnabledSetting(component) != desired) {
+            manager.setComponentEnabledSetting(component, desired, PackageManager.DONT_KILL_APP);
         }
-
-        return shouldOpenDedicatedHomeOnLaunch(
-            intent.getAction(),
-            intent.hasCategory(Intent.CATEGORY_LAUNCHER),
-            intent.hasCategory(Intent.CATEGORY_HOME),
-            managedState
-        );
-    }
-
-    static boolean shouldOpenDedicatedHomeOnLaunch(
-        String action,
-        boolean hasLauncherCategory,
-        boolean hasHomeCategory,
-        EnterpriseManagedState managedState
-    ) {
-        if (managedState == null || !managedState.usesDebugKioskHome()) {
-            return false;
-        }
-
-        if (!Intent.ACTION_MAIN.equals(action)) {
-            return false;
-        }
-
-        return hasLauncherCategory || hasHomeCategory;
     }
 
     private static boolean launchIntent(Context context, Intent intent) {

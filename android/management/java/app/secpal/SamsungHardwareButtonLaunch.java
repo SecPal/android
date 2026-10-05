@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 
 final class SamsungHardwareButtonLaunch {
+    static final long LONG_PRESS_THRESHOLD_MS = 5000L;
     static final String EXTRA_HARDWARE_TRIGGER_ACTION = "hardware_trigger_action";
     static final String EXTRA_HARDWARE_TRIGGER_HANDLED = "hardware_trigger_handled";
     static final String EXTRA_HARDWARE_TRIGGER_KEY_CODE = "hardware_trigger_key_code";
@@ -33,7 +34,7 @@ final class SamsungHardwareButtonLaunch {
     }
 
     static Intent createLaunchIntent(Context context, String hardwareAction, int keyCode) {
-        Intent launchIntent = new Intent(context, MainActivity.class);
+        Intent launchIntent = new Intent().setComponent(new ComponentName(context.getPackageName(), "app.secpal.MainActivity"));
 
         launchIntent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK
@@ -47,7 +48,7 @@ final class SamsungHardwareButtonLaunch {
     }
 
     static Intent createForegroundLaunchIntent(Context context, String hardwareAction, int keyCode) {
-        Intent launchIntent = new Intent(context, MainActivity.class);
+        Intent launchIntent = new Intent().setComponent(new ComponentName(context.getPackageName(), "app.secpal.MainActivity"));
 
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         launchIntent.putExtra(EXTRA_HARDWARE_TRIGGER_ACTION, hardwareAction);
@@ -174,7 +175,7 @@ final class SamsungHardwareButtonLaunch {
             return intent.getIntExtra(EXTRA_HARDWARE_TRIGGER_KEY_CODE, KeyEvent.KEYCODE_UNKNOWN);
         }
 
-        return intent.getIntExtra(SamsungHardKeyReceiver.EXTRA_KEY_CODE, KeyEvent.KEYCODE_UNKNOWN);
+        return intent.getIntExtra(SamsungHardKeyContract.EXTRA_KEY_CODE, KeyEvent.KEYCODE_UNKNOWN);
     }
 
     static boolean shouldWakeDevice(Intent intent, String packageName) {
@@ -188,7 +189,7 @@ final class SamsungHardwareButtonLaunch {
     }
 
     private static String resolveHardKeyReportAction(Intent intent, LongSupplier timeMs) {
-        if (intent == null || !SamsungHardKeyReceiver.ACTION_HARD_KEY_REPORT.equals(intent.getAction())) {
+        if (intent == null || !SamsungHardKeyContract.ACTION_HARD_KEY_REPORT.equals(intent.getAction())) {
             return null;
         }
 
@@ -206,18 +207,18 @@ final class SamsungHardwareButtonLaunch {
         }
 
         switch (reportType.intValue()) {
-            case SamsungHardKeyReceiver.REPORT_TYPE_DOWN:
+            case SamsungHardKeyContract.REPORT_TYPE_DOWN:
                 activeHardKeyReportStartedAt.put(
                     Integer.valueOf(keyCode),
                     Long.valueOf(timeMs.getAsLong())
                 );
                 return null;
-            case SamsungHardKeyReceiver.REPORT_TYPE_UP:
+            case SamsungHardKeyContract.REPORT_TYPE_UP:
                 return resolveUpAction(keyCode, timeMs);
-            case SamsungHardKeyReceiver.REPORT_TYPE_DOWN_UP:
+            case SamsungHardKeyContract.REPORT_TYPE_DOWN_UP:
                 activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
                 return HARDWARE_TRIGGER_ACTION_SHORT_PRESS;
-            case SamsungHardKeyReceiver.REPORT_TYPE_LONG:
+            case SamsungHardKeyContract.REPORT_TYPE_LONG:
                 activeHardKeyReportStartedAt.remove(Integer.valueOf(keyCode));
                 return HARDWARE_TRIGGER_ACTION_LONG_PRESS;
             default:
@@ -234,7 +235,7 @@ final class SamsungHardwareButtonLaunch {
 
         long holdDurationMs = Math.max(0L, timeMs.getAsLong() - pressedAt.longValue());
 
-        if (holdDurationMs >= SecPalEnterprisePlugin.HARDWARE_BUTTON_LONG_PRESS_THRESHOLD_MS) {
+        if (holdDurationMs >= LONG_PRESS_THRESHOLD_MS) {
             return HARDWARE_TRIGGER_ACTION_LONG_PRESS;
         }
 
@@ -246,23 +247,23 @@ final class SamsungHardwareButtonLaunch {
             return null;
         }
 
-        if (intent.getBooleanExtra(SamsungHardKeyReceiver.EXTRA_REPORT_TYPE_NEW_LONG_UP, false)) {
-            return Integer.valueOf(SamsungHardKeyReceiver.REPORT_TYPE_LONG);
+        if (intent.getBooleanExtra(SamsungHardKeyContract.EXTRA_REPORT_TYPE_NEW_LONG_UP, false)) {
+            return Integer.valueOf(SamsungHardKeyContract.REPORT_TYPE_LONG);
         }
 
-        if (intent.hasExtra(SamsungHardKeyReceiver.EXTRA_REPORT_TYPE_NEW)) {
+        if (intent.hasExtra(SamsungHardKeyContract.EXTRA_REPORT_TYPE_NEW)) {
             return Integer.valueOf(
                 intent.getIntExtra(
-                    SamsungHardKeyReceiver.EXTRA_REPORT_TYPE_NEW,
+                    SamsungHardKeyContract.EXTRA_REPORT_TYPE_NEW,
                     Integer.MIN_VALUE
                 )
             );
         }
 
-        if (intent.hasExtra(SamsungHardKeyReceiver.EXTRA_REPORT_TYPE)) {
+        if (intent.hasExtra(SamsungHardKeyContract.EXTRA_REPORT_TYPE)) {
             return Integer.valueOf(
                 intent.getIntExtra(
-                    SamsungHardKeyReceiver.EXTRA_REPORT_TYPE,
+                    SamsungHardKeyContract.EXTRA_REPORT_TYPE,
                     Integer.MIN_VALUE
                 )
             );
@@ -272,8 +273,8 @@ final class SamsungHardwareButtonLaunch {
     }
 
     static boolean isSupportedLaunchKeyCode(int keyCode) {
-        return keyCode == SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER
-            || keyCode == SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS;
+        return keyCode == SamsungHardKeyContract.SAMSUNG_KEY_CODE_XCOVER
+            || keyCode == SamsungHardKeyContract.SAMSUNG_KEY_CODE_SOS;
     }
 
     static void resetHardKeyReportState() {
