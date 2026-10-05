@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     xmlns:tools="http://schemas.android.com/tools">
 
     <queries>
+        <package android:name="${secpalDpcApplicationId}" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -42,7 +43,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
     <!-- Passkeys require Android 14+; the Play services provider is intentionally excluded. -->
     <application
-        android:name=".DpcPolicyApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -110,7 +110,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
         <activity
             android:name=".DedicatedDeviceHomeActivity"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/title_activity_main"
@@ -150,47 +150,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <receiver
-            android:name=".SecPalDeviceAdminReceiver"
-            android:description="@string/enterprise_device_admin_description"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
-
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/secpal_device_admin" />
-
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Samsung's managed-key contract requires the platform-signature-protected
-             KNOX_CUSTOM_SETTING permission on the exported receiver. -->
-        <receiver
-            android:name=".SamsungHardKeyReceiver"
-            android:exported="true"
-            android:permission="com.samsung.android.knox.permission.KNOX_CUSTOM_SETTING">
-
-            <meta-data
-                android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
-                android:value="true" />
-
-            <meta-data
-                android:name="app_key_ptt_data"
-                android:value="${secpalSamsungAppKeyPttData}" />
-
-            <meta-data
-                android:name="app_key_sos_data"
-                android:value="${secpalSamsungAppKeySosData}" />
-
-            <intent-filter>
-                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_PRESS" />
-                <action android:name="com.samsung.android.knox.intent.action.HARD_KEY_REPORT" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

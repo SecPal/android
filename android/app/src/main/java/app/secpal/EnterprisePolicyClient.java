@@ -34,7 +34,10 @@ public final class EnterprisePolicyClient {
     }
 
     public static void maybeEnterLockTask(Activity activity) {
-        EnterpriseManagedState managedState = EnterprisePolicyState.read(activity);
+        maybeEnterLockTask(activity, EnterprisePolicyState.read(activity));
+    }
+
+    static void maybeEnterLockTask(Activity activity, EnterpriseManagedState managedState) {
         ActivityManager activityManager = activity.getSystemService(ActivityManager.class);
 
         if (!managedState.isLockTaskEnabled()) {

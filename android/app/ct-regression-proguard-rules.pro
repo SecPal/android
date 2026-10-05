@@ -18,8 +18,6 @@
 # packaging can place the dependency only in the separately minified app APK.
 -keep class androidx.tracing.Trace { *; }
 
-# The device-owner instrumentation test calls this package-private test seam
-# across the separately minified app and instrumentation APK boundary.
--keep class app.secpal.DpcPolicyEnforcer {
-    static void setKioskUserRestrictions(android.app.admin.DevicePolicyManager, android.content.ComponentName, boolean, boolean);
-}
+# Management consumer instrumentation crosses the minified Work/test APK boundary.
+-keep class app.secpal.EnterprisePolicyClient { *; }
+-keep class app.secpal.EnterpriseManagedState { *; }

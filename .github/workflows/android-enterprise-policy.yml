@@ -19,16 +19,12 @@ on:
       - "android/settings.gradle"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
-      - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
       - "android/app/src/ctRegression/AndroidManifest.xml"
       - "android/app/src/main/AndroidManifest.xml"
-      - "android/app/src/main/java/app/secpal/DpcPolicyEnforcer.java"
-      - "android/app/src/main/java/app/secpal/DpcPolicyApplication.java"
+      - "android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java"
+      - "android/dpc/**"
+      - "android/management/**"
       - "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
-      - "android/app/src/main/java/app/secpal/EnterpriseManagedState.java"
-      - "android/app/src/main/java/app/secpal/EnterprisePolicyConfig.java"
-      - "android/app/src/main/java/app/secpal/SystemNavigationSettings.java"
-      - "android/app/src/main/java/app/secpal/SecPalDeviceAdminReceiver.java"
       - "android/variables.gradle"
   pull_request:
     branches: [main]
@@ -44,16 +40,12 @@ on:
       - "android/settings.gradle"
       - "android/app/build.gradle"
       - "android/app/ct-regression-proguard-rules.pro"
-      - "android/app/src/androidTest/java/app/secpal/EnterprisePolicyInstrumentedTest.java"
       - "android/app/src/ctRegression/AndroidManifest.xml"
       - "android/app/src/main/AndroidManifest.xml"
-      - "android/app/src/main/java/app/secpal/DpcPolicyEnforcer.java"
-      - "android/app/src/main/java/app/secpal/DpcPolicyApplication.java"
+      - "android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java"
+      - "android/dpc/**"
+      - "android/management/**"
       - "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
-      - "android/app/src/main/java/app/secpal/EnterpriseManagedState.java"
-      - "android/app/src/main/java/app/secpal/EnterprisePolicyConfig.java"
-      - "android/app/src/main/java/app/secpal/SystemNavigationSettings.java"
-      - "android/app/src/main/java/app/secpal/SecPalDeviceAdminReceiver.java"
       - "android/variables.gradle"
 
 permissions:
@@ -61,9 +53,13 @@ permissions:
 
 jobs:
   device-owner-policy:
-    name: Device-owner policy (API 35)
+    name: DPC ${{ matrix.owner }} policy (API 35)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [device, profile]
 
     steps:
       - name: Checkout repository
@@ -85,7 +81,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify device-owner install restrictions
+      - name: Verify independent DPC and Work management boundary
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-enterprise-avd
           SECPAL_ANDROID_EMULATOR_GPU_MODE: software
@@ -100,9 +96,19 @@ jobs:
             --force --name "secpal-enterprise-api35" --package "$image"
           (
             cd android
+            ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug
+          )
+          # Test certificates are generated separately; production trust is never substituted.
+          export SECPAL_DPC_CERT_SHA256="$(keytool -exportcert -keystore android/.gradle/dpc-debug.keystore \
+            -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          export SECPAL_WORK_CERT_SHA256="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"
+          (
+            cd android
             ./gradlew --no-daemon \
-              :app:assembleCtRegression \
-              :app:assembleCtRegressionAndroidTest
+              :dpc:assembleCtRegression :dpc:assembleCtRegressionAndroidTest \
+              :app:assembleCtRegression :app:assembleCtRegressionAndroidTest
           )
           npm run android:emulator:start -- "secpal-enterprise-api35" 5570
           if ! npm run android:device:wait -- emulator-5570 300; then
@@ -111,10 +117,14 @@ jobs:
             exit 1
           fi
 
-          admin_component="app.secpal.ctregression/app.secpal.SecPalDeviceAdminReceiver"
+          admin_component="io.secpal.dpc.ctregression/app.secpal.SecPalDeviceAdminReceiver"
           cleanup() {
             bash ./scripts/with-android-env.sh adb -s emulator-5570 \
               shell dpm remove-active-admin --user 0 "$admin_component" || true
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              uninstall io.secpal.dpc.ctregression.test || true
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              uninstall io.secpal.dpc.ctregression || true
             bash ./scripts/with-android-env.sh adb -s emulator-5570 \
               uninstall app.secpal.ctregression.test || true
             bash ./scripts/with-android-env.sh adb -s emulator-5570 \
@@ -124,19 +134,41 @@ jobs:
           trap cleanup EXIT
 
           bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
+            android/dpc/build/outputs/apk/ctRegression/dpc-ctRegression.apk
+          bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
             android/app/build/outputs/apk/ctRegression/app-ctRegression.apk
           bash ./scripts/wait-for-device-policy-account-scan.sh emulator-5570 60
-          bash ./scripts/with-android-env.sh adb -s emulator-5570 \
-            shell dpm set-device-owner --user 0 "$admin_component"
+          if [[ "${{ matrix.owner }}" == "device" ]]; then
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              shell dpm set-device-owner --user 0 "$admin_component"
+          else
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              shell dpm set-profile-owner --user 0 "$admin_component"
+          fi
           bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
-            android/app/build/outputs/apk/androidTest/ctRegression/app-ctRegression-androidTest.apk
+            android/dpc/build/outputs/apk/androidTest/ctRegression/dpc-ctRegression-androidTest.apk
 
           instrumentation_output="$(
             bash ./scripts/with-android-env.sh adb -s emulator-5570 shell am instrument \
               -w -r \
               -e class app.secpal.EnterprisePolicyInstrumentedTest \
-              app.secpal.ctregression.test/androidx.test.runner.AndroidJUnitRunner
+              io.secpal.dpc.ctregression.test/androidx.test.runner.AndroidJUnitRunner
           )"
           echo "$instrumentation_output"
           grep -F "OK (1 test)" <<<"$instrumentation_output"
           grep -F "INSTRUMENTATION_CODE: -1" <<<"$instrumentation_output"
+
+          bash ./scripts/with-android-env.sh adb -s emulator-5570 install -t -r \
+            android/app/build/outputs/apk/androidTest/ctRegression/app-ctRegression-androidTest.apk
+          work_output="$(
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 shell am instrument \
+              -w -r -e class app.secpal.EnterpriseManagementInstrumentedTest \
+              app.secpal.ctregression.test/androidx.test.runner.AndroidJUnitRunner
+          )"
+          echo "$work_output"
+          grep -F "OK (1 test)" <<<"$work_output"
+          grep -F "INSTRUMENTATION_CODE: -1" <<<"$work_output"
+          # Ordinary callers cannot read the protected state API or request mutation.
+          denied_output="$(bash ./scripts/with-android-env.sh adb -s emulator-5570 shell content call \
+            --uri content://io.secpal.dpc.ctregression.management --method management_state 2>&1 || true)"
+          grep -F "SecurityException" <<<"$denied_output"

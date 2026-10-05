@@ -23,6 +23,11 @@ def releaseVersionName = canonicalVersionFile.getText('UTF-8').trim()
 if (!(releaseVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)) {
     throw new GradleException("Invalid canonical Android version '${releaseVersionName}' in ${canonicalVersionFile}. Expected semantic version syntax.")
 }
+def dpcCertificate = (System.getenv('SECPAL_DPC_CERT_SHA256') ?: '').trim().toLowerCase()
+if (dpcCertificate && !(dpcCertificate ==~ /[a-f0-9]{64}/)) {
+    throw new GradleException('SECPAL_DPC_CERT_SHA256 must be a SHA-256 certificate digest')
+}
+
 def releaseKeystorePath = System.getenv('SECPAL_ANDROID_KEYSTORE_PATH')
 def releaseKeystorePassword = System.getenv('SECPAL_ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('SECPAL_ANDROID_KEY_ALIAS')
@@ -78,11 +83,14 @@ android {
     }
     defaultConfig {
         applicationId "app.secpal"
+        buildConfigField "String", "DPC_CERT_SHA256", "\"${dpcCertificate}\""
+        buildConfigField "String", "DPC_APPLICATION_ID", '"io.secpal.dpc"'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseVersionCode
         versionName releaseVersionName
         manifestPlaceholders = [
+            secpalDpcApplicationId: "io.secpal.dpc",
             secpalSamsungAppKeyPttData: samsungAppKeyPttData,
             secpalSamsungAppKeySosData: samsungAppKeySosData,
         ]
@@ -118,6 +126,8 @@ android {
         }
         ctRegression {
             initWith release
+            manifestPlaceholders.secpalDpcApplicationId = "io.secpal.dpc.ctregression"
+            buildConfigField "String", "DPC_APPLICATION_ID", '"io.secpal.dpc.ctregression"'
             applicationIdSuffix ".ctregression"
             matchingFallbacks = ['release']
             proguardFile 'ct-regression-proguard-rules.pro'
@@ -135,6 +145,8 @@ android {
         }
     }
     sourceSets {
+        test.java.srcDir "../management/test/java"
+        main.java.srcDir "../management/java"
         ctRegression {
             manifest.srcFile "src/ctRegression/AndroidManifest.xml"
             java.srcDirs = ["src/debug/java"]

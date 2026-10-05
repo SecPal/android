@@ -35,7 +35,42 @@ import org.robolectric.shadows.ShadowDevicePolicyManager;
 @Config(sdk = 28, shadows = DpcPolicyBoundaryTest.RecordingDevicePolicyManager.class)
 public class DpcPolicyBoundaryTest {
     @Test
-    public void deviceOwnerConsumptionDoesNotGrantPolicyButResumeEnforcesBeforeLockTaskUse() {
+    public void ownerActivationAndSystemServiceRestartEnforceWithoutWorkLifecycle() {
+        Context context = RuntimeEnvironment.getApplication();
+        DevicePolicyManager manager = context.getSystemService(DevicePolicyManager.class);
+        ComponentName admin = new ComponentName(context, SecPalDeviceAdminReceiver.class);
+        assertTrue(shadowOf(manager).setDeviceOwner(admin));
+        new DpcPolicyChangeReceiver().onReceive(context,
+            new Intent(DevicePolicyManager.ACTION_DEVICE_OWNER_CHANGED));
+        assertTrue(manager.getScreenCaptureDisabled(admin));
+        DpcPolicyEnforcer.persistDebugPolicy(context,
+            Collections.singletonMap(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true));
+        var service = Robolectric.buildService(DpcPolicyService.class).create();
+        try {
+            assertTrue(manager.isLockTaskPermitted(context.getPackageName()));
+            assertTrue(service.get().onBind(new Intent()) instanceof android.os.Binder);
+        } finally {
+            service.destroy();
+        }
+    }
+
+    @Test
+    public void packageAllowlistCannotBypassWorkCertificateAuthentication() {
+        Context context = RuntimeEnvironment.getApplication();
+        DevicePolicyManager manager = context.getSystemService(DevicePolicyManager.class);
+        ComponentName admin = new ComponentName(context, SecPalDeviceAdminReceiver.class);
+        assertTrue(shadowOf(manager).setDeviceOwner(admin));
+        Bundle restrictions = new Bundle();
+        restrictions.putBoolean(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true);
+        restrictions.putStringArray(EnterprisePolicyConfig.KEY_ALLOWED_PACKAGES,
+            new String[] {io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID});
+        shadowOf(context.getSystemService(UserManager.class)).setApplicationRestrictions(context.getPackageName(), restrictions);
+        DpcPolicyEnforcer.syncPolicy(context);
+        assertFalse(manager.isLockTaskPermitted(io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID));
+    }
+
+    @Test
+    public void deviceOwnerStateReadCannotGrantPolicyUntilDpcEnforces() {
         Context context = RuntimeEnvironment.getApplication();
         DevicePolicyManager manager = context.getSystemService(DevicePolicyManager.class);
         ComponentName admin = new ComponentName(context, SecPalDeviceAdminReceiver.class);
@@ -45,20 +80,14 @@ public class DpcPolicyBoundaryTest {
             Collections.singletonMap(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true)
         );
 
-        EnterpriseManagedState state = EnterprisePolicyClient.getManagedState(context);
+        EnterpriseManagedState state = DpcPolicyState.read(context);
         assertTrue(state.isDeviceOwner());
         assertTrue(state.isLockTaskEnabled());
         assertFalse(manager.getScreenCaptureDisabled(admin));
         assertFalse(manager.isLockTaskPermitted(context.getPackageName()));
-        EnterprisePolicyClient.resolveAllowedLaunchApps(context);
-        assertFalse(manager.getScreenCaptureDisabled(admin));
-        assertFalse(manager.isLockTaskPermitted(context.getPackageName()));
-
-        try (var controller = Robolectric.buildActivity(PolicyConsumingActivity.class).setup()) {
-            assertTrue(controller.get().screenCaptureDisabledBeforeCreateConsumption);
-            assertTrue(controller.get().screenCaptureDisabledBeforeConsumption);
-            assertTrue(controller.get().lockTaskPermittedBeforeConsumption);
-        }
+        DpcPolicyEnforcer.syncPolicy(context);
+        assertTrue(manager.getScreenCaptureDisabled(admin));
+        assertTrue(manager.isLockTaskPermitted(context.getPackageName()));
     }
 
     @Test
@@ -72,7 +101,7 @@ public class DpcPolicyBoundaryTest {
             Collections.singletonMap(EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true)
         );
 
-        EnterpriseManagedState state = EnterprisePolicyClient.getManagedState(context);
+        EnterpriseManagedState state = DpcPolicyState.read(context);
         assertTrue(state.isProfileOwner());
         assertFalse(state.isKioskActive());
         assertFalse(state.isLockTaskEnabled());
@@ -98,34 +127,10 @@ public class DpcPolicyBoundaryTest {
         shadowOf(Looper.getMainLooper()).idle();
 
         assertTrue(context.getSystemService(UserManager.class).hasUserRestriction(UserManager.DISALLOW_CONFIG_WIFI));
-        assertTrue(EnterprisePolicyClient.getManagedState(context).isKioskActive());
+        assertTrue(DpcPolicyState.read(context).isKioskActive());
         assertEquals(DevicePolicyManager.LOCK_TASK_FEATURE_HOME, manager.getLockTaskFeatures(admin));
     }
 
-    public static class PolicyConsumingActivity extends Activity {
-        boolean screenCaptureDisabledBeforeCreateConsumption;
-        boolean screenCaptureDisabledBeforeConsumption;
-        boolean lockTaskPermittedBeforeConsumption;
-
-        @Override
-        protected void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
-            screenCaptureDisabledBeforeCreateConsumption = getSystemService(DevicePolicyManager.class)
-                .getScreenCaptureDisabled(new ComponentName(this, SecPalDeviceAdminReceiver.class));
-            EnterprisePolicyClient.getManagedState(this);
-        }
-
-        @Override
-        protected void onResume() {
-            super.onResume();
-            DevicePolicyManager manager = getSystemService(DevicePolicyManager.class);
-            screenCaptureDisabledBeforeConsumption = manager.getScreenCaptureDisabled(
-                new ComponentName(this, SecPalDeviceAdminReceiver.class)
-            );
-            lockTaskPermittedBeforeConsumption = manager.isLockTaskPermitted(getPackageName());
-            EnterprisePolicyClient.maybeEnterLockTask(this);
-        }
-    }
     // Robolectric 4.14 does not implement the screen-capture setters/getters.
     // Record their real call arguments alongside its existing owner/lock-task simulation.
     @Implements(DevicePolicyManager.class)

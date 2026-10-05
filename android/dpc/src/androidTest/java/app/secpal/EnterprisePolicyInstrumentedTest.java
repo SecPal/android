@@ -17,6 +17,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import org.junit.runner.RunWith;
 
 @RunWith(AndroidJUnit4.class)
@@ -34,7 +36,21 @@ public final class EnterprisePolicyInstrumentedTest {
             SecPalDeviceAdminReceiver.class
         );
 
-        assertTrue(devicePolicyManager.isDeviceOwnerApp(context.getPackageName()));
+        boolean deviceOwner = devicePolicyManager.isDeviceOwnerApp(context.getPackageName());
+        boolean profileOwner = devicePolicyManager.isProfileOwnerApp(context.getPackageName());
+        assertTrue(deviceOwner || profileOwner);
+        assertEquals(io.secpal.dpc.BuildConfig.APPLICATION_ID, context.getPackageName());
+        assertThrows(ClassNotFoundException.class, () -> Class.forName("app.secpal.MainActivity"));
+        assertThrows(ClassNotFoundException.class, () -> Class.forName("app.secpal.SecPalEnterprisePlugin"));
+        if (profileOwner && !deviceOwner) {
+            DpcPolicyEnforcer.persistDebugPolicy(context, java.util.Collections.singletonMap(
+                EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true));
+            EnterpriseManagedState state = DpcPolicyEnforcer.syncPolicy(context);
+            assertTrue(state.isProfileOwner());
+            assertFalse(state.isKioskActive());
+            assertFalse(devicePolicyManager.isLockTaskPermitted(io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID));
+            return;
+        }
 
         try {
             DpcPolicyEnforcer.setKioskUserRestrictions(
@@ -64,5 +80,9 @@ public final class EnterprisePolicyInstrumentedTest {
                 false
             );
         }
+        DpcPolicyEnforcer.persistDebugPolicy(context, java.util.Collections.singletonMap(
+            EnterprisePolicyConfig.KEY_KIOSK_MODE_ENABLED, true));
+        assertTrue(DpcPolicyEnforcer.syncPolicy(context).isKioskActive());
+        assertTrue(devicePolicyManager.isLockTaskPermitted(io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID));
     }
 }

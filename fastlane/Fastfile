@@ -226,7 +226,7 @@ def run_signed_gradle(task)
     File.expand_path("scripts/load-android-release-env.sh", REPO_ROOT),
     "bash",
     "-lc",
-    "cd #{File.expand_path('android', REPO_ROOT)} && ./gradlew #{task}"
+    "cd #{File.expand_path('android', REPO_ROOT)} && ./gradlew :app:#{task}"
   )
 end
 

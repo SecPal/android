@@ -1963,6 +1963,8 @@ describe("preflight", () => {
     const checker = join(tempRoot, "check-domains.sh");
     const baseApplicationId = ["app", "secpal"].join(".");
     const derivedApplicationId = `${baseApplicationId}.ctregression`;
+    const dpcApplicationId = ["io", "secpal", "dpc"].join(".");
+    const dpcDerivedId = `${dpcApplicationId}.ctregression`;
     const baseTestApplicationId = `${baseApplicationId}.test`;
     const testApplicationId = `${derivedApplicationId}.test`;
     const forbiddenAppHost = `${baseApplicationId}.com`;
@@ -1993,6 +1995,15 @@ describe("preflight", () => {
         join(tempRoot, "check-domains-parser.mjs")
       );
       const allowedAndroidCommands = [
+        `applicationId "${dpcApplicationId}"`,
+        `buildConfigField "String", "WORK_APPLICATION_ID", '"${derivedApplicationId}"'`,
+        `buildConfigField "String", "DPC_APPLICATION_ID", '"${dpcDerivedId}"'`,
+        `import ${dpcApplicationId}.BuildConfig;`,
+        `${dpcApplicationId}.BuildConfig.APPLICATION_ID`,
+        `admin_component="${dpcDerivedId}/app.secpal.SecPalDeviceAdminReceiver"`,
+        `uninstall ${dpcDerivedId}.test`,
+        `${dpcDerivedId}.test/androidx.test.runner.AndroidJUnitRunner`,
+        `--uri content://${dpcDerivedId}.management --method management_state`,
         `admin_component="${derivedApplicationId}/${baseApplicationId}.SecPalDeviceAdminReceiver"`,
         `uninstall ${baseTestApplicationId}`,
         `uninstall ${testApplicationId}`,
@@ -2023,6 +2034,18 @@ describe("preflight", () => {
       const fixture = (fileName: string, contents: string) =>
         [fileName, contents] as const;
       const forbiddenFixtures = [
+        fixture(
+          "forbidden-dpc-web.yml",
+          [
+            `https://${dpcApplicationId}`,
+            `https://${dpcDerivedId}.management`,
+            `https://${dpcApplicationId}.BuildConfig.APPLICATION_ID`,
+            `https://user@${dpcApplicationId}`,
+            `https:${dpcApplicationId}`,
+            `host: ${dpcDerivedId}`,
+            `--uri content://evil.${dpcDerivedId}.management --method management_state`,
+          ].join("\n")
+        ),
         fixture(
           "forbidden-same-line-email.yml",
           `cleanup: "uninstall ${derivedApplicationId}; contact mailto:user@${derivedApplicationId}"\n`

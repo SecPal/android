@@ -44,6 +44,10 @@ public final class EnterpriseManagedState {
         this.debugKioskHomeEnabled = debugKioskHomeEnabled;
     }
 
+    static String resolveManagedMode(boolean deviceOwner, boolean profileOwner) {
+        return deviceOwner ? MODE_DEVICE_OWNER : profileOwner ? MODE_PROFILE_OWNER : MODE_NONE;
+    }
+
     public String getMode() {
         return mode;
     }

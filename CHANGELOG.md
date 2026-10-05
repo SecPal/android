@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the separate `io.secpal.dpc` Android management application with
+  independent signing inputs and local test keys. Device Owner/Profile Owner
+  enforcement, provisioning callbacks and protected Samsung managed-key reception
+  now belong to DPC. Work (`app.secpal`) retains its UI, runtime, existing signing
+  and distribution; it reads fresh, mutually certificate-authenticated management
+  snapshots and uses only Android-authorized lock task (issue #713).
+  Builds configure public peer certificate digests using `SECPAL_DPC_CERT_SHA256`
+  for Work and `SECPAL_WORK_CERT_SHA256` for DPC. Missing or mismatched trust fails
+  closed. DPC release signing uses only `SECPAL_DPC_KEYSTORE_PATH`,
+  `SECPAL_DPC_KEYSTORE_PASSWORD`, `SECPAL_DPC_KEY_ALIAS` and
+  `SECPAL_DPC_KEY_PASSWORD`; it rejects Work's signing certificate. No production
+  key or distribution channel is created. Existing single-package owner
+  installations require explicit reprovisioning; an update does not transfer
+  ownership or trust the retired Work-local management state. Management state
+  grants no endpoint identity, user/session authority or business permissions.
+
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards

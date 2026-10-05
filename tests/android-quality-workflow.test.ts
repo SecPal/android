@@ -73,7 +73,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:lint"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing :dpc:lintDebug :dpc:lintRelease :dpc:lintCtRegression"
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -81,7 +81,7 @@ describe("Android quality workflow", () => {
         uses: expect.stringMatching(/^actions\/upload-artifact@[0-9a-f]{40}$/),
         with: {
           name: "android-lint-reports",
-          path: "android/app/build/reports/lint-results-*",
+          path: "android/app/build/reports/lint-results-*\nandroid/dpc/build/reports/lint-results-*\n",
           "if-no-files-found": "error",
           "retention-days": 7,
         },
@@ -131,7 +131,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:test:unit"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest :dpc:testDebugUnitTest"
     );
     const reportUpload = steps.find((step) =>
       step.uses?.startsWith("actions/upload-artifact@")
@@ -151,6 +151,8 @@ describe("Android quality workflow", () => {
       expect.arrayContaining([
         "android/app/build/reports/tests/testDebugUnitTest",
         "android/app/build/test-results/testDebugUnitTest",
+        "android/dpc/build/reports/tests/testDebugUnitTest",
+        "android/dpc/build/test-results/testDebugUnitTest",
       ])
     );
   });
