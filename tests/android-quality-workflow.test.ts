@@ -130,6 +130,11 @@ describe("Android quality workflow", () => {
         run: "npm run native:test:unit",
       })
     );
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        run: "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :work:assembleDebug :work:assembleRelease :work:bundleRelease",
+      })
+    );
     expect(packageJson.scripts["native:test:unit"]).toBe(
       "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest :dpc:testDebugUnitTest :work:testDebugUnitTest"
     );

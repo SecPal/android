@@ -137,6 +137,11 @@ jobs:
         id: android_jvm_unit_tests
         run: npm run native:test:unit
 
+      - name: Build Work qualification artifacts without production credentials
+        run: >-
+          bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android
+          :work:assembleDebug :work:assembleRelease :work:bundleRelease
+
       - name: Upload Android JVM unit test reports
         if: ${{ failure() && steps.android_jvm_unit_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
