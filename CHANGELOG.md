@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is disabled pending its separate signing/trust qualification contract; no
   publication channel or `APPROVED_WORK` implementation is provided. Existing
   `app.secpal` capabilities, release/signing and DPC behavior are preserved.
+  Domain validation recognizes the Work identifier while rejecting it as a web
+  endpoint, alongside the existing USER and DPC identifier boundaries.
 
 - Added the separate `io.secpal.dpc` Android management application with
   independent signing inputs and local test keys. Device Owner/Profile Owner

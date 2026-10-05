@@ -30,7 +30,7 @@ def sharedResources = tasks.register('prepareSharedWorkResources', Sync) {
 }
 
 android {
-    // Reuse the consumer's Java namespace; install identity and private data remain io.secpal.
+    // Reuse the consumer's Java namespace; install identity and private data remain `io.secpal`.
     namespace "app.secpal"
     compileSdk rootProject.ext.compileSdkVersion
     buildFeatures { buildConfig true }
