@@ -3,6 +3,7 @@
 
 apply plugin: 'com.android.application'
 apply plugin: 'com.google.android.gms.oss-licenses-plugin'
+apply from: '../dpc/signing-authority.gradle'
 
 def releaseVersionCodeEnv = System.getenv('SECPAL_ANDROID_VERSION_CODE')
 def releaseVersionCodeString = (releaseVersionCodeEnv && releaseVersionCodeEnv.trim()) ? releaseVersionCodeEnv.trim() : '1'
@@ -23,7 +24,7 @@ def releaseVersionName = canonicalVersionFile.getText('UTF-8').trim()
 if (!(releaseVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)) {
     throw new GradleException("Invalid canonical Android version '${releaseVersionName}' in ${canonicalVersionFile}. Expected semantic version syntax.")
 }
-def dpcCertificate = (System.getenv('SECPAL_DPC_CERT_SHA256') ?: '').trim().toLowerCase()
+def dpcCertificate = (System.getenv('SECPAL_DPC_CERT_SHA256') ?: dpcProductionAuthority?.dpc_cert_sha256 ?: '').trim().toLowerCase()
 if (dpcCertificate && !(dpcCertificate ==~ /[a-f0-9]{64}/)) {
     throw new GradleException('SECPAL_DPC_CERT_SHA256 must be a SHA-256 certificate digest')
 }

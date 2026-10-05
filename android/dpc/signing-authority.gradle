@@ -1,0 +1,45 @@
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Explicit external public continuity evidence; never a source-controlled identity.
+def authorityInput = System.getenv('SECPAL_DPC_PUBLIC_AUTHORITY_FILE')
+def authority = null
+if (authorityInput) {
+    try {
+        def authorityFile = new File(authorityInput).canonicalFile
+        if (authorityFile.toPath().startsWith(rootProject.projectDir.parentFile.canonicalFile.toPath())) {
+            throw new IllegalArgumentException()
+        }
+        authority = new groovy.json.JsonSlurper().parse(authorityFile)
+        if (authority.keySet().sort() != ['application_id', 'dpc_cert_sha256', 'dpc_key_sha256', 'work_cert_sha256', 'work_key_sha256'] ||
+            authority.application_id != 'io.secpal.dpc' ||
+            !(authority.dpc_cert_sha256 ==~ /[a-f0-9]{64}/) ||
+            !(authority.work_cert_sha256 ==~ /[a-f0-9]{64}/) ||
+            !(authority.dpc_key_sha256 ==~ /[a-f0-9]{64}/) ||
+            !(authority.work_key_sha256 ==~ /[a-f0-9]{64}/) ||
+            authority.dpc_cert_sha256 == authority.work_cert_sha256 ||
+            authority.dpc_key_sha256 == authority.work_key_sha256) {
+            throw new IllegalArgumentException()
+        }
+    } catch (Exception ignored) {
+        throw new GradleException('Invalid public DPC production signing authority')
+    }
+}
+ext.dpcProductionAuthority = authority
+tasks.register('verifyProductionPeerPins') {
+    doLast {
+        if (authority == null) return
+        ['SECPAL_DPC_CERT_SHA256': authority.dpc_cert_sha256,
+         'SECPAL_WORK_CERT_SHA256': authority.work_cert_sha256].each { name, expected ->
+            def supplied = System.getenv(name)
+            if (supplied != null && supplied.trim().toLowerCase() != expected) {
+                throw new GradleException('Peer certificate input conflicts with public production authority')
+            }
+        }
+    }
+}
+// Test variants keep their independent peer pins; production generation cannot
+// inline a test/overridden peer certificate into the release payload.
+tasks.matching { it.name in ['generateReleaseBuildConfig', 'processReleaseMainManifest'] }.configureEach {
+    dependsOn('verifyProductionPeerPins')
+}

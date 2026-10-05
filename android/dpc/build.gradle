@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 apply plugin: 'com.android.application'
+apply from: 'signing-authority.gradle'
 
 // Independent DPC inputs: Work release credentials and distribution are never consumed.
 def dpcKeystorePath = System.getenv('SECPAL_DPC_KEYSTORE_PATH')
 def dpcKeystorePassword = System.getenv('SECPAL_DPC_KEYSTORE_PASSWORD')
 def dpcKeyAlias = System.getenv('SECPAL_DPC_KEY_ALIAS')
 def dpcKeyPassword = System.getenv('SECPAL_DPC_KEY_PASSWORD')
-def workCertificate = (System.getenv('SECPAL_WORK_CERT_SHA256') ?: '').trim().toLowerCase()
+def workCertificate = (System.getenv('SECPAL_WORK_CERT_SHA256') ?: dpcProductionAuthority?.work_cert_sha256 ?: '').trim().toLowerCase()
 if (workCertificate && !(workCertificate ==~ /[a-f0-9]{64}/)) {
     throw new GradleException('SECPAL_WORK_CERT_SHA256 must be a SHA-256 certificate digest')
 }
@@ -17,6 +18,19 @@ if (signingInputs.any { it } && !signingInputs.every { it }) {
     throw new GradleException('All four SECPAL_DPC signing inputs are required together')
 }
 def hasDpcSigning = signingInputs.every { it }
+def unsignedCandidate = providers.gradleProperty('secpalDpcUnsignedCandidate').orNull == 'true'
+if (unsignedCandidate && signingInputs.any { it }) {
+    throw new GradleException('Unsigned DPC candidates must not consume private signing inputs')
+}
+if (hasDpcSigning && (System.getenv('SECPAL_DPC_LOCAL_SIGNING') != 'offline-operator' ||
+    System.getenv('CI') || System.getenv('GITHUB_ACTIONS'))) {
+    throw new GradleException('Production DPC signing is an offline operator operation')
+}
+def dpcVersionCodeInput = System.getenv('SECPAL_DPC_VERSION_CODE') ?: '1'
+if (!(dpcVersionCodeInput ==~ /[1-9][0-9]{0,9}/) || dpcVersionCodeInput.toLong() > 2100000000L) {
+    throw new GradleException('Invalid DPC version code')
+}
+def dpcVersionName = rootProject.file('../VERSION').getText('UTF-8').trim()
 def debugKeystore = rootProject.file('.gradle/dpc-debug.keystore')
 
 android {
@@ -27,8 +41,8 @@ android {
         applicationId "io.secpal.dpc"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode dpcVersionCodeInput.toInteger()
+        versionName dpcVersionName
         buildConfigField "String", "WORK_APPLICATION_ID", '"app.secpal"'
         buildConfigField "String", "WORK_CERT_SHA256", "\"${workCertificate}\""
         manifestPlaceholders = [
@@ -99,11 +113,19 @@ tasks.matching { it.name in ['validateSigningDebug', 'validateSigningCtRegressio
 
 tasks.register('verifyDpcSigningAuthority') {
     doLast {
-        if (!hasDpcSigning || !workCertificate) {
-            throw new GradleException('DPC release signing requires independent credentials and the Work certificate pin')
+        if (!hasDpcSigning || !dpcProductionAuthority) {
+            throw new GradleException('DPC release signing requires offline credentials and maintained public authority')
+        }
+        def privateStore = file(dpcKeystorePath).canonicalFile
+        if (privateStore.toPath().startsWith(rootProject.projectDir.parentFile.canonicalFile.toPath())) {
+            throw new GradleException('DPC private signing material must remain outside the repository')
         }
         def keystore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
-        file(dpcKeystorePath).withInputStream { keystore.load(it, dpcKeystorePassword.toCharArray()) }
+        try {
+            privateStore.withInputStream { keystore.load(it, dpcKeystorePassword.toCharArray()) }
+        } catch (Exception ignored) {
+            throw new GradleException('Cannot load offline DPC signing authority')
+        }
         def certificate = keystore.getCertificate(dpcKeyAlias)
         if (certificate == null || !keystore.isKeyEntry(dpcKeyAlias)) {
             throw new GradleException('DPC signing alias must identify a private signing key')
@@ -122,10 +144,27 @@ tasks.register('verifyDpcSigningAuthority') {
         if (digest == workCertificate) {
             throw new GradleException('DPC and Work must have independent signing authorities')
         }
+        def publicKeyDigest = java.security.MessageDigest.getInstance('SHA-256').digest(certificate.publicKey.encoded).encodeHex().toString()
+        if (digest != dpcProductionAuthority.dpc_cert_sha256 || publicKeyDigest != dpcProductionAuthority.dpc_key_sha256 ||
+            certificate.subjectX500Principal.name =~ /(?i)Android Debug|SecPal DPC Local Test/) {
+            throw new GradleException('Unexpected or test DPC release signing certificate')
+        }
     }
 }
+tasks.register('verifyDpcReleaseInputs') {
+    dependsOn('verifyProductionPeerPins')
+    doLast {
+        if (!dpcProductionAuthority || !System.getenv('SECPAL_DPC_VERSION_CODE')) {
+            throw new GradleException('DPC release requires maintained public authority and explicit version code')
+        }
+        if (!unsignedCandidate && !hasDpcSigning) {
+            throw new GradleException('DPC release requires offline signing or explicit unsigned candidate mode')
+        }
+    }
+    if (!unsignedCandidate) dependsOn('verifyDpcSigningAuthority')
+}
 tasks.matching { it.name in ['packageRelease', 'packageReleaseBundle', 'signReleaseBundle', 'validateSigningRelease'] }.configureEach {
-    dependsOn('verifyDpcSigningAuthority')
+    dependsOn('verifyDpcReleaseInputs')
 }
 
 dependencies {
