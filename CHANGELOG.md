@@ -61,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed dependency installation with Capacitor Android 8.5.2 by updating the
+  native HTTP interceptor patch and removing the obsolete SystemBars DOM-ready
+  shim in favor of the upstream native page listener. Preserved unconditional
+  HTTP 403 responses, native inset updates, bridge isolation, and fail-closed
+  rejection of unexpected HTTP interceptor source changes.
 - Updated vulnerable development-tool dependencies for brace expansion and
   Markdown, YAML, and TOML parsing to patched releases.
 - Moved the default direct-APK Fastlane publication target from the legacy VPS
