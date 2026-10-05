@@ -123,8 +123,11 @@ while [[ "$first_probe" == true ]] || {
     boot_animation="$(run_adb -s "$serial" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true)"
     home_activity="$(run_adb -s "$serial" shell cmd package resolve-activity --brief android.intent.action.MAIN android.intent.category.HOME 2>/dev/null | tr -d '\r' || true)"
     settings_ready="missing"
-    if run_adb -s "$serial" shell settings get global device_provisioned >/dev/null 2>&1; then
-        settings_ready="ready"
+    if device_provisioned="$(run_adb -s "$serial" shell settings get global device_provisioned 2>/dev/null)"; then
+        device_provisioned="${device_provisioned//$'\r'/}"
+        if [[ "$device_provisioned" == "0" || "$device_provisioned" == "1" ]]; then
+            settings_ready="ready"
+        fi
     fi
     package_path="$(run_adb -s "$serial" shell pm path android 2>/dev/null | tr -d '\r' || true)"
     package_ready="missing"

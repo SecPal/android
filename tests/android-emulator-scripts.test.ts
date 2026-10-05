@@ -478,8 +478,16 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" &&
   exit 0
 fi
 if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "settings" && "$5" == "get" && "$6" == "global" && "$7" == "device_provisioned" ]]; then
-  [[ "\${SECPAL_TEST_SETTINGS_READY:-true}" == "true" ]]
-  exit
+  case "\${SECPAL_TEST_SETTINGS_READY:-true}" in
+    false) exit 1 ;;
+    empty) exit 0 ;;
+    null) printf 'null\r\n'; exit 0 ;;
+    provider-error)
+      printf '%s\n' "Cannot access system provider: 'settings' before system providers are installed!" >&2
+      exit 0 ;;
+  esac
+  printf '%s\r\n' "\${SECPAL_TEST_DEVICE_PROVISIONED:-1}"
+  exit 0
 fi
 if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "pm" && "$5" == "path" && "$6" == "android" ]]; then
   if [[ "\${SECPAL_TEST_PACKAGE_READY:-true}" == "true" ]]; then
@@ -523,7 +531,40 @@ exit 1
       );
       expect(adbInvocations).toContain(`-s ${serial} shell pm path android`);
 
-      const systemProvidersUnavailableResult = spawnSync(
+      for (const settingsState of [
+        "false",
+        "empty",
+        "null",
+        "provider-error",
+      ]) {
+        const systemProvidersUnavailableResult = spawnSync(
+          "bash",
+          [
+            resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+            serial,
+            "1",
+          ],
+          {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              HOME: tempRoot,
+              PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+              ANDROID_SDK_ROOT: "",
+              ANDROID_HOME: "",
+              SECPAL_TEST_SETTINGS_READY: settingsState,
+            },
+            encoding: "utf8",
+          }
+        );
+
+        expect(systemProvidersUnavailableResult.status).toBe(1);
+        expect(systemProvidersUnavailableResult.stderr).toContain(
+          "settings=missing"
+        );
+      }
+
+      const unprovisionedDeviceResult = spawnSync(
         "bash",
         [
           resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
@@ -538,16 +579,12 @@ exit 1
             PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
             ANDROID_SDK_ROOT: "",
             ANDROID_HOME: "",
-            SECPAL_TEST_SETTINGS_READY: "false",
+            SECPAL_TEST_DEVICE_PROVISIONED: "0",
           },
           encoding: "utf8",
         }
       );
-
-      expect(systemProvidersUnavailableResult.status).toBe(1);
-      expect(systemProvidersUnavailableResult.stderr).toContain(
-        "settings=missing"
-      );
+      expect(unprovisionedDeviceResult.status).toBe(0);
 
       const packageManagerUnavailableResult = spawnSync(
         "bash",
@@ -600,6 +637,16 @@ exit 1
         | "split-install-broken-pipe-then-test"
         | "split-install-broken-pipe-then-install-write-twice"
         | "split-install-broken-pipe-then-install-write-always"
+        | "install-create-broken-pipe"
+        | "install-create-broken-pipe-always"
+        | "install-create-broken-pipe-with-tests"
+        | "install-create-broken-pipe-without-split-error"
+        | "install-create-rejected"
+        | "settings-provider"
+        | "settings-provider-always"
+        | "settings-provider-with-tests"
+        | "split-install-broken-pipe-then-settings-provider"
+        | "split-install-broken-pipe-then-settings-provider-always"
         | "missing-package-service"
         | "missing-package-service-always"
         | "install-write"
@@ -653,6 +700,12 @@ elif [[ "${failureMode}" == "package-manager-then-missing-package-service" ]]; t
     attempt_failure_mode="package-manager"
   elif [[ "$attempt" == "2" ]]; then
     attempt_failure_mode="missing-package-service"
+  fi
+elif [[ "${failureMode}" == split-install-broken-pipe-then-settings-provider* ]]; then
+  if (( attempt <= 2 )); then
+    attempt_failure_mode="split-install-broken-pipe"
+  elif (( attempt == 3 )) || [[ "${failureMode}" == *-always ]]; then
+    attempt_failure_mode="settings-provider"
   fi
 elif [[ "${failureMode}" == "split-install-broken-pipe-twice" ]]; then
   if (( attempt <= 2 )); then
@@ -726,11 +779,32 @@ if [[ -n "$attempt_failure_mode" ]]; then
     fi
     printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code $status_code from server: $status_text"
-  elif [[ "$attempt_failure_mode" == "split-install-broken-pipe" || "$attempt_failure_mode" == "split-install-broken-pipe-always" ]]; then
-    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
-    printf '%s\n' 'com.android.builder.testing.api.DeviceException: com.android.ddmlib.InstallException: Failed to install split APK(s): [app-ctRegression.apk, app-ctRegression-androidTest.apk]'
-    printf '%s\n' 'Caused by: com.android.ddmlib.InstallException: Failed to commit install session 1234 with command cmd package install-commit 1234'
-    printf '%s\n' 'Caused by: java.lang.IllegalStateException: Failure calling service package: Broken pipe (32)'
+  elif [[ "$attempt_failure_mode" == split-install-broken-pipe* || "$attempt_failure_mode" == install-create-* ]]; then
+    if [[ "$attempt_failure_mode" == "install-create-broken-pipe-with-tests" ]]; then
+      printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
+    else
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
+    if [[ "$attempt_failure_mode" != "install-create-broken-pipe-without-split-error" ]]; then
+      printf '%s\n' 'com.android.builder.testing.api.DeviceException: com.android.ddmlib.InstallException: Failed to install split APK(s): [app-ctRegression.apk, app-ctRegression-androidTest.apk]'
+    fi
+    if [[ "$attempt_failure_mode" == "install-create-rejected" ]]; then
+      printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'INSTALL_FAILED_INVALID_APK'"
+    elif [[ "$attempt_failure_mode" == install-create-* || "$attempt" -ge 2 ]]; then
+      printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'Unknown failure: cmd: Failure calling service package: Broken pipe (32)'"
+    else
+      printf '%s\n' 'Caused by: com.android.ddmlib.InstallException: Failed to commit install session 1234 with command cmd package install-commit 1234'
+      printf '%s\n' 'Caused by: java.lang.IllegalStateException: Failure calling service package: Broken pipe (32)'
+    fi
+  elif [[ "$attempt_failure_mode" == settings-provider* ]]; then
+    if [[ "$attempt_failure_mode" == "settings-provider-with-tests" ]]; then
+      printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
+    else
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
+    printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
+    printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'Unknown failure: Exception occurred while executing 'install-create':"
+    printf '%s\n' "java.lang.IllegalStateException: Cannot access system provider: 'settings' before system providers are installed!"
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
@@ -950,6 +1024,83 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    for (const failureMode of [
+      "split-install-broken-pipe-then-settings-provider",
+      "split-install-broken-pipe-then-settings-provider-always",
+    ] as const) {
+      const providerFailureAfterReboots = runScenario(37, failureMode);
+      expect(providerFailureAfterReboots.result.status).toBe(
+        failureMode.endsWith("-always") ? 1 : 0
+      );
+      expect(providerFailureAfterReboots.recoveryEvents).toEqual([
+        "attempt:1",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:2",
+        "reboot:adb -s emulator-5570 reboot",
+        "wait:emulator-5570 60",
+        "attempt:3",
+        "wait:emulator-5570 60",
+        "attempt:4",
+      ]);
+    }
+
+    const persistentSettingsProvider = runScenario(
+      37,
+      "settings-provider-always"
+    );
+    expect(persistentSettingsProvider.result.status).toBe(1);
+    expect(persistentSettingsProvider.recoveryEvents).toEqual([
+      "attempt:1",
+      "wait:emulator-5570 60",
+      "attempt:2",
+    ]);
+
+    for (const [apiLevel, failureMode] of [
+      [36, "settings-provider"],
+      [37, "settings-provider-with-tests"],
+    ] as const) {
+      const unrecoverableProviderFailure = runScenario(apiLevel, failureMode);
+      expect(unrecoverableProviderFailure.result.status).toBe(1);
+      expect(unrecoverableProviderFailure.recoveryEvents).toEqual([
+        "attempt:1",
+      ]);
+    }
+
+    const recoverableInstallCreateFailure = runScenario(
+      37,
+      "install-create-broken-pipe"
+    );
+    expect(recoverableInstallCreateFailure.result.status).toBe(0);
+    expect(recoverableInstallCreateFailure.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+    ]);
+
+    const persistentInstallCreateFailure = runScenario(
+      37,
+      "install-create-broken-pipe-always"
+    );
+    expect(persistentInstallCreateFailure.result.status).toBe(1);
+    expect(persistentInstallCreateFailure.attempts).toBe(3);
+    expect(persistentInstallCreateFailure.reboots).toHaveLength(2);
+    expect(persistentInstallCreateFailure.waits).toHaveLength(2);
+
+    for (const [apiLevel, failureMode] of [
+      [36, "install-create-broken-pipe"],
+      [37, "install-create-broken-pipe-with-tests"],
+      [37, "install-create-broken-pipe-without-split-error"],
+      [37, "install-create-rejected"],
+    ] as const) {
+      const unrecoverableInstallCreate = runScenario(apiLevel, failureMode);
+      expect(unrecoverableInstallCreate.result.status).toBe(1);
+      expect(unrecoverableInstallCreate.attempts).toBe(1);
+      expect(unrecoverableInstallCreate.reboots).toEqual([]);
+      expect(unrecoverableInstallCreate.waits).toEqual([]);
+    }
 
     const recoverableRepeatedSplitInstallFailure = runScenario(
       37,
