@@ -61,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recognized API 37 PackageManager `install-create` broken-pipe failures before
+  instrumentation starts, sharing the existing bounded split-install
+  reboot-and-retry budget with `install-commit` failures.
 - Fixed dependency installation with Capacitor Android 8.5.2 by updating the
   native HTTP interceptor patch and removing the obsolete SystemBars DOM-ready
   shim in favor of the upstream native page listener. Preserved unconditional

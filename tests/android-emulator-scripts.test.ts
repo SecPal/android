@@ -600,6 +600,11 @@ exit 1
         | "split-install-broken-pipe-then-test"
         | "split-install-broken-pipe-then-install-write-twice"
         | "split-install-broken-pipe-then-install-write-always"
+        | "install-create-broken-pipe"
+        | "install-create-broken-pipe-always"
+        | "install-create-broken-pipe-with-tests"
+        | "install-create-broken-pipe-without-split-error"
+        | "install-create-rejected"
         | "missing-package-service"
         | "missing-package-service-always"
         | "install-write"
@@ -726,11 +731,23 @@ if [[ -n "$attempt_failure_mode" ]]; then
     fi
     printf '%s\n' "Could not GET '\${repository_url}/org/example/dependency/1.0/dependency-1.0.pom'."
     printf '%s\n' "Received status code $status_code from server: $status_text"
-  elif [[ "$attempt_failure_mode" == "split-install-broken-pipe" || "$attempt_failure_mode" == "split-install-broken-pipe-always" ]]; then
-    printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
-    printf '%s\n' 'com.android.builder.testing.api.DeviceException: com.android.ddmlib.InstallException: Failed to install split APK(s): [app-ctRegression.apk, app-ctRegression-androidTest.apk]'
-    printf '%s\n' 'Caused by: com.android.ddmlib.InstallException: Failed to commit install session 1234 with command cmd package install-commit 1234'
-    printf '%s\n' 'Caused by: java.lang.IllegalStateException: Failure calling service package: Broken pipe (32)'
+  elif [[ "$attempt_failure_mode" == split-install-broken-pipe* || "$attempt_failure_mode" == install-create-* ]]; then
+    if [[ "$attempt_failure_mode" == "install-create-broken-pipe-with-tests" ]]; then
+      printf '%s\n' 'Starting 1 tests on emulator-5570 - 17'
+    else
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
+    if [[ "$attempt_failure_mode" != "install-create-broken-pipe-without-split-error" ]]; then
+      printf '%s\n' 'com.android.builder.testing.api.DeviceException: com.android.ddmlib.InstallException: Failed to install split APK(s): [app-ctRegression.apk, app-ctRegression-androidTest.apk]'
+    fi
+    if [[ "$attempt_failure_mode" == "install-create-rejected" ]]; then
+      printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'INSTALL_FAILED_INVALID_APK'"
+    elif [[ "$attempt_failure_mode" == install-create-* || "$attempt" -ge 2 ]]; then
+      printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'Unknown failure: cmd: Failure calling service package: Broken pipe (32)'"
+    else
+      printf '%s\n' 'Caused by: com.android.ddmlib.InstallException: Failed to commit install session 1234 with command cmd package install-commit 1234'
+      printf '%s\n' 'Caused by: java.lang.IllegalStateException: Failure calling service package: Broken pipe (32)'
+    fi
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
@@ -950,6 +967,40 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "adb -s emulator-5570 reboot",
     ]);
     expect(repeatedApi37Failure.waits).toEqual(["emulator-5570 60"]);
+
+    const recoverableInstallCreateFailure = runScenario(
+      37,
+      "install-create-broken-pipe"
+    );
+    expect(recoverableInstallCreateFailure.result.status).toBe(0);
+    expect(recoverableInstallCreateFailure.recoveryEvents).toEqual([
+      "attempt:1",
+      "reboot:adb -s emulator-5570 reboot",
+      "wait:emulator-5570 60",
+      "attempt:2",
+    ]);
+
+    const persistentInstallCreateFailure = runScenario(
+      37,
+      "install-create-broken-pipe-always"
+    );
+    expect(persistentInstallCreateFailure.result.status).toBe(1);
+    expect(persistentInstallCreateFailure.attempts).toBe(3);
+    expect(persistentInstallCreateFailure.reboots).toHaveLength(2);
+    expect(persistentInstallCreateFailure.waits).toHaveLength(2);
+
+    for (const [apiLevel, failureMode] of [
+      [36, "install-create-broken-pipe"],
+      [37, "install-create-broken-pipe-with-tests"],
+      [37, "install-create-broken-pipe-without-split-error"],
+      [37, "install-create-rejected"],
+    ] as const) {
+      const unrecoverableInstallCreate = runScenario(apiLevel, failureMode);
+      expect(unrecoverableInstallCreate.result.status).toBe(1);
+      expect(unrecoverableInstallCreate.attempts).toBe(1);
+      expect(unrecoverableInstallCreate.reboots).toEqual([]);
+      expect(unrecoverableInstallCreate.waits).toEqual([]);
+    }
 
     const recoverableRepeatedSplitInstallFailure = runScenario(
       37,

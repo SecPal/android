@@ -134,7 +134,10 @@ classify_api37_failure() {
         fi
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
-        grep -Fq "Failed to commit install session" "$attempt_log" &&
+        {
+            grep -Fq "Failed to commit install session" "$attempt_log" ||
+                grep -Fq "package install-create" "$attempt_log"
+        } &&
         grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
         retry_key="package-manager-split-install-broken-pipe"
         retry_limit=2
