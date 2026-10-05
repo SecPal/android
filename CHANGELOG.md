@@ -61,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aligned Vitest and its V8 coverage provider at 5.0.3 and explicitly installed
+  the required Vite peer dependency so coverage runs complete after the upgrade.
 - Updated vulnerable development-tool dependencies for brace expansion and
   Markdown, YAML, and TOML parsing to patched releases.
 - Moved the default direct-APK Fastlane publication target from the legacy VPS
