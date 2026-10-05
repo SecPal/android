@@ -76,3 +76,66 @@ updates:
           - "SecPal/.github/.github/workflows/*"
         update-types:
           - "major"
+
+  # Gradle - Native Android dependencies across active build roots
+  - package-ecosystem: "gradle"
+    directories:
+      - "/android"
+      - "/android/app"
+      - "/android/capacitor-cordova-android-plugins"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "gradle"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
+
+  # Bundler - Fastlane and release tooling dependencies
+  - package-ecosystem: "bundler"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "bundler"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
+
+  # pre-commit - Repository hook dependencies
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "pre-commit"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
