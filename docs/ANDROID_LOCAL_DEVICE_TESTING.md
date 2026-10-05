@@ -191,13 +191,18 @@ Build with independent test certificates and public peer pins:
 
 ```bash
 npm run cap:sync
-(cd android && ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug)
+work_signing_report="$(mktemp)"
+(cd android && ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug \
+    :app:signingReport --console=plain) > "$work_signing_report"
 export SECPAL_DPC_CERT_SHA256="$(keytool -exportcert \
     -keystore android/.gradle/dpc-debug.keystore -storepass android \
     -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
-export SECPAL_WORK_CERT_SHA256="$(keytool -exportcert \
-    -keystore "$HOME/.android/debug.keystore" -storepass android \
-    -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+export SECPAL_WORK_CERT_SHA256="$(awk '
+    $0 == "Variant: debug" { selected = 1; next }
+    selected && $1 == "SHA-256:" { gsub(":", "", $2); print tolower($2); exit }
+' "$work_signing_report")"
+rm -f "$work_signing_report"
+[[ "$SECPAL_WORK_CERT_SHA256" =~ ^[a-f0-9]{64}$ ]]
 test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"
 (cd android && ./gradlew --no-daemon :app:assembleDebug :dpc:assembleDebug)
 ./scripts/with-android-env.sh adb install -t -r android/dpc/build/outputs/apk/debug/dpc-debug.apk

@@ -94,15 +94,21 @@ jobs:
             "platform-tools" "emulator" "$image"
           echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
             --force --name "secpal-enterprise-api35" --package "$image"
+          work_signing_report="$RUNNER_TEMP/secpal-work-signing-report.txt"
           (
             cd android
-            ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug
-          )
+            ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug \
+              :app:signingReport --console=plain
+          ) > "$work_signing_report"
           # Test certificates are generated separately; production trust is never substituted.
           export SECPAL_DPC_CERT_SHA256="$(keytool -exportcert -keystore android/.gradle/dpc-debug.keystore \
             -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
-          export SECPAL_WORK_CERT_SHA256="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" \
-            -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          # Gradle selects the signing store; a conventional HOME path can name a different key.
+          export SECPAL_WORK_CERT_SHA256="$(awk '
+            $0 == "Variant: ctRegression" { selected = 1; next }
+            selected && $1 == "SHA-256:" { gsub(":", "", $2); print tolower($2); exit }
+          ' "$work_signing_report")"
+          [[ "$SECPAL_WORK_CERT_SHA256" =~ ^[a-f0-9]{64}$ ]]
           test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"
           (
             cd android

@@ -84,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Derive local Work peer pins from Gradle's selected signing certificate, so owner-boundary tests never trust an unrelated default keystore.
+
 - Required a valid `device_provisioned` response for emulator readiness and
   waited once before retrying API 37 zero-test APK installation failures caused
   by SettingsProvider initialization, without rebooting the initializing system

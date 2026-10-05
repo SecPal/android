@@ -44,6 +44,9 @@ describe("Android enterprise policy instrumentation contract", () => {
     expect(instrumentedTest).toContain("assertTrue");
     expect(instrumentedTest).toContain("assertFalse");
 
+    expect(workflow).toContain(":app:signingReport");
+    expect(workflow).toContain("Variant: ctRegression");
+    expect(workflow).not.toContain("$HOME/.android/debug.keystore");
     expect(workflow).toContain(":dpc:assembleCtRegressionAndroidTest");
     expect(workflow).toContain(":app:assembleCtRegressionAndroidTest");
     expect(workflow).toContain("dpm set-profile-owner");
