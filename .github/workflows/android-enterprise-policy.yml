@@ -24,7 +24,7 @@ on:
       - "android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java"
       - "android/dpc/**"
       - "android/management/**"
-      - "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
+      - "android/consumer/**"
       - "android/variables.gradle"
   pull_request:
     branches: [main]
@@ -45,7 +45,7 @@ on:
       - "android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java"
       - "android/dpc/**"
       - "android/management/**"
-      - "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
+      - "android/consumer/**"
       - "android/variables.gradle"
 
 permissions:

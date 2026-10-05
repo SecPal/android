@@ -48,7 +48,7 @@ describe("separate DPC application authority", () => {
     expect(provider).toContain("ManagementPackageIdentity");
     expect(provider).not.toContain("DpcPolicyEnforcer");
     const consumer = read(
-      "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
+      "android/consumer/java/app/secpal/EnterprisePolicyState.java"
     );
     expect(consumer).toContain("ManagementPackageIdentity");
     expect(consumer).toContain("acquireUnstableContentProviderClient");

@@ -1,0 +1,112 @@
+// SPDX-FileCopyrightText: 2026 SecPal Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+apply plugin: 'com.android.application'
+
+// Work inputs never consume USER or DPC signing credentials.
+def workKeystorePath = System.getenv('SECPAL_WORK_KEYSTORE_PATH')
+def workKeystorePassword = System.getenv('SECPAL_WORK_KEYSTORE_PASSWORD')
+def workKeyAlias = System.getenv('SECPAL_WORK_KEY_ALIAS')
+def workKeyPassword = System.getenv('SECPAL_WORK_KEY_PASSWORD')
+def signingInputs = [workKeystorePath, workKeystorePassword, workKeyAlias, workKeyPassword]
+if (signingInputs.any { it } && !signingInputs.every { it }) {
+    throw new GradleException('All four SECPAL_WORK signing inputs are required together')
+}
+def hasWorkSigning = signingInputs.every { it }
+def debugKeystore = rootProject.file('.gradle/work-debug.keystore')
+def dpcCertificate = (System.getenv('SECPAL_DPC_CERT_SHA256') ?: '').trim().toLowerCase()
+if (dpcCertificate && !(dpcCertificate ==~ /[a-f0-9]{64}/)) {
+    throw new GradleException('SECPAL_DPC_CERT_SHA256 must be a SHA-256 certificate digest')
+}
+
+// Compose only inert artwork and backup exclusions; never import the USER manifest/runtime.
+def sharedResources = tasks.register('prepareSharedWorkResources', Sync) {
+    from('../app/src/main/res') {
+        include 'mipmap*/ic_launcher*.png', 'mipmap*/ic_launcher*.xml',
+            'values/ic_launcher_background.xml', 'xml/backup_rules.xml',
+            'xml/data_extraction_rules.xml'
+    }
+    into layout.buildDirectory.dir('generated/work-resources')
+}
+
+android {
+    // Reuse the consumer's Java namespace; install identity and private data remain io.secpal.
+    namespace "app.secpal"
+    compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId "io.secpal"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "DPC_APPLICATION_ID", '"io.secpal.dpc"'
+        buildConfigField "String", "DPC_CERT_SHA256", "\"${dpcCertificate}\""
+        manifestPlaceholders.secpalDpcApplicationId = 'io.secpal.dpc'
+    }
+    signingConfigs {
+        debug {
+            storeFile debugKeystore
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (hasWorkSigning) {
+            workRelease {
+                storeFile file(workKeystorePath)
+                storePassword workKeystorePassword
+                keyAlias workKeyAlias
+                keyPassword workKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // Unsigned qualification builds need no production secret. No debug fallback.
+            if (hasWorkSigning) signingConfig signingConfigs.workRelease
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.includeAndroidResources = true }
+    sourceSets {
+        main.java.srcDir '../management/java'
+        main.java.srcDir '../consumer/java'
+        main.res.srcDir sharedResources.map { it.destinationDir }
+    }
+}
+
+tasks.named('preBuild').configure { dependsOn(sharedResources) }
+
+// Local testing has its own key, never production authority.
+def prepareDebugSigning = tasks.register('prepareDebugSigning', Exec) {
+    onlyIf { !debugKeystore.isFile() }
+    doFirst { debugKeystore.parentFile.mkdirs() }
+    commandLine "${System.getProperty('java.home')}/bin/keytool", '-genkeypair',
+        '-keystore', debugKeystore.absolutePath, '-storepass', 'android',
+        '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA',
+        '-keysize', '2048', '-validity', '10000', '-dname', 'CN=SecPal Work Local Test'
+}
+tasks.matching { it.name == 'validateSigningDebug' }.configureEach {
+    dependsOn(prepareDebugSigning)
+}
+
+tasks.register('verifyWorkSigningAuthority') {
+    doLast {
+        // This identity leaf authorizes unsigned builds only. A later signing/trust
+        // contract must validate independent production authority before enabling it.
+        if (hasWorkSigning) {
+            throw new GradleException('Production Work signing is disabled pending independent signing authority and APPROVED_WORK qualification')
+        }
+    }
+}
+tasks.matching { it.name in ['packageRelease', 'packageReleaseBundle', 'signReleaseBundle', 'validateSigningRelease'] }.configureEach {
+    dependsOn('verifyWorkSigningAuthority')
+}
+
+dependencies {
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}
