@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installations require explicit reprovisioning; an update does not transfer
   ownership or trust the retired Work-local management state. Management state
   grants no endpoint identity, user/session authority or business permissions.
+  Work exposes its dedicated HOME only after authenticated kiosk activation;
+  unavailable snapshots cannot exit an existing lock task. Work consumes the
+  provisioning navigation handoff once without rearming it on each state read.
+  DPC uses Android’s owner service on API 26+ and an owner-only sticky listener
+  service on API 24–25. Samsung partner inputs now feed the DPC manifest.
+  The unmanaged debug kiosk simulation is removed; debug management tests
+  require the real DPC owner role and independently signed APK pair.
 
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats

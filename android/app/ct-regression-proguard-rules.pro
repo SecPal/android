@@ -21,3 +21,6 @@
 # Management consumer instrumentation crosses the minified Work/test APK boundary.
 -keep class app.secpal.EnterprisePolicyClient { *; }
 -keep class app.secpal.EnterpriseManagedState { *; }
+
+# Certificate assertions call the packaged shared identity boundary.
+-keep class app.secpal.ManagementPackageIdentity { *; }

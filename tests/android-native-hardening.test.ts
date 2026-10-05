@@ -1525,13 +1525,16 @@ describe("Android native hardening", () => {
   });
 
   it("wires Samsung partner app-key manifest placeholders through the Android build", () => {
-    const buildGradle = readRepoFile("android", "app", "build.gradle");
+    const buildGradle = readRepoFile("android", "dpc", "build.gradle");
 
     expect(buildGradle).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
     expect(buildGradle).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
     expect(buildGradle).toContain("manifestPlaceholders");
     expect(buildGradle).toContain("secpalSamsungAppKeyPttData");
     expect(buildGradle).toContain("secpalSamsungAppKeySosData");
+    expect(readRepoFile("android", "app", "build.gradle")).not.toContain(
+      "SECPAL_ANDROID_SAMSUNG_APP_KEY_"
+    );
   });
 
   it("marks debug builds as test-only so adb can remove test device owners", () => {
@@ -1588,21 +1591,32 @@ describe("Android native hardening", () => {
     expect(readme).toContain("magick");
   });
 
-  it("documents dedicated-device provisioning behavior in the README", () => {
+  it("keeps maintained local owner commands bound to the separate DPC", () => {
     const readme = readRepoFile("README.md");
-
-    expect(readme).toContain("same `SecPal` app");
-    expect(readme).toContain("secpal_kiosk_mode_enabled");
-    expect(readme).toContain("secpal_lock_task_enabled");
-    expect(readme).toContain("secpal_allow_phone");
-    expect(readme).toContain("secpal_allow_sms");
-    expect(readme).toContain("secpal_prefer_gesture_navigation");
-    expect(readme).toContain("debug build");
-    expect(readme).toContain("remove-active-admin");
-    expect(readme).toContain("native provisioning flow");
-    expect(readme).not.toContain("openGestureNavigationSettings");
-    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
-    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
+    const localTesting = readRepoFile(
+      "docs",
+      "ANDROID_LOCAL_DEVICE_TESTING.md"
+    );
+    const dpcManifest = readRepoFile(
+      "android",
+      "dpc",
+      "src",
+      "main",
+      "AndroidManifest.xml"
+    );
+    expect(dpcManifest).toContain(
+      'android:name="app.secpal.SecPalDeviceAdminReceiver"'
+    );
+    expect(localTesting).toContain(
+      "dpm set-device-owner io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver"
+    );
+    expect(localTesting).toContain(":app:assembleDebug :dpc:assembleDebug");
+    expect(localTesting).toContain("SECPAL_DPC_CERT_SHA256");
+    expect(localTesting).toContain("SECPAL_WORK_CERT_SHA256");
+    expect(readme).toContain(
+      "dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver"
+    );
+    expect(localTesting).not.toContain("dpm set-device-owner app.secpal/");
   });
 
   it("keeps Android fastlane release automation on the local signing flow", () => {

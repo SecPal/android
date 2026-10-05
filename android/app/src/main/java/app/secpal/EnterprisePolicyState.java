@@ -37,14 +37,13 @@ final class EnterprisePolicyState {
                 return ManagementSnapshot.unavailable();
             }
             String before = resolveManagedMode(context, dpcPackage);
-            if (EnterpriseManagedState.MODE_NONE.equals(before)) return ManagementSnapshot.unavailable();
             try (ContentProviderClient client = context.getContentResolver()
                 .acquireUnstableContentProviderClient(Uri.parse("content://" + authority))) {
                 if (client == null) return ManagementSnapshot.unavailable();
                 Bundle result = client.call(ManagementSnapshot.METHOD, null, null);
                 if (!before.equals(resolveManagedMode(context, dpcPackage))) return ManagementSnapshot.unavailable();
                 EnterpriseManagedState state = ManagementSnapshot.decode(result, before);
-                SystemNavigationSettings.setProvisioningGestureNavigationPending(
+                if (state.isAvailable()) SystemNavigationSettings.observeProvisioningGestureNavigationRequest(
                     context, state.isDeviceOwner() && result != null && result.getBoolean("gesture_pending", false)
                 );
                 return state;

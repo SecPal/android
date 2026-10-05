@@ -25,7 +25,7 @@ import org.junit.runner.RunWith;
 public final class EnterprisePolicyInstrumentedTest {
 
     @Test
-    public void managedInstallRestrictionFollowsExplicitBuildMode() {
+    public void managedInstallRestrictionFollowsExplicitBuildMode() throws Exception {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         DevicePolicyManager devicePolicyManager = context.getSystemService(
             DevicePolicyManager.class
@@ -35,6 +35,17 @@ public final class EnterprisePolicyInstrumentedTest {
             context,
             SecPalDeviceAdminReceiver.class
         );
+
+        android.content.pm.PackageInfo work = context.getPackageManager().getPackageInfo(
+            io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID,
+            android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+        org.junit.Assert.assertNotNull(work.signingInfo);
+        android.content.pm.Signature[] signers = work.signingInfo.getApkContentsSigners();
+        assertEquals(1, signers.length);
+        assertEquals("Installed Work certificate must match the configured peer pin",
+            io.secpal.dpc.BuildConfig.WORK_CERT_SHA256, ManagementPackageIdentity.digest(signers[0]));
+        assertTrue(ManagementPackageIdentity.matches(context, io.secpal.dpc.BuildConfig.WORK_APPLICATION_ID,
+            io.secpal.dpc.BuildConfig.WORK_CERT_SHA256));
 
         boolean deviceOwner = devicePolicyManager.isDeviceOwnerApp(context.getPackageName());
         boolean profileOwner = devicePolicyManager.isProfileOwnerApp(context.getPackageName());

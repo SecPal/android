@@ -22,6 +22,8 @@ final class SystemNavigationSettings {
     private static final String PREFS_NAME = "secpal_system_navigation";
     private static final String PREF_PROVISIONING_GESTURE_NAVIGATION_PENDING = "provisioning_gesture_navigation_pending";
 
+    private static final String PREF_GESTURE_REQUEST_SEEN = "gesture_request_seen";
+
     private SystemNavigationSettings() {
     }
 
@@ -49,6 +51,16 @@ final class SystemNavigationSettings {
             .edit()
             .putBoolean(PREF_PROVISIONING_GESTURE_NAVIGATION_PENDING, pending)
             .apply();
+    }
+
+    // Work owns consumption of the UI handoff; this flag is never management authority.
+    static void observeProvisioningGestureNavigationRequest(Context context, boolean requested) {
+        android.content.SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        boolean seen = preferences.getBoolean(PREF_GESTURE_REQUEST_SEEN, false);
+        if (!requested || !seen) {
+            preferences.edit().putBoolean(PREF_GESTURE_REQUEST_SEEN, requested)
+                .putBoolean(PREF_PROVISIONING_GESTURE_NAVIGATION_PENDING, requested).apply();
+        }
     }
 
     static Intent resolveGestureNavigationSettingsIntent(Context context) {

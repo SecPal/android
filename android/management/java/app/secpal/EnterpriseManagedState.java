@@ -28,20 +28,24 @@ public final class EnterpriseManagedState {
 
     private final String mode;
     private final EnterprisePolicyConfig policyConfig;
-    private final boolean debugKioskHomeEnabled;
+    private final boolean available;
 
     EnterpriseManagedState(String mode, EnterprisePolicyConfig policyConfig) {
-        this(mode, policyConfig, false);
+        this(mode, policyConfig, true);
     }
 
-    EnterpriseManagedState(
+    private EnterpriseManagedState(
         String mode,
         EnterprisePolicyConfig policyConfig,
-        boolean debugKioskHomeEnabled
+        boolean available
     ) {
         this.mode = mode;
         this.policyConfig = policyConfig;
-        this.debugKioskHomeEnabled = debugKioskHomeEnabled;
+        this.available = available;
+    }
+
+    static EnterpriseManagedState unavailable() {
+        return new EnterpriseManagedState(MODE_NONE, EnterprisePolicyConfig.disabled(), false);
     }
 
     static String resolveManagedMode(boolean deviceOwner, boolean profileOwner) {
@@ -65,7 +69,7 @@ public final class EnterpriseManagedState {
     }
 
     public boolean isKioskActive() {
-        return (isDeviceOwner() && policyConfig.isKioskModeEnabled()) || usesDebugKioskHome();
+        return isDeviceOwner() && policyConfig.isKioskModeEnabled();
     }
 
     public boolean isLockTaskEnabled() {
@@ -84,8 +88,8 @@ public final class EnterpriseManagedState {
         return isKioskActive() && policyConfig.isPreferGestureNavigation();
     }
 
-    boolean usesDebugKioskHome() {
-        return debugKioskHomeEnabled && policyConfig.isKioskModeEnabled();
+    boolean isAvailable() {
+        return available;
     }
 
     public Set<String> resolveAllowedPackages(Context context) {

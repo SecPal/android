@@ -20,7 +20,7 @@ final class ManagementSnapshot {
     private ManagementSnapshot() {}
 
     static EnterpriseManagedState unavailable() {
-        return new EnterpriseManagedState(EnterpriseManagedState.MODE_NONE, EnterprisePolicyConfig.disabled());
+        return EnterpriseManagedState.unavailable();
     }
 
     static Bundle encode(Context context, EnterpriseManagedState state) {
@@ -42,15 +42,20 @@ final class ManagementSnapshot {
     @SuppressWarnings("deprecation")
     static EnterpriseManagedState decode(Bundle bundle, String currentOwnerMode) {
         if ((!EnterpriseManagedState.MODE_DEVICE_OWNER.equals(currentOwnerMode)
-            && !EnterpriseManagedState.MODE_PROFILE_OWNER.equals(currentOwnerMode))
+            && !EnterpriseManagedState.MODE_PROFILE_OWNER.equals(currentOwnerMode)
+            && !EnterpriseManagedState.MODE_NONE.equals(currentOwnerMode))
             || bundle == null || !KEYS.equals(bundle.keySet())
             || !(bundle.get("version") instanceof Integer) || bundle.getInt("version") != 1
-            || !currentOwnerMode.equals(bundle.get("mode"))
-            || EnterpriseManagedState.MODE_NONE.equals(currentOwnerMode)) return unavailable();
+            || !currentOwnerMode.equals(bundle.get("mode"))) return unavailable();
+        boolean unmanaged = EnterpriseManagedState.MODE_NONE.equals(currentOwnerMode);
         for (String key : Arrays.asList("kiosk", "lock_task", "phone", "sms", "gesture", "gesture_pending")) {
-            if (!(bundle.get(key) instanceof Boolean)) return unavailable();
+            if (!(bundle.get(key) instanceof Boolean) || (unmanaged && bundle.getBoolean(key))) return unavailable();
         }
         if (!(bundle.get("packages") instanceof String[])) return unavailable();
+        if (unmanaged) {
+            return bundle.getStringArray("packages").length == 0
+                ? new EnterpriseManagedState(currentOwnerMode, EnterprisePolicyConfig.disabled()) : unavailable();
+        }
         boolean deviceOwner = EnterpriseManagedState.MODE_DEVICE_OWNER.equals(currentOwnerMode);
         if (!deviceOwner && (bundle.getBoolean("kiosk") || bundle.getBoolean("lock_task")
             || bundle.getBoolean("gesture") || bundle.getBoolean("gesture_pending"))) return unavailable();

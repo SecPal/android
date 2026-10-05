@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2026 SecPal
+SPDX-FileCopyrightText: 2026 SecPal Contributors
 SPDX-License-Identifier: CC0-1.0
 -->
 
@@ -221,7 +221,7 @@ Samsung managed-device hard-key partner metadata can also be injected through en
 - `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA`
 - `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA`
 
-If those variables are unset, SecPal keeps the manifest entries present with empty values so the Android wrapper stays buildable across non-Samsung and local development flows.
+These inputs belong to the `io.secpal.dpc` receiver. Use partner metadata issued for that identity; Work no longer consumes it. Unset values remain empty for non-Samsung and local builds.
 
 The recommended local secret file is `~/.config/secpal/android-release.env`. It stays outside the repository and can be loaded automatically by the signed release scripts. `SECPAL_ANDROID_CONFIG_DIR` changes the default release directory, while an explicit `SECPAL_ANDROID_RELEASE_ENV_FILE` takes precedence. The loader exports the exact file it selected so Fastlane reads and persists that same release context even if loaded values alter `HOME`. Fastlane keeps one runner-account-wide lock at `~/.config/secpal/android-publish.lock`, resolved from the operating-system account rather than the selected release env or process `HOME`, and creates its missing directory with mode `700`. The loader migrates an old `SECPAL_ANDROID_VERSION_CODE` baseline in memory, warns about and removes `SECPAL_ANDROID_VERSION_NAME` from the child environment, and never rewrites the file.
 For Fastlane-based Play deployment, keep the Play service-account JSON outside the repository as well, for example at `~/.config/secpal/google-play-service-account.json`.
@@ -260,14 +260,11 @@ Official SecPal product surfaces retain their intentional `Powered by SecPal –
 
 See `docs/ANDROID_ENTERPRISE_ROADMAP.md` for the staged approach to DPC and admin capabilities.
 
-The current product decision is to keep DPC-related capability inside the same `SecPal` app, with behavior depending on installation path and managed state rather than a separate Android package.
+Privileged management runs in the separate `io.secpal.dpc` application. Work keeps `app.secpal`, its signing authority, UI and release channels. Each build pins the other application’s public signing certificate; management never establishes endpoint identity or user, session or business authorization.
 
 ## Dedicated Device Mode
 
-The same `SecPal` app can now run in two modes:
-
-- normal Android app behavior when it is installed later on an already-running device without owner provisioning
-- dedicated-device behavior when the app is provisioned as the device policy controller during fully managed setup
+Work uses normal Android behavior without an authenticated DPC. When `io.secpal.dpc` is provisioned as Device Owner, it configures dedicated-device policy and Work consumes the resulting capabilities. Profile Owner management does not grant Device Owner kiosk capabilities.
 
 In dedicated-device mode, SecPal applies native Android policy from the DPC side instead of relying on the web layer:
 
@@ -287,41 +284,34 @@ The currently supported provisioning and managed-configuration keys are:
 - `secpal_prefer_gesture_navigation`: prefer gesture navigation for dedicated-device provisioning; if you omit this flag, SecPal now defaults it to `true` when kiosk mode is enabled and tries to apply gesture navigation during provisioning, falling back to the official system navigation screen on first launch when a device does not accept the managed settings silently
 - `secpal_allowed_packages`: additional package allowlist as a string array or comma-separated list
 
-If the app is not device owner or profile owner, these controls stay inactive and the package behaves like a normal Android application.
+Managed configuration and provisioning extras target `io.secpal.dpc`. Work itself is never Device Owner or Profile Owner. Without that authenticated owner, privileged controls remain inactive.
 
-For local dedicated-device testing, the debug variant is intentionally marked as a `testOnly` app. That keeps one important rollback path open: if you assign the debug build as device owner through `adb shell dpm set-device-owner`, you can remove it again with `adb shell dpm remove-active-admin app.secpal/.SecPalDeviceAdminReceiver` instead of being forced into a factory reset every time.
-
-That safety net is for debug testing only. Release builds must not rely on it.
-
-For debug-only kiosk testing on a real device, you can also inject enterprise policy locally over ADB without rebuilding the app around provisioning extras. The debug receiver accepts:
-
-- `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY`
-- `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`
-
-Example to enable the strict kiosk case with only SecPal visible:
+For local dedicated-device testing, build both APKs with independent local debug certificates and mutual public certificate pins. The complete build/install/owner/rollback sequence is in [Local device testing](docs/ANDROID_LOCAL_DEVICE_TESTING.md#safe-dedicated-device-test-flow). The debug DPC is `testOnly`, so its owner role can be removed with:
 
 ```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    app.secpal
+adb shell dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver
 ```
 
-On an unmanaged debug device, relaunching the app after that broadcast opens the dedicated-device home activity and exposes the configured kiosk tiles inside SecPal, but it does not grant real Android device-owner lock task or persistent HOME routing.
+Release builds cannot use that test rollback path. Existing single-package managed installations require explicit reprovisioning; updating Work does not transfer the owner role.
 
-Example to clear the debug policy again:
+The DPC debug receiver accepts `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY` and `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`. It requires Android’s `DUMP` permission and targets the DPC package:
 
 ```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal
+adb shell am broadcast --include-stopped-packages \
+    -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
+    --ez secpal_kiosk_mode_enabled true \
+    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
+adb shell am start -n app.secpal/.MainActivity
+adb shell input keyevent KEYCODE_HOME
 ```
 
-Example to keep SecPal as the managed home screen but allow normal switching among approved apps:
+Work enables its HOME component only from an authenticated kiosk snapshot. The former unmanaged debug kiosk simulation has been removed: debug policy does not manufacture an owner role or Work capabilities. To clear the test policy:
 
 ```bash
-adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    --ez secpal_lock_task_enabled false \
-    --es secpal_allowed_packages 'com.example.approvedapp' \
-    app.secpal
+adb shell am broadcast --include-stopped-packages \
+    -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY \
+    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
+adb shell am start -n app.secpal/.MainActivity
 ```
 
 The Android wrapper keeps the gesture-navigation settings hand-off inside the native provisioning flow instead of exposing lock-task exit to WebView JavaScript. Android does not offer a portable public API that lets SecPal silently force that OEM-specific system setting by itself, so devices that require the OEM settings UI are handled only during the provisioning hand-off.

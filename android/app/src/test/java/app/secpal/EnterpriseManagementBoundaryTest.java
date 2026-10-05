@@ -78,7 +78,7 @@ public class EnterpriseManagementBoundaryTest {
         assertFalse(read().isManaged());
         assertFalse(EnterprisePolicyState.read(context).isManaged());
         assertFalse(EnterprisePolicyState.read(context, DPC, ManagementPackageIdentity.digest(new Signature(new byte[] {9}))).isManaged());
-        assertEquals(0, provider.calls);
+        assertEquals(1, provider.calls);
     }
 
     @Test public void wrongCertificateNeverInvokesEvenARealOwnerProvider() {
@@ -93,7 +93,7 @@ public class EnterpriseManagementBoundaryTest {
         provider.beforeReply = () -> shadowOf(manager).setDeviceOwner(new ComponentName("other.owner", "admin"));
         assertFalse(read().isManaged());
         assertFalse(read().isKioskActive());
-        assertEquals(2, provider.calls);
+        assertEquals(3, provider.calls);
     }
 
     @Test public void profileOwnerCannotSupplyDeviceOwnerKioskCapabilities() {
@@ -134,9 +134,73 @@ public class EnterpriseManagementBoundaryTest {
         }
     }
 
+    @Test public void unavailableStateCannotExitExistingLockTask() {
+        try (var controller = org.robolectric.Robolectric.buildActivity(LockTaskActivity.class).setup()) {
+            LockTaskActivity activity = controller.get();
+            shadowOf(context.getSystemService(android.app.ActivityManager.class))
+                .setLockTaskModeState(android.app.ActivityManager.LOCK_TASK_MODE_LOCKED);
+            EnterprisePolicyClient.maybeEnterLockTask(activity, ManagementSnapshot.unavailable());
+            assertEquals(0, activity.exits);
+            EnterprisePolicyClient.maybeEnterLockTask(activity, new EnterpriseManagedState(
+                EnterpriseManagedState.MODE_DEVICE_OWNER, EnterprisePolicyConfig.disabled()));
+            assertEquals(1, activity.exits);
+        }
+    }
+
+    @Test public void gestureRequestIsConsumedByWorkWithoutRearmingEveryRead() {
+        shadowOf(manager).setDeviceOwner(new ComponentName(DPC, "admin"));
+        provider.state.putBoolean("gesture", true);
+        provider.state.putBoolean("gesture_pending", true);
+        assertTrue(read().isPreferGestureNavigation());
+        assertTrue(SystemNavigationSettings.isProvisioningGestureNavigationPending(context));
+        SystemNavigationSettings.setProvisioningGestureNavigationPending(context, false);
+        assertTrue(read().isPreferGestureNavigation());
+        assertFalse(SystemNavigationSettings.isProvisioningGestureNavigationPending(context));
+        provider.state.putInt("version", 2);
+        read();
+        provider.state.putInt("version", 1);
+        read();
+        assertFalse(SystemNavigationSettings.isProvisioningGestureNavigationPending(context));
+        provider.state.putBoolean("gesture_pending", false);
+        read();
+        provider.state.putBoolean("gesture_pending", true);
+        read();
+        assertTrue(SystemNavigationSettings.isProvisioningGestureNavigationPending(context));
+    }
+
+    @Test public void authenticatedUnmanagedSnapshotCarriesNoCapabilities() {
+        provider.state = ManagementSnapshot.encode(context, new EnterpriseManagedState(
+            EnterpriseManagedState.MODE_NONE, EnterprisePolicyConfig.disabled()));
+        read();
+        assertEquals(1, provider.calls);
+        assertFalse(read().isManaged());
+        provider.state.putBoolean("phone", true);
+        assertFalse(read().isAllowPhone());
+    }
+
+    @Test public void ordinaryWorkDoesNotAdvertiseDedicatedHome() throws Exception {
+        android.content.pm.ActivityInfo info = context.getPackageManager().getActivityInfo(
+            new ComponentName(context, DedicatedDeviceHomeActivity.class), PackageManager.MATCH_DISABLED_COMPONENTS);
+        assertFalse(info.enabled);
+        ComponentName home = new ComponentName(context, DedicatedDeviceHomeActivity.class);
+        EnterprisePolicyClient.updateDedicatedHomeAvailability(context,
+            ManagementSnapshot.decode(provider.state, "device_owner"));
+        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            context.getPackageManager().getComponentEnabledSetting(home));
+        EnterprisePolicyClient.updateDedicatedHomeAvailability(context, ManagementSnapshot.unavailable());
+        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            context.getPackageManager().getComponentEnabledSetting(home));
+        EnterprisePolicyClient.updateDedicatedHomeAvailability(context, new EnterpriseManagedState(
+            EnterpriseManagedState.MODE_NONE, EnterprisePolicyConfig.disabled()));
+        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            context.getPackageManager().getComponentEnabledSetting(home));
+    }
+
     public static class LockTaskActivity extends android.app.Activity {
         int entries;
+        int exits;
         @Override public void startLockTask() { entries++; }
+        @Override public void stopLockTask() { exits++; }
     }
 
     public static class StateProvider extends ContentProvider {

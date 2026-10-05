@@ -141,6 +141,7 @@ public final class DpcPolicyEnforcer {
             preferences.edit().remove(PREF_APPLIED_POLICY_SIGNATURE).apply();
         }
 
+        DpcLegacyPolicyService.updateLifetime(context, managedState);
         return managedState;
     }
 

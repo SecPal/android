@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2026 SecPal
+SPDX-FileCopyrightText: 2026 SecPal Contributors
 SPDX-License-Identifier: CC0-1.0
 -->
 
@@ -185,63 +185,59 @@ If your current change also affects the shared frontend authentication flow or A
 
 ## Safe Dedicated-Device Test Flow
 
-If you want to test the DPC and device-owner path on a disposable device, prefer the debug APK first.
+Use a disposable device and the separate local debug APKs. Both are `testOnly`; only `io.secpal.dpc` receives the owner role. No production signing credential is needed for this test.
 
-Why this is safer:
-
-- the debug Android manifest marks the app as `testOnly`
-- Android's `dpm remove-active-admin` shell command can then remove the active admin and owner role again
-- you keep a rollback path over USB without having to rely on the app UI staying reachable
-
-Recommended sequence:
+Build with independent test certificates and public peer pins:
 
 ```bash
 npm run cap:sync
-npm run native:assemble:debug
-./scripts/with-android-env.sh bash -lc 'adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk'
-./scripts/with-android-env.sh bash -lc 'adb shell dpm set-device-owner app.secpal/.SecPalDeviceAdminReceiver'
+(cd android && ./gradlew --no-daemon :dpc:prepareDebugSigning :app:validateSigningDebug)
+export SECPAL_DPC_CERT_SHA256="$(keytool -exportcert \
+    -keystore android/.gradle/dpc-debug.keystore -storepass android \
+    -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+export SECPAL_WORK_CERT_SHA256="$(keytool -exportcert \
+    -keystore "$HOME/.android/debug.keystore" -storepass android \
+    -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"
+(cd android && ./gradlew --no-daemon :app:assembleDebug :dpc:assembleDebug)
+./scripts/with-android-env.sh adb install -t -r android/dpc/build/outputs/apk/debug/dpc-debug.apk
+./scripts/with-android-env.sh adb install -t -r android/app/build/outputs/apk/debug/app-debug.apk
+./scripts/with-android-env.sh adb shell dpm set-device-owner io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver
 ```
 
-Rollback path for the debug build:
+These hashes are public certificate digests. Do not reuse a production Work key for DPC. The test does not create or publish a production DPC signing identity.
+
+Rollback the debug owner:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell dpm remove-active-admin app.secpal/.SecPalDeviceAdminReceiver'
+./scripts/with-android-env.sh adb shell dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver
 ```
 
-Enable the strict kiosk case where only SecPal stays visible:
+Enable strict Device Owner kiosk policy, start Work so it consumes the authenticated state, then enter the managed home:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true app.secpal'
-./scripts/with-android-env.sh bash -lc 'adb shell monkey -p app.secpal -c android.intent.category.LAUNCHER 1'
+./scripts/with-android-env.sh adb shell am broadcast --include-stopped-packages \
+    -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
+    --ez secpal_kiosk_mode_enabled true \
+    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
+./scripts/with-android-env.sh adb shell am start -n app.secpal/.MainActivity
+./scripts/with-android-env.sh adb shell input keyevent KEYCODE_HOME
 ```
 
-Expected result on an unmanaged debug device: the relaunch goes into `DedicatedDeviceHomeActivity`, the app shows the dedicated-device launcher tiles, and `SecPalEnterprisePlugin.getManagedState()` reports `kioskActive=true` plus the configured Phone/SMS/app allowlist flags.
+Expected: DPC is Device Owner, Work is not an owner, Work’s dedicated home is enabled and `dumpsys activity activities` reports `mLockTaskModeState=LOCKED`. DPC configures lock-task eligibility; Work enters only after Android grants it. An unmanaged debug DPC does not simulate kiosk capabilities. Profile Owner management remains distinct and cannot enable Device Owner kiosk policy.
 
-Important limit: this debug-only local override does not make the package a real Android device owner. On an unmanaged device, `dumpsys activity activities` will therefore still report `mLockTaskModeState=NONE`, and HOME will keep returning to the stock launcher instead of becoming a persistent managed home surface.
+Allow Phone and SMS by adding `--ez secpal_allow_phone true --ez secpal_allow_sms true` to the DPC policy broadcast. To allow navigation among curated apps while retaining the managed HOME, add `--ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings'`. Relaunch Work after a test policy change so its UI consumes the fresh state.
 
-If you recently ran `adb shell am force-stop app.secpal`, relaunch the app once before sending the debug broadcast again. Android may suppress broadcasts to a stopped package even when the command still returns `result=0`.
-
-Expected result on a real device-owner build: `DedicatedDeviceHomeActivity` becomes the top activity and `dumpsys activity activities` reports `mLockTaskModeState=LOCKED`.
-
-Allow SecPal plus Phone and SMS:
+Clear debug policy without removing the owner:
 
 ```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_allow_phone true --ez secpal_allow_sms true app.secpal'
+./scripts/with-android-env.sh adb shell am broadcast --include-stopped-packages \
+    -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY \
+    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
+./scripts/with-android-env.sh adb shell am start -n app.secpal/.MainActivity
 ```
 
-Allow normal navigation between SecPal and a curated app set while still keeping SecPal as HOME:
-
-```bash
-./scripts/with-android-env.sh bash -lc "adb shell am broadcast -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY --ez secpal_kiosk_mode_enabled true --ez secpal_lock_task_enabled false --es secpal_allowed_packages 'com.android.chrome,com.android.settings' app.secpal"
-```
-
-With that policy, the dedicated-device home screen shows only the approved apps. On real device-owner runs, HOME also returns to that managed launcher instead of the stock launcher.
-
-Clear the debug kiosk policy again without removing device owner:
-
-```bash
-./scripts/with-android-env.sh bash -lc 'adb shell am broadcast -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY app.secpal'
-```
+Work disables its dedicated HOME component after the authenticated kiosk state ends. Missing or unavailable DPC state grants no capability and cannot itself exit an existing lock task. Existing Work-owned installations require explicit reprovisioning; installing these APKs does not transfer ownership.
 
 ## Samsung XCover Hard-Key Validation Notes
 
@@ -250,7 +246,7 @@ For the current XCover 7 validation path, seed the Samsung secure settings expli
 ```bash
 ./scripts/with-android-env.sh bash -lc 'adb shell settings put secure short_press_app app.secpal/app.secpal.SamsungEmergencyShortPressAlias'
 ./scripts/with-android-env.sh bash -lc 'adb shell settings put secure long_press_app app.secpal/app.secpal.SamsungEmergencyLongPressAlias'
-./scripts/with-android-env.sh bash -lc 'adb shell settings put secure dedicated_app_xcover app.secpal'
+./scripts/with-android-env.sh bash -lc 'adb shell settings put secure dedicated_app_xcover io.secpal.dpc'
 ./scripts/with-android-env.sh bash -lc 'adb shell settings put secure dedicated_app_xcover_switch 1'
 ./scripts/with-android-env.sh bash -lc 'adb shell settings put secure active_key_on_lockscreen 1'
 ```
@@ -264,8 +260,8 @@ Known limits from real-device validation on `SM-G556B` / Android 16:
 - `adb shell input keyevent 1015` and `adb shell input keyevent 1079` do not reproduce the OEM Samsung hardware-button route. Even in device-owner kiosk mode with the secure settings above, the device stays on `DedicatedDeviceHomeActivity` with `mLockTaskModeState=LOCKED`.
 - `adb shell am start -n app.secpal/.SamsungEmergencyShortPressAlias` is expected to fail with `Permission Denial` because the Samsung alias activities are not exported. That means plain ADB cannot simulate the external alias launch path either.
 - Final proof for this investigation still requires a real physical XCover or SOS button press on the managed device.
-- Local builds keep `app_key_ptt_data` and `app_key_sos_data` empty unless `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA` and `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA` are provided before the build. If your Samsung distribution path depends on partner-issued app-key metadata, validate with those values present instead of repeating the empty-token local build.
-- The exported Samsung receiver requires Samsung's platform-signature-protected
+- The DPC build keeps `app_key_ptt_data` and `app_key_sos_data` empty unless `SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA` and `SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA` are provided before the build. If your Samsung distribution path depends on partner-issued app-key metadata, validate with those values present instead of repeating the empty-token local build.
+- The exported DPC Samsung receiver requires Samsung's platform-signature-protected
   `KNOX_CUSTOM_SETTING` permission on every supported Android version, matching
   the managed-key receiver contract. The existing action and managed-owner
   checks still apply after Android admits the broadcast.

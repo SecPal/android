@@ -5,18 +5,15 @@
 
 package app.secpal;
 
-import android.app.Service;
-import android.content.Intent;
-import android.os.Binder;
-import android.os.IBinder;
+import android.app.admin.DeviceAdminService;
 
 /** Android keeps the owner process bound so managed-configuration listeners remain active. */
-public final class DpcPolicyService extends Service {
+// The versioned manifest resource disables this class before API 26.
+@android.annotation.TargetApi(26)
+public final class DpcPolicyService extends DeviceAdminService {
     @Override public void onCreate() {
         super.onCreate();
         DpcPolicyEnforcer.syncPolicy(this);
     }
 
-    // The platform binding exposes no management commands or mutable caller state.
-    @Override public IBinder onBind(Intent intent) { return new Binder(); }
 }

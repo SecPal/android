@@ -110,7 +110,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
         <activity
             android:name=".DedicatedDeviceHomeActivity"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/title_activity_main"

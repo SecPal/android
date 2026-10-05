@@ -18,6 +18,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.UserManager;
+import io.secpal.dpc.R;
 
 import java.util.Collections;
 
@@ -34,6 +35,35 @@ import org.robolectric.shadows.ShadowDevicePolicyManager;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, shadows = DpcPolicyBoundaryTest.RecordingDevicePolicyManager.class)
 public class DpcPolicyBoundaryTest {
+    @Test
+    public void ownerServiceUsesAndroidDeviceAdminContract() {
+        assertTrue(android.app.admin.DeviceAdminService.class.isAssignableFrom(DpcPolicyService.class));
+        assertTrue(RuntimeEnvironment.getApplication().getResources().getBoolean(R.bool.device_admin_service_enabled));
+        assertFalse(RuntimeEnvironment.getApplication().getResources().getBoolean(R.bool.legacy_policy_service_enabled));
+    }
+
+    @Test
+    @Config(sdk = 24)
+    public void legacyOwnerStartsDurablePolicyListener() {
+        Context context = RuntimeEnvironment.getApplication();
+        assertFalse(context.getResources().getBoolean(R.bool.device_admin_service_enabled));
+        assertTrue(context.getResources().getBoolean(R.bool.legacy_policy_service_enabled));
+        DevicePolicyManager manager = context.getSystemService(DevicePolicyManager.class);
+        shadowOf(manager).setProfileOwner(new ComponentName(context, SecPalDeviceAdminReceiver.class));
+        new DpcPolicyChangeReceiver().onReceive(context, new Intent("android.app.action.PROFILE_OWNER_CHANGED"));
+        Intent service = shadowOf((android.app.Application) context).getNextStartedService();
+        assertTrue(service != null && service.getComponent() != null);
+        assertEquals("app.secpal.DpcLegacyPolicyService", service.getComponent().getClassName());
+        var controller = Robolectric.buildService(DpcLegacyPolicyService.class).create();
+        try {
+            assertEquals(android.app.Service.START_STICKY, controller.get().onStartCommand(null, 0, 1));
+            manager.clearProfileOwner(new ComponentName(context, SecPalDeviceAdminReceiver.class));
+            assertEquals(android.app.Service.START_NOT_STICKY, controller.get().onStartCommand(null, 0, 2));
+        } finally {
+            controller.destroy();
+        }
+    }
+
     @Test
     public void ownerActivationAndSystemServiceRestartEnforceWithoutWorkLifecycle() {
         Context context = RuntimeEnvironment.getApplication();

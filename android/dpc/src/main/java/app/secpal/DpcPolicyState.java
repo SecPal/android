@@ -33,8 +33,7 @@ final class DpcPolicyState {
         preferences.edit().putString("managed_mode", managedMode).apply();
         return new EnterpriseManagedState(
             managedMode,
-            policyConfig,
-            false
+            policyConfig
         );
     }
 
