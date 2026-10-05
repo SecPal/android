@@ -1546,29 +1546,42 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("documents the ImageMagick prerequisite for brand asset sync", () => {
-    const readme = readRepoFile("README.md");
+  it("documents the ImageMagick prerequisite in the local device guide", () => {
+    const localDeviceGuide = readRepoFile(
+      "docs",
+      "ANDROID_LOCAL_DEVICE_TESTING.md"
+    );
 
-    expect(readme).toContain("ImageMagick");
-    expect(readme).toContain("npm run brand:sync");
-    expect(readme).toContain("magick");
+    expect(localDeviceGuide).toContain("ImageMagick");
+    expect(localDeviceGuide).toContain("npm run brand:sync");
+    expect(localDeviceGuide).toContain("magick");
   });
 
-  it("documents dedicated-device provisioning behavior in the README", () => {
+  it("routes dedicated-device provisioning to the local device guide", () => {
     const readme = readRepoFile("README.md");
+    const localDeviceGuide = readRepoFile(
+      "docs",
+      "ANDROID_LOCAL_DEVICE_TESTING.md"
+    );
 
-    expect(readme).toContain("same `SecPal` app");
-    expect(readme).toContain("secpal_kiosk_mode_enabled");
-    expect(readme).toContain("secpal_lock_task_enabled");
-    expect(readme).toContain("secpal_allow_phone");
-    expect(readme).toContain("secpal_allow_sms");
-    expect(readme).toContain("secpal_prefer_gesture_navigation");
-    expect(readme).toContain("debug build");
-    expect(readme).toContain("remove-active-admin");
-    expect(readme).toContain("native provisioning flow");
-    expect(readme).not.toContain("openGestureNavigationSettings");
-    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA");
-    expect(readme).toContain("SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA");
+    expect(readme).toContain("docs/ANDROID_LOCAL_DEVICE_TESTING.md");
+    expect(readme).toContain("Device Owner");
+    expect(readme).toContain("Profile Owner");
+    expect(localDeviceGuide).toContain("secpal_kiosk_mode_enabled");
+    expect(localDeviceGuide).toContain("secpal_lock_task_enabled");
+    expect(localDeviceGuide).toContain("secpal_allow_phone");
+    expect(localDeviceGuide).toContain("secpal_allow_sms");
+    expect(localDeviceGuide).toContain("secpal_prefer_gesture_navigation");
+    expect(localDeviceGuide).toContain("debug build");
+    expect(localDeviceGuide).toContain("remove-active-admin");
+    expect(localDeviceGuide).toContain("native provisioning flow");
+    expect(localDeviceGuide).not.toContain("openGestureNavigationSettings");
+    expect(localDeviceGuide).toContain(
+      "SECPAL_ANDROID_SAMSUNG_APP_KEY_PTT_DATA"
+    );
+    expect(localDeviceGuide).toContain(
+      "SECPAL_ANDROID_SAMSUNG_APP_KEY_SOS_DATA"
+    );
   });
 
   it("keeps Android fastlane release automation on the local signing flow", () => {
@@ -1656,26 +1669,19 @@ describe("Android native hardening", () => {
     expect(
       packageJson.scripts["fastlane:android:withdraw:direct-apks"]
     ).toBeUndefined();
-    expect(readme).toContain("Fastlane");
-    expect(readme).toContain("npm run fastlane:android:build:signed-aab");
-    expect(readme).toContain("npm run fastlane:android:deploy:internal");
-    expect(readme).toContain("npm run fastlane:android:deploy:direct-apk");
-    expect(readme).toContain("apk.secpal.app");
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
+    expect(readme).toContain("docs/ANDROID_RELEASE_DISTRIBUTION.md");
+    expect(readme).not.toContain("npm run fastlane:android:");
+    expect(readme).not.toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(readme).not.toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
     expect(readme).not.toContain(
       "npm run fastlane:android:withdraw:direct-apks"
     );
     expect(readme).not.toContain("SECPAL_ANDROID_WITHDRAW_VERSIONS");
     expect(readme).not.toContain("atomically marks Stable");
-    expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
-    expect(readme).toContain(
-      "https://apk.secpal.app/android/stable/latest.json"
+    expect(readme).not.toContain(
+      "https://apk.secpal.app/android/beta/latest.json"
     );
-    expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
-    expect(readme).toContain(
-      "signed APK and AAB embed the canonical schema-4 Android bridge"
-    );
+    expect(readme).not.toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("Fastlane");
     expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("internal testing track");
@@ -1710,7 +1716,6 @@ describe("Android native hardening", () => {
       /ENV\.fetch\(\s*"SECPAL_ANDROID_DIRECT_SSH_HOST",\s*"secpal-uberspace"\s*\)/
     );
     expect(fastfile).toContain('"/var/www/virtual/secpal/apk.secpal.app"');
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST=secpal-uberspace");
     expect(distributionDoc).toContain(
       "Uberspace is the authorized release publication target"
     );
@@ -1948,8 +1953,6 @@ describe("Android native hardening", () => {
       "secpal",
       "EnterprisePolicyController.java"
     );
-    const readme = readRepoFile("README.md");
-
     expect(policyController).toContain("@RequiresApi(Build.VERSION_CODES.P)");
     expect(policyController).toContain(
       "setLockTaskFeaturesIfSupported(devicePolicyManager, adminComponent, true)"
@@ -1993,6 +1996,5 @@ describe("Android native hardening", () => {
     );
     expect(policyController).toContain("UserManager.DISALLOW_INSTALL_APPS");
     expect(policyController).toContain("UserManager.DISALLOW_UNINSTALL_APPS");
-    expect(readme).not.toContain("com.android.settings");
   });
 });
