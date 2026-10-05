@@ -61,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated vulnerable development-tool dependencies for brace expansion and
+  Markdown, YAML, and TOML parsing to patched releases.
 - Moved the default direct-APK Fastlane publication target from the legacy VPS
   to Uberspace while preserving local signing and the existing Stable/Beta
   artifact contract.
