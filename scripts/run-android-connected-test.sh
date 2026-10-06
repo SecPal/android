@@ -139,8 +139,9 @@ classify_api37_failure() {
     retry_reason=""
     reboot_before_retry=false
 
-    if grep -Eq '(Starting|Finished) [1-9][0-9]* tests on ' "$attempt_log" ||
-        grep -Fq 'There were failing tests' "$attempt_log"; then
+    # AGP's generic failure footer also appears after pre-test install failures.
+    # Positive counts prohibit recovery; otherwise a named failure must match.
+    if grep -Eq '(Starting|Finished) [1-9][0-9]* tests on ' "$attempt_log"; then
         return
     fi
 

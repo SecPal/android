@@ -839,6 +839,7 @@ echo Success
         | "package-manager-always"
         | "package-manager-with-tests"
         | "package-manager-with-test-failure"
+        | "package-manager-with-footer"
         | "package-manager-then-missing-package-service"
         | "split-install-broken-pipe-twice"
         | "split-install-broken-pipe-always"
@@ -874,6 +875,7 @@ echo Success
         | "command-error-with-diagnostic"
         | "command-error-with-tests"
         | "test"
+        | "test-zero"
     ) => {
       const tempRoot = mkdtempSync(
         join(tmpdir(), "secpal-connected-test-script-")
@@ -1020,12 +1022,17 @@ if [[ -n "$attempt_failure_mode" ]]; then
     if [[ "$attempt_failure_mode" == package-manager-with-tests ]]; then
       printf '%s\\n' 'Starting 1 tests on emulator-5570 - 17'
     elif [[ "$attempt_failure_mode" == package-manager-with-test-failure ]]; then
+      printf '%s\\n' 'Starting 1 tests on emulator-5570 - 17'
+      printf '%s\\n' 'CertificateTransparencyRegressionTest > policy FAILED'
+      printf '%s\\n' 'There were failing tests'
+    elif [[ "$attempt_failure_mode" == package-manager-with-footer ]]; then
       printf '%s\\n' 'There were failing tests'
     fi
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
   elif [[ "$attempt_failure_mode" == missing-package-service* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    printf '%s\n' 'Finished 0 tests on emulator-5570 - 17'
     if [[ "$attempt_failure_mode" == missing-package-service-with-tests ]]; then
       printf '%s\\n' 'Starting 1 tests on emulator-5570 - 17'
     fi
@@ -1054,8 +1061,16 @@ if [[ -n "$attempt_failure_mode" ]]; then
       printf '%s\n' 'Test run failed to complete. No test results. onError: commandError=true message=null'
     fi
   else
+    if [[ "$attempt_failure_mode" == test-zero ]]; then
+      printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    fi
     printf '%s\n' 'There were failing tests'
   fi
+  case "$attempt_failure_mode" in
+    split-install-broken-pipe*|install-create-*|settings-provider*|missing-package-service*|install-write*|instrumentation-crash*|command-error*)
+      printf '%s\n' 'There were failing tests. See the report at: test-results/index.html'
+      ;;
+  esac
   exit 1
 fi
 printf '%s\n' 'connected test passed'
@@ -1232,6 +1247,17 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
 
+    const installFailureWithFooter = runScenario(
+      37,
+      "package-manager-with-footer"
+    );
+    expect(installFailureWithFooter.result.status).toBe(0);
+    expect(installFailureWithFooter.attempts).toBe(2);
+    expect(installFailureWithFooter.reboots).toEqual([
+      "adb -s emulator-5570 reboot",
+    ]);
+    expect(installFailureWithFooter.waits).toEqual(["emulator-5570 60"]);
+
     const recoverableMissingPackageService = runScenario(
       37,
       "missing-package-service"
@@ -1247,6 +1273,17 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableMissingPackageService.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
+
+    for (const [apiLevel, failureMode] of [
+      [36, "missing-package-service"],
+      [37, "test-zero"],
+    ] as const) {
+      const noRecovery = runScenario(apiLevel, failureMode);
+      expect(noRecovery.result.status).toBe(1);
+      expect(noRecovery.attempts).toBe(1);
+      expect(noRecovery.reboots).toEqual([]);
+      expect(noRecovery.waits).toEqual([]);
+    }
 
     const persistentMissingPackageService = runScenario(
       37,
