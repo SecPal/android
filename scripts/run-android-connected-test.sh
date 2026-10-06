@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: MIT
 
 set -euo pipefail
@@ -47,7 +47,6 @@ trap 'rm -f "$attempt_log"' EXIT
 
 run_connected_test() {
     (
-        cd "${repo_root}/android"
         if (( api_level == 37 )); then
             echo "Waiting for API 37 PackageManager handlers before APK installation"
             for handler in wait-for-handler wait-for-background-handler; do
@@ -56,7 +55,14 @@ run_connected_test() {
                     adb -s "$serial" shell cmd package "$handler" \
                     --timeout "$((readiness_timeout * 1000))" || exit "$?"
             done
+            echo "Waiting for API 37 PackageInstaller storage readiness before APK installation"
+            # The readiness deadline bounds probes; leave seven seconds for
+            # their kill grace and the separately bounded session cleanup.
+            timeout --foreground --kill-after=5s "$((readiness_timeout + 7))s" \
+                bash "${repo_root}/scripts/wait-for-android-device.sh" \
+                "$serial" "$readiness_timeout" "$api_level" || exit "$?"
         fi
+        cd "${repo_root}/android"
         ANDROID_SERIAL="$serial" ./gradlew "${gradle_args[@]}"
     )
 }
@@ -132,6 +138,11 @@ classify_api37_failure() {
     retry_limit=1
     retry_reason=""
     reboot_before_retry=false
+
+    if grep -Eq '(Starting|Finished) [1-9][0-9]* tests on ' "$attempt_log" ||
+        grep -Fq 'There were failing tests' "$attempt_log"; then
+        return
+    fi
 
     if grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then

@@ -84,6 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Qualify API 37 PackageInstaller storage after the PackageManager handler waits
+  and before every connected-test attempt. A bounded disposable session must be
+  created and abandoned before Gradle may install APKs; no APK is written or
+  committed by the probe. Identified sessions are also abandoned when creation
+  emits diagnostics or returns an error. Recovery budgets and API 36 and
+  earlier readiness are unchanged; API 37 recovery also rejects logs reporting started tests or test
+  failures before classifying infrastructure errors (issue #725).
+
 - Updated the Markdown linter's transitive KaTeX and TOML parser dependencies
   to patched releases, resolving inherited-trust and parsing denial-of-service
   advisories without downgrading the linter. Lockfile regression coverage

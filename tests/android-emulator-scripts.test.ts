@@ -449,6 +449,9 @@ sleep() {
       writeExecutable(
         join(fakeBinRoot, "adb"),
         `#!/usr/bin/env bash
+if [[ -n "\${SECPAL_TEST_ADB_DELAY:-}" ]]; then
+  sleep "$SECPAL_TEST_ADB_DELAY"
+fi
 printf '%s\n' "$*" >> "${adbLogPath}"
 if [[ "$1" == "start-server" ]]; then
   exit 0
@@ -495,6 +498,41 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "pm" && 
     exit 0
   fi
   exit 1
+fi
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "sm" ]]; then
+  printf 'private mounted null\\r\\n'
+  exit 0
+fi
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" && "$5" == "package" && "$6" == "install-create" ]]; then
+  case "\${SECPAL_TEST_STORAGE_READY:-ready}" in
+    absent) printf "Can't find service: package\\n" >&2; exit 1 ;;
+    broken-pipe) printf 'Failure calling service package: Broken pipe\\n' >&2; exit 1 ;;
+    storage-null) printf 'java.lang.NullPointerException: StorageManager.getVolumes() on a null object reference\\n' >&2; exit 1 ;;
+    empty) exit 0 ;;
+    malformed) printf 'Success: created install session [invalid]\\r\\n'; exit 0 ;;
+    misleading-success) printf 'Error: PackageInstaller unavailable\\r\\n'; exit 0 ;;
+    noisy) printf 'PackageInstaller diagnostic\\r\\nSuccess: created install session [42]\\r\\n'; exit 0 ;;
+    noisy-failure) printf 'Success: created install session [42]\\r\\nPackageInstaller diagnostic\\r\\n'; exit 1 ;;
+    created-but-command-failed) printf 'Success: created install session [42]\\r\\n'; exit 1 ;;
+    ambiguous) printf 'Success: created install session [42]\\r\\nSuccess: created install session [43]\\r\\n'; exit 0 ;;
+    hung) exec sleep 5 ;;
+  esac
+  printf 'Success: created install session [42]\\r\\n'
+  exit 0
+fi
+if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" && "$5" == "package" && "$6" == "install-abandon" && "$7" == 42 ]]; then
+  if [[ "\${SECPAL_TEST_STORAGE_READY:-ready}" == cleanup-failed ]]; then
+    printf 'Failure calling service package: Broken pipe\\n' >&2
+    exit 1
+  fi
+  if [[ "\${SECPAL_TEST_STORAGE_READY:-ready}" == cleanup-empty ]]; then
+    exit 0
+  fi
+  if [[ "\${SECPAL_TEST_STORAGE_READY:-ready}" == cleanup-hung ]]; then
+    exec sleep 30
+  fi
+  printf 'Success\\r\\n'
+  exit 0
 fi
 exit 1
 `
@@ -611,23 +649,97 @@ exit 1
       expect(packageManagerUnavailableResult.stderr).toContain(
         "package=missing"
       );
+
+      for (const storageState of [
+        "ready",
+        "absent",
+        "broken-pipe",
+        "storage-null",
+        "empty",
+        "malformed",
+        "misleading-success",
+        "noisy",
+        "noisy-failure",
+        "created-but-command-failed",
+        "ambiguous",
+        "hung",
+        "cleanup-failed",
+        "cleanup-empty",
+        "cleanup-hung",
+      ]) {
+        writeFileSync(adbLogPath, "");
+        const storageResult = spawnSync(
+          "bash",
+          [
+            resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
+            serial,
+            // Leave room for ordinary adb latency only in the success fixture.
+            storageState === "ready" ? "5" : "1",
+            "37",
+          ],
+          {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              HOME: tempRoot,
+              PATH: `${fakeBinRoot}:${process.env.PATH ?? ""}`,
+              ANDROID_SDK_ROOT: "",
+              ANDROID_HOME: "",
+              SECPAL_TEST_STORAGE_READY: storageState,
+              SECPAL_TEST_ADB_DELAY: storageState === "ready" ? "0.15" : "",
+            },
+            encoding: "utf8",
+          }
+        );
+        expect(storageResult.status, storageState).toBe(
+          storageState === "ready" ? 0 : 1
+        );
+        const probeCommands = readFileSync(adbLogPath, "utf8");
+        expect(probeCommands).toContain(
+          `-s ${serial} shell cmd package install-create -r -t --user 0 -S 1`
+        );
+        expect(probeCommands).not.toMatch(/install-(commit|write)/);
+        if (
+          storageState === "ready" ||
+          storageState.startsWith("cleanup-") ||
+          storageState.startsWith("noisy") ||
+          storageState === "created-but-command-failed"
+        ) {
+          expect(probeCommands).toContain(
+            `-s ${serial} shell cmd package install-abandon 42`
+          );
+        }
+        if (storageState.startsWith("cleanup-")) {
+          expect(storageResult.stderr).toContain("install=cleanup-failed");
+          expect(probeCommands.match(/ install-create /g)).toHaveLength(1);
+        } else if (storageState === "ambiguous") {
+          expect(storageResult.stderr).toContain("install=ambiguous-response");
+          expect(probeCommands.match(/ install-create /g)).toHaveLength(1);
+          expect(probeCommands).not.toContain(" install-abandon ");
+        } else if (storageState !== "ready") {
+          expect(storageResult.stderr).toContain("install=missing");
+        }
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 10_000);
+  }, 45_000);
 
   it.each([
     [37, "ready", 0],
     [37, "wait-for-handler", 1],
     [37, "wait-for-background-handler", 1],
     [37, "hung-handler", 124],
+    [37, "storage-unavailable", 1],
+    [37, "hung-storage", 124],
     [36, "wait-for-handler", 0],
+    [36, "storage-unavailable", 0],
   ] as const)(
     "gates API %i connected tests when PackageManager state is %s",
     (apiLevel, failedHandler, expectedStatus) => {
       const tempRoot = mkdtempSync(join(tmpdir(), "secpal-package-handlers-"));
       const eventsPath = join(tempRoot, "events");
-      const readinessTimeout = failedHandler === "hung-handler" ? 1 : 60;
+      const readinessTimeout = failedHandler.startsWith("hung-") ? 1 : 60;
       try {
         mkdirSync(join(tempRoot, "android"));
         mkdirSync(join(tempRoot, "scripts"));
@@ -639,7 +751,13 @@ printf 'gradle:%s:%s\\n' "$ANDROID_SERIAL" "$*" >> "${eventsPath}"
         );
         writeExecutable(
           join(tempRoot, "scripts", "wait-for-android-device.sh"),
-          "#!/usr/bin/env bash\nexit 0\n"
+          `#!/usr/bin/env bash
+printf 'install-storage:%s\\n' "$*" >> "${eventsPath}"
+if [[ "${failedHandler}" == "hung-storage" ]]; then
+  exec sleep 30
+fi
+[[ "${failedHandler}" != "storage-unavailable" ]]
+`
         );
         writeExecutable(
           join(tempRoot, "scripts", "with-android-env.sh"),
@@ -678,7 +796,16 @@ echo Success
             failedHandler !== "hung-handler"
           ) {
             expectedEvents.push(
-              "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 60000"
+              `adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout ${readinessTimeout * 1000}`
+            );
+          }
+          if (
+            failedHandler !== "wait-for-handler" &&
+            failedHandler !== "wait-for-background-handler" &&
+            failedHandler !== "hung-handler"
+          ) {
+            expectedEvents.push(
+              `install-storage:emulator-5570 ${readinessTimeout} 37`
             );
           }
         }
@@ -691,7 +818,8 @@ echo Success
       } finally {
         rmSync(tempRoot, { recursive: true, force: true });
       }
-    }
+    },
+    15_000
   );
 
   it("retries only recognized connected-test infrastructure failures", () => {
@@ -709,10 +837,13 @@ echo Success
         | "other-repository-403-resource"
         | "package-manager"
         | "package-manager-always"
+        | "package-manager-with-tests"
+        | "package-manager-with-test-failure"
         | "package-manager-then-missing-package-service"
         | "split-install-broken-pipe-twice"
         | "split-install-broken-pipe-always"
         | "split-install-broken-pipe-then-test"
+        | "split-install-broken-pipe-then-storage-unavailable"
         | "split-install-broken-pipe-then-install-write-twice"
         | "split-install-broken-pipe-then-install-write-always"
         | "install-create-broken-pipe"
@@ -727,6 +858,7 @@ echo Success
         | "split-install-broken-pipe-then-settings-provider-always"
         | "missing-package-service"
         | "missing-package-service-always"
+        | "missing-package-service-with-tests"
         | "install-write"
         | "install-write-always"
         | "install-write-with-tests"
@@ -885,10 +1017,18 @@ if [[ -n "$attempt_failure_mode" ]]; then
     printf '%s\n' "'package install-create -r --bypass-low-target-sdk-block -t -S 5938571' returns error 'Unknown failure: Exception occurred while executing 'install-create':"
     printf '%s\n' "java.lang.IllegalStateException: Cannot access system provider: 'settings' before system providers are installed!"
   elif [[ "$attempt_failure_mode" == package-manager* ]]; then
+    if [[ "$attempt_failure_mode" == package-manager-with-tests ]]; then
+      printf '%s\\n' 'Starting 1 tests on emulator-5570 - 17'
+    elif [[ "$attempt_failure_mode" == package-manager-with-test-failure ]]; then
+      printf '%s\\n' 'There were failing tests'
+    fi
     printf '%s\n' 'Failed to commit install session 1234'
     printf '%s\n' 'Failure calling service package: Broken pipe (32)'
   elif [[ "$attempt_failure_mode" == missing-package-service* ]]; then
     printf '%s\n' 'Starting 0 tests on emulator-5570 - 17'
+    if [[ "$attempt_failure_mode" == missing-package-service-with-tests ]]; then
+      printf '%s\\n' 'Starting 1 tests on emulator-5570 - 17'
+    fi
     printf '%s\n' 'Failed to install split APK(s): [app-ctRegression.apk]'
     printf '%s\n' "Unknown failure: cmd: Can't find service: package"
   elif [[ "$attempt_failure_mode" == install-write* ]]; then
@@ -924,6 +1064,14 @@ printf '%s\n' 'connected test passed'
         writeExecutable(
           join(scriptsRoot, "wait-for-android-device.sh"),
           `#!/usr/bin/env bash
+if [[ "\${3:-}" == 37 ]]; then
+  printf 'install-storage:%s\\n' "$*" >> "${packageWaitPath}"
+  if [[ "${failureMode}" == "split-install-broken-pipe-then-storage-unavailable" && -f "${attemptPath}" ]]; then
+    echo 'Timed out waiting for usable Android device: install-storage=missing' >&2
+    exit 1
+  fi
+  exit 0
+fi
 printf '%s\n' "$*" >> "${waitPath}"
 printf 'wait:%s\n' "$*" >> "${recoveryEventPath}"
 `
@@ -988,6 +1136,18 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableMavenCentralFailure.result.stdout).toContain(
       "Retrying Gradle after transient Maven Central HTTP 403"
     );
+
+    for (const failureMode of [
+      "package-manager-with-tests",
+      "package-manager-with-test-failure",
+      "missing-package-service-with-tests",
+    ] as const) {
+      const startedTests = runScenario(37, failureMode);
+      expect(startedTests.result.status).toBe(1);
+      expect(startedTests.attempts).toBe(1);
+      expect(startedTests.reboots).toEqual([]);
+      expect(startedTests.waits).toEqual([]);
+    }
 
     const sameLineMavenCentralFailure = runScenario(29, "maven-403-same-line");
     expect(sameLineMavenCentralFailure.result.status).toBe(0);
@@ -1198,6 +1358,7 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       Array.from({ length: 3 }, () => [
         "adb -s emulator-5570 shell cmd package wait-for-handler --timeout 60000",
         "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 60000",
+        "install-storage:emulator-5570 60 37",
       ]).flat()
     );
     expect(recoverableRepeatedSplitInstallFailure.reboots).toEqual([
@@ -1208,6 +1369,22 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
       "emulator-5570 60",
       "emulator-5570 60",
     ]);
+
+    const unavailableStorageAfterRecovery = runScenario(
+      37,
+      "split-install-broken-pipe-then-storage-unavailable"
+    );
+    expect(unavailableStorageAfterRecovery.result.status).toBe(1);
+    expect(unavailableStorageAfterRecovery.attempts).toBe(1);
+    expect(unavailableStorageAfterRecovery.reboots).toHaveLength(1);
+    expect(unavailableStorageAfterRecovery.waits).toEqual(["emulator-5570 60"]);
+    expect(unavailableStorageAfterRecovery.packageWaits).toEqual(
+      Array.from({ length: 2 }, () => [
+        "adb -s emulator-5570 shell cmd package wait-for-handler --timeout 60000",
+        "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 60000",
+        "install-storage:emulator-5570 60 37",
+      ]).flat()
+    );
 
     const persistentSplitInstallFailure = runScenario(
       37,
