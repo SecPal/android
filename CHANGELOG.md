@@ -87,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Qualify API 37 PackageInstaller storage after the PackageManager handler waits
   and before every connected-test attempt. A bounded disposable session must be
   created and abandoned before Gradle may install APKs; no APK is written or
-  committed by the probe. Recovery budgets and API 36 and earlier readiness are
+  committed by the probe. Identified sessions are also abandoned when creation
+  emits diagnostics or returns an error. Recovery budgets and API 36 and earlier readiness are
   unchanged; API 37 recovery also rejects logs reporting started tests or test
   failures before classifying infrastructure errors (issue #725).
 

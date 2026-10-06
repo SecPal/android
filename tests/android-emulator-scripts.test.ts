@@ -449,6 +449,9 @@ sleep() {
       writeExecutable(
         join(fakeBinRoot, "adb"),
         `#!/usr/bin/env bash
+if [[ -n "\${SECPAL_TEST_ADB_DELAY:-}" ]]; then
+  sleep "$SECPAL_TEST_ADB_DELAY"
+fi
 printf '%s\n' "$*" >> "${adbLogPath}"
 if [[ "$1" == "start-server" ]]; then
   exit 0
@@ -508,6 +511,10 @@ if [[ "$1" == "-s" && "$2" == '${serial}' && "$3" == "shell" && "$4" == "cmd" &&
     empty) exit 0 ;;
     malformed) printf 'Success: created install session [invalid]\\r\\n'; exit 0 ;;
     misleading-success) printf 'Error: PackageInstaller unavailable\\r\\n'; exit 0 ;;
+    noisy) printf 'PackageInstaller diagnostic\\r\\nSuccess: created install session [42]\\r\\n'; exit 0 ;;
+    noisy-failure) printf 'Success: created install session [42]\\r\\nPackageInstaller diagnostic\\r\\n'; exit 1 ;;
+    created-but-command-failed) printf 'Success: created install session [42]\\r\\n'; exit 1 ;;
+    ambiguous) printf 'Success: created install session [42]\\r\\nSuccess: created install session [43]\\r\\n'; exit 0 ;;
     hung) exec sleep 5 ;;
   esac
   printf 'Success: created install session [42]\\r\\n'
@@ -651,6 +658,10 @@ exit 1
         "empty",
         "malformed",
         "misleading-success",
+        "noisy",
+        "noisy-failure",
+        "created-but-command-failed",
+        "ambiguous",
         "hung",
         "cleanup-failed",
         "cleanup-empty",
@@ -662,7 +673,8 @@ exit 1
           [
             resolve(repoRoot, "scripts", "wait-for-android-device.sh"),
             serial,
-            "1",
+            // Leave room for ordinary adb latency only in the success fixture.
+            storageState === "ready" ? "5" : "1",
             "37",
           ],
           {
@@ -674,6 +686,7 @@ exit 1
               ANDROID_SDK_ROOT: "",
               ANDROID_HOME: "",
               SECPAL_TEST_STORAGE_READY: storageState,
+              SECPAL_TEST_ADB_DELAY: storageState === "ready" ? "0.15" : "",
             },
             encoding: "utf8",
           }
@@ -686,7 +699,12 @@ exit 1
           `-s ${serial} shell cmd package install-create -r -t --user 0 -S 1`
         );
         expect(probeCommands).not.toMatch(/install-(commit|write)/);
-        if (storageState === "ready" || storageState.startsWith("cleanup-")) {
+        if (
+          storageState === "ready" ||
+          storageState.startsWith("cleanup-") ||
+          storageState.startsWith("noisy") ||
+          storageState === "created-but-command-failed"
+        ) {
           expect(probeCommands).toContain(
             `-s ${serial} shell cmd package install-abandon 42`
           );
@@ -694,6 +712,10 @@ exit 1
         if (storageState.startsWith("cleanup-")) {
           expect(storageResult.stderr).toContain("install=cleanup-failed");
           expect(probeCommands.match(/ install-create /g)).toHaveLength(1);
+        } else if (storageState === "ambiguous") {
+          expect(storageResult.stderr).toContain("install=ambiguous-response");
+          expect(probeCommands.match(/ install-create /g)).toHaveLength(1);
+          expect(probeCommands).not.toContain(" install-abandon ");
         } else if (storageState !== "ready") {
           expect(storageResult.stderr).toContain("install=missing");
         }
@@ -701,7 +723,7 @@ exit 1
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 45_000);
 
   it.each([
     [37, "ready", 0],

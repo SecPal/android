@@ -119,23 +119,30 @@ sleep_before_retry() {
 
 qualify_package_install() {
     local create_output
+    local create_status=0
     local abandon_output
-    local session_id
+    local session_id=""
+    local response_line
     local session_pattern='^Success: created install session \[([0-9]+)\]$'
 
     # Default-volume session creation exercises PackageInstaller's StorageManager
     # and allocation path. Handler barriers or a separate volume query do not.
     # Never write an APK or commit the session; abandon every identified session.
-    if ! create_output="$(run_adb -s "$serial" shell cmd package install-create -r -t --user 0 -S 1 2>&1)"; then
-        echo "API 37 install-create probe unavailable: ${create_output:-no response}" >&2
-        return 1
-    fi
+    create_output="$(run_adb -s "$serial" shell cmd package install-create -r -t --user 0 -S 1 2>&1)" || create_status=$?
     create_output="${create_output//$'\r'/}"
-    if ! [[ "$create_output" =~ $session_pattern ]]; then
-        echo "API 37 install-create probe unqualified: ${create_output:-empty response}" >&2
+    while IFS= read -r response_line; do
+        if [[ "$response_line" =~ $session_pattern ]]; then
+            if [[ -n "$session_id" && "$session_id" != "${BASH_REMATCH[1]}" ]]; then
+                echo "API 37 install=ambiguous-response: ${create_output}" >&2
+                exit 1
+            fi
+            session_id="${BASH_REMATCH[1]}"
+        fi
+    done <<< "$create_output"
+    if [[ -z "$session_id" ]]; then
+        echo "API 37 install-create probe unqualified: ${create_output:-no response}" >&2
         return 1
     fi
-    session_id="${BASH_REMATCH[1]}"
     # Allow bounded cleanup even if creation consumed the readiness deadline.
     # Failed cleanup stops polling; the disposable emulator must not run tests.
     if ! abandon_output="$(timeout --foreground --kill-after=1s 5s \
@@ -144,6 +151,10 @@ qualify_package_install() {
         [[ "${abandon_output//$'\r'/}" != "Success" ]]; then
         echo "API 37 install=cleanup-failed session=${session_id}: ${abandon_output:-no response}" >&2
         exit 1
+    fi
+    if (( create_status != 0 )) || ! [[ "$create_output" =~ $session_pattern ]]; then
+        echo "API 37 install-create probe unqualified after cleanup: ${create_output}" >&2
+        return 1
     fi
     read_current_time_milliseconds
     (( current_time_milliseconds < deadline_milliseconds ))
