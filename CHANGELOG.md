@@ -88,6 +88,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to patched releases, resolving inherited-trust and parsing denial-of-service
   advisories without downgrading the linter.
 
+- Keep temporary paths out of shell arguments in the Android Enterprise
+  signing-input regression test by using an isolated working directory and a
+  fixed relative report filename.
+
 - Preserve certificate-extraction command failures in Android Enterprise workflow
   signing-input preparation, including upstream DPC pipeline failures, and isolate
   its regression shell from ambient startup configuration (issue #726).

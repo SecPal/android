@@ -76,7 +76,8 @@ describe("Android enterprise policy instrumentation contract", () => {
       run.indexOf(validation) + validation.length
     );
     const directory = mkdtempSync(resolve(tmpdir(), "secpal-signing-status-"));
-    const report = resolve(directory, "work-signing-report.txt");
+    const reportName = "work-signing-report.txt";
+    const report = resolve(directory, reportName);
     const startup = resolve(directory, "shell-startup.sh");
     const startupMarker = resolve(directory, "startup-executed");
 
@@ -122,9 +123,12 @@ env | grep '^SECPAL_.*_CERT_SHA256='
           : ["-e"];
       const result = spawnSync(
         "/bin/bash",
-        [...shellArguments, "-c", script, "signing-status", report],
+        [...shellArguments, "-c", script, "signing-status", reportName],
         {
           encoding: "utf8",
+          // Keep the environment-derived temporary path out of shell arguments.
+          // The report argument stays relative to this isolated fixture directory.
+          cwd: directory,
           // The shell needs only these tools and a deterministic locale. Do not
           // inherit startup files, shell options, exported functions or fixtures.
           env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
