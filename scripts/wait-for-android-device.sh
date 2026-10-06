@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: MIT
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <serial> [timeout-seconds]" >&2
+    echo "Usage: $0 <serial> [timeout-seconds] [api-level]" >&2
     exit 64
 fi
 
 serial="$1"
 timeout_seconds="${2:-240}"
+api_level="${3:-0}"
+
+if ! [[ "$api_level" =~ ^[0-9]+$ ]]; then
+    echo "API level must be a nonnegative integer." >&2
+    exit 64
+fi
 
 if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || (( timeout_seconds <= 0 )); then
     echo "Timeout must be a positive integer." >&2
@@ -18,6 +24,21 @@ if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || (( timeout_seconds <= 0 )); then
 fi
 
 run_adb() {
+    if (( api_level == 37 )); then
+        local remaining_milliseconds
+        local command_timeout
+        read_current_time_milliseconds
+        remaining_milliseconds=$((deadline_milliseconds - current_time_milliseconds))
+        if (( remaining_milliseconds <= 0 )); then
+            return 124
+        fi
+        printf -v command_timeout '%d.%03ds' \
+            "$((remaining_milliseconds / 1000))" \
+            "$((remaining_milliseconds % 1000))"
+        timeout --foreground --kill-after=1s "$command_timeout" \
+            bash ./scripts/with-android-env.sh adb "$@"
+        return "$?"
+    fi
     bash ./scripts/with-android-env.sh adb "$@"
 }
 
@@ -96,6 +117,38 @@ sleep_before_retry() {
     sleep "$sleep_seconds"
 }
 
+qualify_package_install() {
+    local create_output
+    local abandon_output
+    local session_id
+    local session_pattern='^Success: created install session \[([0-9]+)\]$'
+
+    # Default-volume session creation exercises PackageInstaller's StorageManager
+    # and allocation path. Handler barriers or a separate volume query do not.
+    # Never write an APK or commit the session; abandon every identified session.
+    if ! create_output="$(run_adb -s "$serial" shell cmd package install-create -r -t --user 0 -S 1 2>&1)"; then
+        echo "API 37 install-create probe unavailable: ${create_output:-no response}" >&2
+        return 1
+    fi
+    create_output="${create_output//$'\r'/}"
+    if ! [[ "$create_output" =~ $session_pattern ]]; then
+        echo "API 37 install-create probe unqualified: ${create_output:-empty response}" >&2
+        return 1
+    fi
+    session_id="${BASH_REMATCH[1]}"
+    # Allow bounded cleanup even if creation consumed the readiness deadline.
+    # Failed cleanup stops polling; the disposable emulator must not run tests.
+    if ! abandon_output="$(timeout --foreground --kill-after=1s 5s \
+        bash ./scripts/with-android-env.sh adb -s "$serial" shell cmd package \
+        install-abandon "$session_id" 2>&1)" || \
+        [[ "${abandon_output//$'\r'/}" != "Success" ]]; then
+        echo "API 37 install=cleanup-failed session=${session_id}: ${abandon_output:-no response}" >&2
+        exit 1
+    fi
+    read_current_time_milliseconds
+    (( current_time_milliseconds < deadline_milliseconds ))
+}
+
 first_probe=true
 while [[ "$first_probe" == true ]] || {
     read_current_time_milliseconds
@@ -136,6 +189,14 @@ while [[ "$first_probe" == true ]] || {
     fi
 
     if [[ -n "$wm_size" && -n "$wm_density" && "$boot_completed" == "1" && "$settings_ready" == "ready" && "$package_ready" == "ready" ]]; then
+        if (( api_level == 37 )); then
+            if ! qualify_package_install; then
+                echo "waiting serial=${serial} install=missing" >&2
+                sleep_before_retry || break
+                continue
+            fi
+            echo "API 37 package-install readiness qualified (session created and abandoned)"
+        fi
         echo "serial=${serial}"
         echo "$wm_size"
         echo "$wm_density"
