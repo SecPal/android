@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated the Markdown linter's transitive KaTeX and TOML parser dependencies
+  to patched releases, resolving inherited-trust and parsing denial-of-service
+  advisories without downgrading the linter.
+
 - Preserve certificate-extraction command failures in Android Enterprise workflow
   signing-input preparation, including upstream DPC pipeline failures, and isolate
   its regression shell from ambient startup configuration (issue #726).

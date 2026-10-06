@@ -3,9 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
@@ -100,6 +103,64 @@ const isPatchedNanoidVersion = (version: unknown) => {
 };
 
 describe("npm dependency security", () => {
+  it("does not let inherited trust enable links in the Markdown math renderer", () => {
+    const require = createRequire(resolve(repoRoot, "package.json"));
+    const mathRequire = createRequire(
+      require.resolve("micromark-extension-math")
+    );
+    const katexUrl = pathToFileURL(mathRequire.resolve("katex")).href;
+    // Keep prototype pollution inside a separate process.
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import katex from ${JSON.stringify(katexUrl)};
+Object.prototype.trust = true;
+console.log(katex.renderToString(String.raw\`\\href{https://untrusted.secpal.dev}{unsafe}\`));`,
+      ],
+      { encoding: "utf8", timeout: 10_000 }
+    );
+
+    expect(output).toContain("katex");
+    expect(output).not.toContain('href="https://untrusted.secpal.dev"');
+  });
+
+  it("lints Markdown math with TOML configuration through the installed CLI", () => {
+    const directory = mkdtempSync(join(tmpdir(), "secpal-markdownlint-"));
+    try {
+      const config = join(directory, "config.toml");
+      const markdown = join(directory, "math.md");
+      writeFileSync(config, "default = false\nMD047 = true\n");
+      writeFileSync(
+        markdown,
+        "# Math\n\nInline $x^2$ and display math:\n\n$$\nx^2\n$$\n"
+      );
+      const args = [
+        resolve(repoRoot, "node_modules/markdownlint-cli/markdownlint.js"),
+        "--config",
+        config,
+        markdown,
+      ];
+      expect(
+        execFileSync(process.execPath, args, {
+          encoding: "utf8",
+          timeout: 10_000,
+        })
+      ).toBe("");
+      writeFileSync(markdown, "# Missing final newline");
+      expect(() =>
+        execFileSync(process.execPath, args, {
+          encoding: "utf8",
+          stdio: "pipe",
+          timeout: 10_000,
+        })
+      ).toThrow(/MD047/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("resolves nanoid outside the vulnerable range without an override", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repoRoot, "package.json"), "utf8")
