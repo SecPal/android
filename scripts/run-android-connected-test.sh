@@ -48,6 +48,15 @@ trap 'rm -f "$attempt_log"' EXIT
 run_connected_test() {
     (
         cd "${repo_root}/android"
+        if (( api_level == 37 )); then
+            echo "Waiting for API 37 PackageManager handlers before APK installation"
+            for handler in wait-for-handler wait-for-background-handler; do
+                timeout --foreground --kill-after=5s "${readiness_timeout}s" \
+                    bash "${repo_root}/scripts/with-android-env.sh" \
+                    adb -s "$serial" shell cmd package "$handler" \
+                    --timeout "$((readiness_timeout * 1000))" || exit "$?"
+            done
+        fi
         ANDROID_SERIAL="$serial" ./gradlew "${gradle_args[@]}"
     )
 }
