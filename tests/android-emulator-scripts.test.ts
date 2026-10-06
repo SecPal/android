@@ -616,6 +616,84 @@ exit 1
     }
   }, 10_000);
 
+  it.each([
+    [37, "ready", 0],
+    [37, "wait-for-handler", 1],
+    [37, "wait-for-background-handler", 1],
+    [37, "hung-handler", 124],
+    [36, "wait-for-handler", 0],
+  ] as const)(
+    "gates API %i connected tests when PackageManager state is %s",
+    (apiLevel, failedHandler, expectedStatus) => {
+      const tempRoot = mkdtempSync(join(tmpdir(), "secpal-package-handlers-"));
+      const eventsPath = join(tempRoot, "events");
+      const readinessTimeout = failedHandler === "hung-handler" ? 1 : 60;
+      try {
+        mkdirSync(join(tempRoot, "android"));
+        mkdirSync(join(tempRoot, "scripts"));
+        writeExecutable(
+          join(tempRoot, "android", "gradlew"),
+          `#!/usr/bin/env bash
+printf 'gradle:%s:%s\\n' "$ANDROID_SERIAL" "$*" >> "${eventsPath}"
+`
+        );
+        writeExecutable(
+          join(tempRoot, "scripts", "wait-for-android-device.sh"),
+          "#!/usr/bin/env bash\nexit 0\n"
+        );
+        writeExecutable(
+          join(tempRoot, "scripts", "with-android-env.sh"),
+          `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${eventsPath}"
+if [[ "${failedHandler}" == "hung-handler" ]]; then
+  exec sleep 5
+fi
+if [[ "$*" == *"${failedHandler}"* ]]; then
+  echo 'Timeout. PackageManager handlers are still busy.'
+  exit 1
+fi
+echo Success
+`
+        );
+        const result = spawnSync(
+          "bash",
+          [
+            resolve(repoRoot, "scripts", "run-android-connected-test.sh"),
+            "emulator-5570",
+            apiLevel.toString(),
+            readinessTimeout.toString(),
+            ":app:connectedCtRegressionAndroidTest",
+          ],
+          { cwd: tempRoot, encoding: "utf8" }
+        );
+        expect(result.status, result.stderr).toBe(expectedStatus);
+        const events = readFileSync(eventsPath, "utf8").trim().split("\n");
+        const expectedEvents = [];
+        if (apiLevel === 37) {
+          expectedEvents.push(
+            `adb -s emulator-5570 shell cmd package wait-for-handler --timeout ${readinessTimeout * 1000}`
+          );
+          if (
+            failedHandler !== "wait-for-handler" &&
+            failedHandler !== "hung-handler"
+          ) {
+            expectedEvents.push(
+              "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 60000"
+            );
+          }
+        }
+        if (expectedStatus === 0) {
+          expectedEvents.push(
+            "gradle:emulator-5570::app:connectedCtRegressionAndroidTest"
+          );
+        }
+        expect(events).toEqual(expectedEvents);
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
   it("retries only recognized connected-test infrastructure failures", () => {
     const runScenario = (
       apiLevel: number,
@@ -674,6 +752,7 @@ exit 1
       const rebootPath = join(tempRoot, "reboots");
       const waitPath = join(tempRoot, "waits");
       const recoveryEventPath = join(tempRoot, "recovery-events");
+      const packageWaitPath = join(tempRoot, "package-waits");
 
       try {
         mkdirSync(androidRoot, { recursive: true });
@@ -852,6 +931,10 @@ printf 'wait:%s\n' "$*" >> "${recoveryEventPath}"
         writeExecutable(
           join(scriptsRoot, "with-android-env.sh"),
           `#!/usr/bin/env bash
+if [[ "$*" == *"shell cmd package wait-for-"* ]]; then
+  printf '%s\\n' "$*" >> "${packageWaitPath}"
+  exit 0
+fi
 printf '%s\n' "$*" >> "${rebootPath}"
 printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
 `
@@ -888,6 +971,9 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
           recoveryEvents: readFileSync(recoveryEventPath, "utf8")
             .trim()
             .split("\n"),
+          packageWaits: existsSync(packageWaitPath)
+            ? readFileSync(packageWaitPath, "utf8").trim().split("\n")
+            : [],
         };
       } finally {
         rmSync(tempRoot, { recursive: true, force: true });
@@ -1108,6 +1194,12 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     );
     expect(recoverableRepeatedSplitInstallFailure.result.status).toBe(0);
     expect(recoverableRepeatedSplitInstallFailure.attempts).toBe(3);
+    expect(recoverableRepeatedSplitInstallFailure.packageWaits).toEqual(
+      Array.from({ length: 3 }, () => [
+        "adb -s emulator-5570 shell cmd package wait-for-handler --timeout 60000",
+        "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 60000",
+      ]).flat()
+    );
     expect(recoverableRepeatedSplitInstallFailure.reboots).toEqual([
       "adb -s emulator-5570 reboot",
       "adb -s emulator-5570 reboot",
