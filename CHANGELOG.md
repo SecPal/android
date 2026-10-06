@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated transitive `source-map-js` to `1.2.2`, resolving the high-severity
+  indexed source-map denial-of-service advisory `GHSA-68fv-2mgg-jv7q` and restoring
+  the dependency-audit CI check.
+
 - Derive local Work peer pins from Gradle's selected signing certificate, so owner-boundary tests never trust an unrelated default keystore.
 
 - Required a valid `device_provisioned` response for emulator readiness and
