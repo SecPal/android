@@ -82,6 +82,7 @@ jobs:
         run: npm ci
 
       - name: Verify independent DPC and Work management boundary
+        shell: bash
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-enterprise-avd
           SECPAL_ANDROID_EMULATOR_GPU_MODE: software
@@ -101,13 +102,15 @@ jobs:
               :app:signingReport --console=plain
           ) > "$work_signing_report"
           # Test certificates are generated separately; production trust is never substituted.
-          export SECPAL_DPC_CERT_SHA256="$(keytool -exportcert -keystore android/.gradle/dpc-debug.keystore \
+          SECPAL_DPC_CERT_SHA256="$(keytool -exportcert -keystore android/.gradle/dpc-debug.keystore \
             -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          export SECPAL_DPC_CERT_SHA256
           # Gradle selects the signing store; a conventional HOME path can name a different key.
-          export SECPAL_WORK_CERT_SHA256="$(awk '
+          SECPAL_WORK_CERT_SHA256="$(awk '
             $0 == "Variant: ctRegression" { selected = 1; next }
             selected && $1 == "SHA-256:" { gsub(":", "", $2); print tolower($2); exit }
           ' "$work_signing_report")"
+          export SECPAL_WORK_CERT_SHA256
           [[ "$SECPAL_WORK_CERT_SHA256" =~ ^[a-f0-9]{64}$ ]]
           test "$SECPAL_DPC_CERT_SHA256" != "$SECPAL_WORK_CERT_SHA256"
           (
