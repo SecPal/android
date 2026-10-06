@@ -86,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated the Markdown linter's transitive KaTeX and TOML parser dependencies
   to patched releases, resolving inherited-trust and parsing denial-of-service
-  advisories without downgrading the linter.
+  advisories without downgrading the linter. Lockfile regression coverage
+  prevents restoring vulnerable TOML parser releases.
 
 - Keep temporary paths out of shell arguments in the Android Enterprise
   signing-input regression test by using an isolated working directory and a

@@ -14,6 +14,10 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
+const { satisfies } = createRequire(import.meta.url)("semver") as {
+  satisfies: (version: string, range: string) => boolean;
+};
+
 type WorkflowStep = {
   "continue-on-error"?: unknown;
   if?: unknown;
@@ -103,6 +107,22 @@ const isPatchedNanoidVersion = (version: unknown) => {
 };
 
 describe("npm dependency security", () => {
+  it("resolves every smol-toml instance outside the vulnerable range", () => {
+    const packageLock = JSON.parse(
+      readFileSync(resolve(repoRoot, "package-lock.json"), "utf8")
+    ) as {
+      packages?: Record<string, { version?: string }>;
+    };
+    const instances = Object.entries(packageLock.packages ?? {}).filter(
+      ([path]) => /(?:^|\/)node_modules\/smol-toml$/.test(path)
+    );
+
+    expect(instances.length).toBeGreaterThan(0);
+    for (const [path, { version }] of instances) {
+      expect(satisfies(version ?? "", ">=1.9.0"), path).toBe(true);
+    }
+  });
+
   it("does not let inherited trust enable links in the Markdown math renderer", () => {
     const require = createRequire(resolve(repoRoot, "package.json"));
     const mathRequire = createRequire(
