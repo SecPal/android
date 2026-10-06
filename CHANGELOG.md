@@ -85,7 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Preserve certificate-extraction command failures in Android Enterprise workflow
-  signing-input preparation, including upstream DPC pipeline failures (issue #726).
+  signing-input preparation, including upstream DPC pipeline failures, and isolate
+  its regression shell from ambient startup configuration (issue #726).
 
 - Derive local Work peer pins from Gradle's selected signing certificate, so owner-boundary tests never trust an unrelated default keystore.
 

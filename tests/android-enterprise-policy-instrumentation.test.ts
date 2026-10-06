@@ -5,11 +5,17 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
@@ -71,8 +77,18 @@ describe("Android enterprise policy instrumentation contract", () => {
     );
     const directory = mkdtempSync(resolve(tmpdir(), "secpal-signing-status-"));
     const report = resolve(directory, "work-signing-report.txt");
+    const startup = resolve(directory, "shell-startup.sh");
+    const startupMarker = resolve(directory, "startup-executed");
 
     try {
+      writeFileSync(
+        startup,
+        'touch "${BASH_SOURCE[0]%/*}/startup-executed"; exit 71\n'
+      );
+      vi.stubEnv("BASH_ENV", startup);
+      vi.stubEnv("ENV", startup);
+      vi.stubEnv("SHELLOPTS", "xtrace:nounset");
+      vi.stubEnv("BASHOPTS", "failglob");
       if (!scenario.missingReport) {
         writeFileSync(
           report,
@@ -105,20 +121,17 @@ env | grep '^SECPAL_.*_CERT_SHA256='
           ? ["--noprofile", "--norc", "-e", "-o", "pipefail"]
           : ["-e"];
       const result = spawnSync(
-        "bash",
+        "/bin/bash",
         [...shellArguments, "-c", script, "signing-status", report],
         {
           encoding: "utf8",
-          env: Object.fromEntries(
-            Object.entries(process.env).filter(
-              ([name]) =>
-                name !== "SECPAL_DPC_CERT_SHA256" &&
-                name !== "SECPAL_WORK_CERT_SHA256"
-            )
-          ),
+          // The shell needs only these tools and a deterministic locale. Do not
+          // inherit startup files, shell options, exported functions or fixtures.
+          env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
         }
       );
       expect(result.error).toBeUndefined();
+      expect(existsSync(startupMarker)).toBe(false);
       expect(result.status, result.stderr).toBe(scenario.status);
       if (scenario.status === 0) {
         expect(result.stdout.split("\n")).toEqual(
@@ -131,6 +144,7 @@ env | grep '^SECPAL_.*_CERT_SHA256='
         expect(result.stdout).not.toContain("SECPAL_");
       }
     } finally {
+      vi.unstubAllEnvs();
       rmSync(directory, { recursive: true, force: true });
     }
   });
