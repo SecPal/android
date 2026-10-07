@@ -86,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve bounded API 37 PackageManager recovery when a zero-test installation
   failure carries Gradle's generic test-failure footer. Started tests and
-  unrecognized failures still fail without infrastructure retries (issue #725).
+  unrecognized failures still fail without infrastructure retries. Enforce the
+  existing recovery-wait deadline around stalled ADB children (issue #725).
 
 - Qualify API 37 PackageInstaller storage after the PackageManager handler waits
   and before every connected-test attempt. A bounded disposable session must be

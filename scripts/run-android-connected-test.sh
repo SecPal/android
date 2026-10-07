@@ -207,7 +207,9 @@ recover_api37_failure() {
         bash "${repo_root}/scripts/with-android-env.sh" \
             adb -s "$serial" reboot
     fi
-    bash "${repo_root}/scripts/wait-for-android-device.sh" \
+    # Bound the whole noninteractive wait group, including stalled ADB children.
+    timeout --verbose --kill-after=5s "${readiness_timeout}s" \
+        bash "${repo_root}/scripts/wait-for-android-device.sh" \
         "$serial" "$readiness_timeout"
 }
 

@@ -860,6 +860,7 @@ echo Success
         | "missing-package-service"
         | "missing-package-service-always"
         | "missing-package-service-with-tests"
+        | "missing-package-service-then-hung-readiness"
         | "install-write"
         | "install-write-always"
         | "install-write-with-tests"
@@ -1089,6 +1090,10 @@ if [[ "\${3:-}" == 37 ]]; then
 fi
 printf '%s\n' "$*" >> "${waitPath}"
 printf 'wait:%s\n' "$*" >> "${recoveryEventPath}"
+if [[ "${failureMode}" == "missing-package-service-then-hung-readiness" ]]; then
+  sleep 5 &
+  wait
+fi
 `
         );
         writeExecutable(
@@ -1109,7 +1114,9 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
             resolve(repoRoot, "scripts", "run-android-connected-test.sh"),
             "emulator-5570",
             apiLevel.toString(),
-            "60",
+            failureMode === "missing-package-service-then-hung-readiness"
+              ? "1"
+              : "60",
             ":app:connectedCtRegressionAndroidTest",
           ],
           {
@@ -1273,6 +1280,22 @@ printf 'reboot:%s\n' "$*" >> "${recoveryEventPath}"
     expect(recoverableMissingPackageService.result.stdout).toContain(
       "Retrying API 37 instrumentation after PackageManager connection failure"
     );
+
+    const hungRecoveryStarted = performance.now();
+    const hungRecovery = runScenario(
+      37,
+      "missing-package-service-then-hung-readiness"
+    );
+    expect(hungRecovery.result.status).toBe(124);
+    expect(hungRecovery.attempts).toBe(1);
+    expect(hungRecovery.reboots).toEqual(["adb -s emulator-5570 reboot"]);
+    expect(hungRecovery.waits).toEqual(["emulator-5570 1"]);
+    expect(hungRecovery.packageWaits).toEqual([
+      "adb -s emulator-5570 shell cmd package wait-for-handler --timeout 1000",
+      "adb -s emulator-5570 shell cmd package wait-for-background-handler --timeout 1000",
+      "install-storage:emulator-5570 1 37",
+    ]);
+    expect(performance.now() - hungRecoveryStarted).toBeLessThan(4000);
 
     for (const [apiLevel, failureMode] of [
       [36, "missing-package-service"],
