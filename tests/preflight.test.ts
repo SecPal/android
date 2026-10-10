@@ -1964,6 +1964,7 @@ describe("preflight", () => {
     const baseApplicationId = ["app", "secpal"].join(".");
     const derivedApplicationId = `${baseApplicationId}.ctregression`;
     const dpcApplicationId = ["io", "secpal", "dpc"].join(".");
+    const workApplicationId = ["io", "secpal"].join(".");
     const dpcDerivedId = `${dpcApplicationId}.ctregression`;
     const baseTestApplicationId = `${baseApplicationId}.test`;
     const testApplicationId = `${derivedApplicationId}.test`;
@@ -1995,6 +1996,8 @@ describe("preflight", () => {
         join(tempRoot, "check-domains-parser.mjs")
       );
       const allowedAndroidCommands = [
+        `applicationId "${workApplicationId}"`,
+        `uninstall ${workApplicationId}.test`,
         `applicationId "${dpcApplicationId}"`,
         `buildConfigField "String", "WORK_APPLICATION_ID", '"${derivedApplicationId}"'`,
         `buildConfigField "String", "DPC_APPLICATION_ID", '"${dpcDerivedId}"'`,
@@ -2034,6 +2037,16 @@ describe("preflight", () => {
       const fixture = (fileName: string, contents: string) =>
         [fileName, contents] as const;
       const forbiddenFixtures = [
+        ...[
+          `https://${workApplicationId}`,
+          `https://user@${workApplicationId}`,
+          `https:${workApplicationId}`,
+          `${workApplicationId}:443`,
+          `https://${workApplicationId}.test`,
+          `https://${workApplicationId}.`,
+        ].map((reference, index) =>
+          fixture(`forbidden-work-web-${index}.yml`, reference)
+        ),
         fixture(
           "forbidden-dpc-web.yml",
           [
