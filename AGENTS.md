@@ -228,7 +228,7 @@ At minimum verify:
 
 ## Repository Conventions
 
-- Stack: Node 22, React, TypeScript strict mode, Vite, Vitest, React Testing Library, and Capacitor 7.
+- Stack: Node 26, React, TypeScript strict mode, Vite, Vitest, React Testing Library, and Capacitor 7.
 - Keep presentation in components and logic in hooks or API clients.
 - Prefer functional components, named exports, and isolated Capacitor bridge code before broader abstractions.
 - Preserve strict TypeScript, accessibility, semantic HTML, focus behavior, and responsive layouts.

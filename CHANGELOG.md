@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Adopt Node.js 26 for the Android toolchain, replacing Node 22. Restrict the
+  engine to `>=26.11.1 <27`, preserve major-26 Node declarations and Android's
+  npm policy, and pin active Node workflow selectors to qualified Node 26.11.1.
+  Structural coverage checks runtime, engine, lockfile, types and CI agreement.
+
 ### Added
 
 - Added the separate `io.secpal.dpc` Android management application with
