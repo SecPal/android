@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025-2026 SecPal
+SPDX-FileCopyrightText: 2025-2026 SecPal Contributors
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
@@ -14,7 +14,7 @@ We welcome contributions to SecPal! Please read our [Code of Conduct](CODE_OF_CO
 Ensure you have the following tools installed:
 
 - **Git** with SSH signing configured
-- **Node.js** (v22.x) and npm
+- **Node.js** 26 (`>=26.11.1 <27`) and npm (`>=10.0.0`)
 - **Java 21** for Android/Gradle tooling
 - **Android Studio** and Android SDK for native development
 - **Pre-commit** hooks tool (optional but recommended)
