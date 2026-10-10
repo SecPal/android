@@ -69,6 +69,9 @@ For operator validation on a real device, confirm the app binds to the intended 
 
 ## Local Setup
 
+Use Node.js 26 (at least the qualified 26.11.1 patch, below Node 27) and npm 10
+or newer. `.nvmrc` tracks Node 26; active CI uses exact Node 26.11.1 selectors.
+
 ```bash
 npm ci
 npm --prefix ../frontend ci

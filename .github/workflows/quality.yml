@@ -27,26 +27,32 @@ jobs:
   prettier:
     name: Formatting Check
     uses: SecPal/.github/.github/workflows/reusable-prettier.yml@f8cabffc336002e72bb7a25ef40331fc58b0e83d # main
+    with:
+      node-version: "26.11.1"
 
   markdown-lint:
     name: Markdown Lint
     uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@f8cabffc336002e72bb7a25ef40331fc58b0e83d # main
+    with:
+      node-version: "26.11.1"
 
   ai-instructions:
     name: AI Instructions
     uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@f8cabffc336002e72bb7a25ef40331fc58b0e83d # main
+    with:
+      node-version: "26.11.1"
 
   eslint:
     name: ESLint
     uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@f8cabffc336002e72bb7a25ef40331fc58b0e83d # main
     with:
-      node-version: "22"
+      node-version: "26.11.1"
 
   typecheck:
     name: TypeScript Check
     uses: SecPal/.github/.github/workflows/reusable-node-build.yml@f8cabffc336002e72bb7a25ef40331fc58b0e83d # main
     with:
-      node-version: "22"
+      node-version: "26.11.1"
       build-command: "npm run typecheck"
 
   dependency-audit:
@@ -61,7 +67,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Audit dependencies
@@ -79,7 +85,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
@@ -119,7 +125,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
@@ -161,7 +167,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
@@ -197,7 +203,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Ruby
