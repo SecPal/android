@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an unsigned DPC release-candidate boundary and offline operator signing
+  and public artifact verification for `io.secpal.dpc` (issue #715). Maintained
+  external public identity inputs bind release continuity and Work↔DPC peer trust;
+  candidate payload, package, version and exact signer are verified without
+  production credentials. Same-key backup/recovery remains local/offline.
+  Hosted validation uses disposable identities only. Production signing requires
+  the existing operator authority and its independent acceptance evidence;
+  Work signing is unchanged. No DPC artifact is published or provisioned.
+
 - Added the separate `io.secpal.dpc` Android management application with
   independent signing inputs and local test keys. Device Owner/Profile Owner
   enforcement, provisioning callbacks and protected Samsung managed-key reception
