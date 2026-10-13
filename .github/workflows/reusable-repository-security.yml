@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: CC0-1.0
+
+---
+name: Repository Security
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Scan exact source
+        id: repository-scan
+        # Reviewed main revision includes the source-blob-bound Android policy.
+        # yamllint disable-line rule:line-length
+        uses: SecPal/.github/.github/actions/trivy-repository-scan@226180bd610af77313057141dca23b7dce88a46c # main
+
+      - name: Require clean repository evidence
+        env:
+          GATE_STATE: ${{ steps.repository-scan.outputs.gate-state }}
+        run: |
+          if [ "$GATE_STATE" != "CLEAN" ]; then
+            echo "Repository security acceptance requires CLEAN evidence." >&2
+            exit 1
+          fi

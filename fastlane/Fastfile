@@ -195,6 +195,7 @@ rescue SecPalAndroidPublishLock::LockError => e
 end
 
 def with_selected_publish_version_code(lane:)
+  require_repository_security!
   reject_external_current_build_code_for_publish!
   json_key_path = required_play_json_key_path!(lane)
 
@@ -220,7 +221,12 @@ def release_path_version
   )
 end
 
+def require_repository_security!
+  sh("node", File.expand_path("scripts/verify-repository-security.mjs", REPO_ROOT))
+end
+
 def run_signed_gradle(task)
+  require_repository_security!
   sh(
     "bash",
     File.expand_path("scripts/load-android-release-env.sh", REPO_ROOT),
@@ -536,6 +542,7 @@ def direct_versioned_metadata_document(channel:, published_at:)
 end
 
 def with_direct_release_lock
+  require_repository_security!
   artifact_root = Shellwords.escape(APK_DIRECT_ROOT)
   acquired = false
 

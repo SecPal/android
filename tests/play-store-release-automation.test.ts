@@ -530,6 +530,9 @@ end
 
 load ENV.fetch("SECPAL_TEST_FASTFILE")
 
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
+
 class << Time
   def now
     Time.utc(2026, 7, 22, 12, 0, 0)
@@ -693,6 +696,9 @@ def platform(*) = nil
 def desc(*) = nil
 def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
 def sh(*arguments)
   raise "remote command must be a single SSH argument" unless arguments.length == 3
   output, status = Open3.capture2e(arguments.fetch(2))
@@ -753,6 +759,9 @@ def platform(*) = nil
 def desc(*) = nil
 def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
 def sh(*arguments)
   raise "remote command must be a single SSH argument" unless arguments.length == 3
   system(arguments.fetch(2), exception: true)
@@ -806,6 +815,9 @@ def platform(*) = nil
 def desc(*) = nil
 def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
 script = remote_latest_files_replacement_script(
   remote_root: ENV.fetch("SECPAL_TEST_REMOTE_ROOT"),
   source_apk_path: ENV.fetch("SECPAL_TEST_SOURCE_APK"),
@@ -897,6 +909,9 @@ def platform(*) = nil
 def desc(*) = nil
 def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
 script = remote_latest_files_replacement_script(
   remote_root: ENV.fetch("SECPAL_TEST_REMOTE_ROOT"),
   source_apk_path: ENV.fetch("SECPAL_TEST_SOURCE_APK"),
@@ -969,6 +984,9 @@ def platform(*) = nil
 def desc(*) = nil
 def lane(*) = nil
 load ENV.fetch("SECPAL_TEST_FASTFILE")
+
+# These publication tests supply successful repository acceptance separately.
+def require_repository_security! = nil
 script = remote_latest_files_replacement_script(
   remote_root: ENV.fetch("SECPAL_TEST_REMOTE_ROOT"),
   source_apk_path: ENV.fetch("SECPAL_TEST_SOURCE_APK"),
