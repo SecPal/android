@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Require fresh, exact-commit repository security evidence from the pinned shared
+  Trivy scanner in PR/main quality checks and before local signed builds or
+  publication. Only CLEAN is accepted; signing and artifact checks remain separate
+  (issue #641).
+
 - Added the separate `io.secpal.dpc` Android management application with
   independent signing inputs and local test keys. Device Owner/Profile Owner
   enforcement, provisioning callbacks and protected Samsung managed-key reception

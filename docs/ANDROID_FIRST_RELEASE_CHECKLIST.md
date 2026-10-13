@@ -25,6 +25,13 @@ This checklist is the baseline for the first real SecPal Android release.
 
 ## Repository Validation
 
+- clean, committed release source has a successful main-push Quality Checks run
+- `node scripts/verify-repository-security.mjs` accepts its exact commit and fresh
+  CLEAN evidence before signed APK/AAB builds or Play/Direct publication
+- missing, failed, skipped, stale, ACTIONABLE, REVIEW_REQUIRED or UNKNOWN_STALE
+  evidence is a no-go; see the repository security requirement in
+  `docs/ANDROID_RELEASE_DISTRIBUTION.md`
+
 - `npm run version:check`
 - `npm run lint`
 - `npm run typecheck`

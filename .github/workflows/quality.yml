@@ -15,6 +15,12 @@ permissions:
   pull-requests: read
 
 jobs:
+  repository-security:
+    name: Repository Security
+    uses: ./.github/workflows/reusable-repository-security.yml
+    permissions:
+      contents: read
+
   reuse:
     name: Check REUSE Compliance
     uses: SecPal/.github/.github/workflows/reusable-reuse.yml@eab46aa7a3d828e0f1b2e75a48a8ff8f135dec93 # main
@@ -188,15 +194,25 @@ jobs:
 
   vitest:
     name: Vitest Tests
-    needs: dependency-audit
+    needs: [dependency-audit, repository-security]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: ${{ !startsWith(github.head_ref, 'spike/') && !startsWith(github.ref, 'refs/heads/spike/') }}
+    if: ${{ always() }}
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       SECPAL_REQUIRE_CSP_BROWSER: "1"
 
     steps:
+      - name: Require successful security prerequisites
+        env:
+          SECURITY_RESULT: ${{ needs.repository-security.result }}
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          if [ "$SECURITY_RESULT" != "success" ] || [ "$AUDIT_RESULT" != "success" ]; then
+            echo "Required repository security or dependency audit did not succeed." >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
