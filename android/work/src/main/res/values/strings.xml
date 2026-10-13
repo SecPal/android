@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 SecPal Contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<resources>
+    <string name="app_name">SecPal Work</string>
+    <string name="work_endpoint_authority_unavailable">Work access is unavailable. This endpoint has not been approved for Work use.</string>
+</resources>

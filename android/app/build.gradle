@@ -143,6 +143,7 @@ android {
     sourceSets {
         test.java.srcDir "../management/test/java"
         main.java.srcDir "../management/java"
+        main.java.srcDir "../consumer/java"
         ctRegression {
             manifest.srcFile "src/ctRegression/AndroidManifest.xml"
             java.srcDirs = ["src/debug/java"]

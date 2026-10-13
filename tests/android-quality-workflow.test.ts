@@ -75,7 +75,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:lint"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing :dpc:lintDebug :dpc:lintRelease :dpc:lintCtRegression"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing :dpc:lintDebug :dpc:lintRelease :dpc:lintCtRegression :work:lintDebug :work:lintRelease"
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -83,7 +83,7 @@ describe("Android quality workflow", () => {
         uses: expect.stringMatching(/^actions\/upload-artifact@[0-9a-f]{40}$/),
         with: {
           name: "android-lint-reports",
-          path: "android/app/build/reports/lint-results-*\nandroid/dpc/build/reports/lint-results-*\n",
+          path: "android/app/build/reports/lint-results-*\nandroid/dpc/build/reports/lint-results-*\nandroid/work/build/reports/lint-results-*\n",
           "if-no-files-found": "error",
           "retention-days": 7,
         },
@@ -132,8 +132,13 @@ describe("Android quality workflow", () => {
         run: "npm run native:test:unit",
       })
     );
+    expect(steps).toContainEqual(
+      expect.objectContaining({
+        run: "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :work:assembleDebug :work:assembleRelease :work:bundleRelease",
+      })
+    );
     expect(packageJson.scripts["native:test:unit"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest :dpc:testDebugUnitTest"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest :dpc:testDebugUnitTest :work:testDebugUnitTest"
     );
     const reportUpload = steps.find((step) =>
       step.uses?.startsWith("actions/upload-artifact@")
@@ -155,6 +160,8 @@ describe("Android quality workflow", () => {
         "android/app/build/test-results/testDebugUnitTest",
         "android/dpc/build/reports/tests/testDebugUnitTest",
         "android/dpc/build/test-results/testDebugUnitTest",
+        "android/work/build/reports/tests/testDebugUnitTest",
+        "android/work/build/test-results/testDebugUnitTest",
       ])
     );
   });

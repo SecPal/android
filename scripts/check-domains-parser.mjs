@@ -38,12 +38,12 @@ try {
 
 const storageKeyPattern = /^secpal\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const secpalDomainPattern =
-  /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-]))/;
+  /(?:secpal\.[A-Za-z0-9.-]{1,100}|app\.secpal(?=$|[^A-Za-z0-9._-])|io\.secpal(?=$|[^A-Za-z0-9_-]))/;
 const domainReferenceCharacterSource = String.raw`\p{L}\p{M}\p{N}_*\-`;
 const secpalReferenceSource = String.raw`(?<![${domainReferenceCharacterSource}])(?=[${domainReferenceCharacterSource}.]*secpal)(?:[${domainReferenceCharacterSource}]+\.+)+[${domainReferenceCharacterSource}]+\.*(?![${domainReferenceCharacterSource}])`;
 const secpalReferencePattern = new RegExp(secpalReferenceSource, "gu");
 const androidTestApplicationIdPattern =
-  /^(?:app\.secpal|io\.secpal\.dpc)(?:\.test|\.ctregression(?:\.test)?)$/;
+  /^(?:app\.secpal|io\.secpal(?:\.dpc)?)(?:\.test|\.ctregression(?:\.test)?)$/;
 const secpalNetworkPrefixSource = String.raw`(?:(?:https?|wss?|ftp):[ \t\r\n]*(?:[/\\][ \t\r\n]*){0,2}(?:[A-Za-z0-9._~!$&'()*+,;=%-]+@[ \t\r\n]*)?|(?:[/\\][ \t]*){2})`;
 const secpalNetworkReferencePattern = new RegExp(
   `(${secpalNetworkPrefixSource})(${secpalReferenceSource})[A-Za-z0-9._~!$&'()*+,;=%:@/\\\\-]*`,

@@ -15,6 +15,7 @@ const sourceRoot = resolve(
 const sources = new Map(
   [
     sourceRoot,
+    resolve(sourceRoot, "../../../../../../consumer/java/app/secpal"),
     resolve(sourceRoot, "../../../../../../management/java/app/secpal"),
   ].flatMap((root) =>
     readdirSync(root, { recursive: true })

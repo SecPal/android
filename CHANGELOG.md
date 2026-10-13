@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the separately buildable `io.secpal` Work application with independent
+  `SECPAL_WORK_KEYSTORE_PATH`, `SECPAL_WORK_KEYSTORE_PASSWORD`,
+  `SECPAL_WORK_KEY_ALIAS` and `SECPAL_WORK_KEY_PASSWORD` input seams and a separate
+  local test key (issue #717). Its native entry denies Work use while Endpoint
+  Authority is unavailable; it has no business WebView, login or native bridge.
+  The accepted authenticated DPC snapshot consumer and policy definitions are
+  shared as source, with independent application-private storage. Debug and
+  unsigned release builds require no production secrets. Production Work signing
+  is disabled pending its separate signing/trust qualification contract; no
+  publication channel or `APPROVED_WORK` implementation is provided. Existing
+  `app.secpal` capabilities, release/signing and DPC behavior are preserved.
+  Domain validation recognizes the Work identifier while rejecting it as a web
+  endpoint, alongside the existing USER and DPC identifier boundaries.
+
 - Added the separate `io.secpal.dpc` Android management application with
   independent signing inputs and local test keys. Device Owner/Profile Owner
   enforcement, provisioning callbacks and protected Samsung managed-key reception

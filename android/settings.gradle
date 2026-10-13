@@ -12,6 +12,7 @@ gradle.beforeProject { project ->
 
 include ':app'
 include ':dpc'
+include ':work'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 
