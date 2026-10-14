@@ -13,13 +13,16 @@ const modulePath = new URL(
 ).href;
 const subject = "a".repeat(40);
 const now = new Date("2026-10-14T10:00:00Z");
-const evidence = () => ({
+const evidence = (observedAt = now) => ({
   schema_version: "secpal-trivy-repository-scan-v2",
   subject: { repository: "SecPal/android", commit: subject },
   operation: { name: "TRIVY_REPOSITORY_SCAN", status: "SUCCEEDED" },
   gate_state: "CLEAN",
-  completed_at: "2026-10-14T09:00:00Z",
-  database: { status: "FRESH", next_update: "2026-10-15T00:00:00Z" },
+  completed_at: new Date(observedAt.getTime() - 60_000).toISOString(),
+  database: {
+    status: "FRESH",
+    next_update: new Date(observedAt.getTime() + 3_600_000).toISOString(),
+  },
   policy: {
     sha256:
       "sha256:90fe7d4a47b2818e1fea04689f2d84ab2e60132560111143d1adb843f827889e",
@@ -135,6 +138,21 @@ it("authenticates the current successful main attempt and its unique artifact, f
           artifacts: [{ ...artifact, expired: true }],
         },
       },
+      ...[[], [{ ...job, conclusion: "failure" }]].map((jobs) => ({
+        "actions/runs/17/attempts/2/jobs?per_page=100": {
+          total_count: jobs.length,
+          jobs,
+        },
+      })),
+      ...[
+        "trivy-repository-evidence-18-2-abcdef0123456789",
+        "trivy-repository-evidence-17-1-abcdef0123456789",
+      ].map((name) => ({
+        "actions/runs/17/artifacts?per_page=100": {
+          total_count: 1,
+          artifacts: [{ ...artifact, name }],
+        },
+      })),
       { "actions/runs/17": { ...run, run_attempt: 3 } },
     ])
       await expect(check(overrides)).rejects.toThrow();
@@ -210,6 +228,7 @@ describe("exact release source security evidence", () => {
         ...evidence(),
         database: { status: "FRESH", next_update: now.toISOString() },
       },
+      { ...evidence(), database: undefined },
       { ...evidence(), database: { status: "FRESH", next_update: "bad" } },
       { ...evidence(), completed_at: "2026-10-15T00:00:00Z" },
       { ...evidence(), policy: { sha256: "sha256:" + "0".repeat(64) } },
@@ -228,9 +247,12 @@ describe("exact release source security evidence", () => {
       expect(() => verifyEvidence(value, subject, now)).toThrow(
         "Repository security acceptance failed"
       );
+    const beforeExpiry = new Date("2026-10-17T23:59:59.999Z");
     expect(() =>
-      verifyEvidence(evidence(), subject, new Date("2026-10-18T00:00:00Z"))
-    ).toThrow();
+      verifyEvidence(evidence(beforeExpiry), subject, beforeExpiry)
+    ).not.toThrow();
+    const expiry = new Date("2026-10-18T00:00:00Z");
+    expect(() => verifyEvidence(evidence(expiry), subject, expiry)).toThrow();
   });
 });
 
