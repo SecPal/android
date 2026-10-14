@@ -16,4 +16,4 @@ permissions:
 jobs:
   check-conflicts:
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml@eab46aa7a3d828e0f1b2e75a48a8ff8f135dec93 # main
+    uses: SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml@0c9430aa4743f7ba4281f7fb51098dc4899a128f # main
