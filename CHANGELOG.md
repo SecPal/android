@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Moved contributor pull-request delivery and review to native GitHub reviews,
+  checks, and merge protections while preserving SSH commit verification.
+
 - Adopt Node.js 26 for the Android toolchain, replacing Node 22. Restrict the
   engine to `>=26.11.1 <27`, preserve major-26 Node declarations and Android's
   npm policy, and pin active Node workflow selectors to qualified Node 26.11.1.
