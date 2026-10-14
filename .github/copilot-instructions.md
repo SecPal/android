@@ -5,20 +5,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # SecPal/android Copilot Instructions
 
-## Canonical Review And Signing
-
-Apply `AGENTS.md` and the organization-wide [review-acquisition rule](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#531-initial-automated-review)
-and [SSH signing authority](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#532-signing-authority).
-This compatibility mirror defines no separate lifecycle or signing authority.
-
 This file mirrors the authoritative root `AGENTS.md` for tooling
 that automatically loads `.github/copilot-instructions.md`.
-Edit `AGENTS.md` first. Keep the focused overlay files aligned
-for path-specific or stack-specific rules.
+Edit `AGENTS.md` first. Keep the focused overlay files aligned.
 
 ## Authoritative Sources
 
 - `AGENTS.md`
+
 - `.github/instructions/org-shared.instructions.md`
 - `.github/instructions/github-workflows.instructions.md`
 - `.github/instructions/react-capacitor.instructions.md`
@@ -28,49 +22,31 @@ for path-specific or stack-specific rules.
 These instructions are self-contained for the `android` repository at runtime.
 Do not assume instructions from sibling repositories or comment-based inheritance are loaded.
 
-## Canonical Work Graph And Finite Governance
+## Pull Requests And Review
 
-- `SecPal/.github/docs/work-graph-contract.md` is the single authoritative
-  definition of generic work-graph and engineering-governance semantics. It
-  owns node roles, GitHub-native hierarchy/dependencies/order, derived states
-  including `READY` and `NEXT`, decomposition, replanning, delivery, and
-  evidence rules. This repository must delegate those semantics and must not
-  redefine them.
-- GitHub-native issue state, parent/sub-issue relationships, dependencies, and
-  sibling order are graph authority. Body checkboxes and `Parent:`, `Order:`,
-  `Blocked by:`, status, `READY`, or `NEXT` text are mirrors only and never
-  authority. A blocked issue or non-leaf issue is not executable.
-- Each leaf owns one reviewable delivery contract and one primary delivery pull
-  request. Decompose by independently deliverable responsibilities, not pull
-  request count, diff size, or duration; promote a node containing multiple
-  contracts to a sub-epic with child leaves.
-- Replan the native graph before affected implementation continues: a missing
-  prerequisite becomes a native dependency to its owning node; a new responsibility
-  that is material becomes a sibling or child according to the canonical
-  hierarchy; multiple contracts require sub-epic promotion. Preferred order is
-  native sibling order, never an inferred dependency.
-- A follow-up node is required only for an outside-contract discovery that is
-  proven, material, actionable, non-duplicate, and still relevant. Missing real
-  prerequisites and unsatisfied acceptance-contract gaps always require graph
-  action. Cosmetic, speculative, redundant, already-tracked, and non-material
-  observations do not.
-- For behavior changes, write contract-focused behavior tests first and observe
-  them fail. A behavior-preserving refactor may use existing behavior tests or
-  characterization, structural, security, or source-shape evidence instead of
-  manufacturing a new failing test. One scenario may cover several criteria;
-  stop at the smallest non-redundant evidence set.
-- Review is finite: perform one bounded full review, remediate named in-contract
-  blocking findings, perform delta-only verification, and stop when the contract
-  and evidence are satisfied. New independent responsibilities follow the
-  materiality and replanning rules instead of extending review indefinitely.
-- Every semantic invariant has one authoritative definition. Consistent
-  enforcement may remain at multiple trust boundaries, including independent
-  last-line-of-defense checks. Prefer maintained platform or library primitives
-  for cryptography, authentication/token handling, URL/URI parsing,
-  canonicalization, and lifecycle/platform state; custom Android domain policy
-  remains valid. Use allowlists only for finite, closed, known sets.
+- Use GitHub pull requests, review threads, checks, and merge protections for
+  delivery. Keep each pull request focused on a coherent change.
+- Open a draft while preparing the change; mark it ready when self-review and
+  relevant validation are complete. Request review through GitHub. If more
+  review is needed after a revision, request it directly on the existing pull
+  request.
+- Assess feedback by the reported defect, its evidence, and its impact. Fix
+  relevant defects and use review threads to explain or resolve feedback.
+- Use `--body-file` for multiline GitHub pull-request descriptions.
+- Use native issue relationships when planning requires them. Issue planning
+  guidance is available in
+  [`SecPal/.github/docs/work-graph-contract.md`](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md).
+- Run the smallest relevant existing stack checks. Behavior changes require
+  failing-first behavior evidence; behavior-preserving changes may use existing
+  tests, characterization, structural evidence, or security equivalence.
 
 ## Android Security And Lifecycle Boundaries
+
+- Give each semantic invariant one authoritative definition. Consistent
+  enforcement may remain at independent Android trust boundaries. Prefer
+  maintained platform or library primitives for cryptography, authentication,
+  token handling, URL parsing, and runtime lifecycle state. Keep justified
+  Android domain policy custom; use allowlists only for finite known sets.
 
 - Preserve fail-closed Device Owner and Profile Owner state handling, WebView
   origin and main-frame boundaries, native bridge exposure controls,
@@ -78,7 +54,7 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
   runtime/tenant transitions, the credential boundary, artifact integrity,
   signing and version identity, and packaged WebView validation.
 - Security review remains required and proportionate to the touched boundary.
-  Canonical finite-review and evidence rules bound the review without weakening
+  Relevant evidence bounds the review while preserving
   these independent Android trust-boundary checks.
 
 ## Always-On Rules
@@ -96,11 +72,6 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 - Never use bypasses such as `--no-verify` or force-push.
 - Update `CHANGELOG.md` in the same change set for real fixes, features, or breaking changes.
 - Keep GitHub-facing communication in English and reference files and lines instead of pasting large code blocks.
-- Classify warnings, audit findings, and deprecations under the current contract
-  and canonical materiality threshold. Fix in-contract defects; replan material
-  outside-contract responsibilities; do not create noise for immaterial leads.
-- Never reply to AI review comments with GitHub comment tools. Fix the code, push, and resolve threads through
-  the approved non-comment workflow.
 - Do not add AI self-references, generated-by text, promotional AI wording, or AI attribution to commits,
   pull requests, issues, changelogs, documentation, code comments, UI copy, or release notes unless the task
   explicitly requires documenting AI tooling behavior.
@@ -141,22 +112,9 @@ Do not assume instructions from sibling repositories or comment-based inheritanc
 
 - DRY: eliminate duplicated logic and repeated bridge or policy handling before it drifts.
 - KISS: prefer the simplest solution that satisfies the current requirement and remains easy to maintain.
-- YAGNI: implement only what the current issue or acceptance criteria require;
-  track future ideas only when they meet the canonical materiality threshold.
+- YAGNI: implement only what the requested change needs.
 - SOLID: keep responsibilities narrow, interfaces small, and extension points explicit.
 - Fail fast: validate early, stop on the first failed check, and do not accumulate known breakage.
-
-## Issue And PR Discipline
-
-- Use the canonical contract-count threshold for epics. A leaf closes through
-  exactly one primary pull request; a pull request never closes an epic or more
-  than one leaf.
-- Finish the bounded review and evidence stop condition before publishing the
-  completed branch.
-- The first PR state must be draft. Do not open a normal PR first.
-- Mark a draft PR ready when the maintained lifecycle authorizes external
-  review and the required local self-review and validation are complete.
-- When creating or editing PRs programmatically, write multi-line body content to a file and use `--body-file` to prevent shell escaping issues.
 
 ## Required Validation
 
@@ -168,15 +126,16 @@ At minimum verify:
   behavior-preserving changes identify the appropriate structural,
   characterization, security, or existing evidence
 - the smallest relevant validation for the touched area passed: tests, typecheck, and lint when applicable
-- in-contract defects were resolved and outside-contract discoveries were
-  classified by the canonical materiality threshold
 - `CHANGELOG.md` was updated for real changes
-- new SecPal commits are SSH-signed and every PR commit is GitHub Verified
+- `SECPAL_SIGNING_FORMAT: SSH`. Preserve existing SSH keys and signing
+  configuration. Verify local commits with the configured SSH trust and every
+  PR commit through GitHub with `verification.verified == true`.
+  GitHub-generated signatures remain provider evidence.
 - REUSE compliance was checked when changed files require it
 - when a fix alters observable behavior, state lifecycle, error handling, or security constraints, the corresponding tests were identified and updated in the same commit
 - before pushing behavioral or security-critical changes, affected tests were run locally by invoking the relevant test runner directly
-- one bounded full review and any required delta-only verification covered DRY,
-  KISS, YAGNI, SOLID, quality-first, security boundaries, and graph hygiene
+- self-review and relevant checks covered DRY,
+  KISS, YAGNI, SOLID, quality-first, security boundaries, and change scope
 - no bypass was used
 
 ## AI Findings Triage
@@ -241,21 +200,24 @@ At minimum verify:
 
 ## Additional Rules: org-shared.instructions.md
 
-This file auto-applies to all files in this repo so strict SecPal governance stays always present at runtime.
+This file applies repository-specific guidance to all files in this repo.
 
 - `AGENTS.md` is the authoritative runtime baseline for this repo.
   `.github/copilot-instructions.md` is only a compatibility mirror.
-- Non-negotiable: contract-oriented TDD/evidence, quality first, one delivery
-  contract per leaf and primary PR, canonical materiality triage, and no bypass.
-- Delegate generic graph, decomposition, replanning, review-stop, and evidence
-  semantics to `SecPal/.github/docs/work-graph-contract.md`; native GitHub state
-  is authoritative and body mirrors are not.
+- TDD and evidence are contract-oriented: behavior changes require failing-first
+  behavior evidence; a behavior-preserving refactor may use existing,
+  characterization, structural, security, or source-shape evidence. One scenario
+  may cover multiple criteria; stop at the smallest non-redundant evidence set.
+- Non-negotiable: quality first, DRY/KISS/YAGNI/SOLID, one authoritative
+  definition per invariant, maintained standards before custom primitives,
+  allowlists only for finite known sets, and no bypass.
+- Use GitHub pull requests, review threads, checks, and merge protections.
 - Design discipline is always-on: DRY, KISS, YAGNI, SOLID, and fail fast.
 - GitHub communication stays in English and uses file and line references instead of large verbatim code quotes.
 - Do not add AI self-references, generated-by text, tool promotion, or AI
   attribution unless the task explicitly requires documenting AI tooling.
 - Keep changes repo-local, minimal, and consistent with React, strict TypeScript, Capacitor conventions, and Android enterprise preparation goals.
-- Apply the SecPal domain policy and finite warning/finding triage rules from the
+- Apply the SecPal domain policy and evidence-based review guidance from the
   repo baseline.
 - Apply the baseline licensing and REUSE rules: plain `AGPL-3.0-or-later` for
   migrated SecPal-owned AI instruction material, existing repository-declared

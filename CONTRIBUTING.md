@@ -340,9 +340,8 @@ Closes #123"
 
 ## Signing Commits
 
-SecPal uses SSH signing, not GPG/OpenPGP. Follow the
-[canonical signing authority](https://github.com/SecPal/.github/blob/main/docs/work-graph-contract.md#532-signing-authority)
-for commits and role-specific lifecycle, attestation and publication signers.
+SecPal contributor commits use SSH signing. Every pull-request commit must
+have GitHub `verification.verified == true` before merging.
 
 Preserve the existing SSH signing identity and configuration. Do not replace
 keys, reuse a transport key as a signing credential, disable signing, or switch
@@ -357,8 +356,8 @@ git verify-commit HEAD
 ```
 
 The configured format must be `ssh`; Git's `gpg.format` option name does not
-mean GPG/OpenPGP is used. Every PR commit must satisfy the maintained GitHub
-Verified gate. GitHub-generated PGP signatures and strictly necessary immutable
+mean GPG/OpenPGP is used. Every PR commit must be verified by GitHub.
+GitHub-generated PGP signatures and strictly necessary immutable
 historical verification are provider/history evidence, never new SecPal signing
 authority.
 

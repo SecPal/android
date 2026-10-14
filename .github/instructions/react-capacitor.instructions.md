@@ -12,7 +12,7 @@ applyTo: "src/**/*.ts,src/**/*.tsx,tests/**/*.ts,tests/**/*.tsx,vite.config.ts,v
 - Preserve strict TypeScript and avoid `any` unless there is a documented interop boundary.
 - Prefer functional components and named exports.
 - Test user-visible behavior with Testing Library and verify bridge-facing behavior with focused unit tests/mocks.
-- Apply the canonical proportional-evidence model: assert behavior at the
+- Use proportionate evidence: assert behavior at the
   contract boundary, use characterization or structural evidence for
   behavior-preserving work, and stop at the smallest non-redundant evidence set.
 - Keep web code platform-agnostic where possible to preserve future iOS support.
