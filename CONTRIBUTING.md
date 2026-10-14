@@ -117,7 +117,9 @@ These exclusions are configured in `.preflight-exclude` and match the GitHub CI 
 
 All pull requests must target `main`. Direct pushes to `main` are blocked locally and should also be blocked by GitHub branch protection.
 
-All pull requests will be reviewed by a maintainer and by GitHub Copilot.
+Request review through GitHub and satisfy required reviews and checks before
+merging. Keep Ready pull requests Ready and request another review directly
+when a revision invalidates an earlier review.
 
 ## Pull Request Rules
 
@@ -365,9 +367,11 @@ authority.
 
 - **Keep PRs small:** Aim for < 600 lines of changes. Large PRs are harder to review.
 - **Write clear descriptions:** Use the PR template and fill out all relevant sections.
-- **Link related issues:** Reference issues with `Closes #123` or `Fixes #456`.
+- **Link related issues:** Use non-closing references such as `Refs #123` for
+  related work. Reserve `Closes #123` or `Fixes #456` for issues the change completes.
 - **Ensure CI passes:** All checks must pass before merging.
-- **Request reviews:** Tag relevant maintainers or wait for automatic review.
+- **Request reviews:** Request review through GitHub and request another review
+  directly when a revision invalidates an earlier review.
 - **Address feedback:** Respond to review comments promptly.
 
 ## Code Style
