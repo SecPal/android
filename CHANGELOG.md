@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Retired unused GitHub Project-board automation and its obsolete Draft PR
+  Reminder. Native issues, pull requests, reviews and required checks remain.
+
 ### Fixed
 
 - Keep repository security workflow tests compatible with full-SHA action
