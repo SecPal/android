@@ -30,7 +30,6 @@ type Workflow = {
   jobs: Record<string, Job>;
 };
 const read = (path: string) => load(readFileSync(path, "utf8")) as Workflow;
-const pin = "226180bd610af77313057141dca23b7dce88a46c";
 
 describe("repository security acceptance", () => {
   it("runs the exact shared action once for PRs and main pushes with read-only authority", () => {
@@ -60,13 +59,15 @@ describe("repository security acceptance", () => {
     expect(job.steps).toHaveLength(3);
     expect(job.steps?.[0]).toEqual({
       name: "Checkout exact source",
-      uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
       with: { ref: "${{ github.sha }}", "persist-credentials": false },
     });
     expect(job.steps?.[1]).toEqual({
       name: "Scan exact source",
       id: "repository-scan",
-      uses: `SecPal/.github/.github/actions/trivy-repository-scan@${pin}`,
+      uses: expect.stringMatching(
+        /^SecPal\/\.github\/\.github\/actions\/trivy-repository-scan@[0-9a-f]{40}$/
+      ),
     });
     const source = readFileSync(
       ".github/workflows/reusable-repository-security.yml",

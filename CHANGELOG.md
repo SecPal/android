@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep repository security workflow tests compatible with full-SHA action
+  updates, derive release test identities and expiry boundaries from the shared
+  acceptance configuration, and align signed-build acceptance with the reviewed
+  shared Trivy policy and configuration (SecPal/.github#1199). The exact-blob Android country
+  reference exception remains bounded through October 27, 2026; stale or changed
+  evidence still blocks signing and publication.
+
 ### Changed
 
 - Moved contributor pull-request delivery and review to native GitHub reviews,

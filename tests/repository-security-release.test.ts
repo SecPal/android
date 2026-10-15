@@ -11,33 +11,30 @@ const modulePath = new URL(
   "../scripts/verify-repository-security.mjs",
   import.meta.url
 ).href;
+const { repositorySecurityPolicy, verifyEvidence, verifyRepositorySecurity } =
+  await import(modulePath);
 const subject = "a".repeat(40);
-const now = new Date("2026-10-14T10:00:00Z");
+const hour = 60 * 60 * 1000;
+const policyExpiry = Date.parse(repositorySecurityPolicy.expiresAt);
+const now = new Date(policyExpiry - 2 * hour);
+const completedAt = new Date(now.getTime() - hour).toISOString();
+const nextUpdate = new Date(policyExpiry + hour).toISOString();
+const differentDigest = (digest: string) =>
+  digest.slice(0, -1) + (digest.endsWith("0") ? "1" : "0");
 const evidence = () => ({
-  schema_version: "secpal-trivy-repository-scan-v2",
+  schema_version: repositorySecurityPolicy.schemaVersion,
   subject: { repository: "SecPal/android", commit: subject },
   operation: { name: "TRIVY_REPOSITORY_SCAN", status: "SUCCEEDED" },
   gate_state: "CLEAN",
-  completed_at: "2026-10-14T09:00:00Z",
-  database: { status: "FRESH", next_update: "2026-10-15T00:00:00Z" },
-  policy: {
-    sha256:
-      "sha256:90fe7d4a47b2818e1fea04689f2d84ab2e60132560111143d1adb843f827889e",
-  },
-  scanner: {
-    name: "trivy",
-    version: "0.74.0",
-    immutable_id:
-      "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a",
-    configuration_sha256:
-      "sha256:7600dd706c713b2be7b2ea050ac808ba825ee671788dd7f3f941558d6744c166",
-  },
+  completed_at: completedAt,
+  database: { status: "FRESH", next_update: nextUpdate },
+  policy: { sha256: repositorySecurityPolicy.sha256 },
+  scanner: { ...repositorySecurityPolicy.scanner },
   summary: { total: 0, actionable: 0, review_required: 0, excepted: 0 },
   findings: [],
 });
 
 it("authenticates the current successful main attempt and its unique artifact, failing closed on missing or changed evidence", async () => {
-  const { verifyRepositorySecurity } = await import(modulePath);
   const root = mkdtempSync(join(tmpdir(), "release-evidence-test-"));
   try {
     writeFileSync(join(root, "result.json"), JSON.stringify(evidence()));
@@ -175,13 +172,12 @@ end
 });
 
 describe("exact release source security evidence", () => {
-  it("accepts a fresh CLEAN v2 result and rejects every untrusted or expired boundary", async () => {
-    const { verifyEvidence } = await import(modulePath);
+  it("accepts fresh CLEAN evidence under the reviewed policy and rejects every untrusted or expired boundary", () => {
     expect(() => verifyEvidence(evidence(), subject, now)).not.toThrow();
     const bad = [
       undefined,
       {},
-      { ...evidence(), schema_version: "secpal-trivy-repository-scan-v1" },
+      { ...evidence(), schema_version: "unsupported-schema" },
       ...[
         "",
         "ACTIONABLE",
@@ -204,15 +200,34 @@ describe("exact release source security evidence", () => {
       },
       {
         ...evidence(),
-        database: { status: "STALE", next_update: "2026-10-15T00:00:00Z" },
+        database: { status: "STALE", next_update: nextUpdate },
       },
       {
         ...evidence(),
         database: { status: "FRESH", next_update: now.toISOString() },
       },
       { ...evidence(), database: { status: "FRESH", next_update: "bad" } },
-      { ...evidence(), completed_at: "2026-10-15T00:00:00Z" },
-      { ...evidence(), policy: { sha256: "sha256:" + "0".repeat(64) } },
+      {
+        ...evidence(),
+        completed_at: new Date(now.getTime() + hour).toISOString(),
+      },
+      {
+        ...evidence(),
+        policy: {
+          sha256: differentDigest(repositorySecurityPolicy.sha256),
+        },
+      },
+      ...Object.entries(repositorySecurityPolicy.scanner).map(
+        ([key, value]) => ({
+          ...evidence(),
+          scanner: {
+            ...evidence().scanner,
+            [key]: (value as string).startsWith("sha256:")
+              ? differentDigest(value as string)
+              : `${value}-unreviewed`,
+          },
+        })
+      ),
       { ...evidence(), scanner: {} },
       {
         ...evidence(),
@@ -228,9 +243,30 @@ describe("exact release source security evidence", () => {
       expect(() => verifyEvidence(value, subject, now)).toThrow(
         "Repository security acceptance failed"
       );
+  });
+
+  it("accepts unexpired exceptions and enforces exception and policy expiry independently with a fresh database", () => {
+    const withException = {
+      ...evidence(),
+      summary: { total: 1, actionable: 0, review_required: 0, excepted: 1 },
+      findings: [
+        {
+          exception: { expires_at: repositorySecurityPolicy.expiresAt },
+        },
+      ],
+    };
+    const beforeExpiry = new Date(policyExpiry - 1);
     expect(() =>
-      verifyEvidence(evidence(), subject, new Date("2026-10-18T00:00:00Z"))
-    ).toThrow();
+      verifyEvidence(withException, subject, beforeExpiry)
+    ).not.toThrow();
+    const expiredException = structuredClone(withException);
+    expiredException.findings[0].exception.expires_at = now.toISOString();
+    expect(() => verifyEvidence(expiredException, subject, now)).toThrow(
+      "Repository security acceptance failed"
+    );
+    expect(() =>
+      verifyEvidence(evidence(), subject, new Date(policyExpiry))
+    ).toThrow("Repository security acceptance failed");
   });
 });
 
