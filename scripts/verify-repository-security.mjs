@@ -9,14 +9,23 @@ import { fileURLToPath } from "node:url";
 import { openLiteralZipArchive } from "./literal-zip-archive.mjs";
 
 const repository = "SecPal/android";
-// Reviewed identities from the shared action at 226180bd610af77313057141dca23b7dce88a46c.
-const policyIdentity =
-  "sha256:90fe7d4a47b2818e1fea04689f2d84ab2e60132560111143d1adb843f827889e";
-const configurationIdentity =
-  "sha256:7600dd706c713b2be7b2ea050ac808ba825ee671788dd7f3f941558d6744c166";
-const scannerIdentity =
-  "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a";
-const policyExpiresAt = Date.parse("2026-10-18T00:00:00Z");
+// Reviewed policy (SecPal/.github#1199) and configuration from the shared action
+// at 149a11d76c88c0612c24e227603f17343fee55fe.
+export const repositorySecurityPolicy = Object.freeze({
+  schemaVersion: "secpal-trivy-repository-scan-v2",
+  sha256:
+    "sha256:a8334e36ab688b8e148ed6115ecbf03b38fc692992e67cd57a357b9b1a9c5327",
+  expiresAt: "2026-10-27T00:00:00Z",
+  scanner: Object.freeze({
+    name: "trivy",
+    version: "0.74.0",
+    immutable_id:
+      "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a",
+    configuration_sha256:
+      "sha256:d9d411f1348ab50a17018cf04be144a39b0448af389f7c4406e5b7818fa3a6d9",
+  }),
+});
+const policyExpiresAt = Date.parse(repositorySecurityPolicy.expiresAt);
 const failure =
   "Repository security acceptance failed. Require fresh CLEAN evidence for this exact source commit.";
 
@@ -28,7 +37,7 @@ function requireCondition(condition) {
 // Fresh at scan time is insufficient once a release outlives its DB or exception.
 export function verifyEvidence(result, commit, now = new Date()) {
   requireCondition(
-    result?.schema_version === "secpal-trivy-repository-scan-v2" &&
+    result?.schema_version === repositorySecurityPolicy.schemaVersion &&
       result.subject?.repository === repository &&
       result.subject?.commit === commit &&
       result.operation?.name === "TRIVY_REPOSITORY_SCAN" &&
@@ -38,11 +47,13 @@ export function verifyEvidence(result, commit, now = new Date()) {
       Date.parse(result.completed_at) <= now.getTime() &&
       now.getTime() < Date.parse(result.database.next_update) &&
       now.getTime() < policyExpiresAt &&
-      result.policy?.sha256 === policyIdentity &&
-      result.scanner?.name === "trivy" &&
-      result.scanner?.version === "0.74.0" &&
-      result.scanner?.immutable_id === scannerIdentity &&
-      result.scanner?.configuration_sha256 === configurationIdentity &&
+      result.policy?.sha256 === repositorySecurityPolicy.sha256 &&
+      result.scanner?.name === repositorySecurityPolicy.scanner.name &&
+      result.scanner?.version === repositorySecurityPolicy.scanner.version &&
+      result.scanner?.immutable_id ===
+        repositorySecurityPolicy.scanner.immutable_id &&
+      result.scanner?.configuration_sha256 ===
+        repositorySecurityPolicy.scanner.configuration_sha256 &&
       result.summary?.actionable === 0 &&
       result.summary?.review_required === 0 &&
       Array.isArray(result.findings) &&
