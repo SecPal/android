@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Trigger Android's signed Certificate Transparency log-list updater before live
+  CI probes, retaining freshness validation and reporting updater diagnostics.
+- Keep the `js-yaml` override tied to its direct dependency so Dependabot can
+  update it without npm override conflicts.
+
 - Keep repository security workflow tests compatible with full-SHA action
   updates, derive release test identities and expiry boundaries from the shared
   acceptance configuration, and align signed-build acceptance with the reviewed

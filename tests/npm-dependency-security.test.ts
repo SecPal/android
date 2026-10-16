@@ -107,6 +107,56 @@ const isPatchedNanoidVersion = (version: unknown) => {
 };
 
 describe("npm dependency security", () => {
+  it("keeps direct dependency overrides aligned when Dependabot updates a version", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as {
+      overrides: Record<string, string | object>;
+    };
+    const directory = mkdtempSync(join(tmpdir(), "secpal-npm-override-"));
+    try {
+      // npm rejects differing direct/override specs before resolving packages.
+      // Offline, lockfile-only resolution needs no real dependency downloads.
+      writeFileSync(
+        join(directory, "package.json"),
+        JSON.stringify({
+          private: true,
+          devDependencies: { "js-yaml": "^5.4.3" },
+          overrides: { "js-yaml": manifest.overrides["js-yaml"] },
+        })
+      );
+      writeFileSync(
+        join(directory, "package-lock.json"),
+        JSON.stringify({
+          name: "override-fixture",
+          lockfileVersion: 3,
+          packages: {
+            "": { devDependencies: { "js-yaml": "^5.4.3" } },
+            "node_modules/js-yaml": { version: "5.4.3" },
+          },
+        })
+      );
+      execFileSync(
+        "npm",
+        [
+          "install",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--offline",
+          "--no-audit",
+          "--no-fund",
+        ],
+        {
+          cwd: directory,
+          stdio: "pipe",
+          timeout: 10_000,
+        }
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("resolves every smol-toml instance outside the vulnerable range", () => {
     const packageLock = JSON.parse(
       readFileSync(resolve(repoRoot, "package-lock.json"), "utf8")

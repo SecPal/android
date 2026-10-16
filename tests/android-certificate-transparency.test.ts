@@ -3,7 +3,16 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +51,115 @@ type Workflow = {
 };
 
 describe("Android Certificate Transparency regression contract", () => {
+  it.each([
+    "ready",
+    "delayed",
+    "missing",
+    "stale",
+    "invalid",
+    "future",
+    "malformed",
+  ])(
+    "prepares the system CT updater and fails closed for a %s log list",
+    (scenario) => {
+      const workflow = load(
+        readRepoFile(
+          ".github",
+          "workflows",
+          "android-certificate-transparency.yml"
+        )
+      ) as Workflow;
+      const run = workflow.jobs?.["platform-policy"].steps?.find((step) =>
+        step.run?.includes('if [[ "$LIVE_PROBE" == "true" ]]')
+      )?.run;
+      const preparation = run?.match(
+        /if \[\[ "\$LIVE_PROBE" == "true" \]\]; then\n([\s\S]*?)\n {2}bash \.\/scripts\/run-android-connected-test\.sh/
+      )?.[1];
+      expect(preparation).toBeTypeOf("string");
+      const directory = mkdtempSync(resolve(tmpdir(), "secpal-ct-"));
+      try {
+        const bin = resolve(directory, "bin");
+        mkdirSync(bin);
+        const logList = {
+          version: "89.30",
+          log_list_timestamp:
+            Date.now() -
+            1_000 +
+            (scenario === "future"
+              ? 86_400_000
+              : scenario === "stale"
+                ? -71 * 86_400_000
+                : 0),
+          operators: [{ name: "Test operator", logs: [{}] }],
+        };
+        if (scenario === "invalid") logList.operators = [];
+        writeFileSync(
+          resolve(directory, "log-list.json"),
+          scenario === "malformed" ? "{" : JSON.stringify(logList)
+        );
+        const adb = resolve(bin, "adb");
+        writeFileSync(
+          adb,
+          `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$CT_TEST_DIRECTORY/commands"
+case "$*" in
+  *"shell am broadcast -a android.intent.action.UPDATE_CT_LOGS"*)
+    touch "$CT_TEST_DIRECTORY/update-requested"
+    ;;
+  *"shell test -r"*)
+    [[ -f "$CT_TEST_DIRECTORY/update-requested" ]] || exit 1
+    [[ "$CT_TEST_SCENARIO" != missing ]] || exit 1
+    if [[ "$CT_TEST_SCENARIO" == delayed && ! -f "$CT_TEST_DIRECTORY/polled" ]]; then
+      touch "$CT_TEST_DIRECTORY/polled"
+      exit 1
+    fi
+    ;;
+  *"shell cat "*) cat "$CT_TEST_DIRECTORY/log-list.json" ;;
+esac
+`
+        );
+        chmodSync(adb, 0o755);
+        const sleep = resolve(bin, "sleep");
+        writeFileSync(sleep, "#!/usr/bin/env bash\nexit 0\n");
+        chmodSync(sleep, 0o755);
+        const result = spawnSync(
+          "bash",
+          ["-euo", "pipefail", "-c", preparation!],
+          {
+            cwd: repoRoot,
+            encoding: "utf8",
+            timeout: 5_000,
+            env: {
+              ...process.env,
+              PATH: `${bin}:${process.env.PATH}`,
+              ANDROID_SDK_ROOT: resolve(directory, "missing-sdk"),
+              ANDROID_HOME: resolve(directory, "missing-sdk"),
+              CT_TEST_DIRECTORY: directory,
+              CT_TEST_SCENARIO: scenario,
+            },
+          }
+        );
+        expect(result.status, result.stderr).not.toBeNull();
+        if (["ready", "delayed"].includes(scenario)) {
+          expect(result.status, result.stderr).toBe(0);
+        } else {
+          expect(result.status, result.stderr).not.toBe(0);
+        }
+        const commands = readFileSync(resolve(directory, "commands"), "utf8");
+        expect(commands).toContain(
+          "shell am broadcast -a android.intent.action.UPDATE_CT_LOGS"
+        );
+        expect(commands).not.toMatch(/push |chmod|setenforce|device_config/);
+        if (scenario === "missing") {
+          expect(result.stderr).toContain("CT log list was not installed");
+          expect(commands).toContain("logcat");
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
+
   it("always reports a fail-closed aggregate required check", async () => {
     const workflow = load(
       readRepoFile(

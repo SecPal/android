@@ -190,6 +190,9 @@ jobs:
           test_class="app.secpal.CertificateTransparencyInstrumentedTest"
           live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
           if [[ "$LIVE_PROBE" == "true" ]]; then
+            # Trigger the platform's signed updater before waiting for its log list.
+            bash ./scripts/with-android-env.sh adb -s emulator-5570 \
+              shell am broadcast -a android.intent.action.UPDATE_CT_LOGS
             log_list_path="/data/misc/keychain/ct/v2/current/log_list.json"
             log_list=""
             for _ in {1..30}; do
@@ -201,7 +204,13 @@ jobs:
               fi
               sleep 10
             done
-            [[ -n "$log_list" ]]
+            if [[ -z "$log_list" ]]; then
+              echo "CT log list was not installed after 300 seconds; updater diagnostics follow:" >&2
+              bash ./scripts/with-android-env.sh adb -s emulator-5570 logcat -d \
+                -s CertificateTransparencyService CertificateTransparencyJob \
+                CertificateTransparencyDownloader SignatureVerifier '*:S' >&2 || true
+              exit 1
+            fi
             now_timestamp_ms=$(( $(date +%s) * 1000 ))
             minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
             jq -e \
