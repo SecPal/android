@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Adopt the requalified shared Trivy policy and configuration identities. Keep
+  signed-build admission bounded by the earliest global policy expiry on
+  November 4, 2026; the exact-blob country-reference disposition remains
+  separately reviewed through November 20, 2026.
+
 - Update the Markdown lint parser to resolve CVE-2026-111758 and CVE-2026-111766,
   and align signed-build security acceptance with the pinned scanner's v4
   evidence and reviewed policy and configuration identities.
