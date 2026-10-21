@@ -9,20 +9,20 @@ import { fileURLToPath } from "node:url";
 import { openLiteralZipArchive } from "./literal-zip-archive.mjs";
 
 const repository = "SecPal/android";
-// Reviewed policy (SecPal/.github#1199) and configuration from the shared action
-// at 35b064b1df08f4fd02fb982117dadac3e4edc36d.
+// Requalified policy (SecPal/.github#1244; history #1199) and configuration from the shared action
+// at 55bcdb6f00eb7d552da206f83fcdc87cf2c43375.
 export const repositorySecurityPolicy = Object.freeze({
   schemaVersion: "secpal-trivy-repository-scan-v4",
   sha256:
-    "sha256:9715fd045862177e69780020fae9617903f30470ff8df8e8eec48800602ed28f",
-  expiresAt: "2026-10-27T00:00:00Z",
+    "sha256:93e562f043c8faf304b8f244ce9d9141f1e51ccec48e5be86c9559dad70efe79",
+  expiresAt: "2026-11-04T00:00:00Z",
   scanner: Object.freeze({
     name: "trivy",
     version: "0.74.0",
     immutable_id:
       "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a",
     configuration_sha256:
-      "sha256:132c5ba066dfb3b6c75e0ca4d09fd704d081d5a56594bdd9a76d422dc6eebc13",
+      "sha256:3ab6f8a9feba5749e18d4a5049a94acc39ea2f3da3afb065371275a13218bf54",
   }),
 });
 const policyExpiresAt = Date.parse(repositorySecurityPolicy.expiresAt);
