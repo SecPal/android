@@ -172,6 +172,24 @@ end
 });
 
 describe("exact release source security evidence", () => {
+  it("accepts native v4 evidence from the reviewed shared scanner revision", () => {
+    const reviewedEvidence = {
+      ...evidence(),
+      schema_version: "secpal-trivy-repository-scan-v4",
+      policy: {
+        sha256:
+          "sha256:9715fd045862177e69780020fae9617903f30470ff8df8e8eec48800602ed28f",
+      },
+      scanner: {
+        ...evidence().scanner,
+        configuration_sha256:
+          "sha256:132c5ba066dfb3b6c75e0ca4d09fd704d081d5a56594bdd9a76d422dc6eebc13",
+      },
+    };
+
+    expect(() => verifyEvidence(reviewedEvidence, subject, now)).not.toThrow();
+  });
+
   it("accepts fresh CLEAN evidence under the reviewed policy and rejects every untrusted or expired boundary", () => {
     expect(() => verifyEvidence(evidence(), subject, now)).not.toThrow();
     const bad = [

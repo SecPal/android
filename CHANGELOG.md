@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update the Markdown lint parser to resolve CVE-2026-111758 and CVE-2026-111766,
+  and align signed-build security acceptance with the pinned scanner's v4
+  evidence and reviewed policy and configuration identities.
+
 - Keep repository security workflow tests compatible with full-SHA action
   updates, derive release test identities and expiry boundaries from the shared
   acceptance configuration, and align signed-build acceptance with the reviewed
