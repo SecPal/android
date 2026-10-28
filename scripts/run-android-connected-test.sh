@@ -53,7 +53,11 @@ run_connected_test() {
                 timeout --foreground --kill-after=5s "${readiness_timeout}s" \
                     bash "${repo_root}/scripts/with-android-env.sh" \
                     adb -s "$serial" shell cmd package "$handler" \
-                    --timeout "$((readiness_timeout * 1000))" || exit "$?"
+                    --timeout "$((readiness_timeout * 1000))" || {
+                    handler_status=$?
+                    echo "API 37 PackageManager handler wait failed: ${handler}" >&2
+                    exit "$handler_status"
+                }
             done
             echo "Waiting for API 37 PackageInstaller storage readiness before APK installation"
             # The readiness deadline bounds probes; leave seven seconds for
@@ -145,7 +149,12 @@ classify_api37_failure() {
         return
     fi
 
-    if grep -Fq "Starting 0 tests on" "$attempt_log" &&
+    if grep -Fq "API 37 PackageManager handler wait failed:" "$attempt_log" &&
+        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+        retry_key="package-manager-handler-broken-pipe"
+        retry_reason="pre-install PackageManager handler connection failure"
+        reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then
         retry_key="package-manager-install-write"
         retry_reason="PackageManager install-write failure"

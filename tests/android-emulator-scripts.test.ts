@@ -730,9 +730,12 @@ exit 1
     [37, "wait-for-handler", 1],
     [37, "wait-for-background-handler", 1],
     [37, "hung-handler", 124],
+    [37, "handler-broken-pipe-once", 0],
+    [37, "handler-broken-pipe-always", 224],
     [37, "storage-unavailable", 1],
     [37, "hung-storage", 124],
     [36, "wait-for-handler", 0],
+    [36, "handler-broken-pipe-once", 0],
     [36, "storage-unavailable", 0],
   ] as const)(
     "gates API %i connected tests when PackageManager state is %s",
@@ -766,6 +769,13 @@ printf '%s\\n' "$*" >> "${eventsPath}"
 if [[ "${failedHandler}" == "hung-handler" ]]; then
   exec sleep 5
 fi
+if [[ "${failedHandler}" == handler-broken-pipe-* && "$*" == *"wait-for-handler "* ]]; then
+  calls="$(grep -c 'shell cmd package wait-for-handler' "${eventsPath}")"
+  if [[ "${failedHandler}" == "handler-broken-pipe-always" || "$calls" == "1" ]]; then
+    echo 'cmd: Failure calling service package: Broken pipe (32)' >&2
+    exit 224
+  fi
+fi
 if [[ "$*" == *"${failedHandler}"* ]]; then
   echo 'Timeout. PackageManager handlers are still busy.'
   exit 1
@@ -791,7 +801,15 @@ echo Success
           expectedEvents.push(
             `adb -s emulator-5570 shell cmd package wait-for-handler --timeout ${readinessTimeout * 1000}`
           );
+          if (failedHandler.startsWith("handler-broken-pipe-")) {
+            expectedEvents.push(
+              "adb -s emulator-5570 reboot",
+              "install-storage:emulator-5570 60",
+              "adb -s emulator-5570 shell cmd package wait-for-handler --timeout 60000"
+            );
+          }
           if (
+            failedHandler !== "handler-broken-pipe-always" &&
             failedHandler !== "wait-for-handler" &&
             failedHandler !== "hung-handler"
           ) {
@@ -800,6 +818,7 @@ echo Success
             );
           }
           if (
+            failedHandler !== "handler-broken-pipe-always" &&
             failedHandler !== "wait-for-handler" &&
             failedHandler !== "wait-for-background-handler" &&
             failedHandler !== "hung-handler"
