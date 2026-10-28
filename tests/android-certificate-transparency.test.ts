@@ -407,7 +407,7 @@ describe("Android Certificate Transparency regression contract", () => {
     );
     expect(workflow).toContain("SDK_CHANNEL: 0");
     expect(workflow).toContain(
-      'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"'
+      'npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT" "$API_LEVEL"'
     );
     expect(readRepoFile("scripts", "wait-for-android-device.sh")).toContain(
       "settings get global device_provisioned"

@@ -180,7 +180,7 @@ jobs:
           fi
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
-          if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT"; then
+          if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT" "$API_LEVEL"; then
             echo "Android emulator failed to become usable; emulator log follows:" >&2
             cat "$emulator_log" >&2 || true
             exit 1
