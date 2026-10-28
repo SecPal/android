@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Give each strict-CSP browser smoke its own temporary Chromium profile and
+  remove it after bounded process cleanup, preserving the existing CSP and
+  API-traffic assertions without a shared default browser profile.
+
+- Use a dedicated, isolated Android smoke account with private Actions and
+  Dependabot credentials instead of assuming a shared public seed password;
+  reject missing credentials before starting the emulator (refs #793).
+
+- Pass the emulator API level into the existing package-install readiness
+  check before running certificate-transparency instrumentation (refs #793).
+
 - Adopt the requalified shared Trivy policy and configuration identities. Keep
   signed-build admission bounded by the earliest global policy expiry on
   November 4, 2026; the exact-blob country-reference disposition remains

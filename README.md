@@ -98,6 +98,17 @@ Install Git hooks after cloning:
 
 See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
 
+The GitHub Android Smoke workflow uses the dedicated `android-ci@example.com`
+account on `api.secpal.dev`. Its isolated tenant has no roles, direct permissions
+or organizational scopes; it exists only for login, own-profile and logout
+qualification. The private password is stored as `ANDROID_SMOKE_PASSWORD` in
+both repository Actions secrets and Dependabot secrets, which GitHub exposes
+through the same secret reference for the respective triggering actor. The
+workflow fails before emulator startup if the credential is missing and exposes
+it only to credential validation and the actual smoke journey. Provision or
+rotate only this dedicated fixture when rebuilding the development server;
+never reset a shared developer or seeded administrator account for CI.
+
 For a repeatable live-device login smoke against the real WebView DOM, forward the current debug WebView socket and run the repo-owned smoke script with test credentials:
 
 ```bash

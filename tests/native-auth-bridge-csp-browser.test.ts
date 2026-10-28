@@ -5,7 +5,9 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it } from "vitest";
@@ -102,6 +104,9 @@ globalThis.Capacitor = {
         });
         response.end(body);
       });
+      const browserProfile = mkdtempSync(
+        path.join(tmpdir(), "secpal-csp-browser-")
+      );
       let browser: ChildProcessWithoutNullStreams | undefined;
       let browserClosed: Promise<BrowserExit> | undefined;
 
@@ -117,6 +122,8 @@ globalThis.Capacitor = {
         }
         browser = spawn(browserPath!, [
           "--headless=new",
+          "--no-first-run",
+          "--user-data-dir=" + browserProfile,
           "--no-sandbox",
           "--disable-gpu",
           "--disable-background-networking",
@@ -148,7 +155,11 @@ globalThis.Capacitor = {
         expect(stdout).toContain('"cspViolations":[]');
         expect(stdout).toContain('"apiCalls":0');
       } finally {
-        await cleanupBrowserSmoke(browser, browserClosed, server);
+        try {
+          await cleanupBrowserSmoke(browser, browserClosed, server);
+        } finally {
+          rmSync(browserProfile, { recursive: true, force: true });
+        }
       }
     },
     browserTestTimeoutMs
