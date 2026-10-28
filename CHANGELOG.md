@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recover once from a proven API 37 pre-install PackageManager handler broken
+  pipe without retrying other handler errors or genuine test failures (refs #795).
+
 - Give each strict-CSP browser smoke its own temporary Chromium profile and
   remove it after bounded process cleanup, preserving the existing CSP and
   API-traffic assertions without a shared default browser profile.
