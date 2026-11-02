@@ -91,7 +91,7 @@
     "@capacitor/cli": "^8.5.3",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
-    "@typescript-eslint/eslint-plugin": "^8.72.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.0",
     "@vitest/coverage-v8": "^5.0.5",
     "@xmldom/xmldom": "0.9.12",
