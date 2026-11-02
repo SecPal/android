@@ -166,7 +166,8 @@ jobs:
           if (( API_LEVEL >= 37 )); then
             # Older preinstalled tools misread android-37.0 as android-0.
             bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" "cmdline-tools;22.0"
-            avdmanager_binary="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/22.0/bin/avdmanager"
+            avdmanager_binary="$(bash ./scripts/with-android-env.sh \
+              bash -c 'printf "%s/cmdline-tools/22.0/bin/avdmanager" "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"')"
             avd_device_args=(--device pixel_7_pro)
             export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096
             export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192

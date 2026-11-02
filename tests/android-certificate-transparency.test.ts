@@ -238,6 +238,21 @@ describe("Android Certificate Transparency regression contract", () => {
       targetCheck,
       "API 37 must require its real AVD target"
     ).toBeDefined();
+    const provisioningOrder = [
+      run!.indexOf('"cmdline-tools;22.0"'),
+      run!.indexOf("/cmdline-tools/22.0/bin/avdmanager"),
+      run!.indexOf('"$avdmanager_binary" create avd'),
+      run!.indexOf(targetCheck!.trim()),
+      run!.indexOf("npm run android:emulator:start"),
+    ];
+    expect(
+      provisioningOrder.every(
+        (position, index) =>
+          position >= 0 &&
+          (index === 0 || position > provisioningOrder[index - 1]!)
+      ),
+      "Install and use the fixed tools, then validate metadata before boot"
+    ).toBe(true);
     const avdHome = mkdtempSync(resolve(tmpdir(), "secpal-ct-target-"));
     try {
       for (const target of [
