@@ -529,6 +529,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Patch development-tooling vulnerabilities with scoped minimatch 11.0.3,
+  re2js 2.8.7 and glob 14.0.2 overrides; update Fastlane Addressable to 2.9.2
+  without changing other gems (refs #802).
+
 - Pinned every external GitHub Action and reusable workflow to a verified full
   commit SHA with validated version documentation, including immutable nested
   actions in shared workflows, backed by an AST-based regression guard that
