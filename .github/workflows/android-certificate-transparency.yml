@@ -183,7 +183,7 @@ jobs:
               printf '\n%s\n' "$source"
               cat "$source"
             done
-          } > "$diag_dir/sdk-versions.txt" 2>&1
+          } > "$diag_dir/sdk-versions.txt" 2>&1 || true
           avd_device_args=()
           if (( API_LEVEL >= 37 )); then
             avd_device_args=(--device pixel_7_pro)
