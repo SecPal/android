@@ -97,7 +97,7 @@ jobs:
             return context.eventName !== "pull_request" || relevant ? "true" : "false";
 
   platform-policy:
-    name: Platform policy (API ${{ matrix.api-level }})
+    name: Platform policy (API ${{ matrix.api-level }}, AVD ${{ matrix.avdmanager }})
     needs: detect-relevant-changes
     if: ${{ needs.detect-relevant-changes.outputs.relevant == 'true' }}
     runs-on: ubuntu-24.04
@@ -113,6 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        avdmanager: [preinstalled, "22.0"]
         api-level: >-
           ${{
             fromJSON(
@@ -146,6 +147,7 @@ jobs:
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-ct-avd
           API_LEVEL: ${{ matrix.api-level }}
+          AVDMANAGER_VERSION: ${{ matrix.avdmanager }}
           BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}
           RECOVERY_TIMEOUT: ${{ matrix.api-level >= 37 && 240 || 180 }}
           IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}
@@ -175,11 +177,18 @@ jobs:
           image="system-images;android-${IMAGE_API_LEVEL};google_apis;x86_64"
           bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" \
             "platform-tools" "emulator" "$image"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          avdmanager_binary=avdmanager
+          avdmanager_source="$sdk_root/cmdline-tools/latest/source.properties"
+          if [[ "$AVDMANAGER_VERSION" == "22.0" ]]; then
+            bash ./scripts/with-android-env.sh sdkmanager --channel=0 "cmdline-tools;22.0"
+            avdmanager_binary="$sdk_root/cmdline-tools/22.0/bin/avdmanager"
+            avdmanager_source="$sdk_root/cmdline-tools/22.0/source.properties"
+          fi
           {
-            sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
             bash ./scripts/with-android-env.sh emulator -version
             bash ./scripts/with-android-env.sh adb version
-            for source in "$sdk_root/emulator/source.properties" "$sdk_root/platform-tools/source.properties" "$sdk_root/system-images/android-$IMAGE_API_LEVEL/google_apis/x86_64/source.properties"; do
+            for source in "$sdk_root/emulator/source.properties" "$sdk_root/platform-tools/source.properties" "$sdk_root/system-images/android-$IMAGE_API_LEVEL/google_apis/x86_64/source.properties" "$avdmanager_source"; do
               printf '\n%s\n' "$source"
               cat "$source"
             done
@@ -190,7 +199,7 @@ jobs:
             export SECPAL_ANDROID_EMULATOR_MEMORY_MB=4096
             export SECPAL_ANDROID_EMULATOR_PARTITION_SIZE_MB=8192
           fi
-          echo no | bash ./scripts/with-android-env.sh avdmanager create avd \
+          echo no | bash ./scripts/with-android-env.sh "$avdmanager_binary" create avd \
             --force --name "secpal-ct-api${API_LEVEL}" --package "$image" \
             "${avd_device_args[@]}"
           if (( API_LEVEL >= 37 )); then
@@ -203,6 +212,7 @@ jobs:
           fi
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
           cp "$ANDROID_AVD_HOME/secpal-ct-api$API_LEVEL.avd/config.ini" "$diag_dir/avd-config.ini"
+          cp "$ANDROID_AVD_HOME/secpal-ct-api$API_LEVEL.ini" "$diag_dir/avd-metadata.ini"
           cat > "$diag_dir/report.py" <<'PUBLIC_SUMMARY'
           import json, pathlib, re, sys
           root = pathlib.Path(sys.argv[1])
@@ -215,6 +225,7 @@ jobs:
               if line.endswith("/emulator/source.properties"): component = "emulator"
               elif line.endswith("/platform-tools/source.properties"): component = "adb"
               elif line.endswith("/google_apis/x86_64/source.properties"): component = "system-image"
+              elif re.search(r"/cmdline-tools/(?:latest|22\.0)/source\.properties$", line): component = "avdmanager"
               match = re.fullmatch(r"Pkg.Revision\s*=\s*([0-9.]+)", line.strip())
               if match and component: emit("sdk", {"component": component, "revision": match.group(1)})
               match = re.search(r"Android emulator version ([0-9.]+).*build_id ([0-9]+)", line)
@@ -223,6 +234,9 @@ jobs:
               key, separator, value = line.partition("=")
               if separator and key.strip() in {"hw.cpu.ncore", "hw.ramSize", "hw.lcd.width", "hw.lcd.height", "hw.lcd.density", "disk.dataPartition.size"}:
                   if re.fullmatch(r"[0-9]+[KMG]?", value.strip()): emit("avd", {"field": key.strip(), "value": value.strip()})
+          metadata = (root / "avd-metadata.ini").read_text()
+          target = re.search(r"^target=(android-[0-9]+(?:\.[0-9]+)?)$", metadata, re.M)
+          if target: emit("avd-target", {"target": target.group(1)})
           system_servers = set()
           samples = root / "resource-samples.jsonl"
           if samples.exists():
@@ -234,6 +248,10 @@ jobs:
                   if guest and re.fullmatch(r"[0-9 ]+", guest[0].strip()):
                       data["system_server_pids"] = [int(x) for x in guest[0].split()]
                       system_servers.update(data["system_server_pids"])
+                  surface = re.search(r"^surfaceflinger:([0-9 ]*)$", record.get("guest", ""), re.M)
+                  if surface:
+                      data["surfaceflinger_pids"] = [int(x) for x in surface.group(1).split()]
+                      system_servers.update(data["surfaceflinger_pids"])
                   for key in ["cgroup_memory.current", "cgroup_memory.max"]:
                       value = record.get(key, "").strip()
                       if value.isdigit(): data[key] = int(value)
@@ -308,7 +326,7 @@ jobs:
                   for name in ["memory.current", "memory.max", "memory.events", "cpu.stat"]:
                       sample["cgroup_" + name] = read("/sys/fs/cgroup/" + name)
                   try:
-                      result = subprocess.run(["timeout", "--kill-after=1s", "3s", "bash", "scripts/with-android-env.sh", "adb", "-s", "emulator-5570", "shell", "pidof system_server; getprop sys.boot_completed; getprop init.svc.zygote; cat /sys/devices/system/cpu/present; cat /proc/meminfo; cat /proc/pressure/memory"], text=True, capture_output=True, timeout=5)
+                      result = subprocess.run(["timeout", "--kill-after=1s", "3s", "bash", "scripts/with-android-env.sh", "adb", "-s", "emulator-5570", "shell", "pidof system_server; getprop sys.boot_completed; getprop init.svc.zygote; cat /sys/devices/system/cpu/present; cat /proc/meminfo; cat /proc/pressure/memory; printf surfaceflinger:; pidof surfaceflinger"], text=True, capture_output=True, timeout=5)
                       sample["guest_status"] = result.returncode
                       sample["guest"] = (result.stdout + result.stderr)[:24000]
                   except subprocess.TimeoutExpired:
