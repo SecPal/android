@@ -100,7 +100,7 @@ jobs:
     name: Platform policy (API ${{ matrix.api-level }})
     needs: detect-relevant-changes
     if: ${{ needs.detect-relevant-changes.outputs.relevant == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: >-
       ${{
         matrix.api-level >= 37
