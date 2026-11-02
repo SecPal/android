@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Create API 37 AVDs with pinned Android Command-Line Tools 22.0 and require
+  the real android-37.0 target before boot, preventing graphics-service and
+  PackageManager restarts caused by obsolete AVD metadata (refs #811).
+
 - Recover once from a proven API 37 pre-install PackageManager handler broken
   pipe without retrying other handler errors or genuine test failures (refs #795).
 

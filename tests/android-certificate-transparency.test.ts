@@ -3,7 +3,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -210,6 +217,61 @@ describe("Android Certificate Transparency regression contract", () => {
       },
     ]) {
       expect(runAggregate(failingCase).status).not.toBe(0);
+    }
+  });
+
+  it("rejects a corrupt API 37 AVD target before starting the emulator", () => {
+    const workflow = load(
+      readRepoFile(
+        ".github",
+        "workflows",
+        "android-certificate-transparency.yml"
+      )
+    ) as Workflow;
+    const run = workflow.jobs?.["platform-policy"]?.steps?.find((step) =>
+      step.run?.includes("npm run android:emulator:start")
+    )?.run;
+    const targetCheck = run
+      ?.split("\n")
+      .find((line) => line.includes('"target=android-${IMAGE_API_LEVEL}"'));
+    expect(
+      targetCheck,
+      "API 37 must require its real AVD target"
+    ).toBeDefined();
+    const avdHome = mkdtempSync(resolve(tmpdir(), "secpal-ct-target-"));
+    try {
+      for (const target of [
+        "android-37.0",
+        "android-0",
+        "android-36",
+        "android-37x0",
+        "",
+      ]) {
+        writeFileSync(
+          resolve(avdHome, "secpal-ct-api37.ini"),
+          `target=${target}\n`
+        );
+        const result = spawnSync(
+          "bash",
+          ["-euo", "pipefail", "-c", targetCheck!],
+          {
+            env: {
+              ...process.env,
+              ANDROID_AVD_HOME: avdHome,
+              API_LEVEL: "37",
+              IMAGE_API_LEVEL: "37.0",
+            },
+            encoding: "utf8",
+            timeout: 5000,
+          }
+        );
+        expect(result.error).toBeUndefined();
+        expect(result.status === 0, `AVD target ${target}`).toBe(
+          target === "android-37.0"
+        );
+      }
+    } finally {
+      rmSync(avdHome, { recursive: true, force: true });
     }
   });
 
