@@ -149,18 +149,41 @@ jobs:
           BOOT_TIMEOUT: ${{ matrix.api-level >= 37 && 600 || 300 }}
           RECOVERY_TIMEOUT: ${{ matrix.api-level >= 37 && 240 || 180 }}
           IMAGE_API_LEVEL: ${{ matrix.api-level >= 37 && '37.0' || matrix.api-level }}
-          LIVE_PROBE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          LIVE_PROBE: "false" # Task-only diagnosis uses the unchanged packaged assertions.
           SDK_CHANNEL: 0
           SECPAL_ANDROID_EMULATOR_GPU_MODE: software
           SECPAL_ANDROID_EMULATOR_WINDOW_MODE: no-window
           SECPAL_LIVE_CT_PROBE_URL: ${{ inputs.probe_url || 'https://api.secpal.dev/' }}
         run: |
+          diag_dir="$RUNNER_TEMP/api37-observations"
+          mkdir -p "$diag_dir"
+          {
+            date --iso-8601=seconds
+            printf 'source=%s image_os=%s image_version=%s\n' "$GITHUB_SHA" "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
+            uname -a
+            lscpu
+            free -m
+            df -h
+            cat /proc/meminfo
+            cat /proc/pressure/{cpu,memory,io}
+            cat /sys/fs/cgroup/memory.{max,events} || true
+            cat android/gradle.properties
+            cat android/gradle/wrapper/gradle-wrapper.properties
+          } > "$diag_dir/host-start.txt"
           sudo chmod 666 /dev/kvm
           mkdir -p "$ANDROID_AVD_HOME"
           image="system-images;android-${IMAGE_API_LEVEL};google_apis;x86_64"
           bash ./scripts/with-android-env.sh sdkmanager --channel="$SDK_CHANNEL" \
             "platform-tools" "emulator" "$image"
-          bash ./scripts/with-android-env.sh adb version
+          {
+            sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+            bash ./scripts/with-android-env.sh emulator -version
+            bash ./scripts/with-android-env.sh adb version
+            for source in "$sdk_root/emulator/source.properties" "$sdk_root/platform-tools/source.properties" "$sdk_root/system-images/android-$IMAGE_API_LEVEL/google_apis/x86_64/source.properties"; do
+              printf '\n%s\n' "$source"
+              cat "$source"
+            done
+          } > "$diag_dir/sdk-versions.txt" 2>&1
           avd_device_args=()
           if (( API_LEVEL >= 37 )); then
             avd_device_args=(--device pixel_7_pro)
@@ -179,14 +202,133 @@ jobs:
             )
           fi
           emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-ct-api${API_LEVEL}-5570.log"
+          cp "$ANDROID_AVD_HOME/secpal-ct-api$API_LEVEL.avd/config.ini" "$diag_dir/avd-config.ini"
+          cat > "$diag_dir/report.py" <<'PUBLIC_SUMMARY'
+          import json, pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          def emit(kind, data):
+              print("SECPAL_DIAG " + json.dumps({"kind": kind, **data}), flush=True)
+          def memory(text):
+              return {k: int(v) for k, v in re.findall(r"^(MemTotal|MemAvailable|MemFree|SwapTotal|SwapFree|Cached):\s+(\d+)", text, re.M)}
+          component = None
+          for line in (root / "sdk-versions.txt").read_text(errors="replace").splitlines():
+              if line.endswith("/emulator/source.properties"): component = "emulator"
+              elif line.endswith("/platform-tools/source.properties"): component = "adb"
+              elif line.endswith("/google_apis/x86_64/source.properties"): component = "system-image"
+              match = re.fullmatch(r"Pkg.Revision\s*=\s*([0-9.]+)", line.strip())
+              if match and component: emit("sdk", {"component": component, "revision": match.group(1)})
+              match = re.search(r"Android emulator version ([0-9.]+).*build_id ([0-9]+)", line)
+              if match: emit("emulator-build", {"version": match.group(1), "build_id": int(match.group(2))})
+          for line in (root / "avd-config.ini").read_text(errors="replace").splitlines():
+              key, separator, value = line.partition("=")
+              if separator and key.strip() in {"hw.cpu.ncore", "hw.ramSize", "hw.lcd.width", "hw.lcd.height", "hw.lcd.density", "disk.dataPartition.size"}:
+                  if re.fullmatch(r"[0-9]+[KMG]?", value.strip()): emit("avd", {"field": key.strip(), "value": value.strip()})
+          system_servers = set()
+          samples = root / "resource-samples.jsonl"
+          if samples.exists():
+              for line in samples.read_text().splitlines()[:300]:
+                  try: record = json.loads(line)
+                  except json.JSONDecodeError: continue
+                  data = {"at": record["at"], "cpus": record["cpu_count"], "host_memory_kb": memory(record.get("host_meminfo", "")), "guest_memory_kb": memory(record.get("guest", ""))}
+                  guest = record.get("guest", "").splitlines()
+                  if guest and re.fullmatch(r"[0-9 ]+", guest[0].strip()):
+                      data["system_server_pids"] = [int(x) for x in guest[0].split()]
+                      system_servers.update(data["system_server_pids"])
+                  for key in ["cgroup_memory.current", "cgroup_memory.max"]:
+                      value = record.get(key, "").strip()
+                      if value.isdigit(): data[key] = int(value)
+                  data["cgroup_oom"] = {k: int(v) for k, v in re.findall(r"^(oom|oom_kill|oom_group_kill) (\d+)$", record.get("cgroup_memory.events", ""), re.M)}
+                  for scope in ["cpu", "memory", "io"]:
+                      pressure = record.get("host_pressure/" + scope, "")
+                      data[scope + "_pressure"] = [float(x) for x in re.findall(r"avg10=([0-9.]+)", pressure)]
+                  emit("resources", data)
+          count = 0
+          tags = {"AndroidRuntime", "Watchdog", "lmkd", "lowmemorykiller", "libc"}
+          for name in ["logcat-first-boot.txt", "logcat-final.txt"]:
+              file = root / name
+              if not file.exists(): continue
+              for line in file.read_text(errors="replace").splitlines():
+                  match = re.search(r"([0-9]{10}\.[0-9]+)\s+([0-9]+)\s+[0-9]+\s+[A-Z]\s+([A-Za-z0-9_]+)\s*:\s*(.*)$", line)
+                  if not match or match.group(3) not in tags: continue
+                  at, pid, tag, message = match.groups()
+                  if tag in {"AndroidRuntime", "Watchdog", "libc"} and int(pid) not in system_servers: continue
+                  data = {"at": float(at), "pid": int(pid), "tag": tag}
+                  exception = re.match(r"(?:Caused by: )?((?:java|android|com\.android)\.[A-Za-z0-9_.$]*(?:Exception|Error))(?::|$)", message.strip())
+                  frame = re.match(r"at ((?:java|android|com\.android|dalvik|libcore)\.[A-Za-z0-9_.$<>]+)\((?:[A-Za-z0-9_$]+\.java:[0-9]+|Native Method|Unknown Source)\)", message.strip())
+                  if exception: data["exception_class"] = exception.group(1)
+                  elif frame: data["framework_method"] = frame.group(1)
+                  elif "FATAL EXCEPTION IN SYSTEM PROCESS" in message: data["event"] = "system_process_fatal"
+                  elif "WATCHDOG KILLING SYSTEM PROCESS" in message: data["event"] = "watchdog_system_process_kill"
+                  elif tag in {"lmkd", "lowmemorykiller"}: data["event"] = "guest_memory_kill_event"
+                  elif tag == "libc" and "Fatal signal" in message: data["event"] = "native_fatal_signal"
+                  else: continue
+                  emit("android-framework", data); count += 1
+                  if count >= 160: break
+              if count >= 160: break
+          kernel = root / "host-kernel-final.txt"
+          if kernel.exists():
+              text = kernel.read_text(errors="replace")
+              emit("host-oom", {"events": len(re.findall(r"Out of memory:|oom-kill:", text, re.I))})
+          PUBLIC_SUMMARY
+          observer_pid=""
+          logcat_pid=""
+          finish_observation() {
+            original_status=$?
+            trap - EXIT
+            set +e
+            date --iso-8601=seconds > "$diag_dir/finished-at.txt"
+            timeout --kill-after=1s 10s bash ./scripts/with-android-env.sh adb -s emulator-5570 shell 'pidof system_server; getprop ro.build.fingerprint; getprop ro.build.version.sdk; cat /proc/meminfo; cat /proc/pressure/memory' > "$diag_dir/guest-final.txt" 2>&1
+            timeout --kill-after=1s 10s bash ./scripts/with-android-env.sh adb -s emulator-5570 logcat -d -b crash -b system -b events -v epoch | head -c 33554432 > "$diag_dir/logcat-final.txt"
+            sudo dmesg --ctime | tail -n 400 > "$diag_dir/host-kernel-final.txt"
+            [[ -z "$observer_pid" ]] || kill "$observer_pid" 2>/dev/null
+            [[ -z "$logcat_pid" ]] || kill "$logcat_pid" 2>/dev/null
+            cp "$emulator_log" "$diag_dir/emulator.log"
+            free -m > "$diag_dir/host-memory-final.txt"
+            python3 "$diag_dir/report.py" "$diag_dir"
+            timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh adb -s emulator-5570 emu kill || true
+            exit "$original_status"
+          }
+          trap finish_observation EXIT
+          cat > "$diag_dir/observer.py" <<'OBSERVATION'
+          import json, os, pathlib, subprocess, sys, time
+          from datetime import datetime, timezone
+          out = pathlib.Path(sys.argv[1])
+          deadline = time.monotonic() + 1200
+          def read(path):
+              try:
+                  return pathlib.Path(path).read_text()
+              except OSError as error:
+                  return str(error)
+          with (out / "resource-samples.jsonl").open("w") as stream:
+              while time.monotonic() < deadline:
+                  start = time.monotonic()
+                  sample = {"at": datetime.now(timezone.utc).isoformat(), "cpu_count": os.cpu_count()}
+                  for name in ["meminfo", "loadavg", "pressure/cpu", "pressure/memory", "pressure/io"]:
+                      sample["host_" + name] = read("/proc/" + name)
+                  for name in ["memory.current", "memory.max", "memory.events", "cpu.stat"]:
+                      sample["cgroup_" + name] = read("/sys/fs/cgroup/" + name)
+                  try:
+                      result = subprocess.run(["timeout", "--kill-after=1s", "3s", "bash", "scripts/with-android-env.sh", "adb", "-s", "emulator-5570", "shell", "pidof system_server; getprop sys.boot_completed; getprop init.svc.zygote; cat /sys/devices/system/cpu/present; cat /proc/meminfo; cat /proc/pressure/memory"], text=True, capture_output=True, timeout=5)
+                      sample["guest_status"] = result.returncode
+                      sample["guest"] = (result.stdout + result.stderr)[:24000]
+                  except subprocess.TimeoutExpired:
+                      sample["guest_status"] = "diagnostic command timed out"
+                  sample["host_top_rss"] = subprocess.run(["ps", "-eo", "pid,ppid,comm,rss,pcpu", "--sort=-rss"], text=True, capture_output=True).stdout.splitlines()[:15]
+                  stream.write(json.dumps(sample) + "\n")
+                  stream.flush()
+                  # Sampling cadence only; this observer never gates or retries a test.
+                  time.sleep(max(0, 5 - (time.monotonic() - start)))
+          OBSERVATION
+          python3 "$diag_dir/observer.py" "$diag_dir" &
+          observer_pid=$!
           npm run android:emulator:start -- "secpal-ct-api${API_LEVEL}" 5570
           if ! npm run android:device:wait -- emulator-5570 "$BOOT_TIMEOUT" "$API_LEVEL"; then
             echo "Android emulator failed to become usable; emulator log follows:" >&2
-            cat "$emulator_log" >&2 || true
+            echo "Raw emulator output retained only on this ephemeral runner." >&2
             exit 1
           fi
-          trap 'timeout --foreground --kill-after=5s 30s bash ./scripts/with-android-env.sh \
-            adb -s emulator-5570 emu kill || true' EXIT
+          (timeout --kill-after=1s 1200s bash ./scripts/with-android-env.sh adb -s emulator-5570 logcat -b all -v epoch | head -c 33554432 || true) > "$diag_dir/logcat-first-boot.txt" 2>&1 &
+          logcat_pid=$!
           test_class="app.secpal.CertificateTransparencyInstrumentedTest"
           live_method="${test_class}#apiEndpointPassesThePlatformCertificateTransparencyPolicy"
           if [[ "$LIVE_PROBE" == "true" ]]; then
