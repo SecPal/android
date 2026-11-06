@@ -24,9 +24,9 @@ jobs:
 
       - name: Scan exact source
         id: repository-scan
-        # Reviewed main revision includes the source-blob-bound Android policy.
+        # Accepted main revision with zero policy exceptions.
         # yamllint disable-line rule:line-length
-        uses: SecPal/.github/.github/actions/trivy-repository-scan@72e3b32a88513f381aa6cd769618bf197106d794 # main
+        uses: SecPal/.github/.github/actions/trivy-repository-scan@338f357fbdfc31d51c42268760254066a9501e88 # main
 
       - name: Require clean repository evidence
         env:

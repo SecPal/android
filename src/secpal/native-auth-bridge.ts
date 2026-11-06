@@ -90,6 +90,7 @@ export interface NativeAuthenticatedRequest {
   bodyBase64?: string;
   contentType?: string;
   accept?: string;
+  ifMatch?: string;
   signal?: AbortSignal;
 }
 
@@ -97,6 +98,7 @@ export interface NativeAuthenticatedResponse {
   status: number;
   bodyBase64?: string;
   contentType?: string;
+  etag?: string;
 }
 
 interface SecPalNativeAuthPlugin {
@@ -116,6 +118,7 @@ interface SecPalNativeAuthPlugin {
     bodyBase64?: string;
     contentType?: string;
     accept?: string;
+    ifMatch?: string;
   }): Promise<NativeAuthenticatedResponse>;
   cancelRequest(options: {
     requestId: string;
@@ -209,6 +212,9 @@ export function createNativeAuthBridge(): NativeAuthBridge {
           bodyBase64: request.bodyBase64,
           contentType: request.contentType,
           accept: request.accept,
+          ...(request.ifMatch !== undefined
+            ? { ifMatch: request.ifMatch }
+            : {}),
         });
         if (signal?.aborted) {
           throw createAbortError();
