@@ -286,8 +286,6 @@ public class NativeAuthRequestPolicyTest {
                 (String) request[0],
                 (String) request[1],
                 (String) request[2],
-                null,
-                request.length == 5 ? (String) request[4] : null,
                 (Integer) request[3]
             );
         }
