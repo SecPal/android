@@ -84,19 +84,19 @@
     "postinstall": "npm run native:patch:capacitor-android"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.3",
-    "@capacitor/core": "^8.5.3"
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.3",
+    "@capacitor/cli": "^8.6.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "@typescript-eslint/eslint-plugin": "^8.72.0",
     "@typescript-eslint/parser": "^8.72.0",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "@xmldom/xmldom": "0.9.12",
-    "entities": "^8.1.0",
-    "eslint": "^10.13.0",
+    "entities": "^9.0.0",
+    "eslint": "^10.14.0",
     "globals": "^17.14.0",
     "js-yaml": "^5.4.2",
     "markdownlint-cli": "0.50.0",
@@ -105,7 +105,7 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.0",
     "yaml": "^2.9.1",
     "yauzl": "3.4.0"
   },
