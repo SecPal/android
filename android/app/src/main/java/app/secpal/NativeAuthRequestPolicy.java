@@ -36,6 +36,7 @@ final class NativeAuthRequestPolicy {
     static final int MAX_REQUEST_TARGET_CHARACTERS = 8 * 1024;
     static final int MAX_MEDIA_TYPE_CHARACTERS = 512;
     static final int MAX_METHOD_CHARACTERS = 16;
+    static final int MAX_ENTITY_TAG_CHARACTERS = 1024;
 
     private static final String ID = "[A-Za-z0-9][A-Za-z0-9._~-]*";
     private static final Set<String> NO_QUERY = Collections.emptySet();
@@ -45,6 +46,7 @@ final class NativeAuthRequestPolicy {
     private static final Pattern MULTIPART_BOUNDARY = Pattern.compile(
         "^[A-Za-z0-9'()+_,./:=?-]{1,70}$"
     );
+    private static final Pattern ENTITY_TAG = Pattern.compile("(?:W/)?\"[\\x21\\x23-\\x7E\\x80-\\xFF]*\"");
 
     private static final List<RouteSpec> WEBVIEW_ROUTES = buildWebViewRoutes();
     private static final List<RouteSpec> ANDROID_PUSH_ROUTES = buildAndroidPushRoutes();
@@ -77,6 +79,17 @@ final class NativeAuthRequestPolicy {
         String accept,
         int requestBodyLength
     ) throws NativeAuthHttpException {
+        return authorize(method, pathAndQuery, contentType, accept, null, requestBodyLength);
+    }
+
+    static AuthorizedRequest authorize(
+        String method,
+        String pathAndQuery,
+        String contentType,
+        String accept,
+        String ifMatch,
+        int requestBodyLength
+    ) throws NativeAuthHttpException {
         return authorizeAgainst(
             WEBVIEW_ROUTES,
             MAX_REQUEST_BODY_BYTES,
@@ -84,6 +97,7 @@ final class NativeAuthRequestPolicy {
             pathAndQuery,
             contentType,
             accept,
+            ifMatch,
             requestBodyLength
         );
     }
@@ -102,6 +116,7 @@ final class NativeAuthRequestPolicy {
             pathAndQuery,
             contentType,
             accept,
+            null,
             requestBodyLength
         );
     }
@@ -113,6 +128,7 @@ final class NativeAuthRequestPolicy {
         String pathAndQuery,
         String contentType,
         String accept,
+        String ifMatch,
         int requestBodyLength
     ) throws NativeAuthHttpException {
         if (method != null && method.length() > MAX_METHOD_CHARACTERS) {
@@ -154,12 +170,21 @@ final class NativeAuthRequestPolicy {
             if (requestContentKind == RequestContentKind.MULTIPART && requestBodyLength == 0) {
                 throw validationError("Android auth bridge multipart request body is empty");
             }
+            if (route.requiresIfMatch) {
+                if (ifMatch == null || requestBodyLength == 0) {
+                    throw validationError("Android customer edit requires If-Match and a JSON body");
+                }
+                validateEntityTag(ifMatch, false);
+            } else if (ifMatch != null) {
+                throw validationError("Android auth bridge route does not allow If-Match");
+            }
 
             return new AuthorizedRequest(
                 normalizedMethod,
                 target.canonicalPathAndQuery,
                 validatedContentType.value,
                 validatedAccept,
+                ifMatch,
                 route.responseKind
             );
         }
@@ -169,6 +194,21 @@ final class NativeAuthRequestPolicy {
 
     private static boolean isOversizedMediaValue(String value) {
         return value != null && value.length() > MAX_MEDIA_TYPE_CHARACTERS;
+    }
+
+    // Preserve the validator bytes: no trimming, wildcard, tag list, or control characters.
+    // Weak response validators are valid HTTP metadata but cannot satisfy If-Match.
+    static String validateEntityTag(String value, boolean allowWeak) throws NativeAuthHttpException {
+        if (value == null) {
+            return null;
+        }
+        if (value.length() > MAX_ENTITY_TAG_CHARACTERS
+            || containsControlCharacter(value)
+            || !ENTITY_TAG.matcher(value).matches()
+            || (!allowWeak && value.startsWith("W/"))) {
+            throw validationError("Android auth bridge entity tag is invalid");
+        }
+        return value;
     }
 
     private static List<RouteSpec> buildWebViewRoutes() {
@@ -203,7 +243,7 @@ final class NativeAuthRequestPolicy {
         add(routes, "GET", "/v1/customers", keys("search", "is_active", "page", "per_page"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/customers", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/customers/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
-        add(routes, "PATCH", "/v1/customers/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
+        add(routes, "PUT", "/v1/customers/" + ID + "/transactional-edit", NO_QUERY, JSON_CONTENT, ResponseKind.JSON, true);
         add(routes, "DELETE", "/v1/customers/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
         add(routes, "GET", "/v1/sites", keys("search", "is_active", "customer_id", "legal_entity_id", "establishment_id", "type", "page", "per_page"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/sites", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
@@ -213,8 +253,6 @@ final class NativeAuthRequestPolicy {
 
         add(routes, "GET", "/v1/customer-establishments", keys("customer_id", "establishment_id", "page", "per_page"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/customer-establishments", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "PATCH", "/v1/customer-establishments/" + ID, NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
-        add(routes, "DELETE", "/v1/customer-establishments/" + ID, NO_QUERY, NO_CONTENT, ResponseKind.JSON);
 
         add(routes, "GET", "/v1/employees", keys("status", "legal_entity_id", "establishment_id", "search", "page", "per_page"), NO_CONTENT, ResponseKind.JSON);
         add(routes, "POST", "/v1/employees", NO_QUERY, JSON_CONTENT, ResponseKind.JSON);
@@ -266,12 +304,25 @@ final class NativeAuthRequestPolicy {
         Set<RequestContentKind> allowedContentKinds,
         ResponseKind responseKind
     ) {
+        add(routes, method, pathRegex, allowedQueryKeys, allowedContentKinds, responseKind, false);
+    }
+
+    private static void add(
+        List<RouteSpec> routes,
+        String method,
+        String pathRegex,
+        Set<String> allowedQueryKeys,
+        Set<RequestContentKind> allowedContentKinds,
+        ResponseKind responseKind,
+        boolean requiresIfMatch
+    ) {
         routes.add(new RouteSpec(
             method,
             Pattern.compile("^" + pathRegex + "$"),
             allowedQueryKeys,
             allowedContentKinds,
-            responseKind
+            responseKind,
+            requiresIfMatch
         ));
     }
 
@@ -529,6 +580,7 @@ final class NativeAuthRequestPolicy {
         private final String canonicalPathAndQuery;
         private final String contentType;
         private final String accept;
+        private final String ifMatch;
         private final ResponseKind responseKind;
 
         AuthorizedRequest(
@@ -536,12 +588,14 @@ final class NativeAuthRequestPolicy {
             String canonicalPathAndQuery,
             String contentType,
             String accept,
+            String ifMatch,
             ResponseKind responseKind
         ) {
             this.method = method;
             this.canonicalPathAndQuery = canonicalPathAndQuery;
             this.contentType = contentType;
             this.accept = accept;
+            this.ifMatch = ifMatch;
             this.responseKind = responseKind;
         }
 
@@ -549,6 +603,7 @@ final class NativeAuthRequestPolicy {
         String getCanonicalPathAndQuery() { return canonicalPathAndQuery; }
         String getContentType() { return contentType; }
         String getAccept() { return accept; }
+        String getIfMatch() { return ifMatch; }
         ResponseKind getResponseKind() { return responseKind; }
     }
 
@@ -568,19 +623,22 @@ final class NativeAuthRequestPolicy {
         private final Set<String> allowedQueryKeys;
         private final Set<RequestContentKind> allowedContentKinds;
         private final ResponseKind responseKind;
+        private final boolean requiresIfMatch;
 
         RouteSpec(
             String method,
             Pattern pathPattern,
             Set<String> allowedQueryKeys,
             Set<RequestContentKind> allowedContentKinds,
-            ResponseKind responseKind
+            ResponseKind responseKind,
+            boolean requiresIfMatch
         ) {
             this.method = method;
             this.pathPattern = pathPattern;
             this.allowedQueryKeys = allowedQueryKeys;
             this.allowedContentKinds = allowedContentKinds;
             this.responseKind = responseKind;
+            this.requiresIfMatch = requiresIfMatch;
         }
     }
 

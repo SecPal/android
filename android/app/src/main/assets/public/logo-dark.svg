@@ -1,6 +1,39 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="logo-dark-title logo-dark-desc">
-  <title id="logo-dark-title">SecPal Mark</title>
-  <desc id="logo-dark-desc">Dark-context SecPal shield logo rendered from the canonical frontend dark asset.</desc>
-  <image width="512" height="512" href="logo-dark-512.png" preserveAspectRatio="xMidYMid meet"/>
+<!-- SPDX-FileCopyrightText: 2025-2026 SecPal Contributors -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="816" height="757" viewBox="104 134 816 757" class="dark" role="img" aria-labelledby="title description">
+  <title id="title">SecPal</title>
+  <desc id="description">Shield with a V-shaped crossbar and a blue sweep.</desc>
+  <defs>
+    <path id="shield" d="M512 141 C388 141 245 180 124 226 C116 230 112 239 112 255 L112 328 C112 548 247 743 468 869 C489 881 501 883 512 883 C523 883 535 881 556 869 C777 743 912 548 912 328 L912 255 C912 239 908 230 900 226 C779 180 636 141 512 141 Z"/>
+    <path id="upper-opening" d="M512 198 C407 198 285 223 182 266 C180 268 179 273 179 280 L179 329 C179 345 181 357 183 365 C288 401 400 438 512 466 C624 438 736 401 841 365 C843 357 845 345 845 329 L845 280 C845 273 844 268 842 266 C739 223 617 198 512 198 Z"/>
+    <path id="lower-opening" d="M188 417 C292 467 406 519 512 553 C623 516 749 458 846 403 C824 567 725 712 589 783 C564 797 538 809 512 821 C326 733 211 583 188 417 Z"/>
+    <clipPath id="lower-clip"><use href="#lower-opening"/></clipPath>
+    <mask id="openings">
+      <use href="#shield" fill="#fff"/>
+      <use href="#upper-opening" fill="#000"/>
+      <use href="#lower-opening" fill="#000"/>
+    </mask>
+    <linearGradient id="blue-base" x1="188" y1="417" x2="589" y2="805" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4c9ee0"/>
+      <stop offset=".52" stop-color="#86c8ee"/>
+      <stop offset="1" stop-color="#57abe5"/>
+    </linearGradient>
+    <linearGradient id="blue-top" x1="188" y1="440" x2="331" y2="578" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#398ed9"/>
+      <stop offset="1" stop-color="#55a8e6"/>
+    </linearGradient>
+    <linearGradient id="blue-facet" x1="283" y1="466" x2="512" y2="577" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6bb6e8"/>
+      <stop offset="1" stop-color="#8ccbed"/>
+    </linearGradient>
+  </defs>
+  <use href="#shield" fill="none" stroke="#fff" stroke-width="12"/>
+  <use class="panel" href="#upper-opening" fill="#fff"/>
+  <use class="panel" href="#lower-opening" fill="#fff"/>
+  <g clip-path="url(#lower-clip)">
+    <path id="blue-sweep" d="M188 417 C292 467 406 519 512 553 C449 573 391 579 330 578 C376 679 471 754 589 783 C564 797 538 809 512 821 C326 733 211 583 188 417 Z" fill="url(#blue-base)"/>
+    <path d="M188 417 C216 430 247 447 283 466 C296 509 312 551 330 578 C290 577 259 570 238 555 C213 506 197 459 188 417 Z" fill="url(#blue-top)"/>
+    <path d="M283 466 C359 502 440 533 512 553 C449 573 391 579 330 578 C311 545 296 504 283 466 Z" fill="url(#blue-facet)"/>
+    <path d="M238 555 C265 570 296 577 330 578 C376 679 471 754 589 783 L512 821 C384 753 287 660 238 555 Z" fill="url(#blue-base)" opacity=".8"/>
+  </g>
 </svg>

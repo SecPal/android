@@ -1162,7 +1162,7 @@ describe("Android native hardening", () => {
       "scripts/generate-android-web-asset-inventory.mjs"
     );
     expect(frontendRevisionSource.match(/^[0-9a-f]{40}$/gm)).toEqual([
-      "8c950220d8ae582a536135eed75c8ecb2a4858c8",
+      "14d67a7478a9d3671b61767643266fffd1995653",
     ]);
     expect(frontendBuildScript).toContain("android/frontend-revision.txt");
     expect(frontendBuildScript).toContain('git -C "$FRONTEND_DIR" status');
