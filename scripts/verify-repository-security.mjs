@@ -9,23 +9,23 @@ import { fileURLToPath } from "node:url";
 import { openLiteralZipArchive } from "./literal-zip-archive.mjs";
 
 const repository = "SecPal/android";
-// Requalified policy (SecPal/.github#1244; history #1199) and configuration from the shared action
-// at 55bcdb6f00eb7d552da206f83fcdc87cf2c43375.
+// Accepted zero-exception policy and configuration from the shared action
+// at 338f357fbdfc31d51c42268760254066a9501e88 (SecPal/.github#1301, #1305).
 export const repositorySecurityPolicy = Object.freeze({
   schemaVersion: "secpal-trivy-repository-scan-v4",
+  id: "secpal-trivy-repository-policy-v1",
+  version: "1.1.0",
   sha256:
-    "sha256:93e562f043c8faf304b8f244ce9d9141f1e51ccec48e5be86c9559dad70efe79",
-  expiresAt: "2026-11-04T00:00:00Z",
+    "sha256:2e8f61564b8c6336e1a5804ea266f9a33e2eff2cac833047b88688a5b353f1d5",
   scanner: Object.freeze({
     name: "trivy",
     version: "0.74.0",
     immutable_id:
       "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a",
     configuration_sha256:
-      "sha256:3ab6f8a9feba5749e18d4a5049a94acc39ea2f3da3afb065371275a13218bf54",
+      "sha256:49dcd123a4d4c7c6ef4ba3452e2454214f8a5e149e8b0f336244fc5f96ec24f2",
   }),
 });
-const policyExpiresAt = Date.parse(repositorySecurityPolicy.expiresAt);
 const failure =
   "Repository security acceptance failed. Require fresh CLEAN evidence for this exact source commit.";
 
@@ -34,7 +34,7 @@ function requireCondition(condition) {
 }
 
 // This consumes the shared scanner's admission, without reclassifying findings.
-// Fresh at scan time is insufficient once a release outlives its DB or exception.
+// Fresh at scan time is insufficient once a release outlives its database.
 export function verifyEvidence(result, commit, now = new Date()) {
   requireCondition(
     result?.schema_version === repositorySecurityPolicy.schemaVersion &&
@@ -46,7 +46,8 @@ export function verifyEvidence(result, commit, now = new Date()) {
       result.database?.status === "FRESH" &&
       Date.parse(result.completed_at) <= now.getTime() &&
       now.getTime() < Date.parse(result.database.next_update) &&
-      now.getTime() < policyExpiresAt &&
+      result.policy?.id === repositorySecurityPolicy.id &&
+      result.policy?.version === repositorySecurityPolicy.version &&
       result.policy?.sha256 === repositorySecurityPolicy.sha256 &&
       result.scanner?.name === repositorySecurityPolicy.scanner.name &&
       result.scanner?.version === repositorySecurityPolicy.scanner.version &&
@@ -57,11 +58,9 @@ export function verifyEvidence(result, commit, now = new Date()) {
       result.summary?.actionable === 0 &&
       result.summary?.review_required === 0 &&
       Array.isArray(result.findings) &&
-      result.summary?.total === result.findings.length &&
-      result.summary?.excepted === result.findings.length &&
-      result.findings.every(
-        (finding) => now.getTime() < Date.parse(finding.exception?.expires_at)
-      )
+      result.summary?.total === 0 &&
+      result.summary?.excepted === 0 &&
+      result.findings.length === 0
   );
 }
 
