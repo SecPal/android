@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make native Smoke and Enterprise Policy acceptance available on every PR
+  and require successful applicable jobs.
+
 - Preserve customer snapshot ETags and validated If-Match values through the native auth bridge for atomic customer edits, retaining API conflict statuses and rejecting obsolete partial-edit routes.
 
 - Rebuild the packaged web assets from accepted frontend revision
