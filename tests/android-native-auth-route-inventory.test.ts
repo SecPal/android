@@ -59,7 +59,7 @@ function compareRouteContracts(left: RouteContract, right: RouteContract) {
 
 function parseNativeRouteContracts(source: string): RouteContract[] {
   const routePattern =
-    /add\(routes,\s*"([A-Z]+)",\s*(.*?),\s*(NO_QUERY|keys\(.*?\)),\s*(NO_CONTENT|JSON_CONTENT|MULTIPART_CONTENT),\s*ResponseKind\.JSON\s*\);/gs;
+    /add\(routes,\s*"([A-Z]+)",\s*(.*?),\s*(NO_QUERY|keys\(.*?\)),\s*(NO_CONTENT|JSON_CONTENT|MULTIPART_CONTENT),\s*ResponseKind\.JSON(?:,\s*true)?\s*\);/gs;
   const contentTypesByPolicy = {
     NO_CONTENT: ["none"],
     JSON_CONTENT: ["application/json"],
@@ -652,6 +652,9 @@ describe("Android native-auth route inventory", () => {
 
   it("does not retain route families that have no packaged Android caller", () => {
     const unprovenNativeRoutes = [
+      '"PATCH", "/v1/customers/" + ID',
+      '"PATCH", "/v1/customer-establishments/" + ID',
+      '"DELETE", "/v1/customer-establishments/" + ID',
       '"PATCH", "/v1/me/language"',
       '"GET", "/v1/me/organizational-scopes"',
       '"POST", "/v1/qualifications"',

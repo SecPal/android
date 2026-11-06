@@ -841,7 +841,8 @@ public class SecPalNativeAuthPlugin extends Plugin {
             "path",
             "bodyBase64",
             "contentType",
-            "accept"
+            "accept",
+            "ifMatch"
         )) {
             return;
         }
@@ -863,6 +864,11 @@ public class SecPalNativeAuthPlugin extends Plugin {
         String bodyBase64 = call.getString("bodyBase64");
         String contentType = call.getString("contentType");
         String accept = call.getString("accept");
+        if (call.getData().has("ifMatch") && !(call.getData().opt("ifMatch") instanceof String)) {
+            call.reject("Android auth If-Match must be a string", "INVALID_INPUT");
+            return;
+        }
+        String ifMatch = call.getString("ifMatch");
         String requestId = normalizeRequiredRequestId(call.getString("requestId"));
         if (requestId == null) {
             call.reject("Android auth request id is invalid", "INVALID_INPUT");
@@ -877,6 +883,7 @@ public class SecPalNativeAuthPlugin extends Plugin {
                 path,
                 contentType,
                 accept,
+                ifMatch,
                 requestBodyBytes
             );
         } catch (NativeAuthHttpException exception) {

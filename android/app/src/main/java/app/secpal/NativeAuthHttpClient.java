@@ -262,6 +262,7 @@ class NativeAuthHttpClient {
             token,
             authorizedRequest.getContentType(),
             authorizedRequest.getAccept(),
+            authorizedRequest.getIfMatch(),
             false,
             authorizedRequest.getResponseKind(),
             maxResponseBodyBytes,
@@ -274,6 +275,9 @@ class NativeAuthHttpClient {
 
         if (response.getContentType() != null && !response.getContentType().isEmpty()) {
             payload.put("contentType", response.getContentType());
+        }
+        if (response.getEtag() != null) {
+            payload.put("etag", response.getEtag());
         }
 
         return payload;
@@ -308,6 +312,7 @@ class NativeAuthHttpClient {
             bearerToken,
             "application/json",
             "application/json",
+            null,
             true,
             NativeAuthRequestPolicy.ResponseKind.JSON,
             MAX_DEDICATED_JSON_RESPONSE_BODY_BYTES,
@@ -327,6 +332,7 @@ class NativeAuthHttpClient {
         String bearerToken,
         String contentType,
         String accept,
+        String ifMatch,
         boolean throwOnError,
         NativeAuthRequestPolicy.ResponseKind responseKind,
         int maxResponseBodyBytes,
@@ -363,6 +369,9 @@ class NativeAuthHttpClient {
 
             if (bearerToken != null) {
                 connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+            }
+            if (ifMatch != null) {
+                connection.setRequestProperty("If-Match", ifMatch);
             }
 
             if (requestBody != null && requestBody.length > 0) {
@@ -420,7 +429,18 @@ class NativeAuthHttpClient {
                     statusCode
                 );
             }
-            return new RequestResponse(statusCode, responseBody, connection.getContentType());
+            final String etag;
+            try {
+                etag = NativeAuthRequestPolicy.validateEntityTag(connection.getHeaderField("ETag"), true);
+            } catch (NativeAuthHttpException exception) {
+                throw new NativeAuthHttpException(exception.getMessage(), responseErrorStatusCode);
+            }
+            return new RequestResponse(
+                statusCode,
+                responseBody,
+                connection.getContentType(),
+                etag
+            );
         } catch (IOException exception) {
             if (exception instanceof NativeAuthCancelledException) {
                 NativeAuthCancelledException cancellationException =
@@ -988,12 +1008,16 @@ class NativeAuthHttpClient {
         private final int statusCode;
         private final byte[] responseBody;
         private final String contentType;
+        private final String etag;
 
-        RequestResponse(int statusCode, byte[] responseBody, String contentType) {
+        RequestResponse(int statusCode, byte[] responseBody, String contentType, String etag) {
             this.statusCode = statusCode;
             this.responseBody = responseBody;
             this.contentType = contentType;
+            this.etag = etag;
         }
+
+        String getEtag() { return etag; }
 
         int getStatusCode() { return statusCode; }
 

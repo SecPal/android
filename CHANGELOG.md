@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve customer snapshot ETags and validated If-Match values through the native auth bridge for atomic customer edits, retaining API conflict statuses and rejecting obsolete partial-edit routes.
+
+- Rebuild the packaged web assets from accepted frontend revision
+  `14d67a7478a9d3671b61767643266fffd1995653`, preserving the complete ISO
+  country list without emitting token-shaped data that triggers secret scanning.
+
+- Adopt the accepted zero-exception repository scanner and its exact release
+  evidence identities. Remove the retired fixed policy deadline while retaining
+  source, scanner and database-expiry checks and rejecting exception-bearing evidence.
+
 - Create API 37 AVDs with pinned Android Command-Line Tools 22.0 and require
   the real android-37.0 target before boot, preventing graphics-service and
   PackageManager restarts caused by obsolete AVD metadata (refs #811).

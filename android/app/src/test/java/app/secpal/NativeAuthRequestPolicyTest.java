@@ -13,6 +13,58 @@ import org.junit.Test;
 public class NativeAuthRequestPolicyTest {
 
     @Test
+    public void customerTransactionalEditRequiresOneUnmodifiedStrongValidator() throws Exception {
+        String tag = "\"snapshot-1,stable/etag\"";
+        NativeAuthRequestPolicy.AuthorizedRequest request = NativeAuthRequestPolicy.authorize(
+            "PUT", "/v1/customers/customer-1/transactional-edit", "application/json",
+            "application/json", tag, 64
+        );
+        assertEquals(tag, request.getIfMatch());
+        assertEquals("PUT", request.getMethod());
+        assertEquals("/v1/customers/customer-1/transactional-edit", request.getCanonicalPathAndQuery());
+        for (String invalid : new String[] {
+            null, "", "*", "W/\"weak\"", "\"one\", \"two\"", " \"trimmed\" ",
+            "\"bad\r\nInjected: x\"", "\"bad" + (char) 0 + "\"", "\"bad" + (char) 127 + "\"", "\"bad" + (char) 133 + "\"",
+            "\"" + "x".repeat(NativeAuthRequestPolicy.MAX_ENTITY_TAG_CHARACTERS) + "\""
+        }) {
+            assertConditionalRejected("PUT", "/v1/customers/customer-1/transactional-edit", "application/json", invalid, 64);
+        }
+        assertConditionalRejected("PUT", "/v1/customers/customer-1/transactional-edit", "application/json", tag, 0);
+    }
+
+    @Test
+    public void conditionalEditDoesNotOpenOtherMethodsTargetsOrHeaders() throws Exception {
+        String tag = "\"snapshot\"";
+        for (String method : new String[] { "GET", "POST", "PATCH", "DELETE", "HEAD" }) {
+            assertConditionalRejected(method, "/v1/customers/customer-1/transactional-edit", "application/json", tag, 64);
+        }
+        for (String target : new String[] {
+            "/v1/customers/customer-1/transactional-edit?unsafe=true",
+            "/v1/customers/customer-1/transactional-edit/child",
+            "https://evil.example/v1/customers/customer-1/transactional-edit",
+            "/v1/customers/%2fother/transactional-edit",
+            "/v1/me"
+        }) {
+            assertConditionalRejected("PUT", target, "application/json", tag, 64);
+        }
+        assertConditionalRejected("GET", "/v1/customers/customer-1", null, tag, 0);
+        assertRejected("PATCH", "/v1/customers/customer-1", "application/json", 64);
+        assertRejected("PATCH", "/v1/customer-establishments/establishment-1", "application/json", 64);
+        assertRejected("DELETE", "/v1/customer-establishments/establishment-1", null, 0);
+        assertConditionalRejected("PUT", "/v1/customers/customer-1/transactional-edit", "text/plain", tag, 64);
+        assertEquals("W/\"weak\"", NativeAuthRequestPolicy.validateEntityTag("W/\"weak\"", true));
+    }
+
+    private static void assertConditionalRejected(String method, String path, String contentType, String tag, int length) {
+        try {
+            NativeAuthRequestPolicy.authorize(method, path, contentType, "application/json", tag, length);
+            fail("Expected conditional request to be rejected: " + method + " " + path);
+        } catch (NativeAuthHttpException expected) {
+            assertEquals(0, expected.getStatusCode());
+        }
+    }
+
+    @Test
     public void rejectsRequestTargetsBeyondThePreAdmissionMemoryBound() {
         String oversizedTarget = "/v1/customers?cursor=" + "a".repeat(
             NativeAuthRequestPolicy.MAX_REQUEST_TARGET_CHARACTERS
@@ -158,7 +210,7 @@ public class NativeAuthRequestPolicyTest {
             { "GET", "/v1/customers?search=Acme&is_active=1&page=1&per_page=25", null, 0 },
             { "POST", "/v1/customers", "application/json", 2 },
             { "GET", "/v1/customers/customer-1", null, 0 },
-            { "PATCH", "/v1/customers/customer-1", "application/json", 2 },
+            { "PUT", "/v1/customers/customer-1/transactional-edit", "application/json", 2, "\"snapshot\"" },
             { "DELETE", "/v1/customers/customer-1", null, 0 },
             { "GET", "/v1/sites?search=North&is_active=1&customer_id=1&legal_entity_id=entity-1&establishment_id=establishment-1&type=branch&page=1&per_page=25", null, 0 },
             { "POST", "/v1/sites", "application/json", 2 },
@@ -167,8 +219,6 @@ public class NativeAuthRequestPolicyTest {
             { "DELETE", "/v1/sites/site-1", null, 0 },
             { "GET", "/v1/customer-establishments?customer_id=customer-1&establishment_id=establishment-1&page=1&per_page=25", null, 0 },
             { "POST", "/v1/customer-establishments", "application/json", 2 },
-            { "PATCH", "/v1/customer-establishments/link-1", "application/json", 2 },
-            { "DELETE", "/v1/customer-establishments/link-1", null, 0 },
             { "GET", "/v1/employees?status=active&legal_entity_id=entity-1&establishment_id=establishment-1&search=Jane&page=1&per_page=25", null, 0 },
             { "POST", "/v1/employees", "application/json", 2 },
             { "GET", "/v1/employees/employee-1", null, 0 },
@@ -197,6 +247,8 @@ public class NativeAuthRequestPolicyTest {
                 (String) request[0],
                 (String) request[1],
                 (String) request[2],
+                null,
+                request.length == 5 ? (String) request[4] : null,
                 (Integer) request[3]
             );
         }
