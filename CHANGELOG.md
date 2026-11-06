@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make native Smoke and Enterprise Policy acceptance available on every PR,
+  require successful applicable jobs, and adopt the accepted zero-exception
+  repository scanner with exact policy/configuration identities.
+
 - Create API 37 AVDs with pinned Android Command-Line Tools 22.0 and require
   the real android-37.0 target before boot, preventing graphics-service and
   PackageManager restarts caused by obsolete AVD metadata (refs #811).

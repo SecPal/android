@@ -7,35 +7,6 @@ name: Android Smoke
 on:
   pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/android-smoke.yml"
-      - "android/**"
-      - "capacitor.config.ts"
-      - "package.json"
-      - "package-lock.json"
-      - "scripts/android-web-asset-inventory.mjs"
-      - "scripts/android-smoke.mjs"
-      - "scripts/build-frontend-web.sh"
-      - "scripts/check-android-app-health.sh"
-      - "scripts/forward-android-webview.sh"
-      - "scripts/generate-android-web-asset-inventory.mjs"
-      - "scripts/inject-native-auth-bridge.mjs"
-      - "scripts/verify-android-frontend-build.mjs"
-      - "scripts/verify-android-runtime-schema.mjs"
-      - "scripts/verify-android-web-assets-clean.mjs"
-      - "scripts/verify-android-web-asset-overlays.mjs"
-      - "scripts/normalize-capacitor-cordova-gradle.mjs"
-      - "scripts/normalize-cordova-config.mjs"
-      - "scripts/patch-capacitor-android-unchecked.mjs"
-      - "scripts/start-android-emulator.sh"
-      - "scripts/wait-for-android-device.sh"
-      - "scripts/webview-cdp-client.mjs"
-      - "scripts/webview-live-auth-smoke.mjs"
-      - "scripts/with-android-env.sh"
-      - "tests/android-smoke*.test.ts"
-      - "tests/android-native-auth-route-inventory.test.ts"
-      - "tests/native-auth-bridge*.test.ts"
-      - "tests/webview-*.test.ts"
   push:
     branches: [main]
     paths:
@@ -73,13 +44,54 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: android-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: Classify applicable native checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.scope.outputs.result }}
+    steps:
+      - name: Read complete native PR diff
+        id: scope
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEVANT_PATHS: >-
+            [".github/workflows/android-smoke.yml","android/**","capacitor.config.ts","package.json","package-lock.json","scripts/android-web-asset-inventory.mjs","scripts/android-smoke.mjs","scripts/build-frontend-web.sh","scripts/check-android-app-health.sh","scripts/forward-android-webview.sh","scripts/generate-android-web-asset-inventory.mjs","scripts/inject-native-auth-bridge.mjs","scripts/verify-android-frontend-build.mjs","scripts/verify-android-runtime-schema.mjs","scripts/verify-android-web-assets-clean.mjs","scripts/verify-android-web-asset-overlays.mjs","scripts/normalize-capacitor-cordova-gradle.mjs","scripts/normalize-cordova-config.mjs","scripts/patch-capacitor-android-unchecked.mjs","scripts/start-android-emulator.sh","scripts/wait-for-android-device.sh","scripts/webview-cdp-client.mjs","scripts/webview-live-auth-smoke.mjs","scripts/with-android-env.sh","tests/android-smoke*.test.ts","tests/android-native-auth-route-inventory.test.ts","tests/native-auth-bridge*.test.ts","tests/webview-*.test.ts"]
+        with:
+          result-encoding: string
+          script: |
+            if (context.eventName !== 'pull_request') return 'true';
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const read = async () => (await github.rest.pulls.get({ owner, repo, pull_number })).data;
+            const before = await read();
+            if (before.head.sha !== context.payload.pull_request.head.sha) throw new Error('PR head changed');
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number, per_page: 100 });
+            if (!files.length || files.length >= 3000 || files.length !== before.changed_files ||
+                !files.every(file => typeof file.filename === 'string' &&
+                  (file.previous_filename === undefined || typeof file.previous_filename === 'string'))) {
+              throw new Error('Incomplete native PR diff');
+            }
+            const after = await read();
+            if (after.head.sha !== before.head.sha || after.base.sha !== before.base.sha) throw new Error('PR changed');
+            const { matchesGlob } = require('node:path');
+            const patterns = JSON.parse(process.env.RELEVANT_PATHS);
+            const relevant = path => patterns.some(pattern => pattern.endsWith('/**')
+              ? path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2))
+              : matchesGlob(path, pattern));
+            return files.some(file => relevant(file.filename) ||
+              (file.previous_filename && relevant(file.previous_filename))) ? 'true' : 'false';
+
   smoke:
+    needs: scope
+    if: ${{ needs.scope.outputs.relevant == 'true' }}
     name: Android user journey (API 35)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -394,3 +406,23 @@ jobs:
               kill "$emulator_pid" 2>/dev/null || true
             fi
           fi
+
+  acceptance:
+    name: Android Smoke Acceptance
+    if: ${{ always() }}
+    needs: [scope, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require applicable native check completion
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          RELEVANT: ${{ needs.scope.outputs.relevant }}
+          CHILD_RESULT: ${{ needs.smoke.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          case "$RELEVANT:$CHILD_RESULT" in
+            true:success | false:skipped) exit 0 ;;
+            *) echo 'Applicable native checks did not succeed' >&2; exit 1 ;;
+          esac

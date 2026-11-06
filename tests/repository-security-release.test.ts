@@ -15,10 +15,9 @@ const { repositorySecurityPolicy, verifyEvidence, verifyRepositorySecurity } =
   await import(modulePath);
 const subject = "a".repeat(40);
 const hour = 60 * 60 * 1000;
-const policyExpiry = Date.parse(repositorySecurityPolicy.expiresAt);
-const now = new Date(policyExpiry - 2 * hour);
+const now = new Date("2026-11-06T12:00:00Z");
 const completedAt = new Date(now.getTime() - hour).toISOString();
-const nextUpdate = new Date(policyExpiry + hour).toISOString();
+const nextUpdate = new Date(now.getTime() + hour).toISOString();
 const differentDigest = (digest: string) =>
   digest.slice(0, -1) + (digest.endsWith("0") ? "1" : "0");
 const evidence = () => ({
@@ -28,7 +27,11 @@ const evidence = () => ({
   gate_state: "CLEAN",
   completed_at: completedAt,
   database: { status: "FRESH", next_update: nextUpdate },
-  policy: { sha256: repositorySecurityPolicy.sha256 },
+  policy: {
+    id: repositorySecurityPolicy.id,
+    version: repositorySecurityPolicy.version,
+    sha256: repositorySecurityPolicy.sha256,
+  },
   scanner: { ...repositorySecurityPolicy.scanner },
   summary: { total: 0, actionable: 0, review_required: 0, excepted: 0 },
   findings: [],
@@ -173,18 +176,20 @@ end
 
 describe("exact release source security evidence", () => {
   it("accepts native v4 evidence from the reviewed shared scanner revision", () => {
-    expect(repositorySecurityPolicy.expiresAt).toBe("2026-11-04T00:00:00Z");
+    expect(repositorySecurityPolicy).not.toHaveProperty("expiresAt");
     const reviewedEvidence = {
       ...evidence(),
       schema_version: "secpal-trivy-repository-scan-v4",
       policy: {
+        id: "secpal-trivy-repository-policy-v1",
+        version: "1.1.0",
         sha256:
-          "sha256:93e562f043c8faf304b8f244ce9d9141f1e51ccec48e5be86c9559dad70efe79",
+          "sha256:2e8f61564b8c6336e1a5804ea266f9a33e2eff2cac833047b88688a5b353f1d5",
       },
       scanner: {
         ...evidence().scanner,
         configuration_sha256:
-          "sha256:3ab6f8a9feba5749e18d4a5049a94acc39ea2f3da3afb065371275a13218bf54",
+          "sha256:49dcd123a4d4c7c6ef4ba3452e2454214f8a5e149e8b0f336244fc5f96ec24f2",
       },
     };
 
@@ -233,9 +238,14 @@ describe("exact release source security evidence", () => {
       {
         ...evidence(),
         policy: {
+          ...evidence().policy,
           sha256: differentDigest(repositorySecurityPolicy.sha256),
         },
       },
+      ...["id", "version"].map((key) => ({
+        ...evidence(),
+        policy: { ...evidence().policy, [key]: "unreviewed" },
+      })),
       ...Object.entries(repositorySecurityPolicy.scanner).map(
         ([key, value]) => ({
           ...evidence(),
@@ -264,27 +274,34 @@ describe("exact release source security evidence", () => {
       );
   });
 
-  it("accepts unexpired exceptions and enforces exception and policy expiry independently with a fresh database", () => {
+  it("rejects exception-bearing evidence even when its exception and database are unexpired", () => {
     const withException = {
       ...evidence(),
       summary: { total: 1, actionable: 0, review_required: 0, excepted: 1 },
       findings: [
         {
-          exception: { expires_at: repositorySecurityPolicy.expiresAt },
+          exception: {
+            expires_at: new Date(now.getTime() + 2 * hour).toISOString(),
+          },
         },
       ],
     };
-    const beforeExpiry = new Date(policyExpiry - 1);
-    expect(() =>
-      verifyEvidence(withException, subject, beforeExpiry)
-    ).not.toThrow();
-    const expiredException = structuredClone(withException);
-    expiredException.findings[0].exception.expires_at = now.toISOString();
-    expect(() => verifyEvidence(expiredException, subject, now)).toThrow(
+    expect(() => verifyEvidence(withException, subject, now)).toThrow(
       "Repository security acceptance failed"
     );
+
+    // The retired verifier also admitted this disposition before its fixed deadline.
+    const historicalNow = new Date("2026-11-03T12:00:00Z");
+    const historicalException = {
+      ...withException,
+      completed_at: new Date(historicalNow.getTime() - hour).toISOString(),
+      database: {
+        status: "FRESH",
+        next_update: new Date(historicalNow.getTime() + hour).toISOString(),
+      },
+    };
     expect(() =>
-      verifyEvidence(evidence(), subject, new Date(policyExpiry))
+      verifyEvidence(historicalException, subject, historicalNow)
     ).toThrow("Repository security acceptance failed");
   });
 });

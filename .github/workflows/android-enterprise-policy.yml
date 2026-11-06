@@ -8,6 +8,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "android/**"
       - ".github/workflows/android-enterprise-policy.yml"
       - "package.json"
       - "package-lock.json"
@@ -28,31 +29,53 @@ on:
       - "android/variables.gradle"
   pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/android-enterprise-policy.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "scripts/start-android-emulator.sh"
-      - "scripts/wait-for-android-device.sh"
-      - "scripts/wait-for-device-policy-account-scan.sh"
-      - "scripts/with-android-env.sh"
-      - "android/build.gradle"
-      - "android/settings.gradle"
-      - "android/app/build.gradle"
-      - "android/app/ct-regression-proguard-rules.pro"
-      - "android/app/src/ctRegression/AndroidManifest.xml"
-      - "android/app/src/main/AndroidManifest.xml"
-      - "android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java"
-      - "android/dpc/**"
-      - "android/management/**"
-      - "android/app/src/main/java/app/secpal/EnterprisePolicyState.java"
-      - "android/variables.gradle"
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  scope:
+    name: Classify applicable native checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.scope.outputs.result }}
+    steps:
+      - name: Read complete native PR diff
+        id: scope
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEVANT_PATHS: >-
+            ["android/**",".github/workflows/android-enterprise-policy.yml","package.json","package-lock.json","scripts/start-android-emulator.sh","scripts/wait-for-android-device.sh","scripts/wait-for-device-policy-account-scan.sh","scripts/with-android-env.sh","android/build.gradle","android/settings.gradle","android/app/build.gradle","android/app/ct-regression-proguard-rules.pro","android/app/src/ctRegression/AndroidManifest.xml","android/app/src/main/AndroidManifest.xml","android/app/src/androidTest/java/app/secpal/EnterpriseManagementInstrumentedTest.java","android/dpc/**","android/management/**","android/app/src/main/java/app/secpal/EnterprisePolicyState.java","android/variables.gradle"]
+        with:
+          result-encoding: string
+          script: |
+            if (context.eventName !== 'pull_request') return 'true';
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const read = async () => (await github.rest.pulls.get({ owner, repo, pull_number })).data;
+            const before = await read();
+            if (before.head.sha !== context.payload.pull_request.head.sha) throw new Error('PR head changed');
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number, per_page: 100 });
+            if (!files.length || files.length >= 3000 || files.length !== before.changed_files ||
+                !files.every(file => typeof file.filename === 'string' &&
+                  (file.previous_filename === undefined || typeof file.previous_filename === 'string'))) {
+              throw new Error('Incomplete native PR diff');
+            }
+            const after = await read();
+            if (after.head.sha !== before.head.sha || after.base.sha !== before.base.sha) throw new Error('PR changed');
+            const { matchesGlob } = require('node:path');
+            const patterns = JSON.parse(process.env.RELEVANT_PATHS);
+            const relevant = path => patterns.some(pattern => pattern.endsWith('/**')
+              ? path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2))
+              : matchesGlob(path, pattern));
+            return files.some(file => relevant(file.filename) ||
+              (file.previous_filename && relevant(file.previous_filename))) ? 'true' : 'false';
+
   device-owner-policy:
+    needs: scope
+    if: ${{ needs.scope.outputs.relevant == 'true' }}
     name: DPC ${{ matrix.owner }} policy (API 35)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -181,3 +204,23 @@ jobs:
           denied_output="$(bash ./scripts/with-android-env.sh adb -s emulator-5570 shell content call \
             --uri content://io.secpal.dpc.ctregression.management --method management_state 2>&1 || true)"
           grep -F "SecurityException" <<<"$denied_output"
+
+  acceptance:
+    name: Enterprise Policy Acceptance
+    if: ${{ always() }}
+    needs: [scope, device-owner-policy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require applicable native check completion
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          RELEVANT: ${{ needs.scope.outputs.relevant }}
+          CHILD_RESULT: ${{ needs.device-owner-policy.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          case "$RELEVANT:$CHILD_RESULT" in
+            true:success | false:skipped) exit 0 ;;
+            *) echo 'Applicable native checks did not succeed' >&2; exit 1 ;;
+          esac

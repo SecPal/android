@@ -28,7 +28,7 @@ type WorkflowStep = {
 type SmokeWorkflow = {
   name: string;
   on: {
-    pull_request: { branches: string[]; paths: string[] };
+    pull_request: { branches: string[]; paths?: string[] };
     push: { branches: string[]; paths: string[] };
     schedule: Array<{ cron: string }>;
     workflow_dispatch: Record<string, unknown>;
@@ -134,7 +134,8 @@ describe("Android smoke workflow", () => {
     expect(parityStep?.run).toBe(
       "./node_modules/.bin/vitest run tests/android-native-auth-route-inventory.test.ts"
     );
-    expect(workflow.on.pull_request.paths).toContain(
+    expect(workflow.on.pull_request.paths).toBeUndefined();
+    expect(workflow.on.push.paths).toContain(
       "tests/android-native-auth-route-inventory.test.ts"
     );
     expect(workflow.on.push.paths).toContain(
@@ -179,7 +180,8 @@ describe("Android smoke workflow", () => {
     ];
 
     for (const path of requiredPaths) {
-      expect(workflow.on.pull_request.paths).toContain(path);
+      expect(workflow.on.pull_request.paths).toBeUndefined();
+      expect(workflow.on.push.paths).toContain(path);
       expect(workflow.on.push.paths).toContain(path);
     }
   });
