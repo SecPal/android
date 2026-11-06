@@ -16,14 +16,13 @@ const require = createRequire(join(moduleRoot, "package.json"));
 let parseHtml;
 let ts;
 let DecodingMode;
-let EntityDecoder;
-let htmlDecodeTree;
+let HtmlEntityDecoder;
 try {
   ts = require("typescript");
   ({ parse: parseHtml } = await import(
     pathToFileURL(require.resolve("parse5")).href
   ));
-  ({ DecodingMode, EntityDecoder, htmlDecodeTree } = await import(
+  ({ DecodingMode, HtmlEntityDecoder } = await import(
     pathToFileURL(require.resolve("entities/decode")).href
   ));
 } catch (error) {
@@ -2617,7 +2616,7 @@ function decodeHtmlCharacterReferences(value) {
     }
 
     const decodedReference = [];
-    const decoder = new EntityDecoder(htmlDecodeTree, (codePoint) =>
+    const decoder = new HtmlEntityDecoder((codePoint) =>
       decodedReference.push(codePoint)
     );
     decoder.startEntity(DecodingMode.Attribute);
