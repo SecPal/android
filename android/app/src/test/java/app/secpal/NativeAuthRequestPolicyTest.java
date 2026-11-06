@@ -210,7 +210,7 @@ public class NativeAuthRequestPolicyTest {
             { "GET", "/v1/customers?search=Acme&is_active=1&page=1&per_page=25", null, 0 },
             { "POST", "/v1/customers", "application/json", 2 },
             { "GET", "/v1/customers/customer-1", null, 0 },
-            { "PATCH", "/v1/customers/customer-1", "application/json", 2 },
+            { "PUT", "/v1/customers/customer-1/transactional-edit", "application/json", 2, "\"snapshot\"" },
             { "DELETE", "/v1/customers/customer-1", null, 0 },
             { "GET", "/v1/sites?search=North&is_active=1&customer_id=1&legal_entity_id=entity-1&establishment_id=establishment-1&type=branch&page=1&per_page=25", null, 0 },
             { "POST", "/v1/sites", "application/json", 2 },
@@ -219,8 +219,6 @@ public class NativeAuthRequestPolicyTest {
             { "DELETE", "/v1/sites/site-1", null, 0 },
             { "GET", "/v1/customer-establishments?customer_id=customer-1&establishment_id=establishment-1&page=1&per_page=25", null, 0 },
             { "POST", "/v1/customer-establishments", "application/json", 2 },
-            { "PATCH", "/v1/customer-establishments/link-1", "application/json", 2 },
-            { "DELETE", "/v1/customer-establishments/link-1", null, 0 },
             { "GET", "/v1/employees?status=active&legal_entity_id=entity-1&establishment_id=establishment-1&search=Jane&page=1&per_page=25", null, 0 },
             { "POST", "/v1/employees", "application/json", 2 },
             { "GET", "/v1/employees/employee-1", null, 0 },
@@ -249,6 +247,8 @@ public class NativeAuthRequestPolicyTest {
                 (String) request[0],
                 (String) request[1],
                 (String) request[2],
+                null,
+                request.length == 5 ? (String) request[4] : null,
                 (Integer) request[3]
             );
         }
@@ -286,6 +286,8 @@ public class NativeAuthRequestPolicyTest {
                 (String) request[0],
                 (String) request[1],
                 (String) request[2],
+                null,
+                request.length == 5 ? (String) request[4] : null,
                 (Integer) request[3]
             );
         }
