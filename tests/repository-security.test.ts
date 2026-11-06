@@ -65,7 +65,7 @@ describe("repository security acceptance", () => {
     expect(job.steps?.[1]).toEqual({
       name: "Scan exact source",
       id: "repository-scan",
-      uses: "SecPal/.github/.github/actions/trivy-repository-scan@338f357fbdfc31d51c42268760254066a9501e88",
+      uses: "SecPal/.github/.github/actions/trivy-repository-scan@aa28f9b2c11645e8cc2f12755ff31ae21c1bfaff",
     });
     const source = readFileSync(
       ".github/workflows/reusable-repository-security.yml",
