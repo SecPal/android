@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep the repository security workflow test compatible with full-SHA scanner
+  updates while preserving the exact action path and security gate assertions.
+
 - Restore protected Dependabot PATCH/MINOR auto-merge with the accepted central
   source verifier; retain manual MAJOR and unclassified updates.
 
