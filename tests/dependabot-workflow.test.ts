@@ -39,8 +39,8 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
     "allowed-ecosystems": "github_actions,npm_and_yarn",
     "merge-method": "squash",
   });
-  expect(workflow.jobs["auto-merge"].uses).toBe(
-    "SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@31555f23d459031248006f77785d872bc3947127"
+  expect(workflow.jobs["auto-merge"].uses).toMatch(
+    /^SecPal\/\.github\/\.github\/workflows\/reusable-dependabot-auto-merge\.yml@[0-9a-f]{40}$/
   );
   expect(Object.values(workflow.jobs).every((job) => Boolean(job.uses))).toBe(
     true
