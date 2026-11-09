@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: true
 
 # Required permissions for dependabot auto-merge
-# Cache access is disabled by the accepted immutable callee.
+cache-mode: none
 permissions:
   contents: write
   pull-requests: write
