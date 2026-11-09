@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restore protected Dependabot PATCH/MINOR auto-merge with the accepted central
+  source verifier; retain manual MAJOR and unclassified updates.
+
 - Keep HTML attribute domain validation working with the entities 9 HTML decoder while preserving attribute decoding and fail-closed checks.
 
 - Preserve customer snapshot ETags and validated If-Match values through the native auth bridge for atomic customer edits, retaining API conflict statuses and rejecting obsolete partial-edit routes.
