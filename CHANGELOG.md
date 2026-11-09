@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow full-SHA Dependabot auto-merge workflow updates without duplicating the
+  pinned revision in the contract test; retain workflow path and safety checks.
+
 - Keep the repository security workflow test compatible with full-SHA scanner
   updates while preserving the exact action path and security gate assertions.
 
