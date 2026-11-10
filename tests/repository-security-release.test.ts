@@ -41,7 +41,14 @@ it("authenticates the current successful main attempt and its unique artifact, f
   const root = mkdtempSync(join(tmpdir(), "release-evidence-test-"));
   try {
     writeFileSync(join(root, "result.json"), JSON.stringify(evidence()));
-    execFileSync("zip", ["-q", "evidence.zip", "result.json"], { cwd: root });
+    execFileSync(
+      "python3",
+      [
+        "-c",
+        "import zipfile; zipfile.ZipFile('evidence.zip', 'w').write('result.json', 'result.json')",
+      ],
+      { cwd: root }
+    );
     const archive = readFileSync(join(root, "evidence.zip"));
     const run = {
       id: 17,
@@ -175,11 +182,11 @@ end
 });
 
 describe("exact release source security evidence", () => {
-  it("accepts native v4 evidence from the reviewed shared scanner revision", () => {
+  it("accepts native v5 evidence from the reviewed shared scanner revision", () => {
     expect(repositorySecurityPolicy).not.toHaveProperty("expiresAt");
     const reviewedEvidence = {
       ...evidence(),
-      schema_version: "secpal-trivy-repository-scan-v4",
+      schema_version: "secpal-trivy-repository-scan-v5",
       policy: {
         id: "secpal-trivy-repository-policy-v1",
         version: "1.1.0",
@@ -189,7 +196,7 @@ describe("exact release source security evidence", () => {
       scanner: {
         ...evidence().scanner,
         configuration_sha256:
-          "sha256:49dcd123a4d4c7c6ef4ba3452e2454214f8a5e149e8b0f336244fc5f96ec24f2",
+          "sha256:1c6144c29552d20f0bf6ba7fc5c20b33c3c4bc2a419a0833c1f5d9927c51ee28",
       },
     };
 
@@ -202,6 +209,7 @@ describe("exact release source security evidence", () => {
       undefined,
       {},
       { ...evidence(), schema_version: "unsupported-schema" },
+      { ...evidence(), schema_version: "secpal-trivy-repository-scan-v4" },
       ...[
         "",
         "ACTIONABLE",
