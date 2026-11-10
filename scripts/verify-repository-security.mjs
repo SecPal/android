@@ -10,9 +10,9 @@ import { openLiteralZipArchive } from "./literal-zip-archive.mjs";
 
 const repository = "SecPal/android";
 // Accepted zero-exception policy and configuration from the shared action
-// at 338f357fbdfc31d51c42268760254066a9501e88 (SecPal/.github#1301, #1305).
+// at 10a30f8fe705fddd70fb81776304e20ab7f9c1a6.
 export const repositorySecurityPolicy = Object.freeze({
-  schemaVersion: "secpal-trivy-repository-scan-v4",
+  schemaVersion: "secpal-trivy-repository-scan-v5",
   id: "secpal-trivy-repository-policy-v1",
   version: "1.1.0",
   sha256:
@@ -23,7 +23,7 @@ export const repositorySecurityPolicy = Object.freeze({
     immutable_id:
       "sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a",
     configuration_sha256:
-      "sha256:49dcd123a4d4c7c6ef4ba3452e2454214f8a5e149e8b0f336244fc5f96ec24f2",
+      "sha256:1c6144c29552d20f0bf6ba7fc5c20b33c3c4bc2a419a0833c1f5d9927c51ee28",
   }),
 });
 const failure =

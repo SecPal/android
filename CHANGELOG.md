@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Accept the adopted scanner's v5 release evidence and exact configuration
+  identity while retaining source, workflow, policy, artifact and freshness checks.
+
 - Allow full-SHA Dependabot auto-merge workflow updates without duplicating the
   pinned revision in the contract test; retain workflow path and safety checks.
 
