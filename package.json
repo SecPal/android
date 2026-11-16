@@ -84,8 +84,8 @@
     "postinstall": "npm run native:patch:capacitor-android"
   },
   "dependencies": {
-    "@capacitor/android": "^8.6.0",
-    "@capacitor/core": "^8.6.0"
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.0",
@@ -101,10 +101,10 @@
     "js-yaml": "^5.4.2",
     "markdownlint-cli": "0.50.0",
     "parse5": "^8.1.1",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
-    "vite": "^8.3.6",
+    "vite": "^8.3.8",
     "vitest": "^5.1.0",
     "yaml": "^2.9.1",
     "yauzl": "3.4.0"
