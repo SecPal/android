@@ -26,7 +26,7 @@ jobs:
         id: repository-scan
         # Accepted main revision with zero policy exceptions.
         # yamllint disable-line rule:line-length
-        uses: SecPal/.github/.github/actions/trivy-repository-scan@03bbb63cf7d02acaa2c679ffd8bb92246ecefaa6 # main
+        uses: SecPal/.github/.github/actions/trivy-repository-scan@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
 
       - name: Require clean repository evidence
         env:
