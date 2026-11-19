@@ -181,20 +181,39 @@ describe("canonical app version", () => {
     expect(invalid.status).toBe(1);
     expect(invalid.stderr).toContain("YYYYMMDDXX");
 
-    const valid = spawnSync(
-      "ruby",
-      [wrapperPath, "native:bundle:release:signed", "printf", "validated"],
-      {
-        cwd: repoRoot,
-        env: {
-          ...environment,
-          SECPAL_ANDROID_VERSION_CODE: "2026072201",
-        },
-        encoding: "utf8",
-      }
-    );
-    expect(valid.status).toBe(0);
-    expect(valid.stdout).toBe("validated");
+    // Supply the independently tested evidence verifier at this wrapper boundary.
+    const stub = `
+def system(*args)
+  raise "unexpected verifier" unless args == ["node", File.expand_path("verify-repository-security.mjs", ENV.fetch("SECPAL_TEST_SCRIPTS"))]
+  ENV.fetch("SECPAL_TEST_SECURITY_RESULT") == "accepted"
+end
+load ARGV.shift
+`;
+    for (const security of ["accepted", "rejected"]) {
+      const valid = spawnSync(
+        "ruby",
+        [
+          "-e",
+          stub,
+          wrapperPath,
+          "native:bundle:release:signed",
+          "printf",
+          "validated",
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...environment,
+            SECPAL_ANDROID_VERSION_CODE: "2026072201",
+            SECPAL_TEST_SECURITY_RESULT: security,
+            SECPAL_TEST_SCRIPTS: join(repoRoot, "scripts"),
+          },
+          encoding: "utf8",
+        }
+      );
+      expect(valid.status, valid.stderr).toBe(security === "accepted" ? 0 : 1);
+      expect(valid.stdout).toBe(security === "accepted" ? "validated" : "");
+    }
   });
 
   it.each(["native:assemble:release:signed", "native:bundle:release:signed"])(

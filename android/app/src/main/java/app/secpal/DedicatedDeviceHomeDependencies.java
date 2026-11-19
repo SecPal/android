@@ -10,30 +10,30 @@ import androidx.annotation.Nullable;
 import java.util.List;
 
 class DedicatedDeviceHomeDependencies {
-    EnterpriseManagedState syncPolicy(DedicatedDeviceHomeActivity activity) {
-        return EnterprisePolicyController.syncPolicy(activity);
+    EnterpriseManagedState getManagedState(DedicatedDeviceHomeActivity activity) {
+        return EnterprisePolicyClient.getManagedState(activity);
     }
 
     void maybeEnterLockTask(DedicatedDeviceHomeActivity activity) {
-        EnterprisePolicyController.maybeEnterLockTask(activity);
+        EnterprisePolicyClient.maybeEnterLockTask(activity);
     }
 
-    List<EnterprisePolicyController.AllowedLaunchApp> resolveAllowedLaunchApps(
+    List<EnterprisePolicyClient.AllowedLaunchApp> resolveAllowedLaunchApps(
         DedicatedDeviceHomeActivity activity
     ) {
-        return EnterprisePolicyController.resolveAllowedLaunchApps(activity);
+        return EnterprisePolicyClient.resolveAllowedLaunchApps(activity);
     }
 
     void launchAllowedApp(DedicatedDeviceHomeActivity activity, String packageName) {
-        EnterprisePolicyController.launchAllowedApp(activity, packageName);
+        EnterprisePolicyClient.launchAllowedApp(activity, packageName);
     }
 
     void launchPhone(DedicatedDeviceHomeActivity activity) {
-        EnterprisePolicyController.launchPhone(activity);
+        EnterprisePolicyClient.launchPhone(activity);
     }
 
     void launchSms(DedicatedDeviceHomeActivity activity) {
-        EnterprisePolicyController.launchSms(activity);
+        EnterprisePolicyClient.launchSms(activity);
     }
 
     @Nullable

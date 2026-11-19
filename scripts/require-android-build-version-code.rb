@@ -21,4 +21,8 @@ rescue SecPalAndroidRelease::ReleaseError,
   exit 1
 end
 
+unless system("node", File.expand_path("verify-repository-security.mjs", __dir__))
+  abort "Repository security acceptance is required before a signed build."
+end
+
 exec(*ARGV)

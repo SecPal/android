@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025-2026 SecPal
+SPDX-FileCopyrightText: 2025-2026 SecPal Contributors
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
@@ -13,8 +13,8 @@ We welcome contributions to SecPal! Please read our [Code of Conduct](CODE_OF_CO
 
 Ensure you have the following tools installed:
 
-- **Git** with GPG signing configured
-- **Node.js** (v22.x) and npm
+- **Git** with SSH signing configured
+- **Node.js** 26 (`>=26.11.1 <27`) and npm (`>=10.0.0`)
 - **Java 21** for Android/Gradle tooling
 - **Android Studio** and Android SDK for native development
 - **Pre-commit** hooks tool (optional but recommended)
@@ -112,12 +112,14 @@ These exclusions are configured in `.preflight-exclude` and match the GitHub CI 
 2. **Create a feature branch** using our naming convention (see below).
 3. **Write your code** and add tests where applicable.
 4. **Ensure all tests pass** locally by running `./scripts/preflight.sh`.
-5. **Sign your commits** with GPG (see below).
+5. **Sign your commits** with SSH (see below).
 6. **Push your branch** and open a pull request against `main`.
 
 All pull requests must target `main`. Direct pushes to `main` are blocked locally and should also be blocked by GitHub branch protection.
 
-All pull requests will be reviewed by a maintainer and by GitHub Copilot.
+Request review through GitHub and satisfy required reviews and checks before
+merging. Keep Ready pull requests Ready and request another review directly
+when a revision invalidates an earlier review.
 
 ## Pull Request Rules
 
@@ -340,32 +342,36 @@ Closes #123"
 
 ## Signing Commits
 
-All commits must be signed with GPG. To set up commit signing:
+SecPal contributor commits use SSH signing. Every pull-request commit must
+have GitHub `verification.verified == true` before merging.
+
+Preserve the existing SSH signing identity and configuration. Do not replace
+keys, reuse a transport key as a signing credential, disable signing, or switch
+to another signature format. If the required SSH identity is unavailable, stop
+at that credential boundary rather than provisioning an alternative.
+
+Verify local commits with the maintained SSH trust configuration:
 
 ```bash
-# Generate a GPG key (if you don't have one)
-gpg --gen-key
-
-# List your GPG keys
-gpg --list-secret-keys --keyid-format LONG
-
-# Configure Git to use your key
-git config --global user.signingkey <YOUR_KEY_ID>
-git config --global commit.gpgSign true
-
-# Add your GPG key to GitHub
-gpg --armor --export <YOUR_KEY_ID>
-# Copy the entire output (including the BEGIN and END PGP PUBLIC KEY BLOCK lines)
-# and paste it into GitHub under Settings → SSH and GPG keys → New GPG key.
+git config --get gpg.format
+git verify-commit HEAD
 ```
+
+The configured format must be `ssh`; Git's `gpg.format` option name does not
+mean GPG/OpenPGP is used. Every PR commit must be verified by GitHub.
+GitHub-generated PGP signatures and strictly necessary immutable
+historical verification are provider/history evidence, never new SecPal signing
+authority.
 
 ## Pull Request Guidelines
 
 - **Keep PRs small:** Aim for < 600 lines of changes. Large PRs are harder to review.
 - **Write clear descriptions:** Use the PR template and fill out all relevant sections.
-- **Link related issues:** Reference issues with `Closes #123` or `Fixes #456`.
+- **Link related issues:** Use non-closing references such as `Refs #123` for
+  related work. Reserve `Closes #123` or `Fixes #456` for issues the change completes.
 - **Ensure CI passes:** All checks must pass before merging.
-- **Request reviews:** Tag relevant maintainers or wait for automatic review.
+- **Request reviews:** Request review through GitHub and request another review
+  directly when a revision invalidates an earlier review.
 - **Address feedback:** Respond to review comments promptly.
 
 ## Code Style

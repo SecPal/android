@@ -160,27 +160,34 @@ public boolean isEnabled() {
     expect(patched).toContain("public boolean isEnabled()");
   });
 
-  it("preserves SystemBars DOM readiness without a JavaScript interface", () => {
+  it("preserves the Capacitor 8.5.2 native SystemBars page listener", () => {
     const source = `
-import android.webkit.JavascriptInterface;
+public class SystemBars extends Plugin {
+    @Override
+    protected void handleOnStart() {
+        super.handleOnStart();
 
-public void load() {
-    this.bridge.getWebView().addJavascriptInterface(this, "CapacitorSystemBarsAndroidInterface");
-    super.load();
-}
+        if (INSETS_HANDLING_DISABLE.equals(insetsHandling)) {
+            return;
+        }
 
-this.getBridge().addWebViewListener(
-    new WebViewListener() {
-        @Override
-        public void onPageCommitVisible(WebView view, String url) {
-            super.onPageCommitVisible(view, url);
-            getBridge().getWebView().requestApplyInsets();
+        if (webViewListener == null) {
+            webViewListener = new WebViewListener() {
+                @Override
+                public void onPageCommitVisible(WebView view, String url) {
+                    super.onPageCommitVisible(view, url);
+                    bridge.getWebView().evaluateJavascript(viewportMetaJSFunction, (res) -> {
+                        hasViewportCover = res.equals("true");
+
+                        // Request new execution tree of \`setOnApplyWindowInsetsListener\`
+                        bridge.getWebView().requestApplyInsets();
+                    });
+                }
+            };
+            this.getBridge().addWebViewListener(webViewListener);
         }
     }
-);
-
-@JavascriptInterface
-public void onDOMReady() {}
+}
 `;
 
     const patched = patchCapacitorLegacyInterfaceSource(
@@ -188,10 +195,13 @@ public void onDOMReady() {}
       "CapacitorSystemBarsAndroidInterface"
     );
 
-    expect(patched).not.toContain("addJavascriptInterface");
-    expect(patched).not.toContain("@JavascriptInterface");
-    expect(patched).toContain("public void onPageLoaded(WebView webView)");
-    expect(patched).toContain("onDOMReady();");
+    expect(patched).toBe(source);
+    expect(
+      patchCapacitorLegacyInterfaceSource(
+        patched,
+        "CapacitorSystemBarsAndroidInterface"
+      )
+    ).toBe(patched);
   });
 
   it("removes unused core plugins at Capacitor's native registration boundary", () => {
@@ -566,12 +576,17 @@ public void setAnimation(final PluginCall call) {}
     );
   });
 
-  it("blocks the direct Capacitor native HTTP interceptor", () => {
+  it("blocks the Capacitor 8.5.2 native HTTP interceptor before its upstream guards", () => {
     const source = `
     public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
         Uri loadingUrl = request.getUrl();
 
         if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            // Only fetch/XHR should reach the proxy; a document would run remote content at the app origin.
+            boolean httpEnabled = bridge.getConfig().getPluginConfiguration("CapacitorHttp").getBoolean("enabled", false);
+            if (!httpEnabled || isDocumentRequest(request)) {
+                return null;
+            }
             Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
             try {
                 return handleCapacitorHttpRequest(request);
@@ -588,16 +603,24 @@ public void setAnimation(final PluginCall call) {}
     const patched = patchCapacitorHttpInterceptorSource(source);
 
     expect(patched).not.toContain("handleCapacitorHttpRequest(request)");
+    expect(patched).not.toContain("httpEnabled");
+    expect(patched).not.toContain("isDocumentRequest(request)");
     expect(patched).toContain(
       "Blocked direct Capacitor native HTTP interceptor request"
     );
     expect(patched).toContain("403");
+    expect(patched).toContain("PathHandler handler;");
     expect(patchCapacitorHttpInterceptorSource(patched)).toBe(patched);
   });
 
   it("fails closed when comments interrupt the native HTTP interceptor pattern", () => {
     const source = `
         if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            // Only fetch/XHR should reach the proxy; a document would run remote content at the app origin.
+            boolean httpEnabled = bridge.getConfig().getPluginConfiguration("CapacitorHttp").getBoolean("enabled", false);
+            if (!httpEnabled || isDocumentRequest(request)) {
+                return null;
+            }
 /* upstream comment */            Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
             try {
                 return handleCapacitorHttpRequest(request);
@@ -746,9 +769,23 @@ public void setAnimation(final PluginCall call) {}
       "utf8"
     );
     expect(systemBarsSource).toContain(
-      "public void onPageLoaded(WebView webView)"
+      "public void onPageCommitVisible(WebView view, String url)"
     );
-    expect(systemBarsSource).toContain("onDOMReady();");
+    expect(systemBarsSource).toContain(
+      "bridge.getWebView().evaluateJavascript(viewportMetaJSFunction, (res) -> {"
+    );
+    expect(systemBarsSource).toContain(
+      'hasViewportCover = res.equals("true");'
+    );
+    expect(systemBarsSource).toContain(
+      "bridge.getWebView().requestApplyInsets();"
+    );
+    expect(
+      systemBarsSource.indexOf('hasViewportCover = res.equals("true");')
+    ).toBeLessThan(
+      systemBarsSource.indexOf("bridge.getWebView().requestApplyInsets();")
+    );
+    expect(systemBarsSource).not.toContain("onDOMReady");
     expect(systemBarsSource).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
     expect(systemBarsSource).not.toContain(
       "import com.getcapacitor.PluginMethod;"

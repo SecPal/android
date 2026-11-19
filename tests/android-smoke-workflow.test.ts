@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -203,28 +204,45 @@ describe("Android smoke workflow", () => {
     expect(emulatorHelperSource).toContain("-no-snapshot");
   });
 
-  it("uses the documented runtime and seed credentials without logging the password", () => {
+  it("requires the dedicated smoke credential before starting the emulator without logging it", () => {
     expect(workflowSource).toContain(
       "SECPAL_RUNTIME_URL: https://api.secpal.dev"
     );
-    expect(workflowSource).toContain("SECPAL_TEST_EMAIL: test@example.com");
-    expect(workflow.jobs.smoke.env.SECPAL_TEST_PASSWORD).toBeUndefined();
-    expect(workflowSource).not.toContain("SECPAL_TEST_PASSWORD: password");
-
-    const credentialStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Configure documented test credential"
+    expect(workflowSource).toContain(
+      "SECPAL_TEST_EMAIL: android-ci@example.com"
     );
-    const journeyStepIndex = workflow.jobs.smoke.steps.findIndex(
+    expect(workflow.jobs.smoke.env.SECPAL_TEST_PASSWORD).toBeUndefined();
+    const credentialStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Validate dedicated test credential"
+    );
+    const emulatorStepIndex = workflow.jobs.smoke.steps.findIndex(
+      (step) => step.name === "Start API-35 emulator"
+    );
+    const credentialStep = workflow.jobs.smoke.steps[credentialStepIndex];
+    const journey = workflow.jobs.smoke.steps.find(
       (step) => step.name === "Run Android smoke journey"
     );
-    const credentialSetup =
-      workflow.jobs.smoke.steps[credentialStepIndex]?.run ?? "";
-
     expect(credentialStepIndex).toBeGreaterThan(-1);
-    expect(credentialStepIndex).toBeLessThan(journeyStepIndex);
-    expect(credentialSetup).toContain("'pass' 'word'");
-    expect(credentialSetup).toContain("::add-mask::${test_password}");
-    expect(credentialSetup).toContain("SECPAL_TEST_PASSWORD=${test_password}");
+    expect(credentialStepIndex).toBeLessThan(emulatorStepIndex);
+    const secret = "${{ secrets.ANDROID_SMOKE_PASSWORD }}";
+    expect(credentialStep?.env?.SECPAL_TEST_PASSWORD).toBe(secret);
+    expect(journey?.env?.SECPAL_TEST_PASSWORD).toBe(secret);
+    const setup = credentialStep?.run ?? "";
+    expect(setup).not.toContain("$GITHUB_ENV");
+    for (const password of ["", "synthetic-fixture-credential"]) {
+      const result = spawnSync("bash", ["-c", setup], {
+        encoding: "utf8",
+        env: { ...process.env, SECPAL_TEST_PASSWORD: password },
+      });
+      expect(result.status).toBe(password ? 0 : 1);
+      if (password) {
+        expect(result.stdout + result.stderr).not.toContain(password);
+      } else {
+        expect(result.stdout + result.stderr).toContain(
+          "ANDROID_SMOKE_PASSWORD"
+        );
+      }
+    }
   });
 
   it("executes the complete persistence, lifecycle, logout, and instance-switch journey", () => {

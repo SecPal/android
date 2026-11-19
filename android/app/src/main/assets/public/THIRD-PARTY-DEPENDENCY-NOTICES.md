@@ -2,7 +2,7 @@
 
 This file is generated from the modules included in this release build. It preserves the license and notice files distributed with each bundled npm package.
 
-## @base-ui/react@1.7.0
+## @base-ui/react@1.9.0
 
 ### LICENSE
 
@@ -30,7 +30,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## @base-ui/utils@0.3.2
+## @base-ui/utils@0.5.0
 
 ### LICENSE
 
@@ -58,7 +58,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## @capacitor/core@8.5.0
+## @capacitor/core@8.5.3
 
 ### LICENSE
 
@@ -294,7 +294,7 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
-## @lingui/core@6.6.0
+## @lingui/core@6.10.1
 
 ### LICENSE
 
@@ -322,7 +322,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @lingui/message-utils@6.6.0
+## @lingui/message-utils@6.10.1
 
 ### LICENSE
 
@@ -350,7 +350,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @lingui/react@6.6.0
+## @lingui/react@6.10.1
 
 ### LICENSE
 
@@ -430,6 +430,34 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## @remix-run/route-pattern@0.22.1
+
+### LICENSE
+
+```text
+MIT License
+
+Copyright (c) 2025 Shopify Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## class-variance-authority@0.7.1
@@ -680,7 +708,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## dexie@4.4.4
+## dexie@4.4.7
 
 ### LICENSE
 
@@ -934,7 +962,7 @@ THE SOFTWARE.
 ```
 ````
 
-## lucide-react@1.31.0
+## lucide-react@1.61.0
 
 ### LICENSE
 
@@ -1036,7 +1064,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## react-dom@19.2.8
+## react-dom@19.3.1
 
 ### LICENSE
 
@@ -1064,7 +1092,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## react-router@8.3.0
+## react-router@8.5.0
 
 ### LICENSE.md
 
@@ -1094,7 +1122,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## react@19.2.8
+## react@19.3.1
 
 ### LICENSE
 
@@ -1122,7 +1150,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## reselect@5.2.0
+## reselect@5.3.0
 
 ### LICENSE
 
@@ -1150,7 +1178,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## scheduler@0.27.0
+## scheduler@0.28.0
 
 ### LICENSE
 
@@ -1178,7 +1206,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## tailwind-merge@3.6.0
+## tailwind-merge@3.7.0
 
 ### LICENSE.md
 
@@ -1234,7 +1262,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## use-sync-external-store@1.6.0
+## use-sync-external-store@1.7.0
 
 ### LICENSE
 
@@ -1262,7 +1290,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## web-vitals@6.1.0
+## web-vitals@6.2.3
 
 ### LICENSE
 

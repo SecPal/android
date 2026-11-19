@@ -60,6 +60,37 @@ For the current SecPal setup, this means `app.secpal` is the better default than
 
 The chosen SecPal baseline is to keep DPC capability inside the same `SecPal` app instead of creating a second enterprise-only package. Installation path, policy state, and managed configuration should determine behavior, not a different application ID.
 
+## Repository Security Before Signing Or Publication
+
+Release from a clean, committed source with a successful **main-push Quality
+Checks** run for that exact commit. Run
+`node scripts/verify-repository-security.mjs` on the release workstation with
+GitHub CLI authenticated for read access to this repository's Actions evidence.
+The signed-build wrappers and Fastlane signing/publication boundaries enforce
+this read-only precondition before signing, Play upload or Direct APK mutation.
+The check records the accepted commit, run and evidence artifact reference.
+
+Only authenticated v2 evidence from the accepted shared scanner/policy with a
+CLEAN gate and a still-fresh database is acceptable. Missing, malformed, failed,
+skipped, ACTIONABLE, REVIEW_REQUIRED and UNKNOWN_STALE evidence blocks release.
+If the database evidence has expired, rerun Quality Checks on that exact main
+commit and wait for successful fresh evidence. A successful build alone is
+insufficient. Commit any packaging/source changes and obtain evidence for that
+new commit before signing.
+
+The reviewed country-reference exception is bound to the exact source blob and
+expires at **2026-10-18T00:00:00Z**. The current release acceptance also stops at
+that boundary; old artifacts cannot extend it. Any successor requires fresh
+independent central policy review and an explicit reviewed adoption update.
+There are no Android-local scanner exceptions or signing secrets in scanning CI.
+
+Repository source scanning covers supported npm and Bundler lockfile dependency
+surfaces, supported configuration rules and secrets. It does not establish a
+Gradle vulnerability inventory from this repository's unlocked build scripts,
+AndroidManifest semantics, or final signed APK/AAB safety. Existing packaging,
+runtime-schema, signing identity, version and publication-lock checks remain
+independent requirements. Release credentials stay on the operator workstation.
+
 ## Google Developer Account
 
 A Google Play Developer account is only required to publish through Google Play.

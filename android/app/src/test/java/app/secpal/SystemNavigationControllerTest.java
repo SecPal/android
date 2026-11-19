@@ -16,9 +16,9 @@ public class SystemNavigationControllerTest {
 
     @Test
     public void gestureNavigationModeValueIsRecognized() {
-        assertTrue(SystemNavigationController.isGestureNavigationModeValue(2));
-        assertFalse(SystemNavigationController.isGestureNavigationModeValue(0));
-        assertFalse(SystemNavigationController.isGestureNavigationModeValue(1));
+        assertTrue(SystemNavigationSettings.isGestureNavigationModeValue(2));
+        assertFalse(SystemNavigationSettings.isGestureNavigationModeValue(0));
+        assertFalse(SystemNavigationSettings.isGestureNavigationModeValue(1));
     }
 
     @Test

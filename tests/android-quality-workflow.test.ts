@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
@@ -21,6 +21,8 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  uses?: string;
+  with?: Record<string, unknown>;
   "runs-on"?: string;
   steps?: WorkflowStep[];
   "timeout-minutes"?: number;
@@ -52,7 +54,7 @@ describe("Android quality workflow", () => {
     expect(steps).toContainEqual(
       expect.objectContaining({
         uses: expect.stringMatching(/^actions\/setup-node@[0-9a-f]{40}$/),
-        with: { "node-version": "22", cache: "npm" },
+        with: { "node-version": expect.any(String), cache: "npm" },
       })
     );
     expect(steps).toContainEqual(
@@ -73,7 +75,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:lint"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon --continue -p android :app:lintDebug :app:lintRelease :app:lintCtRegression :app:lintStoreListing :dpc:lintDebug :dpc:lintRelease :dpc:lintCtRegression"
     );
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -81,7 +83,7 @@ describe("Android quality workflow", () => {
         uses: expect.stringMatching(/^actions\/upload-artifact@[0-9a-f]{40}$/),
         with: {
           name: "android-lint-reports",
-          path: "android/app/build/reports/lint-results-*",
+          path: "android/app/build/reports/lint-results-*\nandroid/dpc/build/reports/lint-results-*\n",
           "if-no-files-found": "error",
           "retention-days": 7,
         },
@@ -110,7 +112,7 @@ describe("Android quality workflow", () => {
     expect(steps).toContainEqual(
       expect.objectContaining({
         uses: expect.stringMatching(/^actions\/setup-node@[0-9a-f]{40}$/),
-        with: { "node-version": "22", cache: "npm" },
+        with: { "node-version": expect.any(String), cache: "npm" },
       })
     );
     expect(steps).toContainEqual(
@@ -131,7 +133,7 @@ describe("Android quality workflow", () => {
       })
     );
     expect(packageJson.scripts["native:test:unit"]).toBe(
-      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest"
+      "bash ./scripts/with-android-env.sh ./android/gradlew --no-daemon -p android :app:testDebugUnitTest :dpc:testDebugUnitTest"
     );
     const reportUpload = steps.find((step) =>
       step.uses?.startsWith("actions/upload-artifact@")
@@ -151,7 +153,74 @@ describe("Android quality workflow", () => {
       expect.arrayContaining([
         "android/app/build/reports/tests/testDebugUnitTest",
         "android/app/build/test-results/testDebugUnitTest",
+        "android/dpc/build/reports/tests/testDebugUnitTest",
+        "android/dpc/build/test-results/testDebugUnitTest",
       ])
     );
+  });
+});
+
+describe("Android Node toolchain contract", () => {
+  it("aligns the supported runtime, engine, locked metadata, types and exact CI selectors", () => {
+    type NodeMetadata = {
+      engines: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "package.json"), "utf8")
+    ) as NodeMetadata;
+    const lock = JSON.parse(
+      readFileSync(resolve(repoRoot, "package-lock.json"), "utf8")
+    ) as {
+      packages: Record<string, NodeMetadata & { version: string }>;
+    };
+    const major = readFileSync(resolve(repoRoot, ".nvmrc"), "utf8").trim();
+
+    expect(major).toBe("26");
+    expect(packageJson.engines.node).toMatch(/^>=26\.\d+\.\d+ <27$/);
+    expect(lock.packages[""].engines).toEqual(packageJson.engines);
+    expect(packageJson.devDependencies["@types/node"]).toMatch(/^\^26\./);
+    expect(lock.packages[""].devDependencies["@types/node"]).toBe(
+      packageJson.devDependencies["@types/node"]
+    );
+    expect(lock.packages["node_modules/@types/node"].version).toMatch(/^26\./);
+
+    const exactNode = packageJson.engines.node.split(" ")[0].slice(2);
+    const workflowDirectory = resolve(repoRoot, ".github/workflows");
+    const selectors: string[] = [];
+    for (const filename of readdirSync(workflowDirectory)) {
+      if (!/\.ya?ml$/.test(filename)) continue;
+      const workflow = load(
+        readFileSync(resolve(workflowDirectory, filename), "utf8")
+      ) as Workflow;
+      for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
+        const assertSelector = (
+          inputs: Record<string, unknown> | undefined
+        ) => {
+          expect(inputs?.["node-version"], `${filename}: ${name}`).toBe(
+            exactNode
+          );
+          expect(
+            inputs?.["node-version-file"],
+            `${filename}: ${name}`
+          ).toBeUndefined();
+          selectors.push(`${filename}: ${name}`);
+        };
+        if (
+          job.uses &&
+          /\/reusable-(?:node-(?:lint|build)|prettier|markdown-lint|ai-instructions)\.yml@/.test(
+            job.uses
+          )
+        ) {
+          assertSelector(job.with);
+        }
+        for (const step of job.steps ?? []) {
+          if (step.uses?.startsWith("actions/setup-node@")) {
+            assertSelector(step.with);
+          }
+        }
+      }
+    }
+    expect(selectors.length).toBeGreaterThan(0);
   });
 });

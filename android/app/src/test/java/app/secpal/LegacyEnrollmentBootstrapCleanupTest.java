@@ -31,7 +31,7 @@ public class LegacyEnrollmentBootstrapCleanupTest {
             Context.MODE_PRIVATE
         );
         SharedPreferences enterprisePreferences = context.getSharedPreferences(
-            EnterprisePolicyController.ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
 

@@ -158,6 +158,11 @@ const hardenedPluginExport = `        for (PluginHandle plugin : plugins) {
             lines.add(`;
 const systemBarsPluginMethods = ["hide", "setAnimation", "setStyle", "show"];
 const upstreamCapacitorHttpInterceptor = `        if (null != loadingUrl.getPath() && loadingUrl.getPath().startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)) {
+            // Only fetch/XHR should reach the proxy; a document would run remote content at the app origin.
+            boolean httpEnabled = bridge.getConfig().getPluginConfiguration("CapacitorHttp").getBoolean("enabled", false);
+            if (!httpEnabled || isDocumentRequest(request)) {
+                return null;
+            }
             Logger.debug("Handling CapacitorHttp request: " + loadingUrl);
             try {
                 return handleCapacitorHttpRequest(request);
@@ -468,7 +473,11 @@ export function patchCapacitorHttpInterceptorSource(source) {
       "Expected Capacitor native HTTP interceptor pattern was not found"
     );
   }
-  if (!sourceWithoutComments.includes(upstreamCapacitorHttpInterceptor)) {
+  if (
+    !sourceWithoutComments.includes(
+      stripJavaComments(upstreamCapacitorHttpInterceptor)
+    )
+  ) {
     throw new Error(
       "Expected Capacitor native HTTP interceptor pattern was not found"
     );
@@ -526,41 +535,7 @@ export function patchCapacitorLegacyInterfaceSource(source, interfaceName) {
     );
   }
 
-  if (interfaceName !== "CapacitorSystemBarsAndroidInterface") {
-    return patchedSource;
-  }
-
-  return patchSystemBarsDomReadySource(patchedSource);
-}
-
-function patchSystemBarsDomReadySource(source) {
-  if (
-    source.includes("public void onPageLoaded(WebView webView)") &&
-    source.includes("onDOMReady();")
-  ) {
-    return source;
-  }
-
-  const pageCommitCallback =
-    /^(\s*)@Override\n\1public void onPageCommitVisible\(WebView view, String url\) \{\n\1 {4}super\.onPageCommitVisible\(view, url\);\n\1 {4}getBridge\(\)\.getWebView\(\)\.requestApplyInsets\(\);\n\1\}$/m;
-  const match = source.match(pageCommitCallback);
-
-  if (!match) {
-    throw new Error(
-      "Expected Capacitor SystemBars page-listener source pattern was not found"
-    );
-  }
-
-  const indent = match[1];
-  const nativeDomReadyCallback = `${match[0]}
-
-${indent}@Override
-${indent}public void onPageLoaded(WebView webView) {
-${indent}    super.onPageLoaded(webView);
-${indent}    onDOMReady();
-${indent}}`;
-
-  return source.replace(pageCommitCallback, nativeDomReadyCallback);
+  return patchedSource;
 }
 
 export function patchSystemBarsCallableSurfaceSource(source) {

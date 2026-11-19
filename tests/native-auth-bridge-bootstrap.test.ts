@@ -2960,6 +2960,108 @@ describe("native auth bridge bootstrap injection", () => {
     await expect(response.text()).resolves.toBe('{"ok":true}');
   });
 
+  it.each([200, 409, 412, 428])(
+    "preserves snapshot ETag and conditional edit status %s through native fetch",
+    async (status) => {
+      const { buildNativeAuthBridgeBootstrapScript } =
+        await loadInjectorModule();
+      const etag = '"snapshot-1,stable/etag"';
+      const plugin = {
+        login: vi.fn().mockResolvedValue({ user: { id: 1 } }),
+        request: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 200,
+            bodyBase64: encodeBase64('{"data":{"id":"customer-1"}}'),
+            contentType: "application/json",
+            etag,
+          })
+          .mockResolvedValueOnce({
+            status,
+            bodyBase64: encodeBase64('{"message":"edit result"}'),
+            contentType: "application/json",
+          }),
+        getRuntimeBootstrap: vi.fn().mockResolvedValue({
+          configured: true,
+          bootstrap: buildRuntimeBootstrapValue({
+            apiOrigin: "https://api.secpal.dev",
+            rawApiBaseUrl: "https://api.secpal.dev/v1",
+          }),
+        }),
+      };
+      const browserFetch = vi.fn();
+      const sandbox: Record<string, unknown> = {
+        Capacitor: { Plugins: { SecPalNativeAuth: plugin } },
+        sessionStorage: createMockStorage(),
+        fetch: browserFetch,
+        Request,
+        Response,
+        Headers,
+        URL,
+        Uint8Array,
+        ArrayBuffer,
+        TextEncoder,
+        TextDecoder,
+        btoa: (value: string) =>
+          Buffer.from(value, "binary").toString("base64"),
+        atob: (value: string) =>
+          Buffer.from(value, "base64").toString("binary"),
+        console,
+        location: { href: "https://app.secpal.dev/" },
+      };
+      sandbox.globalThis = sandbox;
+      runNativeBridgeInContext(
+        buildNativeAuthBridgeBootstrapScript(runtimeBootstrapPlaceholderOrigin),
+        sandbox
+      );
+      await (
+        sandbox.SecPalNativeAuthBridge as {
+          login(credentials: {
+            email: string;
+            password: string;
+          }): Promise<unknown>;
+        }
+      ).login({ email: "worker@secpal.dev", password: "pass" });
+      const nativeFetch = sandbox.fetch as typeof fetch;
+      const snapshot = await nativeFetch(
+        "https://api.secpal.dev/v1/customers/customer-1"
+      );
+      expect(snapshot.headers.get("ETag")).toBe(etag);
+      expect(snapshot.headers.get("Set-Cookie")).toBeNull();
+      const body = JSON.stringify({
+        customer: { name: "Updated" },
+        establishments: [],
+      });
+      const response = await nativeFetch(
+        "https://api.secpal.dev/v1/customers/customer-1/transactional-edit",
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "If-Match": snapshot.headers.get("ETag")!,
+            "X-Untrusted": "must not cross",
+          },
+          body,
+        }
+      );
+      expect(plugin.request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          method: "PUT",
+          path: "/v1/customers/customer-1/transactional-edit",
+          ifMatch: etag,
+          bodyBase64: encodeBase64(body),
+        })
+      );
+      expect(plugin.request.mock.calls[1][0]).not.toHaveProperty("headers");
+      expect(plugin.request.mock.calls[1][0]).not.toHaveProperty("X-Untrusted");
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({
+        message: "edit result",
+      });
+      expect(browserFetch).not.toHaveBeenCalled();
+    }
+  );
+
   it("exposes runtime bootstrap methods on the injected bridge for the shared frontend facade", async () => {
     const { buildNativeAuthBridgeBootstrapScript } = await loadInjectorModule();
     const runtimeBootstrap = {

@@ -62,7 +62,7 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
-        EnterpriseManagedState managedState = dependencies.syncPolicy(this);
+        EnterpriseManagedState managedState = dependencies.getManagedState(this);
         dependencies.maybeEnterLockTask(this);
 
         if (!managedState.isKioskActive()) {
@@ -104,7 +104,7 @@ public final class DedicatedDeviceHomeActivity extends AppCompatActivity {
             view -> openSecPal()
         ));
 
-        for (EnterprisePolicyController.AllowedLaunchApp allowedApp
+        for (EnterprisePolicyClient.AllowedLaunchApp allowedApp
             : dependencies.resolveAllowedLaunchApps(this)) {
             tiles.add(new DedicatedDeviceHomeTileModel(
                 allowedApp.getLabel(),

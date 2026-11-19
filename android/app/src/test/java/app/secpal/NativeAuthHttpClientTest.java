@@ -38,6 +38,57 @@ import org.robolectric.RobolectricTestRunner;
 public class NativeAuthHttpClientTest {
 
     @Test
+    public void snapshotValidatorAndConditionalEditStatusesCrossTheNativeTransportUnchanged() throws Exception {
+        String tag = "\"snapshot-1,stable/etag\"";
+        StubHttpURLConnection snapshot = new StubHttpURLConnection(
+            new URL("https://api.secpal.dev"), 200, null, "{}".getBytes(StandardCharsets.UTF_8), "application/json"
+        ) {
+            @Override public String getHeaderField(String name) {
+                return "ETag".equalsIgnoreCase(name) ? tag : super.getHeaderField(name);
+            }
+        };
+        com.getcapacitor.JSObject loaded = new NativeAuthHttpClient(url -> snapshot).request(
+            "https://api.secpal.dev", "native-token", "GET", "/v1/customers/customer-1", null, null, "application/json"
+        );
+        assertEquals(tag, loaded.getString("etag"));
+        assertFalse(loaded.has("headers"));
+        for (int status : new int[] { 200, 409, 412, 428 }) {
+            StubHttpURLConnection edit = new StubHttpURLConnection(
+                new URL("https://api.secpal.dev"), status, null, "{}".getBytes(StandardCharsets.UTF_8), "application/json"
+            );
+            NativeAuthRequestPolicy.AuthorizedRequest authorized = NativeAuthRequestPolicy.authorize(
+                "PUT", "/v1/customers/customer-1/transactional-edit", "application/json", "application/json", tag, 2
+            );
+            com.getcapacitor.JSObject result = new NativeAuthHttpClient(url -> edit).requestAuthorized(
+                "https://api.secpal.dev", "native-token", authorized, "e30=", new NativeAuthHttpClient.CancellationSignal()
+            );
+            assertEquals(status, result.getInteger("status").intValue());
+            assertEquals(tag, edit.getRequestProperty("If-Match"));
+            assertEquals("Bearer native-token", edit.getRequestProperty("Authorization"));
+            assertEquals("{}", new String(edit.getWrittenRequestBody(), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    public void malformedResponseValidatorsAreRejectedInsteadOfDroppedOrRewritten() throws Exception {
+        for (String tag : new String[] { "", "unquoted", "\"one\", \"two\"", "\"bad\r\nInjected: x\"", "\"bad" + (char) 127 + "\"" }) {
+            NativeAuthHttpClient client = new NativeAuthHttpClient(url -> new StubHttpURLConnection(
+                url, 200, null, "{}".getBytes(StandardCharsets.UTF_8), "application/json"
+            ) {
+                @Override public String getHeaderField(String name) {
+                    return "ETag".equalsIgnoreCase(name) ? tag : super.getHeaderField(name);
+                }
+            });
+            try {
+                client.request("https://api.secpal.dev", "native-token", "GET", "/v1/customers/customer-1", null, null, "application/json");
+                throw new AssertionError("Malformed response ETag must fail closed");
+            } catch (NativeAuthHttpException expected) {
+                assertTrue(expected.getMessage().contains("entity tag"));
+            }
+        }
+    }
+
+    @Test
     public void normalizeBaseUrlTrimsWhitespaceAndTrailingSlash() throws Exception {
         assertEquals("https://api.secpal.dev", NativeAuthHttpClient.normalizeBaseUrl(" https://api.secpal.dev/ "));
     }

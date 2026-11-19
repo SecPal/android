@@ -32,7 +32,7 @@ public class SecPalEnterprisePluginTest {
             false,
             true,
             true,
-            List.of(new EnterprisePolicyController.AllowedLaunchApp("com.example.camera", "Camera"))
+            List.of(new EnterprisePolicyClient.AllowedLaunchApp("com.example.camera", "Camera"))
         );
 
         assertEquals(9, payload.length());

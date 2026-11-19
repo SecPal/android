@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2026 SecPal
+SPDX-FileCopyrightText: 2026 SecPal Contributors
 SPDX-License-Identifier: CC0-1.0
 -->
 
@@ -12,10 +12,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Retired unused GitHub Project-board automation and its obsolete Draft PR
+  Reminder. Native issues, pull requests, reviews and required checks remain.
+
+### Fixed
+
+- Accept the adopted scanner's v5 release evidence and exact configuration
+  identity while retaining source, workflow, policy, artifact and freshness checks.
+
+- Allow full-SHA Dependabot auto-merge workflow updates without duplicating the
+  pinned revision in the contract test; retain workflow path and safety checks.
+
+- Keep the repository security workflow test compatible with full-SHA scanner
+  updates while preserving the exact action path and security gate assertions.
+
+- Restore protected Dependabot PATCH/MINOR auto-merge with the accepted central
+  source verifier; retain manual MAJOR and unclassified updates.
+
+- Keep HTML attribute domain validation working with the entities 9 HTML decoder while preserving attribute decoding and fail-closed checks.
+
+- Preserve customer snapshot ETags and validated If-Match values through the native auth bridge for atomic customer edits, retaining API conflict statuses and rejecting obsolete partial-edit routes.
+
+- Rebuild the packaged web assets from accepted frontend revision
+  `14d67a7478a9d3671b61767643266fffd1995653`, preserving the complete ISO
+  country list without emitting token-shaped data that triggers secret scanning.
+
+- Adopt the accepted zero-exception repository scanner and its exact release
+  evidence identities. Remove the retired fixed policy deadline while retaining
+  source, scanner and database-expiry checks and rejecting exception-bearing evidence.
+
+- Create API 37 AVDs with pinned Android Command-Line Tools 22.0 and require
+  the real android-37.0 target before boot, preventing graphics-service and
+  PackageManager restarts caused by obsolete AVD metadata (refs #811).
+
+- Recover once from a proven API 37 pre-install PackageManager handler broken
+  pipe without retrying other handler errors or genuine test failures (refs #795).
+
+- Give each strict-CSP browser smoke its own temporary Chromium profile and
+  remove it after bounded process cleanup, preserving the existing CSP and
+  API-traffic assertions without a shared default browser profile.
+
+- Use a dedicated, isolated Android smoke account with private Actions and
+  Dependabot credentials instead of assuming a shared public seed password;
+  reject missing credentials before starting the emulator (refs #793).
+
+- Pass the emulator API level into the existing package-install readiness
+  check before running certificate-transparency instrumentation (refs #793).
+
+- Adopt the requalified shared Trivy policy and configuration identities. Keep
+  signed-build admission bounded by the earliest global policy expiry on
+  November 4, 2026; the exact-blob country-reference disposition remains
+  separately reviewed through November 20, 2026.
+
+- Update the Markdown lint parser to resolve CVE-2026-111758 and CVE-2026-111766,
+  and align signed-build security acceptance with the pinned scanner's v4
+  evidence and reviewed policy and configuration identities.
+
+- Keep repository security workflow tests compatible with full-SHA action
+  updates, derive release test identities and expiry boundaries from the shared
+  acceptance configuration, and align signed-build acceptance with the reviewed
+  shared Trivy policy and configuration (SecPal/.github#1199). The exact-blob Android country
+  reference exception remains bounded through October 27, 2026; stale or changed
+  evidence still blocks signing and publication.
+
+### Changed
+
+- Moved contributor pull-request delivery and review to native GitHub reviews,
+  checks, and merge protections while preserving SSH commit verification.
+
+- Adopt Node.js 26 for the Android toolchain, replacing Node 22. Restrict the
+  engine to `>=26.11.1 <27`, preserve major-26 Node declarations and Android's
+  npm policy, and pin active Node workflow selectors to qualified Node 26.11.1.
+  Structural coverage checks runtime, engine, lockfile, types and CI agreement.
+
 ### Added
 
-- Added complete Dependabot coverage for active Gradle, Bundler, and pre-commit
-  manifests (issue #640).
+- Extend Dependabot coverage to the Android Gradle build at `/android`, root
+  Bundler dependencies, and pre-commit hooks (issue #640).
+
+- Require fresh, exact-commit repository security evidence from the pinned shared
+  Trivy scanner in PR/main quality checks and before local signed builds or
+  publication. Only CLEAN is accepted; signing and artifact checks remain separate
+  (issue #641).
+
+- Added the separate `io.secpal.dpc` Android management application with
+  independent signing inputs and local test keys. Device Owner/Profile Owner
+  enforcement, provisioning callbacks and protected Samsung managed-key reception
+  now belong to DPC. Work (`app.secpal`) retains its UI, runtime, existing signing
+  and distribution; it reads fresh, mutually certificate-authenticated management
+  snapshots and uses only Android-authorized lock task (issue #713).
+  Builds configure public peer certificate digests using `SECPAL_DPC_CERT_SHA256`
+  for Work and `SECPAL_WORK_CERT_SHA256` for DPC. Missing or mismatched trust fails
+  closed. DPC release signing uses only `SECPAL_DPC_KEYSTORE_PATH`,
+  `SECPAL_DPC_KEYSTORE_PASSWORD`, `SECPAL_DPC_KEY_ALIAS` and
+  `SECPAL_DPC_KEY_PASSWORD`; it rejects Work's signing certificate. No production
+  key or distribution channel is created. Existing single-package owner
+  installations require explicit reprovisioning; an update does not transfer
+  ownership or trust the retired Work-local management state. Management state
+  grants no endpoint identity, user/session authority or business permissions.
+  Work exposes its dedicated HOME only after authenticated kiosk activation;
+  unavailable snapshots cannot exit an existing lock task. Work consumes the
+  provisioning navigation handoff once without rearming it on each state read.
+  DPC uses Android’s owner service on API 26+ and an owner-only sticky listener
+  service on API 24–25. Samsung partner inputs now feed the DPC manifest.
+  The unmanaged debug kiosk simulation is removed; debug management tests
+  require the real DPC owner role and independently signed APK pair.
+
 - Added an isolated native Android push revocation coordinator that retries
   origin-bound protected tombstones with their retained authority, treats
   `200`, `204`, and `404` DELETE responses idempotently, durably discards
@@ -63,6 +167,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve bounded API 37 PackageManager recovery when a zero-test installation
+  failure carries Gradle's generic test-failure footer. Started tests and
+  unrecognized failures still fail without infrastructure retries. Enforce the
+  existing recovery-wait deadline around stalled ADB children (issue #725).
+
+- Qualify API 37 PackageInstaller storage after the PackageManager handler waits
+  and before every connected-test attempt. A bounded disposable session must be
+  created and abandoned before Gradle may install APKs; no APK is written or
+  committed by the probe. Identified sessions are also abandoned when creation
+  emits diagnostics or returns an error. Recovery budgets and API 36 and
+  earlier readiness are unchanged; API 37 recovery also rejects logs reporting started tests or test
+  failures before classifying infrastructure errors (issue #725).
+
+- Updated the Markdown linter's transitive KaTeX and TOML parser dependencies
+  to patched releases, resolving inherited-trust and parsing denial-of-service
+  advisories without downgrading the linter. Lockfile regression coverage
+  prevents restoring vulnerable TOML parser releases.
+
+- Keep temporary paths out of shell arguments in the Android Enterprise
+  signing-input regression test by using an isolated working directory and a
+  fixed relative report filename.
+
+- Preserve certificate-extraction command failures in Android Enterprise workflow
+  signing-input preparation, including upstream DPC pipeline failures, and isolate
+  its regression shell from ambient startup configuration (issue #726).
+
+- Wait for API 37 PackageManager foreground and background handlers before each
+  connected-test APK installation, including after emulator recovery, with
+  bounded waits that abort before Gradle when package initialization fails.
+
+- Updated transitive `source-map-js` to `1.2.2`, resolving the high-severity
+  indexed source-map denial-of-service advisory `GHSA-68fv-2mgg-jv7q` and restoring
+  the dependency-audit CI check.
+
+- Derive local Work peer pins from Gradle's selected signing certificate, so owner-boundary tests never trust an unrelated default keystore.
+
+- Required a valid `device_provisioned` response for emulator readiness and
+  waited once before retrying API 37 zero-test APK installation failures caused
+  by SettingsProvider initialization, without rebooting the initializing system
+  or retrying persistent provider failures.
+- Recognized API 37 PackageManager `install-create` broken-pipe failures before
+  instrumentation starts, sharing the existing bounded split-install
+  reboot-and-retry budget with `install-commit` failures.
+- Fixed dependency installation with Capacitor Android 8.5.2 by updating the
+  native HTTP interceptor patch and removing the obsolete SystemBars DOM-ready
+  shim in favor of the upstream native page listener. Preserved unconditional
+  HTTP 403 responses, native inset updates, bridge isolation, and fail-closed
+  rejection of unexpected HTTP interceptor source changes.
+- Aligned Vitest and its V8 coverage provider at 5.0.3 and explicitly installed
+  the required Vite peer dependency so coverage runs complete after the upgrade.
+- Updated vulnerable development-tool dependencies for brace expansion and
+  Markdown, YAML, and TOML parsing to patched releases.
 - Moved the default direct-APK Fastlane publication target from the legacy VPS
   to Uberspace while preserving local signing and the existing Stable/Beta
   artifact contract.
@@ -368,6 +524,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Separated privileged Android owner-policy enforcement into `DpcPolicyEnforcer`
+  from Work-side managed-state presentation, app launching, navigation, and
+  already-authorized lock-task use. Shared policy derivation remains single-owned;
+  admin callbacks and Android lifecycle wiring enforce management policy without
+  granting business authority or changing the `app.secpal` identity, signing, or
+  distribution (issue #711).
+
 - Migrated the authoritative AI instruction files to plain
   `AGPL-3.0-or-later` metadata, aligned their licensing, REUSE, copyright, and
   SecPal-branding safeguards, and kept existing repository-declared licenses
@@ -396,6 +559,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Robolectric coverage for dedicated-device launcher redirect, tile population, empty-state visibility, allowed-app clicks, and phone/SMS tile behavior through a swappable `DedicatedDeviceHomeDependencies` seam.
 
 ### Security
+
+- Patch development-tooling vulnerabilities with scoped minimatch 11.0.3,
+  re2js 2.8.7 and glob 14.0.2 overrides; update Fastlane Addressable to 2.9.2
+  without changing other gems (refs #802).
 
 - Pinned every external GitHub Action and reusable workflow to a verified full
   commit SHA with validated version documentation, including immutable nested

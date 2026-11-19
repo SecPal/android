@@ -30,6 +30,6 @@ public class WebViewCompatibilityActivity extends AppCompatActivity {
     }
 
     void enforceManagedPolicy() {
-        EnterprisePolicyController.maybeEnterLockTask(this);
+        EnterprisePolicyClient.maybeEnterLockTask(this);
     }
 }

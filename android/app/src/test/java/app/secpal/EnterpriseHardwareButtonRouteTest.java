@@ -24,7 +24,7 @@ public class EnterpriseHardwareButtonRouteTest {
         assertNull(
             EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(
                 android.view.KeyEvent.ACTION_DOWN,
-                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                SamsungHardKeyContract.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 false,
                 () -> 0L
@@ -34,7 +34,7 @@ public class EnterpriseHardwareButtonRouteTest {
             EnterpriseHardwareButtonRoute.PROFILE_ROUTE,
             EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(
                 android.view.KeyEvent.ACTION_UP,
-                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_XCOVER,
+                SamsungHardKeyContract.SAMSUNG_KEY_CODE_XCOVER,
                 0,
                 false,
                 () -> 250L
@@ -49,7 +49,7 @@ public class EnterpriseHardwareButtonRouteTest {
         assertNull(
             EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(
                 android.view.KeyEvent.ACTION_DOWN,
-                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
+                SamsungHardKeyContract.SAMSUNG_KEY_CODE_SOS,
                 0,
                 false,
                 () -> 0L
@@ -59,7 +59,7 @@ public class EnterpriseHardwareButtonRouteTest {
             EnterpriseHardwareButtonRoute.ABOUT_ROUTE,
             EnterpriseHardwareButtonRoute.resolveRouteForKeyEvent(
                 android.view.KeyEvent.ACTION_UP,
-                SamsungHardKeyReceiver.SAMSUNG_KEY_CODE_SOS,
+                SamsungHardKeyContract.SAMSUNG_KEY_CODE_SOS,
                 0,
                 false,
                 () -> longPressDurationMs

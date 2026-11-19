@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 SecPal Contributors
+     SPDX-License-Identifier: AGPL-3.0-or-later -->
+<resources>
+    <string name="app_name">SecPal DPC</string>
+    <string name="enterprise_device_admin_description">SecPal Android management policy controller</string>
+    <string name="enterprise_disable_warning">Disabling management removes SecPal device policy.</string>
+    <string name="enterprise_profile_name">SecPal Work</string>
+</resources>

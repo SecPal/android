@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2026 SecPal
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
 # SPDX-License-Identifier: MIT
 
 set -euo pipefail
@@ -47,6 +47,25 @@ trap 'rm -f "$attempt_log"' EXIT
 
 run_connected_test() {
     (
+        if (( api_level == 37 )); then
+            echo "Waiting for API 37 PackageManager handlers before APK installation"
+            for handler in wait-for-handler wait-for-background-handler; do
+                timeout --foreground --kill-after=5s "${readiness_timeout}s" \
+                    bash "${repo_root}/scripts/with-android-env.sh" \
+                    adb -s "$serial" shell cmd package "$handler" \
+                    --timeout "$((readiness_timeout * 1000))" || {
+                    handler_status=$?
+                    echo "API 37 PackageManager handler wait failed: ${handler}" >&2
+                    exit "$handler_status"
+                }
+            done
+            echo "Waiting for API 37 PackageInstaller storage readiness before APK installation"
+            # The readiness deadline bounds probes; leave seven seconds for
+            # their kill grace and the separately bounded session cleanup.
+            timeout --foreground --kill-after=5s "$((readiness_timeout + 7))s" \
+                bash "${repo_root}/scripts/wait-for-android-device.sh" \
+                "$serial" "$readiness_timeout" "$api_level" || exit "$?"
+        fi
         cd "${repo_root}/android"
         ANDROID_SERIAL="$serial" ./gradlew "${gradle_args[@]}"
     )
@@ -124,7 +143,18 @@ classify_api37_failure() {
     retry_reason=""
     reboot_before_retry=false
 
-    if grep -Fq "Starting 0 tests on" "$attempt_log" &&
+    # AGP's generic failure footer also appears after pre-test install failures.
+    # Positive counts prohibit recovery; otherwise a named failure must match.
+    if grep -Eq '(Starting|Finished) [1-9][0-9]* tests on ' "$attempt_log"; then
+        return
+    fi
+
+    if grep -Fq "API 37 PackageManager handler wait failed:" "$attempt_log" &&
+        grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
+        retry_key="package-manager-handler-broken-pipe"
+        retry_reason="pre-install PackageManager handler connection failure"
+        reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install-write all apks" "$attempt_log"; then
         retry_key="package-manager-install-write"
         retry_reason="PackageManager install-write failure"
@@ -134,12 +164,21 @@ classify_api37_failure() {
         fi
     elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
         grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
-        grep -Fq "Failed to commit install session" "$attempt_log" &&
+        {
+            grep -Fq "Failed to commit install session" "$attempt_log" ||
+                grep -Fq "package install-create" "$attempt_log"
+        } &&
         grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"; then
         retry_key="package-manager-split-install-broken-pipe"
         retry_limit=2
         retry_reason="PackageManager split-install connection failure"
         reboot_before_retry=true
+    elif grep -Fq "Starting 0 tests on" "$attempt_log" &&
+        grep -Fq "Failed to install split APK(s)" "$attempt_log" &&
+        grep -Fq "package install-create" "$attempt_log" &&
+        grep -Fq "Cannot access system provider: 'settings' before system providers are installed!" "$attempt_log"; then
+        retry_key="package-manager-settings-provider-unavailable"
+        retry_reason="SettingsProvider initialization during package installation"
     elif {
         grep -Fq "Failed to commit install session" "$attempt_log" &&
             grep -Fq "Failure calling service package: Broken pipe" "$attempt_log"
@@ -177,7 +216,9 @@ recover_api37_failure() {
         bash "${repo_root}/scripts/with-android-env.sh" \
             adb -s "$serial" reboot
     fi
-    bash "${repo_root}/scripts/wait-for-android-device.sh" \
+    # Bound the whole noninteractive wait group, including stalled ADB children.
+    timeout --verbose --kill-after=5s "${readiness_timeout}s" \
+        bash "${repo_root}/scripts/wait-for-android-device.sh" \
         "$serial" "$readiness_timeout"
 }
 

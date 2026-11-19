@@ -15,38 +15,50 @@ permissions:
   pull-requests: read
 
 jobs:
+  repository-security:
+    name: Repository Security
+    uses: ./.github/workflows/reusable-repository-security.yml
+    permissions:
+      contents: read
+
   reuse:
     name: Check REUSE Compliance
-    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
 
   license-compatibility:
     name: Check License Compatibility
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
 
   prettier:
     name: Formatting Check
-    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
+    with:
+      node-version: "26.11.1"
 
   markdown-lint:
     name: Markdown Lint
-    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
+    with:
+      node-version: "26.11.1"
 
   ai-instructions:
     name: AI Instructions
-    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
+    with:
+      node-version: "26.11.1"
 
   eslint:
     name: ESLint
-    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
     with:
-      node-version: "22"
+      node-version: "26.11.1"
 
   typecheck:
     name: TypeScript Check
-    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
     with:
-      node-version: "22"
+      node-version: "26.11.1"
       build-command: "npm run typecheck"
 
   dependency-audit:
@@ -59,9 +71,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Audit dependencies
@@ -77,13 +89,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: "temurin"
           java-version: "21"
@@ -98,10 +110,12 @@ jobs:
 
       - name: Upload Android lint reports
         if: ${{ failure() && steps.android_lint.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: android-lint-reports
-          path: android/app/build/reports/lint-results-*
+          path: |
+            android/app/build/reports/lint-results-*
+            android/dpc/build/reports/lint-results-*
           if-no-files-found: error
           retention-days: 7
 
@@ -115,13 +129,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: "temurin"
           java-version: "21"
@@ -136,12 +150,14 @@ jobs:
 
       - name: Upload Android JVM unit test reports
         if: ${{ failure() && steps.android_jvm_unit_tests.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: android-jvm-unit-test-reports
           path: |
             android/app/build/reports/tests/testDebugUnitTest
             android/app/build/test-results/testDebugUnitTest
+            android/dpc/build/reports/tests/testDebugUnitTest
+            android/dpc/build/test-results/testDebugUnitTest
           if-no-files-found: warn
           retention-days: 7
 
@@ -155,13 +171,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: "temurin"
           java-version: "21"
@@ -178,26 +194,36 @@ jobs:
 
   vitest:
     name: Vitest Tests
-    needs: dependency-audit
+    needs: [dependency-audit, repository-security]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: ${{ !startsWith(github.head_ref, 'spike/') && !startsWith(github.ref, 'refs/heads/spike/') }}
+    if: ${{ always() }}
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       SECPAL_REQUIRE_CSP_BROWSER: "1"
 
     steps:
+      - name: Require successful security prerequisites
+        env:
+          SECURITY_RESULT: ${{ needs.repository-security.result }}
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          if [ "$SECURITY_RESULT" != "success" ] || [ "$AUDIT_RESULT" != "success" ]; then
+            echo "Required repository security or dependency audit did not succeed." >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "22"
+          node-version: "26.11.1"
           cache: "npm"
 
       - name: Setup Ruby
-        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1
         with:
           ruby-version: "3.3"
           bundler-cache: true
@@ -215,7 +241,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ env.CODECOV_TOKEN }}
           files: ./coverage/lcov.info,./coverage/clover.xml

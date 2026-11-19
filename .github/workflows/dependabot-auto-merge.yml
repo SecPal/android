@@ -20,21 +20,29 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+      - labeled
+      - unlabeled
+      - edited
+      - converted_to_draft
 
 # Ensure only one auto-merge runs at a time per PR
 concurrency:
   group: ${{ github.repository }}-dependabot-auto-merge-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # Required permissions for dependabot auto-merge
+cache-mode: none
 permissions:
   contents: write
   pull-requests: write
+  checks: read
+  statuses: read
 
 jobs:
   auto-merge:
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@18befca1fe8712374b93331bf235a28912937e85 # main
+    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@f5c3b713c712f82fa0bb7f9c0e99a7f07bb75c66 # main
     with:
-      phase: "1" # Phase 1: Only PATCH updates auto-merge
+      allowed-ecosystems: "github_actions,npm_and_yarn"
+      phase: "2" # Verified PATCH and MINOR; Source Safety must be required
       merge-method: "squash" # Use squash merge for cleaner history

@@ -23,7 +23,7 @@ echo "Allowed: secpal.app, changelog.secpal.app, apk.secpal.app, secpal.dev"
 echo "Active web hosts: api.secpal.dev, app.secpal.dev"
 echo "Android artifact host: apk.secpal.app"
 echo "Changelog site: changelog.secpal.app"
-echo "Identifier-only: app.secpal and positively identified Android test derivatives"
+echo "Identifier-only: app.secpal, io.secpal.dpc and positively identified Android test derivatives"
 echo "Deprecated web hosts: ${deprecated_api_host}"
 echo "Forbidden: ${forbidden_hosts}, ANY other"
 echo ""
@@ -50,7 +50,8 @@ fi
 #   - app.secpal.ClassName (Java class imports, starting with uppercase), and
 #   - app.secpal.action.CONSTANT (intent actions, all-caps constants)
 # Derived test application IDs are removed by the parser only in positively
-# identified Android uninstall, admin-component, and instrumentation contexts.
+# identified Android Gradle, uninstall, admin-component, and instrumentation contexts.
+# DPC management authorities are accepted only in the exact content:// IPC URI.
 # This prevents the application identifier plus a web suffix from passing as approved.
 # This catches unknown domains that a denylist-only check would miss.
 # Hyphenated SecPal storage identifiers are only allowed when the complete
@@ -68,8 +69,10 @@ allow_api_secpal_app="${regex_host_prefix}api\\.secpal\\.app${regex_host_suffix}
 allow_app_secpal_identifier="${regex_candidate_prefix}app\\.secpal$"
 allow_app_secpal_class="${regex_candidate_prefix}app\\.secpal\\.[A-Z][A-Za-z0-9_]*$"
 allow_app_secpal_action="${regex_candidate_prefix}app\\.secpal\\.action\\.[A-Z_][A-Z0-9_]*$"
+allow_dpc_identifier="${regex_candidate_prefix}io\\.secpal\\.dpc$"
+allow_dpc_generated_class="${regex_candidate_prefix}io\\.secpal\\.dpc\\.(BuildConfig|R)(\\.[A-Z][A-Z0-9_]*)?$"
 
-allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}"
+allowlist_pattern="${allow_secpal_app}|${allow_changelog_secpal_app}|${allow_apk_secpal_app}|${allow_secpal_dev}|${allow_api_secpal_app}|${allow_app_secpal_identifier}|${allow_app_secpal_class}|${allow_app_secpal_action}|${allow_dpc_identifier}|${allow_dpc_generated_class}"
 
 violations=$(printf '%s\n' "$matches" | \
     grep -Ev "$allowlist_pattern" | \
@@ -104,7 +107,7 @@ else
     echo "  - api.secpal.dev: live API host"
     echo "  - app.secpal.dev: live PWA/frontend host"
     echo "  - secpal.dev: development, staging, testing, examples"
-    echo "  - Android application IDs only: app.secpal and positively identified test derivatives"
+    echo "  - Android application IDs only: app.secpal, io.secpal.dpc and positively identified test derivatives"
     echo "  - DEPRECATED as web hosts: ${deprecated_api_host}"
     echo "  - FORBIDDEN: ${forbidden_hosts}"
     echo ""

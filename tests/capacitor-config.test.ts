@@ -238,6 +238,24 @@ describe("capacitor Android wrapper configuration", () => {
     expect(pluginMocks.request).toHaveBeenCalledTimes(requestsBefore);
   });
 
+  it("passes the exact conditional validator through the typed native bridge", async () => {
+    const { createNativeAuthBridge } =
+      await import("../src/secpal/native-auth-bridge");
+    const etag = '"snapshot-1,stable/etag"';
+    pluginMocks.request.mockResolvedValueOnce({ status: 412, etag });
+    const response = await createNativeAuthBridge().request({
+      method: "PUT",
+      path: "/v1/customers/customer-1/transactional-edit",
+      contentType: "application/json",
+      bodyBase64: "e30=",
+      ifMatch: etag,
+    });
+    expect(pluginMocks.request).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ifMatch: etag })
+    );
+    expect(response).toEqual({ status: 412, etag });
+  });
+
   it("reports no Android push registration error on the direct native auth bridge wrapper", async () => {
     const { createNativeAuthBridge } =
       await import("../src/secpal/native-auth-bridge");

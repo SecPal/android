@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const buildScript = join(repositoryRoot, "scripts/build-frontend-web.sh");
-const expectedFrontendRevision = "8c950220d8ae582a536135eed75c8ecb2a4858c8";
+const expectedFrontendRevision = "14d67a7478a9d3671b61767643266fffd1995653";
 
 function runBuildScript(frontendDirectory?: string) {
   const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-web-"));

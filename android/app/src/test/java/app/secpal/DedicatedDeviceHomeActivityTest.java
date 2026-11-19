@@ -47,7 +47,7 @@ public final class DedicatedDeviceHomeActivityTest {
             Context.MODE_PRIVATE
         );
         SharedPreferences enterprisePreferences = context.getSharedPreferences(
-            EnterprisePolicyController.ENTERPRISE_PREFS,
+            EnterprisePolicyState.ENTERPRISE_PREFS,
             Context.MODE_PRIVATE
         );
 
@@ -122,7 +122,7 @@ public final class DedicatedDeviceHomeActivityTest {
         TestDependencies dependencies = new TestDependencies(
             kioskState(false, false),
             Collections.singletonList(
-                new EnterprisePolicyController.AllowedLaunchApp("com.example.camera", "Camera")
+                new EnterprisePolicyClient.AllowedLaunchApp("com.example.camera", "Camera")
             )
         );
 
@@ -250,7 +250,7 @@ public final class DedicatedDeviceHomeActivityTest {
 
     private static final class TestDependencies extends DedicatedDeviceHomeDependencies {
         private final EnterpriseManagedState managedState;
-        private final List<EnterprisePolicyController.AllowedLaunchApp> allowedApps;
+        private final List<EnterprisePolicyClient.AllowedLaunchApp> allowedApps;
         private boolean maybeEnterLockTaskCalled;
         private boolean launchPhoneCalled;
         private boolean launchSmsCalled;
@@ -263,14 +263,14 @@ public final class DedicatedDeviceHomeActivityTest {
 
         TestDependencies(
             EnterpriseManagedState managedState,
-            List<EnterprisePolicyController.AllowedLaunchApp> allowedApps
+            List<EnterprisePolicyClient.AllowedLaunchApp> allowedApps
         ) {
             this.managedState = managedState;
             this.allowedApps = allowedApps;
         }
 
         @Override
-        EnterpriseManagedState syncPolicy(DedicatedDeviceHomeActivity activity) {
+        EnterpriseManagedState getManagedState(DedicatedDeviceHomeActivity activity) {
             return managedState;
         }
 
@@ -280,7 +280,7 @@ public final class DedicatedDeviceHomeActivityTest {
         }
 
         @Override
-        List<EnterprisePolicyController.AllowedLaunchApp> resolveAllowedLaunchApps(
+        List<EnterprisePolicyClient.AllowedLaunchApp> resolveAllowedLaunchApps(
             DedicatedDeviceHomeActivity activity
         ) {
             return allowedApps;

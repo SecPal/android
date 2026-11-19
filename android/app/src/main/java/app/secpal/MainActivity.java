@@ -234,24 +234,13 @@ public class MainActivity extends BridgeActivity {
         if (!secureBridgeStarted) {
             return;
         }
-        EnterpriseManagedState managedState = EnterprisePolicyController.syncPolicy(this);
+        EnterpriseManagedState managedState = EnterprisePolicyClient.getManagedState(this);
 
-        if (EnterprisePolicyController.shouldOpenDedicatedHomeOnLaunch(getIntent(), managedState)) {
-            openDedicatedHome();
-            return;
-        }
-
-        EnterprisePolicyController.maybeEnterLockTask(this);
+        EnterprisePolicyClient.maybeEnterLockTask(this);
         SystemNavigationController.maybeCompleteProvisioningGestureNavigation(this, managedState);
     }
 
-    private void openDedicatedHome() {
-        Intent dedicatedHomeIntent = new Intent(this, DedicatedDeviceHomeActivity.class);
 
-        dedicatedHomeIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startActivity(dedicatedHomeIntent);
-        finish();
-    }
 
     private void openWebViewCompatibilityScreen() {
         if (compatibilityScreenOpened) {

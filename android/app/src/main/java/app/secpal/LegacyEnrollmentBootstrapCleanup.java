@@ -38,7 +38,7 @@ final class LegacyEnrollmentBootstrapCleanup {
                     SecPalNativeAuthPlugin.NATIVE_AUTH_PREFERENCES_NAME,
                     Context.MODE_PRIVATE
                 ),
-                context.getSharedPreferences(EnterprisePolicyController.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
+                context.getSharedPreferences(EnterprisePolicyState.ENTERPRISE_PREFS, Context.MODE_PRIVATE)
             )
         );
     }

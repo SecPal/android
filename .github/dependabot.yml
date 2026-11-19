@@ -77,12 +77,9 @@ updates:
         update-types:
           - "major"
 
-  # Gradle - Native Android dependencies across active build roots
+  # Gradle - Native Android dependencies from the Gradle build root
   - package-ecosystem: "gradle"
-    directories:
-      - "/android"
-      - "/android/app"
-      - "/android/capacitor-cordova-android-plugins"
+    directory: "/android"
     schedule:
       interval: "daily"
       time: "04:00"
@@ -93,7 +90,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
-      - "gradle"
       - "dependabot"
     rebase-strategy: "auto"
     target-branch: "main"
@@ -113,7 +109,7 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
-      - "bundler"
+      - "ruby"
       - "dependabot"
     rebase-strategy: "auto"
     target-branch: "main"
@@ -133,7 +129,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
-      - "pre-commit"
       - "dependabot"
     rebase-strategy: "auto"
     target-branch: "main"

@@ -928,7 +928,16 @@ jobs:
     };
 
     expect(workflow.on?.pull_request_target).toEqual({
-      types: ["opened", "synchronize", "reopened", "ready_for_review"],
+      types: [
+        "opened",
+        "synchronize",
+        "reopened",
+        "ready_for_review",
+        "labeled",
+        "unlabeled",
+        "edited",
+        "converted_to_draft",
+      ],
     });
     expect(workflow.on?.pull_request).toBeUndefined();
     expect(workflow.jobs?.["auto-merge"]?.uses).toMatch(

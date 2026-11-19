@@ -1882,11 +1882,17 @@ export function buildNativeAuthBridgeBootstrapScript(apiBaseUrl) {
                 : undefined,
             contentType: request.headers.get("Content-Type") ?? undefined,
             accept: request.headers.get("Accept") ?? undefined,
+            ...(request.headers.has("If-Match")
+              ? { ifMatch: request.headers.get("If-Match") }
+              : {}),
             signal: requestSignal,
           });
           const headers = new Headers();
           if (nativeResponse.contentType) {
             headers.set("Content-Type", nativeResponse.contentType);
+          }
+          if (nativeResponse.etag !== undefined) {
+            headers.set("ETag", nativeResponse.etag);
           }
           return new Response(
             nativeResponse.bodyBase64 ? decodeBase64(nativeResponse.bodyBase64) : undefined,
