@@ -131,15 +131,25 @@ jobs:
           esac
           echo "api-readiness" > "$SMOKE_STEP_FILE"
           ready_body="${RUNNER_TEMP}/secpal-api-ready.json"
+          ready_headers="${RUNNER_TEMP}/secpal-api-ready.headers"
+          webview_origin="https://app.secpal.dev"
           ready=false
           readiness_deadline=$((SECONDS + 120))
           attempt=0
           while (( SECONDS < readiness_deadline )); do
             attempt=$((attempt + 1))
             status="$(curl --silent --show-error --connect-timeout 2 --max-time 4 \
+              --header "Origin: ${webview_origin}" --dump-header "$ready_headers" \
               --output "$ready_body" --write-out '%{http_code}' \
               "${SECPAL_RUNTIME_URL}/health/ready" || true)"
             if [[ "$status" == "200" ]] && jq -e '.status == "ready"' "$ready_body" >/dev/null; then
+              allowed_origin="$(awk 'tolower($0) ~ /^access-control-allow-origin:/ {
+                sub(/^[^:]*:[[:blank:]]*/, ""); sub(/[[:space:]]*$/, ""); print
+              }' "$ready_headers")"
+              if [[ "$allowed_origin" != "$webview_origin" ]]; then
+                echo "::error::The test API readiness endpoint must allow the packaged Android WebView origin."
+                exit 1
+              fi
               ready=true
               echo "Test API is ready (attempt ${attempt})."
               break
@@ -316,11 +326,20 @@ jobs:
           }
           run_action() {
             mark_step "$1"
-            if ! { npm run test:live:android-smoke -- "$1" && assert_healthy; } >/dev/null 2>&1; then
-              echo "::error::The authenticated smoke action failed."
+            # Route only pre-login output to the workflow log. FD 3 discards the rest.
+            local output_fd=3
+            case "$1" in
+              network-ready | initial | configure | login-persisted ) output_fd=1 ;;
+            esac
+            if ! npm run test:live:android-smoke -- "$1" >&"$output_fd" 2>&1; then
+              echo "::error::The Android smoke action failed."
               return 1
             fi
-          }
+            if ! assert_healthy >&"$output_fd" 2>&1; then
+              echo "::error::The Android app health check failed after the smoke action."
+              return 1
+            fi
+          } 3>/dev/null
           restart_app() {
             adb_command shell am force-stop app.secpal
             adb_command shell am start -W -n app.secpal/.MainActivity

@@ -4,7 +4,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -169,6 +170,9 @@ describe("Android smoke workflow", () => {
     );
     expect(target?.run).toContain('"${SECPAL_RUNTIME_URL}/health/ready"');
     expect(target?.run).toContain("jq -e '.status == \"ready\"'");
+    expect(target?.run).toContain('webview_origin="https://app.secpal.dev"');
+    expect(target?.run).toContain('"Origin: ${webview_origin}"');
+    expect(target?.run).toContain("/^access-control-allow-origin:/");
 
     for (const origin of [
       "",
@@ -183,6 +187,42 @@ describe("Android smoke workflow", () => {
       });
       expect(result.status, origin).toBe(1);
       expect(result.stdout).toContain("ANDROID_SMOKE_API_ORIGIN");
+    }
+
+    const temp = mkdtempSync(resolve(tmpdir(), "android-smoke-readiness-"));
+    try {
+      const readiness = `
+        curl() {
+          printf '%s\n' "$TEST_RESPONSE_HEADER" > "$RUNNER_TEMP/secpal-api-ready.headers"
+          printf '%s' 200
+        }
+        jq() { return 0; }
+        ${target?.run ?? ""}
+      `;
+      for (const [header, status] of [
+        ["", 1],
+        ["Access-Control-Allow-Origin: https://app.cx33.secpal.dev", 1],
+        ["access-control-allow-origin: https://app.secpal.dev\r", 0],
+      ] as const) {
+        const result = spawnSync("bash", ["-c", readiness], {
+          env: {
+            ...process.env,
+            GITHUB_OUTPUT: resolve(temp, "output"),
+            RUNNER_TEMP: temp,
+            SECPAL_RUNTIME_URL: "https://api.cx33.secpal.dev",
+            SMOKE_STEP_FILE: resolve(temp, "step"),
+            TEST_RESPONSE_HEADER: header,
+          },
+          encoding: "utf8",
+          timeout: 1_000,
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(status);
+      }
+      expect(readFileSync(resolve(temp, "output"), "utf8")).toBe(
+        "origin=https://api.cx33.secpal.dev\n"
+      );
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
     }
   });
 
@@ -379,6 +419,41 @@ describe("Android smoke workflow", () => {
       workflowSource.match(/shell am force-stop app\.secpal/g)
     ).toHaveLength(1);
     expect(workflowSource).toContain("shell input keyevent KEYCODE_HOME");
+  });
+
+  it("reports pre-login diagnostics and keeps authenticated command output private", () => {
+    const journey =
+      workflow.jobs.smoke.steps.find(
+        (step) => step.name === "Run Android smoke journey"
+      )?.run ?? "";
+    const runAction = journey.slice(
+      journey.indexOf("run_action() {"),
+      journey.indexOf("restart_app() {")
+    );
+    const diagnostics = `
+      mark_step() { return 0; }
+      assert_healthy() { echo "mock health output"; return 1; }
+      ${runAction}
+      npm() { echo "mock smoke output"; return "$TEST_SMOKE_STATUS"; }
+      run_action "$1"
+    `;
+    for (const [action, status, error] of [
+      ["configure", "1", "The Android smoke action failed."],
+      ["login", "1", "The Android smoke action failed."],
+      ["protected-profile", "0", "The Android app health check failed"],
+    ] as const) {
+      const result = spawnSync("bash", ["-c", diagnostics, "test", action], {
+        env: { ...process.env, TEST_SMOKE_STATUS: status },
+        encoding: "utf8",
+        timeout: 1_000,
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(error);
+      expect(result.stdout.includes("mock smoke output")).toBe(
+        action === "configure"
+      );
+      expect(result.stdout).not.toContain("mock health output");
+    }
   });
 
   it("uploads failure-only diagnostics for seven days and always cleans up", () => {
