@@ -93,6 +93,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Extend Dependabot coverage to the Android Gradle build at `/android`, root
+  Bundler dependencies, and pre-commit hooks (issue #640).
+
 - Require fresh, exact-commit repository security evidence from the pinned shared
   Trivy scanner in PR/main quality checks and before local signed builds or
   publication. Only CLEAN is accepted; signing and artifact checks remain separate

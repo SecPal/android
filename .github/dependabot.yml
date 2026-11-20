@@ -76,3 +76,61 @@ updates:
           - "SecPal/.github/.github/workflows/*"
         update-types:
           - "major"
+
+  # Gradle - Native Android dependencies from the Gradle build root
+  - package-ecosystem: "gradle"
+    directory: "/android"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
+
+  # Bundler - Fastlane and release tooling dependencies
+  - package-ecosystem: "bundler"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "ruby"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
+
+  # pre-commit - Repository hook dependencies
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "dependabot"
+    rebase-strategy: "auto"
+    target-branch: "main"
+    pull-request-branch-name:
+      separator: "-"
