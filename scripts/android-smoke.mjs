@@ -19,6 +19,9 @@ import {
   ensureLoginFormRoute,
 } from "./webview-live-auth-smoke.mjs";
 
+// Public test fixture documented by the SecPal development API.
+export const developmentFixturePassword = "password";
+
 const defaultDebuggerListUrl =
   process.env.SECPAL_WEBVIEW_DEVTOOLS_URL ?? "http://127.0.0.1:9223/json/list";
 const defaultRuntimeUrl =
