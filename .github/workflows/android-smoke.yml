@@ -90,7 +90,6 @@ jobs:
     env: &smoke-env
       ANDROID_SERIAL: emulator-5570
       SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend
-      SECPAL_RUNTIME_URL: https://api.secpal.dev
       SECPAL_WEBVIEW_CDP_REQUEST_TIMEOUT_MS: "5000"
       SECPAL_WEBVIEW_DEVTOOLS_URL: http://127.0.0.1:9223/json/list
       SECPAL_WEBVIEW_TARGET_PATTERN: app\.secpal\.dev
@@ -118,11 +117,18 @@ jobs:
             exit 1
           fi
 
-      - &api-readiness
-        name: Check development API readiness
+      - name: Check dedicated test API readiness
+        id: test-target
+        env:
+          # Set on android-smoke-main after verifying the test fixture's data isolation.
+          SECPAL_RUNTIME_URL: ${{ vars.ANDROID_SMOKE_API_ORIGIN }}
         shell: bash
         run: |
           set -euo pipefail
+          case "$SECPAL_RUNTIME_URL" in
+            https://api.cx33.secpal.dev | https://api.cax21.secpal.dev | https://api.cx23.secpal.dev ) ;;
+            *) echo "::error::Set ANDROID_SMOKE_API_ORIGIN to a verified dedicated test API origin."; exit 1 ;;
+          esac
           echo "api-readiness" > "$SMOKE_STEP_FILE"
           ready_body="${RUNNER_TEMP}/secpal-api-ready.json"
           ready=false
@@ -132,10 +138,10 @@ jobs:
             attempt=$((attempt + 1))
             status="$(curl --silent --show-error --connect-timeout 2 --max-time 4 \
               --output "$ready_body" --write-out '%{http_code}' \
-              https://api.secpal.dev/health/ready || true)"
+              "${SECPAL_RUNTIME_URL}/health/ready" || true)"
             if [[ "$status" == "200" ]] && jq -e '.status == "ready"' "$ready_body" >/dev/null; then
               ready=true
-              echo "Development API is ready (attempt ${attempt})."
+              echo "Test API is ready (attempt ${attempt})."
               break
             fi
             remaining=$((readiness_deadline - SECONDS))
@@ -145,15 +151,16 @@ jobs:
             fi
           done
           if [[ "$ready" != "true" ]]; then
-            echo "::error::Development API is not ready; the Android emulator will not be started."
+            echo "::error::Test API is not ready; the Android emulator will not be started."
             live_body="${RUNNER_TEMP}/secpal-api-live.json"
             live_status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
               --output "$live_body" --write-out '%{http_code}' \
-              https://api.secpal.dev/health/live || true)"
+              "${SECPAL_RUNTIME_URL}/health/live" || true)"
             echo "Diagnostic liveness status: ${live_status:-unavailable}"
             jq -c . "$live_body" 2>/dev/null || echo "Diagnostic liveness body unavailable."
             exit 1
           fi
+          echo "origin=${SECPAL_RUNTIME_URL}" >> "$GITHUB_OUTPUT"
 
       - &frontend-revision
         name: Read pinned frontend revision
@@ -289,6 +296,8 @@ jobs:
           bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
 
       - name: Run Android smoke journey
+        env:
+          SECPAL_RUNTIME_URL: ${{ steps.test-target.outputs.origin }}
         shell: bash
         run: |
           set -euo pipefail
@@ -413,7 +422,6 @@ jobs:
     env: *smoke-env
     steps:
       - *checkout-android
-      - *api-readiness
       - *frontend-revision
       - *checkout-frontend
       - *record-revisions
@@ -425,15 +433,13 @@ jobs:
       - *start-emulator
       - *install-apk
 
-      - name: Run credential-free Android smoke
+      - name: Verify unauthenticated Android startup
         shell: bash
         run: |
           set -euo pipefail
-          for action in network-ready initial configure; do
-            echo "$action" > "$SMOKE_STEP_FILE"
-            npm run test:live:android-smoke -- "$action"
-            bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
-          done
+          echo "initial" > "$SMOKE_STEP_FILE"
+          npm run test:live:android-smoke -- initial
+          bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
 
       - *failure-metadata
 

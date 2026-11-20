@@ -51,7 +51,7 @@ describe("Android smoke workflow", () => {
     expect(pullRequest?.if).toBe("github.event_name == 'pull_request'");
     expect(pullRequest?.environment).toBeUndefined();
     expect(JSON.stringify(pullRequest ?? {})).not.toMatch(
-      /secrets\.|SECPAL_TEST_(?:EMAIL|PASSWORD)|developmentFixturePassword/
+      /secrets\.|SECPAL_TEST_(?:EMAIL|PASSWORD)|developmentFixturePassword|SECPAL_RUNTIME_URL|\/health\/ready/
     );
     const steps = pullRequest?.steps ?? [];
     for (const name of [
@@ -59,7 +59,7 @@ describe("Android smoke workflow", () => {
       "Verify generated native-auth route parity",
       "Start API-35 emulator",
       "Clean install and launch SecPal",
-      "Run credential-free Android smoke",
+      "Verify unauthenticated Android startup",
       "Cleanup emulator",
     ]) {
       expect(
@@ -68,9 +68,10 @@ describe("Android smoke workflow", () => {
       ).toBe(true);
     }
     const smoke = steps.find(
-      (step) => step.name === "Run credential-free Android smoke"
+      (step) => step.name === "Verify unauthenticated Android startup"
     );
-    expect(smoke?.run).toContain("network-ready initial configure");
+    expect(smoke?.run).toContain("npm run test:live:android-smoke -- initial");
+    expect(smoke?.run).not.toMatch(/\b(?:network-ready|configure|login)\b/);
   });
 
   it("binds the authenticated journey to the protected-main environment and checkout", () => {
@@ -149,23 +150,40 @@ describe("Android smoke workflow", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(true);
   });
 
-  it("checks API readiness before installing or starting the emulator", () => {
-    const readyIndex = workflowSource.indexOf(
-      "https://api.secpal.dev/health/ready"
+  it("requires a configured dedicated test origin before starting the trusted emulator", () => {
+    const steps = workflow.jobs.smoke.steps;
+    const target = steps.find((step) => step.id === "test-target");
+    const journey = steps.find(
+      (step) => step.name === "Run Android smoke journey"
     );
-    const liveIndex = workflowSource.indexOf(
-      "https://api.secpal.dev/health/live"
+    expect(target?.env?.SECPAL_RUNTIME_URL).toBe(
+      "${{ vars.ANDROID_SMOKE_API_ORIGIN }}"
     );
-    const sdkIndex = workflowSource.indexOf("sdkmanager");
-    const emulatorIndex = workflowSource.indexOf(
-      "npm run android:emulator:start"
+    expect(journey?.env?.SECPAL_RUNTIME_URL).toBe(
+      "${{ steps.test-target.outputs.origin }}"
     );
+    const targetIndex = steps.findIndex((step) => step.id === "test-target");
+    expect(targetIndex).toBeGreaterThan(-1);
+    expect(targetIndex).toBeLessThan(
+      steps.findIndex((step) => step.name === "Start API-35 emulator")
+    );
+    expect(target?.run).toContain('"${SECPAL_RUNTIME_URL}/health/ready"');
+    expect(target?.run).toContain("jq -e '.status == \"ready\"'");
 
-    expect(readyIndex).toBeGreaterThan(-1);
-    expect(liveIndex).toBeGreaterThan(readyIndex);
-    expect(readyIndex).toBeLessThan(sdkIndex);
-    expect(readyIndex).toBeLessThan(emulatorIndex);
-    expect(workflowSource).toContain("jq -e '.status == \"ready\"'");
+    for (const origin of [
+      "",
+      "https://api.secpal.dev",
+      "http://api.cx33.secpal.dev",
+      "https://api.cx33.secpal.dev/other",
+    ]) {
+      const result = spawnSync("bash", ["-c", target?.run ?? ""], {
+        env: { ...process.env, SECPAL_RUNTIME_URL: origin },
+        encoding: "utf8",
+        timeout: 1_000,
+      });
+      expect(result.status, origin).toBe(1);
+      expect(result.stdout).toContain("ANDROID_SMOKE_API_ORIGIN");
+    }
   });
 
   it("builds Android against the validated pinned frontend revision", () => {
@@ -306,9 +324,6 @@ describe("Android smoke workflow", () => {
   });
 
   it("uses the public development fixture only for trusted login and masks its password", () => {
-    expect(workflowSource).toContain(
-      "SECPAL_RUNTIME_URL: https://api.secpal.dev"
-    );
     expect(workflowSource).not.toMatch(/secrets\.|android-ci@example\.com/);
     expect(workflowSource).not.toMatch(/^\s+SECPAL_TEST_PASSWORD:/m);
     const journey = workflow.jobs.smoke.steps.find(
