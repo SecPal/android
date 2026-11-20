@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep the `js-yaml` override tied to its direct dependency so Dependabot can
+  update it without an npm override conflict.
+
 - Run Android pull-request APK and emulator startup checks without live API
   access. Keep live instance discovery and the authenticated journey on
   protected main against a configured dedicated test API.
