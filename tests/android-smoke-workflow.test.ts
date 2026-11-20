@@ -25,6 +25,13 @@ type WorkflowStep = {
   uses?: string;
   with?: Record<string, unknown>;
 };
+type SmokeJob = {
+  name: string;
+  if?: string;
+  environment?: string;
+  env: Record<string, string>;
+  steps: WorkflowStep[];
+};
 type SmokeWorkflow = {
   name: string;
   on: {
@@ -34,11 +41,105 @@ type SmokeWorkflow = {
     workflow_dispatch: Record<string, unknown>;
   };
   concurrency: Record<string, unknown>;
-  jobs: { smoke: { env: Record<string, string>; steps: WorkflowStep[] } };
+  jobs: { smoke: SmokeJob; "pull-request"?: SmokeJob };
 };
 const workflow = parse(workflowSource) as SmokeWorkflow;
 
 describe("Android smoke workflow", () => {
+  it("uses an isolated credential-free runner for every applicable pull request", () => {
+    const pullRequest = workflow.jobs["pull-request"];
+    expect(pullRequest?.if).toBe("github.event_name == 'pull_request'");
+    expect(pullRequest?.environment).toBeUndefined();
+    expect(JSON.stringify(pullRequest ?? {})).not.toMatch(
+      /secrets\.|SECPAL_TEST_(?:EMAIL|PASSWORD)|developmentFixturePassword/
+    );
+    const steps = pullRequest?.steps ?? [];
+    for (const name of [
+      "Build debug APK from pinned frontend",
+      "Verify generated native-auth route parity",
+      "Start API-35 emulator",
+      "Clean install and launch SecPal",
+      "Run credential-free Android smoke",
+      "Cleanup emulator",
+    ]) {
+      expect(
+        steps.some((step) => step.name === name),
+        name
+      ).toBe(true);
+    }
+    const smoke = steps.find(
+      (step) => step.name === "Run credential-free Android smoke"
+    );
+    expect(smoke?.run).toContain("network-ready initial configure");
+  });
+
+  it("binds the authenticated journey to the protected-main environment and checkout", () => {
+    const { smoke } = workflow.jobs;
+    expect(smoke.environment).toBe("android-smoke-main");
+    expect(smoke.if).toBe(
+      "github.repository == 'SecPal/android' && github.ref == 'refs/heads/main' && github.ref_protected && " +
+        "(github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')"
+    );
+    expect(smoke.steps[0]?.with).toMatchObject({
+      ref: "${{ github.sha }}",
+      "persist-credentials": false,
+    });
+    const source = smoke.steps.findIndex(
+      (step) => step.name === "Verify protected Android source"
+    );
+    const journey = smoke.steps.findIndex(
+      (step) => step.name === "Run Android smoke journey"
+    );
+    expect(source).toBeGreaterThan(0);
+    expect(source).toBeLessThan(journey);
+    expect(JSON.stringify(smoke.steps)).not.toMatch(
+      /actions\/(?:cache|download-artifact)@|"cache":/
+    );
+    expect(
+      smoke.steps.find((step) => step.name === "Setup Node.js")?.with
+    ).toMatchObject({
+      "package-manager-cache": false,
+    });
+    const sourceCheck = smoke.steps[source]?.run ?? "";
+    const sha = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).stdout.trim();
+    expect(sha).toMatch(/^[a-f0-9]{40}$/);
+    const trustedSource = {
+      ...process.env,
+      GITHUB_REPOSITORY: "SecPal/android",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_REF_PROTECTED: "true",
+      GITHUB_SHA: sha,
+    };
+    for (const [override, status] of [
+      [{}, 0],
+      [{ GITHUB_EVENT_NAME: "schedule" }, 0],
+      [{ GITHUB_EVENT_NAME: "workflow_dispatch" }, 0],
+      [{ GITHUB_EVENT_NAME: "pull_request" }, 1],
+      [{ GITHUB_EVENT_NAME: "pull_request_target" }, 1],
+      [{ GITHUB_EVENT_NAME: "workflow_run" }, 1],
+      [{ GITHUB_EVENT_NAME: "" }, 1],
+      [{ GITHUB_REF: "refs/pull/664/merge" }, 1],
+      [{ GITHUB_REF: "refs/heads/update" }, 1],
+      [{ GITHUB_REF: "refs/tags/main" }, 1],
+      [{ GITHUB_REF: "refs/heads/Main" }, 1],
+      [{ GITHUB_REPOSITORY: "another-owner/android" }, 1],
+      [{ GITHUB_REF_PROTECTED: "false" }, 1],
+      [{ GITHUB_SHA: "0".repeat(40) }, 1],
+    ] as const) {
+      expect(
+        spawnSync("bash", ["-c", sourceCheck], {
+          cwd: repoRoot,
+          env: { ...trustedSource, ...override },
+        }).status,
+        JSON.stringify(override)
+      ).toBe(status);
+    }
+  });
+
   it("runs for main changes, manual requests, and a daily schedule distinct from CT", () => {
     expect(workflow.name).toBe("Android Smoke");
     expect(workflow.on.pull_request.branches).toContain("main");
@@ -204,45 +305,34 @@ describe("Android smoke workflow", () => {
     expect(emulatorHelperSource).toContain("-no-snapshot");
   });
 
-  it("requires the dedicated smoke credential before starting the emulator without logging it", () => {
+  it("uses the public development fixture only for trusted login and masks its password", () => {
     expect(workflowSource).toContain(
       "SECPAL_RUNTIME_URL: https://api.secpal.dev"
     );
-    expect(workflowSource).toContain(
-      "SECPAL_TEST_EMAIL: android-ci@example.com"
-    );
-    expect(workflow.jobs.smoke.env.SECPAL_TEST_PASSWORD).toBeUndefined();
-    const credentialStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Validate dedicated test credential"
-    );
-    const emulatorStepIndex = workflow.jobs.smoke.steps.findIndex(
-      (step) => step.name === "Start API-35 emulator"
-    );
-    const credentialStep = workflow.jobs.smoke.steps[credentialStepIndex];
+    expect(workflowSource).not.toMatch(/secrets\.|android-ci@example\.com/);
+    expect(workflowSource).not.toMatch(/^\s+SECPAL_TEST_PASSWORD:/m);
     const journey = workflow.jobs.smoke.steps.find(
       (step) => step.name === "Run Android smoke journey"
     );
-    expect(credentialStepIndex).toBeGreaterThan(-1);
-    expect(credentialStepIndex).toBeLessThan(emulatorStepIndex);
-    const secret = "${{ secrets.ANDROID_SMOKE_PASSWORD }}";
-    expect(credentialStep?.env?.SECPAL_TEST_PASSWORD).toBe(secret);
-    expect(journey?.env?.SECPAL_TEST_PASSWORD).toBe(secret);
-    const setup = credentialStep?.run ?? "";
-    expect(setup).not.toContain("$GITHUB_ENV");
-    for (const password of ["", "synthetic-fixture-credential"]) {
-      const result = spawnSync("bash", ["-c", setup], {
-        encoding: "utf8",
-        env: { ...process.env, SECPAL_TEST_PASSWORD: password },
-      });
-      expect(result.status).toBe(password ? 0 : 1);
-      if (password) {
-        expect(result.stdout + result.stderr).not.toContain(password);
-      } else {
-        expect(result.stdout + result.stderr).toContain(
-          "ANDROID_SMOKE_PASSWORD"
-        );
-      }
-    }
+    const loadFixture = journey?.run
+      ?.split("\n")
+      .find((line) => line.trimStart().startsWith("fixture_password="));
+    expect(loadFixture).toContain(
+      "process.stdout.write(developmentFixturePassword)"
+    );
+    const fixture = spawnSync(
+      "bash",
+      ["-ec", `${loadFixture}\nprintf '%s' "$fixture_password"`],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    expect(fixture.status).toBe(0);
+    expect(fixture.stdout).toBe("password");
+    expect(fixture.stderr).toBe("");
+    expect(journey?.run).toContain('echo "::add-mask::$fixture_password"');
+    expect(journey?.run).toContain(
+      'SECPAL_TEST_PASSWORD="$fixture_password" run_action login\n'
+    );
+    expect(journey?.run).not.toContain("$GITHUB_ENV");
   });
 
   it("executes the complete persistence, lifecycle, logout, and instance-switch journey", () => {
@@ -264,7 +354,9 @@ describe("Android smoke workflow", () => {
     )?.run;
     const actualActions = journey
       ?.split("\n")
-      .map((line) => line.trim())
+      .map((line) =>
+        line.trim().replace(/^SECPAL_TEST_PASSWORD="\$fixture_password" /, "")
+      )
       .filter((line) => line.startsWith("run_action "));
 
     expect(actualActions).toEqual(expectedActions);
@@ -283,13 +375,26 @@ describe("Android smoke workflow", () => {
 
     expect(upload?.if).toBe("failure()");
     expect(upload?.with?.["retention-days"]).toBe(7);
+    expect(upload?.with?.path).toBe(
+      "${{ runner.temp }}/android-smoke-diagnostics/smoke-result.json"
+    );
     expect(cleanup?.if).toBe("always()");
-    expect(workflowSource).toContain("logcat.txt");
-    expect(workflowSource).toContain("screenshot.png");
-    expect(workflowSource).toContain("dumpsys-activity.txt");
-    expect(workflowSource).toContain("dumpsys-window.txt");
-    expect(workflowSource).toContain("dumpsys-package.txt");
-    expect(workflowSource).toContain("webview-state.json");
+    const credentialFreeSteps = workflow.jobs["pull-request"]?.steps ?? [];
+    const preAuthDiagnostics =
+      credentialFreeSteps.find(
+        (step) => step.name === "Collect credential-free failure diagnostics"
+      )?.run ?? "";
+    for (const name of [
+      "logcat.txt",
+      "screenshot.png",
+      "dumpsys-activity.txt",
+      "dumpsys-window.txt",
+      "dumpsys-package.txt",
+      "webview-state.json",
+    ]) {
+      expect(preAuthDiagnostics).toContain(name);
+      expect(JSON.stringify(steps)).not.toContain(name);
+    }
     expect(workflowSource).toContain("smoke-result.json");
     expect(workflowSource.match(/android-smoke\.mjs sanitize/g)).toHaveLength(
       5

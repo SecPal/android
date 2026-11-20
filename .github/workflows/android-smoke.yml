@@ -81,34 +81,45 @@ concurrency:
 jobs:
   smoke:
     name: Android user journey (API 35)
+    if: >-
+      github.repository == 'SecPal/android' && github.ref == 'refs/heads/main' && github.ref_protected &&
+      (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    environment: android-smoke-main
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
+    env: &smoke-env
       ANDROID_SERIAL: emulator-5570
       SECPAL_ANDROID_FRONTEND_DIR: ${{ github.workspace }}/frontend
       SECPAL_RUNTIME_URL: https://api.secpal.dev
-      SECPAL_TEST_EMAIL: android-ci@example.com
       SECPAL_WEBVIEW_CDP_REQUEST_TIMEOUT_MS: "5000"
       SECPAL_WEBVIEW_DEVTOOLS_URL: http://127.0.0.1:9223/json/list
       SECPAL_WEBVIEW_TARGET_PATTERN: app\.secpal\.dev
       SMOKE_STEP_FILE: ${{ github.workspace }}/android-smoke-step.txt
 
     steps:
-      - name: Checkout Android repository
+      - &checkout-android
+        name: Checkout Android repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
-      - name: Validate dedicated test credential
-        env:
-          SECPAL_TEST_PASSWORD: ${{ secrets.ANDROID_SMOKE_PASSWORD }}
+      - name: Verify protected Android source
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$SECPAL_TEST_PASSWORD" ]]; then
-            echo "::error::Configure ANDROID_SMOKE_PASSWORD in both Actions and Dependabot secrets."
+          case "${GITHUB_EVENT_NAME:-}" in
+            push|schedule|workflow_dispatch) ;;
+            *) echo "::error::Android smoke requires a trusted main workflow event."; exit 1 ;;
+          esac
+          if [[ "$GITHUB_REPOSITORY" != SecPal/android || "$GITHUB_REF" != refs/heads/main ||
+                "$GITHUB_REF_PROTECTED" != true || "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "::error::Android smoke requires the exact protected main revision."
             exit 1
           fi
 
-      - name: Check development API readiness
+      - &api-readiness
+        name: Check development API readiness
         shell: bash
         run: |
           set -euo pipefail
@@ -144,7 +155,8 @@ jobs:
             exit 1
           fi
 
-      - name: Read pinned frontend revision
+      - &frontend-revision
+        name: Read pinned frontend revision
         id: frontend-revision
         shell: bash
         run: |
@@ -157,20 +169,29 @@ jobs:
           fi
           echo "sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout pinned frontend
+      - &checkout-frontend
+        name: Checkout pinned frontend
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: SecPal/frontend
           ref: ${{ steps.frontend-revision.outputs.sha }}
           path: frontend
+          persist-credentials: false
 
-      - name: Record tested revisions
+      - &record-revisions
+        name: Record tested revisions
         id: revisions
+        env:
+          EXPECTED_FRONTEND_SHA: ${{ steps.frontend-revision.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
           android_sha="$(git rev-parse HEAD)"
           frontend_sha="$(git -C frontend rev-parse HEAD)"
+          if [[ "$android_sha" != "$GITHUB_SHA" || "$frontend_sha" != "$EXPECTED_FRONTEND_SHA" ]]; then
+            echo "::error::Smoke checkouts differ from the selected revisions."
+            exit 1
+          fi
           android_build_date="$(date --utc +%Y%m%d)"
           smoke_version_code="${android_build_date}99"
           if [[ ! "$smoke_version_code" =~ ^[0-9]{10}$ ]] || \
@@ -185,23 +206,22 @@ jobs:
           echo "Frontend SHA: ${frontend_sha}"
           echo "Android version code: ${smoke_version_code}"
 
-      - name: Setup Node.js
+      - &setup-node
+        name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "26.11.1"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+          package-manager-cache: false
 
-      - name: Setup Java
+      - &setup-java
+        name: Setup Java
         uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
 
-      - name: Install reproducible dependencies
+      - &dependencies
+        name: Install reproducible dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -209,7 +229,8 @@ jobs:
           npm ci
           npm --prefix frontend ci
 
-      - name: Build debug APK from pinned frontend
+      - &build-apk
+        name: Build debug APK from pinned frontend
         shell: bash
         run: |
           set -euo pipefail
@@ -220,12 +241,14 @@ jobs:
           npm run native:verify:web-assets-clean
           test -f android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Verify generated native-auth route parity
+      - &route-parity
+        name: Verify generated native-auth route parity
         env:
           SECPAL_REQUIRE_PACKAGED_ROUTE_PARITY: "1"
         run: ./node_modules/.bin/vitest run tests/android-native-auth-route-inventory.test.ts
 
-      - name: Start API-35 emulator
+      - &start-emulator
+        name: Start API-35 emulator
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/secpal-smoke-avd
           SECPAL_ANDROID_EMULATOR_GPU_MODE: software
@@ -249,7 +272,8 @@ jobs:
             exit 1
           fi
 
-      - name: Clean install and launch SecPal
+      - &install-apk
+        name: Clean install and launch SecPal
         shell: bash
         run: |
           set -euo pipefail
@@ -265,8 +289,6 @@ jobs:
           bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
 
       - name: Run Android smoke journey
-        env:
-          SECPAL_TEST_PASSWORD: ${{ secrets.ANDROID_SMOKE_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -285,8 +307,10 @@ jobs:
           }
           run_action() {
             mark_step "$1"
-            npm run test:live:android-smoke -- "$1"
-            assert_healthy
+            if ! { npm run test:live:android-smoke -- "$1" && assert_healthy; } >/dev/null 2>&1; then
+              echo "::error::The authenticated smoke action failed."
+              return 1
+            fi
           }
           restart_app() {
             adb_command shell am force-stop app.secpal
@@ -302,7 +326,10 @@ jobs:
           restart_app
           run_action login-persisted
 
-          run_action login
+          fixture_password="$(node --input-type=module -e 'import { developmentFixturePassword } from "./scripts/android-smoke.mjs"; process.stdout.write(developmentFixturePassword)')"
+          echo "::add-mask::$fixture_password"
+          SECPAL_TEST_PASSWORD="$fixture_password" run_action login
+          unset fixture_password
           run_action protected-profile
 
           mark_step background-foreground
@@ -326,7 +353,8 @@ jobs:
           run_action switch-instance
           run_action final-configure
 
-      - name: Collect failure diagnostics
+      - &failure-metadata
+        name: Collect failure diagnostics
         if: failure()
         shell: bash
         run: |
@@ -336,25 +364,6 @@ jobs:
           android_sha="$(git rev-parse HEAD 2>/dev/null || echo unavailable)"
           frontend_sha="$(git -C frontend rev-parse HEAD 2>/dev/null || echo unavailable)"
           failed_step="$(head -n 1 "$SMOKE_STEP_FILE" 2>/dev/null || echo unknown)"
-          adb_command() {
-            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" "$@"
-          }
-
-          adb_command logcat -d 2>/dev/null \
-            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/logcat.txt"
-          emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-smoke-api35-5570.log"
-          if [[ -f "$emulator_log" ]]; then
-            node ./scripts/android-smoke.mjs sanitize \
-              < "$emulator_log" > "$diagnostics/emulator.log"
-          fi
-          adb_command exec-out screencap -p > "$diagnostics/screenshot.png" 2>/dev/null || true
-          adb_command shell dumpsys activity 2>/dev/null \
-            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-activity.txt"
-          adb_command shell dumpsys window 2>/dev/null \
-            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-window.txt"
-          adb_command shell dumpsys package app.secpal 2>/dev/null \
-            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-package.txt"
-          node ./scripts/android-smoke.mjs inspect > "$diagnostics/webview-state.json" 2>/dev/null || true
           jq -n \
             --arg failed_step "$failed_step" \
             --arg android_sha "$android_sha" \
@@ -375,11 +384,12 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: android-smoke-failure-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/android-smoke-diagnostics
+          path: ${{ runner.temp }}/android-smoke-diagnostics/smoke-result.json
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Cleanup emulator
+      - &cleanup
+        name: Cleanup emulator
         if: always()
         shell: bash
         run: |
@@ -394,3 +404,73 @@ jobs:
               kill "$emulator_pid" 2>/dev/null || true
             fi
           fi
+
+  pull-request:
+    name: Android credential-free smoke (API 35)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: *smoke-env
+    steps:
+      - *checkout-android
+      - *api-readiness
+      - *frontend-revision
+      - *checkout-frontend
+      - *record-revisions
+      - *setup-node
+      - *setup-java
+      - *dependencies
+      - *build-apk
+      - *route-parity
+      - *start-emulator
+      - *install-apk
+
+      - name: Run credential-free Android smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          for action in network-ready initial configure; do
+            echo "$action" > "$SMOKE_STEP_FILE"
+            npm run test:live:android-smoke -- "$action"
+            bash ./scripts/check-android-app-health.sh "$ANDROID_SERIAL"
+          done
+
+      - *failure-metadata
+
+      - name: Collect credential-free failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          diagnostics="${RUNNER_TEMP}/android-smoke-diagnostics"
+          mkdir -p "$diagnostics"
+          adb_command() {
+            bash ./scripts/with-android-env.sh adb -s "$ANDROID_SERIAL" "$@"
+          }
+
+          adb_command logcat -d 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/logcat.txt"
+          emulator_log="${TMPDIR:-/tmp}/secpal-android-emulators/secpal-smoke-api35-5570.log"
+          if [[ -f "$emulator_log" ]]; then
+            node ./scripts/android-smoke.mjs sanitize \
+              < "$emulator_log" > "$diagnostics/emulator.log"
+          fi
+          adb_command exec-out screencap -p > "$diagnostics/screenshot.png" 2>/dev/null || true
+          adb_command shell dumpsys activity 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-activity.txt"
+          adb_command shell dumpsys window 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-window.txt"
+          adb_command shell dumpsys package app.secpal 2>/dev/null \
+            | node ./scripts/android-smoke.mjs sanitize > "$diagnostics/dumpsys-package.txt"
+          node ./scripts/android-smoke.mjs inspect > "$diagnostics/webview-state.json" 2>/dev/null || true
+
+      - name: Upload credential-free failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: android-credential-free-smoke-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-smoke-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+      - *cleanup

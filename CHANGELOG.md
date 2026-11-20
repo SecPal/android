@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Separate credential-free Android pull-request smoke validation from the
+  authenticated user journey on protected main.
+
 - Accept the adopted scanner's v5 release evidence and exact configuration
   identity while retaining source, workflow, policy, artifact and freshness checks.
 
