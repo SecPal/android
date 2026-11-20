@@ -98,16 +98,18 @@ Install Git hooks after cloning:
 
 See `docs/ANDROID_LOCAL_DEVICE_TESTING.md` for the full Fedora and physical-device flow, including `adb` verification, debug APK installation, and Linux troubleshooting.
 
-The GitHub Android Smoke workflow uses the dedicated `android-ci@example.com`
-account on `api.secpal.dev`. Its isolated tenant has no roles, direct permissions
-or organizational scopes; it exists only for login, own-profile and logout
-qualification. The private password is stored as `ANDROID_SMOKE_PASSWORD` in
-both repository Actions secrets and Dependabot secrets, which GitHub exposes
-through the same secret reference for the respective triggering actor. The
-workflow fails before emulator startup if the credential is missing and exposes
-it only to credential validation and the actual smoke journey. Provision or
-rotate only this dedicated fixture when rebuilding the development server;
-never reset a shared developer or seeded administrator account for CI.
+On pull requests, Android Smoke builds the APK from the pinned frontend, checks
+native-auth route parity, and verifies unauthenticated startup on an API 35
+emulator. These checks use no test account or live API. The required Vitest suite
+also runs deterministic bootstrap-contract tests.
+
+Protected `main` runs live instance discovery and the authenticated journey on a
+separate runner. Set the `ANDROID_SMOKE_API_ORIGIN` variable in the existing
+`android-smoke-main` environment to a dedicated test API origin only after
+verifying that it serves the Android bootstrap contract, permits the packaged
+`https://app.secpal.dev` WebView origin, and confines the public development
+fixture to disposable synthetic data. The seeded fixture has broad management
+permissions. The workflow supplies its public password only to the login command.
 
 For a repeatable live-device login smoke against the real WebView DOM, forward the current debug WebView socket and run the repo-owned smoke script with test credentials:
 

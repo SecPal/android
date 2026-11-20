@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Run Android pull-request APK and emulator startup checks without live API
+  access. Keep live instance discovery and the authenticated journey on
+  protected main against a configured dedicated test API.
+
 - Accept the adopted scanner's v5 release evidence and exact configuration
   identity while retaining source, workflow, policy, artifact and freshness checks.
 
