@@ -5,7 +5,7 @@
 
 source "https://rubygems.org"
 
-gem "fastlane", "~> 2.228"
+gem "fastlane", "~> 2.242"
 
 group :test do
   gem "minitest", "~> 6.1"
