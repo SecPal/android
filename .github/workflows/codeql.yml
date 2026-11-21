@@ -19,6 +19,8 @@ permissions:
 jobs:
   analyze:
     name: Analyze with CodeQL
+    needs: native
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -40,3 +42,69 @@ jobs:
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"
+
+      # Keep the existing protected check name and require both analyses.
+      - name: Require native Android CodeQL analysis
+        if: always()
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success
+
+  native:
+    name: Analyze Android native source with CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "26.11.1"
+          cache: npm
+      - name: Setup Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install locked Capacitor build dependencies
+        run: npm ci
+      - name: Initialize native CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: java-kotlin
+          build-mode: manual
+      - name: Compile native application and DPC sources for extraction
+        run: >-
+          bash ./scripts/with-android-env.sh ./android/gradlew
+          --no-daemon --no-build-cache --rerun-tasks -p android
+          :app:compileReleaseJavaWithJavac :dpc:compileReleaseJavaWithJavac
+      - name: Perform native CodeQL analysis
+        id: native-analysis
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: "/language:java-kotlin"
+      - name: Verify the native database covers both modules and shared source
+        env:
+          DATABASES: ${{ steps.native-analysis.outputs.db-locations }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          database = Path(json.loads(os.environ["DATABASES"])["java"])
+          with ZipFile(database / "src.zip") as archive:
+              paths = ["/" + name for name in archive.namelist()]
+          for source in (
+              "android/app/src/main/java/app/secpal/MainActivity.java",
+              "android/dpc/src/main/java/app/secpal/SecPalDeviceAdminReceiver.java",
+              "android/management/java/app/secpal/EnterprisePolicyConfig.java",
+          ):
+              if not any(path.endswith("/" + source) for path in paths):
+                  raise SystemExit(f"CodeQL source missing: {source}")
+              print(f"CodeQL native source verified: {source}")
+          PY
