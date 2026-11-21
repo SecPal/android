@@ -135,9 +135,11 @@ describe("Android OSS licenses", () => {
     expect(appBuildGradle).toContain(
       "apply plugin: 'com.google.android.gms.oss-licenses-plugin'"
     );
-    expect(appBuildGradle).toMatch(
-      /['"]com\.google\.android\.gms:play-services-oss-licenses:[0-9]+\.[0-9]+\.[0-9]+['"]/
-    );
+    expect(
+      appBuildGradle.match(
+        /^[ \t]*implementation (['"])com\.google\.android\.gms:play-services-oss-licenses:[0-9]+\.[0-9]+\.[0-9]+\1[ \t]*$/gm
+      )
+    ).toHaveLength(1);
     expect(appBuildGradle).toContain("preStrippedAndroidxGraphicsPath");
     expect(appBuildGradle).toContain(
       "keepDebugSymbols += [preStrippedAndroidxGraphicsPath]"
