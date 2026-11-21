@@ -20,7 +20,7 @@ jobs:
   analyze:
     name: Analyze with CodeQL
     needs: native
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -30,6 +30,17 @@ jobs:
         language: ["javascript-typescript"]
 
     steps:
+      # A skipped job satisfies branch protection. Check before acquiring source.
+      - name: Reject a cancelled workflow
+        if: ${{ cancelled() }}
+        run: exit 1
+
+      - name: Require native Android CodeQL analysis
+        if: always()
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -42,13 +53,6 @@ jobs:
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"
-
-      # Keep the existing protected check name and require both analyses.
-      - name: Require native Android CodeQL analysis
-        if: always()
-        env:
-          NATIVE_RESULT: ${{ needs.native.result }}
-        run: test "$NATIVE_RESULT" = success
 
   native:
     name: Analyze Android native source with CodeQL

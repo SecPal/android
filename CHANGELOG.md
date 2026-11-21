@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fail the protected CodeQL check when native analysis is cancelled or missing.
+
 - Update the Play Services open-source license viewer to the compatible
   17.5.2 patch on the existing Android build toolchain.
 

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -192,12 +193,23 @@ describe("Android CodeQL workflow", () => {
     expect(native[analyze + 1]?.run).toContain('ZipFile(database / "src.zip")');
     const protectedAnalysis = workflow.jobs?.analyze;
     expect(protectedAnalysis?.needs).toBe("native");
-    expect(protectedAnalysis?.if).toBe("${{ !cancelled() }}");
-    expect(protectedAnalysis?.steps?.at(-1)).toMatchObject({
+    expect(protectedAnalysis?.if).toBe("${{ always() }}");
+    const [cancellation, gate, checkout] = protectedAnalysis?.steps ?? [];
+    expect(cancellation).toMatchObject({
+      if: "${{ cancelled() }}",
+      run: "exit 1",
+    });
+    expect(checkout?.uses).toMatch(/^actions\/checkout@[0-9a-f]{40}$/);
+    expect(gate).toMatchObject({
       if: "always()",
       env: { NATIVE_RESULT: "${{ needs.native.result }}" },
-      run: 'test "$NATIVE_RESULT" = success',
     });
+    for (const outcome of ["success", "failure", "cancelled", "skipped", ""]) {
+      const result = spawnSync("bash", ["-e", "-c", gate?.run ?? ""], {
+        env: { NATIVE_RESULT: outcome },
+      });
+      expect(result.status).toBe(outcome === "success" ? 0 : 1);
+    }
   });
 });
 
