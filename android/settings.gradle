@@ -1,4 +1,4 @@
-def tinkBuildToolVersion = '1.23.0'
+def tinkBuildToolVersion = '1.24.0'
 gradle.ext.tinkBuildToolVersion = tinkBuildToolVersion
 
 // AGP 8.9.1 requests Tink 1.7.0, whose protobuf types were generated before
