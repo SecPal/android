@@ -21,6 +21,8 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  needs?: string;
+  if?: string;
   uses?: string;
   with?: Record<string, unknown>;
   "runs-on"?: string;
@@ -157,6 +159,42 @@ describe("Android quality workflow", () => {
         "android/dpc/build/test-results/testDebugUnitTest",
       ])
     );
+  });
+});
+
+describe("Android CodeQL workflow", () => {
+  it("requires a traced application and DPC build through the protected CodeQL check", () => {
+    const workflow = load(
+      readFileSync(resolve(repoRoot, ".github/workflows/codeql.yml"), "utf8")
+    ) as Workflow;
+    const native = workflow.jobs?.native?.steps ?? [];
+    const init = native.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/init@")
+    );
+    const compile = native.findIndex((step) =>
+      step.run?.includes(":app:compileReleaseJavaWithJavac")
+    );
+    const analyze = native.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/analyze@")
+    );
+    expect(init).toBeGreaterThanOrEqual(0);
+    expect(native[init]?.with).toEqual({
+      languages: "java-kotlin",
+      "build-mode": "manual",
+    });
+    expect(compile).toBeGreaterThan(init);
+    expect(native[compile]?.run).toContain(":dpc:compileReleaseJavaWithJavac");
+    expect(native[compile]?.run).toContain("--no-build-cache --rerun-tasks");
+    expect(analyze).toBeGreaterThan(compile);
+    expect(native[analyze + 1]?.run).toContain('ZipFile(database / "src.zip")');
+    const protectedAnalysis = workflow.jobs?.analyze;
+    expect(protectedAnalysis?.needs).toBe("native");
+    expect(protectedAnalysis?.if).toBe("${{ !cancelled() }}");
+    expect(protectedAnalysis?.steps?.at(-1)).toMatchObject({
+      if: "always()",
+      env: { NATIVE_RESULT: "${{ needs.native.result }}" },
+      run: 'test "$NATIVE_RESULT" = success',
+    });
   });
 });
 
