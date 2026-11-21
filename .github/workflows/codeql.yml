@@ -96,7 +96,7 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile
 
-          database = Path(json.loads(os.environ["DATABASES"])["java-kotlin"])
+          database = Path(json.loads(os.environ["DATABASES"])["java"])
           with ZipFile(database / "src.zip") as archive:
               paths = ["/" + name for name in archive.namelist()]
           for source in (

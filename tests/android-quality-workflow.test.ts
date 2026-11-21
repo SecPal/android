@@ -186,6 +186,9 @@ describe("Android CodeQL workflow", () => {
     expect(native[compile]?.run).toContain(":dpc:compileReleaseJavaWithJavac");
     expect(native[compile]?.run).toContain("--no-build-cache --rerun-tasks");
     expect(analyze).toBeGreaterThan(compile);
+    expect(native[analyze + 1]?.run).toContain(
+      'os.environ["DATABASES"])["java"]'
+    );
     expect(native[analyze + 1]?.run).toContain('ZipFile(database / "src.zip")');
     const protectedAnalysis = workflow.jobs?.analyze;
     expect(protectedAnalysis?.needs).toBe("native");
