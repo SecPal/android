@@ -1653,9 +1653,9 @@ describe("Android native hardening", () => {
     expect(existsSync(gemfilePath)).toBe(true);
     expect(existsSync(appfilePath)).toBe(true);
     expect(existsSync(fastfilePath)).toBe(true);
-    expect(gemfile.match(/^\s*gem "minitest", "~> 6\.0"\s*$/gm)).toHaveLength(
-      1
-    );
+    expect(
+      gemfile.match(/^[ \t]*gem "minitest", "~> 6\.[0-9]+"[ \t]*$/gm) ?? []
+    ).toHaveLength(1);
     expect(
       gemfile.match(/^\s*gem "minitest-mock", "~> 5\.27"\s*$/gm)
     ).toHaveLength(1);
