@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Require native Java and Kotlin CodeQL analysis for Android app, DPC, and
+  shared management source alongside the existing JavaScript and TypeScript scan.
+
 ### Removed
 
 - Retired unused GitHub Project-board automation and its obsolete Draft PR
