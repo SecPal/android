@@ -36,7 +36,8 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
   });
   expect(workflow.jobs["auto-merge"].with).toMatchObject({
     phase: "2",
-    "allowed-ecosystems": "github_actions,npm_and_yarn",
+    "allowed-ecosystems": "github_actions,npm_and_yarn,pre_commit",
+    "pre-commit-path": ".pre-commit-config.yaml",
     "merge-method": "squash",
   });
   expect(workflow.jobs["auto-merge"].uses).toMatch(

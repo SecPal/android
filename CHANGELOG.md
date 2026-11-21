@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Admit verified Dependabot pre-commit PATCH and MINOR updates through the
+  shared source verifier and existing protected checks.
+
 - Keep the `js-yaml` override tied to its direct dependency so Dependabot can
   update it without an npm override conflict.
 
