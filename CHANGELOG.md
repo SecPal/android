@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update the Play Services open-source license viewer to the compatible
+  17.5.2 patch on the existing Android build toolchain.
+
 - Admit verified Dependabot pre-commit PATCH and MINOR updates through the
   shared source verifier and existing protected checks.
 
