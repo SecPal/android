@@ -97,12 +97,23 @@ describe("Android OSS licenses", () => {
       "verify-androidx-graphics-path.sh"
     );
     expect(rootBuildGradle).toContain("com.android.tools.build:gradle:8.9.1");
-    expect(settingsGradle).toContain("tinkBuildToolVersion = '1.23.0'");
+    expect(settingsGradle).toMatch(
+      /^def tinkBuildToolVersion = '[0-9]+\.[0-9]+\.[0-9]+'$/m
+    );
+    expect(settingsGradle).toContain(
+      "gradle.ext.tinkBuildToolVersion = tinkBuildToolVersion"
+    );
     expect(settingsGradle).toContain(
       'resolutionStrategy.force "com.google.crypto.tink:tink:${tinkBuildToolVersion}"'
     );
     expect(rootBuildGradle).toContain(
       'tasks.register("verifyBuildToolTinkVersion")'
+    );
+    expect(rootBuildGradle).toContain(
+      "def expectedVersion = gradle.ext.tinkBuildToolVersion"
+    );
+    expect(rootBuildGradle).toContain(
+      "component.moduleVersion.version != expectedVersion"
     );
     expect(rootBuildGradle).toContain('unexpectedComponents.sort().join(", ")');
     expect(rootBuildGradle).not.toContain('unexpectedComponents.join(", ")');
@@ -124,9 +135,11 @@ describe("Android OSS licenses", () => {
     expect(appBuildGradle).toContain(
       "apply plugin: 'com.google.android.gms.oss-licenses-plugin'"
     );
-    expect(appBuildGradle).toContain(
-      "com.google.android.gms:play-services-oss-licenses:17.5.1"
-    );
+    expect(
+      appBuildGradle.match(
+        /^[ \t]*implementation (['"])com\.google\.android\.gms:play-services-oss-licenses:[0-9]+\.[0-9]+\.[0-9]+\1[ \t]*$/gm
+      )
+    ).toHaveLength(1);
     expect(appBuildGradle).toContain("preStrippedAndroidxGraphicsPath");
     expect(appBuildGradle).toContain(
       "keepDebugSymbols += [preStrippedAndroidxGraphicsPath]"
