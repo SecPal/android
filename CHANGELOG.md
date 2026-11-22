@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Parse native authentication error responses with Android's streaming JSON
+  reader to avoid excessive regex backtracking.
+
 - Deliver native plugin responses through the origin-aware Android WebView
   reply channel and drop responses when that channel is unavailable.
 

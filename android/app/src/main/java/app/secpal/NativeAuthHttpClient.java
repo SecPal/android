@@ -7,6 +7,8 @@ package app.secpal;
 
 import android.os.Build;
 import android.util.Base64;
+import android.util.JsonReader;
+import android.util.JsonToken;
 
 import com.getcapacitor.JSObject;
 
@@ -19,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -27,7 +30,6 @@ import java.util.Locale;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 class NativeAuthHttpClient {
@@ -43,7 +45,6 @@ class NativeAuthHttpClient {
     private static final int TOTAL_DEADLINE_OVERHEAD_MILLIS = 5_000;
     private static final int CURRENT_USER_CONNECT_TIMEOUT_MILLIS = 3000;
     private static final int CURRENT_USER_READ_TIMEOUT_MILLIS = 3000;
-    private static final Pattern MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
     private static final Pattern REQUEST_BODY_BASE64_PATTERN = Pattern.compile(
         "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
     );
@@ -565,100 +566,30 @@ class NativeAuthHttpClient {
     }
 
     static String buildErrorMessage(String responseBody, int statusCode) {
-        if (!responseBody.isEmpty()) {
-            Matcher matcher = MESSAGE_PATTERN.matcher(responseBody);
-            if (matcher.find()) {
-                return decodeJsonStringFragment(matcher.group(1));
+        try (JsonReader reader = new JsonReader(new StringReader(responseBody))) {
+            if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                reader.beginObject();
+                String message = null;
+                while (reader.hasNext()) {
+                    if ("message".equals(reader.nextName())) {
+                        if (reader.peek() == JsonToken.STRING) {
+                            message = reader.nextString();
+                            continue;
+                        }
+                        message = null;
+                    }
+                    reader.skipValue();
+                }
+                reader.endObject();
+                if (message != null && reader.peek() == JsonToken.END_DOCUMENT) {
+                    return message;
+                }
             }
+        } catch (IOException | IllegalStateException | NumberFormatException ignored) {
+            // Fall back to the HTTP status when the response cannot be parsed.
         }
 
         return "Android auth request failed with status " + statusCode;
-    }
-
-    private static String decodeJsonStringFragment(String value) {
-        StringBuilder decodedValue = new StringBuilder();
-        boolean escaping = false;
-
-        for (int index = 0; index < value.length(); index++) {
-            char currentCharacter = value.charAt(index);
-
-            if (!escaping) {
-                if (currentCharacter == '\\') {
-                    escaping = true;
-                } else {
-                    decodedValue.append(currentCharacter);
-                }
-                continue;
-            }
-
-            switch (currentCharacter) {
-                case '"':
-                case '\\':
-                case '/':
-                    decodedValue.append(currentCharacter);
-                    break;
-                case 'b':
-                    decodedValue.append('\b');
-                    break;
-                case 'f':
-                    decodedValue.append('\f');
-                    break;
-                case 'n':
-                    decodedValue.append('\n');
-                    break;
-                case 'r':
-                    decodedValue.append('\r');
-                    break;
-                case 't':
-                    decodedValue.append('\t');
-                    break;
-                case 'u':
-                    if (index + 4 < value.length()) {
-                        String hex = value.substring(index + 1, index + 5);
-                        try {
-                            int codeUnit = Integer.parseInt(hex, 16);
-                            index += 4;
-                            char ch = (char) codeUnit;
-                            if (Character.isHighSurrogate(ch)
-                                    && index + 6 < value.length()
-                                    && value.charAt(index + 1) == '\\'
-                                    && value.charAt(index + 2) == 'u') {
-                                String lowHex = value.substring(index + 3, index + 7);
-                                try {
-                                    int lowCodeUnit = Integer.parseInt(lowHex, 16);
-                                    char lowCh = (char) lowCodeUnit;
-                                    if (Character.isLowSurrogate(lowCh)) {
-                                        decodedValue.appendCodePoint(Character.toCodePoint(ch, lowCh));
-                                        index += 6;
-                                    } else {
-                                        decodedValue.append(ch);
-                                    }
-                                } catch (NumberFormatException ignored) {
-                                    decodedValue.append(ch);
-                                }
-                            } else {
-                                decodedValue.append(ch);
-                            }
-                        } catch (NumberFormatException ignored) {
-                            decodedValue.append('u');
-                        }
-                    } else {
-                        decodedValue.append('u');
-                    }
-                    break;
-                default:
-                    decodedValue.append(currentCharacter);
-                    break;
-            }
-
-            escaping = false;
-        }
-
-        if (escaping) {
-            decodedValue.append('\\');
-        }
-
-        return decodedValue.toString();
     }
 
     static String normalizeHttpMethod(String method) throws NativeAuthHttpException {

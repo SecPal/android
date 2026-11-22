@@ -174,6 +174,24 @@ public class NativeAuthHttpClientTest {
     }
 
     @Test
+    public void buildErrorMessageRequiresACompleteObjectWithATopLevelStringMessage() {
+        for (String body : new String[] {
+            "{}",
+            "{\"message\":42}",
+            "{\"details\":{\"message\":\"Nested message\"}}",
+            "{\"message\":\"Incomplete object\"",
+            "{\"message\":\"Trailing content\"}[]",
+            "{\"message\":\"Invalid Unicode escape \\uZZZZ\"}"
+        }) {
+            assertEquals(
+                body,
+                "Android auth request failed with status 422",
+                NativeAuthHttpClient.buildErrorMessage(body, 422)
+            );
+        }
+    }
+
+    @Test
     public void buildErrorMessageDecodesUnicodeEscapesInJsonMessage() {
         assertEquals(
             "Not found \u2014 resource missing",
