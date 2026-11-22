@@ -18,6 +18,7 @@ type WorkflowStep = {
   name?: string;
   run?: string;
   uses?: string;
+  "working-directory"?: string;
   with?: Record<string, unknown>;
 };
 
@@ -36,6 +37,18 @@ type Workflow = {
 };
 
 describe("Android quality workflow", () => {
+  it("requires runtime lock verification in the existing release security job", () => {
+    const workflow = load(
+      readFileSync(resolve(repoRoot, ".github/workflows/quality.yml"), "utf8")
+    ) as Workflow;
+    const steps = workflow.jobs?.["android-network-security"]?.steps ?? [];
+    expect(steps).toContainEqual({
+      name: "Verify Android release runtime dependency locks",
+      "working-directory": "android",
+      run: "./gradlew --no-daemon verifyReleaseRuntimeDependencies",
+    });
+  });
+
   it("runs bounded lint for every supported app variant and uploads failure reports", () => {
     const workflow = load(
       readFileSync(resolve(repoRoot, ".github/workflows/quality.yml"), "utf8")

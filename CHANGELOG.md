@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Lock the App and DPC release runtime dependencies with Gradle and verify both
+  inventories in required CI so the daily source security scan can assess
+  their resolved external dependencies.
+
 - Reassess the exact protected Android main source daily at 03:47 UTC and
   through an input-free manual security diagnostic, reusing the existing
   fail-closed repository scanner without building, signing, or publishing

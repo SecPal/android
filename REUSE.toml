@@ -114,6 +114,8 @@ SPDX-License-Identifier = "AGPL-3.0-or-later"
 [[annotations]]
 path = [
   "android/build.gradle",
+  "android/app/gradle.lockfile",
+  "android/dpc/gradle.lockfile",
   "android/variables.gradle",
 ]
 SPDX-FileCopyrightText = "2026 SecPal Contributors"
