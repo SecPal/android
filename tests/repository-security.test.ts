@@ -30,6 +30,7 @@ type Workflow = {
   jobs: Record<string, Job>;
 };
 const read = (path: string) => load(readFileSync(path, "utf8")) as Workflow;
+const dailyPath = ".github/workflows/daily-repository-security.yml";
 
 describe("repository security acceptance", () => {
   it("runs the exact shared action once for PRs and main pushes with read-only authority", () => {
@@ -69,6 +70,11 @@ describe("repository security acceptance", () => {
         /^SecPal\/\.github\/\.github\/actions\/trivy-repository-scan@[0-9a-f]{40}$/
       ),
     });
+    expect(job.steps?.[2]).toEqual({
+      name: "Require clean repository evidence",
+      env: { GATE_STATE: "${{ steps.repository-scan.outputs.gate-state }}" },
+      run: expect.any(String),
+    });
     const source = readFileSync(
       ".github/workflows/reusable-repository-security.yml",
       "utf8"
@@ -77,6 +83,94 @@ describe("repository security acceptance", () => {
       /continue-on-error|secrets:|secrets\.|SECPAL_ANDROID_|TRIVY_|needs:|environment:/
     );
   });
+
+  it("runs the same reusable scanner only after unprivileged daily event admission", () => {
+    const daily = read(dailyPath);
+    expect(Object.keys(daily).sort()).toEqual([
+      "jobs",
+      "name",
+      "on",
+      "permissions",
+    ]);
+    expect(daily.on).toEqual({
+      schedule: [{ cron: "47 3 * * *" }],
+      workflow_dispatch: null,
+    });
+    expect(daily.permissions).toEqual({});
+    expect(Object.keys(daily.jobs)).toEqual([
+      "admit-source",
+      "repository-security",
+    ]);
+    const admission = daily.jobs["admit-source"];
+    expect(Object.keys(admission).sort()).toEqual([
+      "name",
+      "runs-on",
+      "steps",
+      "timeout-minutes",
+    ]);
+    expect(admission["runs-on"]).toBe("ubuntu-latest");
+    expect(admission["timeout-minutes"]).toBe(5);
+    expect(admission.steps).toEqual([
+      {
+        name: "Require exact protected main source",
+        shell: "bash",
+        run: expect.any(String),
+      },
+    ]);
+    const quality = read(".github/workflows/quality.yml");
+    expect(daily.jobs["repository-security"]).toEqual({
+      ...quality.jobs["repository-security"],
+      needs: ["admit-source"],
+    });
+  });
+
+  it.each(["schedule", "workflow_dispatch"])(
+    "admits only the exact protected Android main event for %s",
+    (event) => {
+      const guard = read(dailyPath).jobs["admit-source"].steps?.[0];
+      expect(guard?.run).toBeTypeOf("string");
+      const cases = [
+        {},
+        { GITHUB_EVENT_NAME: "push" },
+        { GITHUB_REPOSITORY: "Other/android" },
+        { GITHUB_REF: "refs/heads/topic" },
+        { GITHUB_REF: "refs/tags/main" },
+        { GITHUB_REF_PROTECTED: "false" },
+        { GITHUB_REF_PROTECTED: "" },
+        { GITHUB_SHA: "main" },
+        { GITHUB_SHA: "a".repeat(39) },
+        { GITHUB_SHA: "A".repeat(40) },
+        { GITHUB_SHA: "" },
+      ];
+      for (const [index, changes] of cases.entries()) {
+        const result = spawnSync(
+          "bash",
+          ["--noprofile", "--norc", "-eo", "pipefail", "-c", guard?.run ?? ""],
+          {
+            encoding: "utf8",
+            env: {
+              PATH: process.env.PATH,
+              GITHUB_EVENT_NAME: event,
+              GITHUB_REPOSITORY: "SecPal/android",
+              GITHUB_REF: "refs/heads/main",
+              GITHUB_REF_PROTECTED: "true",
+              GITHUB_SHA: "a".repeat(40),
+              ...changes,
+            },
+          }
+        );
+        expect(result.status).toBe(index === 0 ? 0 : 1);
+        expect(result.stdout).toBe("");
+        if (index === 0) {
+          expect(result.stderr).toBe("");
+        } else {
+          expect(result.stderr).toContain(
+            "requires protected SecPal/android main"
+          );
+        }
+      }
+    }
+  );
 
   it.each([
     "CLEAN",
