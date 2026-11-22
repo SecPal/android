@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 SecPal Contributors
+# SPDX-License-Identifier: CC0-1.0
+
+---
+name: Daily Android Repository Security
+
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  admit-source:
+    name: Admit protected Android main event
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require exact protected main source
+        shell: bash
+        run: |
+          if [[ ( "$GITHUB_EVENT_NAME" != schedule && "$GITHUB_EVENT_NAME" != workflow_dispatch ) ||
+                "$GITHUB_REPOSITORY" != SecPal/android ||
+                "$GITHUB_REF" != refs/heads/main ||
+                "$GITHUB_REF_PROTECTED" != true ||
+                ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            printf 'Daily source security requires protected SecPal/android main and an exact event commit.\n' >&2
+            exit 1
+          fi
+
+  repository-security:
+    name: Repository Security
+    needs: [admit-source]
+    uses: ./.github/workflows/reusable-repository-security.yml
+    permissions:
+      contents: read
