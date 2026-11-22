@@ -102,6 +102,13 @@ import android.webkit.JavascriptInterface;
 
 @JavascriptInterface
 public void postMessage(String jsonStr) {}
+
+                final JavaScriptReplyProxy replyProxy = javaScriptReplyProxy;
+                if (replyProxy != null) {
+                    replyProxy.postMessage(data.toString());
+                } else {
+                    Logger.warn("Origin-aware WebView reply proxy is unavailable");
+                }
 `;
 
     expect(source).toContain(
@@ -789,6 +796,35 @@ public void setAnimation(final PluginCall call) {}
     expect(systemBarsSource).not.toMatch(PLUGIN_METHOD_ANNOTATION_PATTERN);
     expect(systemBarsSource).not.toContain(
       "import com.getcapacitor.PluginMethod;"
+    );
+  });
+
+  it("delivers installed Capacitor responses only through the authorized reply proxy", () => {
+    const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+    const messageHandler = readFileSync(
+      join(repoRoot, messageHandlerPath),
+      "utf8"
+    );
+
+    expect(messageHandler).not.toMatch(
+      /\b(?:legacySendResponseMessage|evaluateJavascript)\s*\(/
+    );
+    expect(messageHandler).toMatch(
+      /if \(replyProxy != null\)\s*\{\s*replyProxy\.postMessage\(data\.toString\(\)\);/
+    );
+    expect(messageHandler).toContain(
+      "bridge.getApp().fireRestoredResult(data);"
+    );
+    expect(messageHandler).toContain("call.release(bridge);");
+    expect(patchCapacitorMessageHandlerSource(messageHandler)).toBe(
+      messageHandler
+    );
+    expect(() =>
+      patchCapacitorMessageHandlerSource(
+        messageHandler.replace("replyProxy.postMessage(data.toString());", "")
+      )
+    ).toThrow(
+      "Expected Capacitor WebView reply dispatch source pattern was not found"
     );
   });
 

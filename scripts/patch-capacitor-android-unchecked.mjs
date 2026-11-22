@@ -114,6 +114,27 @@ const failClosedMessageHandler = `        if (bridge.getConfig().isUsingLegacyBr
             throw new IllegalStateException("Origin-aware WebView bridge installation failed", ex);
         }`;
 
+const upstreamResponseDispatch = `                if (bridge.getConfig().isUsingLegacyBridge()) {
+                    legacySendResponseMessage(data);
+                } else if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) && javaScriptReplyProxy != null) {
+                    javaScriptReplyProxy.postMessage(data.toString());
+                } else {
+                    legacySendResponseMessage(data);
+                }`;
+const upstreamLegacyResponse = `    private void legacySendResponseMessage(PluginResult data) {
+        final String runScript = "window.Capacitor.fromNative(" + data.toString() + ")";
+        final WebView webView = this.webView;
+        webView.post(() -> webView.evaluateJavascript(runScript, null));
+    }
+
+`;
+const replyProxyResponseDispatch = `                final JavaScriptReplyProxy replyProxy = javaScriptReplyProxy;
+                if (replyProxy != null) {
+                    replyProxy.postMessage(data.toString());
+                } else {
+                    Logger.warn("Origin-aware WebView reply proxy is unavailable");
+                }`;
+
 const messageHandlerConstruction =
   "        this.msgHandler = new MessageHandler(this, webView, pluginManager);";
 const failClosedMessageHandlerConstruction = `        try {
@@ -326,6 +347,26 @@ export function patchCapacitorMessageHandlerSource(source) {
   } else {
     throw new Error(
       "Expected Capacitor WebView message-handler source pattern was not found"
+    );
+  }
+
+  if (
+    patchedSource.includes(upstreamResponseDispatch) &&
+    patchedSource.includes(upstreamLegacyResponse)
+  ) {
+    patchedSource = patchedSource
+      .replace(upstreamResponseDispatch, replyProxyResponseDispatch)
+      .replace(upstreamLegacyResponse, "")
+      .replace("    private WebView webView;\n", "")
+      .replace("        this.webView = webView;\n", "");
+  }
+  const replySource = stripJavaComments(patchedSource);
+  if (
+    !replySource.includes(replyProxyResponseDispatch) ||
+    /\b(?:legacySendResponseMessage|evaluateJavascript)\s*\(/.test(replySource)
+  ) {
+    throw new Error(
+      "Expected Capacitor WebView reply dispatch source pattern was not found"
     );
   }
 
