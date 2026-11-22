@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reassess the exact protected Android main source daily at 03:47 UTC and
+  through an input-free manual security diagnostic, reusing the existing
+  fail-closed repository scanner without building, signing, or publishing
+  Android artifacts.
+
 - Require native Java and Kotlin CodeQL analysis for Android app, DPC, and
   shared management source alongside the existing JavaScript and TypeScript scan.
 
