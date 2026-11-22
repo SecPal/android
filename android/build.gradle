@@ -1,5 +1,8 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+
 buildscript {
 
     repositories {
@@ -26,6 +29,50 @@ allprojects {
     configurations.configureEach {
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+    }
+}
+
+def releaseRuntimeProjects = [project(':app'), project(':dpc')]
+
+configure(releaseRuntimeProjects) {
+    dependencyLocking {
+        lockMode = LockMode.STRICT
+    }
+    configurations.configureEach {
+        if (name == 'releaseRuntimeClasspath') {
+            resolutionStrategy.activateDependencyLocking()
+        }
+    }
+}
+
+// After an intentional dependency update, regenerate with
+// ./gradlew verifyReleaseRuntimeDependencies --write-locks from android/.
+tasks.register('verifyReleaseRuntimeDependencies') {
+    group = 'verification'
+    description = 'Verifies both Android release runtime dependency locks without building artifacts.'
+
+    doLast {
+        releaseRuntimeProjects.each { runtimeProject ->
+            def runtime = runtimeProject.configurations.getByName('releaseRuntimeClasspath')
+            def resolution = runtime.incoming.resolutionResult
+            def unresolved = resolution.allDependencies.findAll { it instanceof UnresolvedDependencyResult }
+            if (!unresolved.isEmpty()) {
+                throw new GradleException("${runtimeProject.path}:${runtime.name} could not resolve:\n" +
+                    unresolved.collect { "${it.requested.displayName}: ${it.failure.message}" }.join('\n'))
+            }
+
+            if (!gradle.startParameter.writeDependencyLocks) {
+                // Trivy reads all configurations in this file. Verify the entire scanner-visible inventory.
+                def expected = resolution.allComponents.collect { it.id }.findAll {
+                    it instanceof ModuleComponentIdentifier
+                }.collect { "${it.group}:${it.module}:${it.version}=${runtime.name}".toString() }
+                expected.add('empty=')
+                def locked = runtimeProject.file('gradle.lockfile').readLines('UTF-8').findAll { !it.startsWith('#') }
+                if (locked.sort() != expected.sort()) {
+                    throw new GradleException("${runtimeProject.path}/gradle.lockfile must contain only its resolved release runtime inventory.")
+                }
+            }
+        }
     }
 }
 

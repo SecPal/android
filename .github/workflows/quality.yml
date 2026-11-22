@@ -189,6 +189,10 @@ jobs:
       - name: Verify effective Android release network policy
         run: npm run native:verify:network-security
 
+      - name: Verify Android release runtime dependency locks
+        working-directory: android
+        run: ./gradlew --no-daemon verifyReleaseRuntimeDependencies
+
       - name: Verify Android packaging frontend guard
         run: npm run native:verify:packaging-guard
 
