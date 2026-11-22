@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deliver native plugin responses through the origin-aware Android WebView
+  reply channel and drop responses when that channel is unavailable.
+
 - Fail the protected CodeQL check when native analysis is cancelled or missing.
 
 - Update the Play Services open-source license viewer to the compatible
