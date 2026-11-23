@@ -36,8 +36,9 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
   });
   expect(workflow.jobs["auto-merge"].with).toMatchObject({
     phase: "2",
-    "allowed-ecosystems": "github_actions,npm_and_yarn,pre_commit",
+    "allowed-ecosystems": "github_actions,npm_and_yarn,pre_commit,gradle",
     "pre-commit-path": ".pre-commit-config.yaml",
+    "gradle-wrapper-path": "android/gradle/wrapper/gradle-wrapper.properties",
     "merge-method": "squash",
   });
   expect(workflow.jobs["auto-merge"].uses).toMatch(
@@ -46,4 +47,13 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
   expect(Object.values(workflow.jobs).every((job) => Boolean(job.uses))).toBe(
     true
   );
+});
+
+it("stores the distribution checksum in the approved Gradle wrapper properties", () => {
+  const properties = readFileSync(
+    "android/gradle/wrapper/gradle-wrapper.properties",
+    "utf8"
+  );
+  expect(properties.match(/^distributionSha256Sum=/gm)).toHaveLength(1);
+  expect(properties).toMatch(/^distributionSha256Sum=[a-f0-9]{64}$/m);
 });
