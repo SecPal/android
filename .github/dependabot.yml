@@ -48,6 +48,10 @@ updates:
     pull-request-branch-name:
       separator: "-"
     groups:
+      shared-no-op-workflow-pins:
+        patterns:
+          - "SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml"
+          - "SecPal/.github/.github/workflows/reusable-pr-size.yml"
       # SecPal reusable workflows track immutable commits on main rather than
       # releases, so Dependabot cannot assign them a semantic update type.
       shared-workflow-pins:
