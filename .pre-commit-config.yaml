@@ -10,7 +10,7 @@
 repos:
   # REUSE compliance
   - repo: https://github.com/fsfe/reuse-tool
-    rev: v6.2.0
+    rev: v6.3.0
     hooks:
       - id: reuse
 
