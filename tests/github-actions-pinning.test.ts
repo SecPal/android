@@ -904,6 +904,13 @@ jobs:
     )?.groups;
     const sharedWorkflowPattern = "SecPal/.github/.github/workflows/*";
 
+    expect(Object.keys(groups ?? {})[0]).toBe("shared-no-op-workflow-pins");
+    expect(groups?.["shared-no-op-workflow-pins"]).toEqual({
+      patterns: [
+        "SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml",
+        "SecPal/.github/.github/workflows/reusable-pr-size.yml",
+      ],
+    });
     expect(groups?.["shared-workflow-pins"]).toEqual({
       patterns: [sharedWorkflowPattern],
     });
