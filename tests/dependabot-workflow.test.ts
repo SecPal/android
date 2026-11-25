@@ -47,6 +47,7 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
   ).toEqual([
     ".github/workflows/check-conflict-markers.yml",
     ".github/workflows/pr-size.yml",
+    ".github/workflows/reusable-repository-security.yml",
   ]);
   expect(workflow.jobs["auto-merge"].uses).toMatch(
     /^SecPal\/\.github\/\.github\/workflows\/reusable-dependabot-auto-merge\.yml@[0-9a-f]{40}$/
