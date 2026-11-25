@@ -60,11 +60,11 @@ function runBuildScript(frontendDirectory?: string) {
 function runBuildScriptWithFrontendState({
   actualRevision = expectedFrontendRevision,
   dirty = false,
-  ignoredBuildInput = false,
+  ignoredBuildInput = "",
 }: {
   actualRevision?: string;
   dirty?: boolean;
-  ignoredBuildInput?: boolean;
+  ignoredBuildInput?: string;
 }) {
   const tempRoot = mkdtempSync(join(tmpdir(), "build-frontend-state-"));
   const isolatedRepositoryRoot = join(tempRoot, "android");
@@ -111,8 +111,8 @@ elif [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
   printf '%s\\n' "$SECPAL_TEST_ACTUAL_REVISION"
 elif [ "$1" = "-C" ] && [ "$3" = "status" ]; then
   if [[ " $* " == *" --ignored=matching "* ]]; then
-    if [ "$SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT" = "1" ]; then
-      printf '!! .env.android.local\\n'
+    if [ -n "$SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT" ]; then
+      printf '!! %s\\n' "$SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT"
     fi
   elif [ "$SECPAL_TEST_FRONTEND_DIRTY" = "1" ]; then
     printf ' M src/App.tsx\\n'
@@ -140,7 +140,7 @@ fi
         SECPAL_ANDROID_FRONTEND_DIR: frontendDirectory,
         SECPAL_TEST_ACTUAL_REVISION: actualRevision,
         SECPAL_TEST_FRONTEND_DIRTY: dirty ? "1" : "0",
-        SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT: ignoredBuildInput ? "1" : "0",
+        SECPAL_TEST_FRONTEND_IGNORED_BUILD_INPUT: ignoredBuildInput,
         SECPAL_TEST_REPOSITORY_ROOT: isolatedRepositoryRoot,
       },
     });
@@ -203,13 +203,16 @@ describe("build frontend web script", () => {
     expect(result.stderr).toContain("frontend checkout is not clean");
   });
 
-  it("rejects ignored frontend build inputs", () => {
-    const result = runBuildScriptWithFrontendState({
-      ignoredBuildInput: true,
-    });
+  it.each([".env.android.local", ".polyscope-preview-stage/"])(
+    "rejects ignored frontend build input %s",
+    (ignoredBuildInput) => {
+      const result = runBuildScriptWithFrontendState({
+        ignoredBuildInput,
+      });
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("ignored build inputs");
-    expect(result.stderr).toContain(".env.android.local");
-  });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("ignored build inputs");
+      expect(result.stderr).toContain(ignoredBuildInput);
+    }
+  );
 });

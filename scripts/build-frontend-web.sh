@@ -60,7 +60,6 @@ FRONTEND_IGNORED_BUILD_STATE="$(
         allowed["node_modules/"] = 1
         allowed["dist/"] = 1
         allowed[".context/"] = 1
-        allowed[".polyscope-preview-stage/"] = 1
         allowed[".eslintcache"] = 1
         allowed[".prettiercache"] = 1
         allowed["coverage/"] = 1
