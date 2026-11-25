@@ -36,7 +36,8 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
   });
   expect(workflow.jobs["auto-merge"].with).toMatchObject({
     phase: "2",
-    "allowed-ecosystems": "github_actions,npm_and_yarn,pre_commit,gradle",
+    "allowed-ecosystems":
+      "github_actions,npm_and_yarn,pre_commit,gradle,bundler",
     "pre-commit-path": ".pre-commit-config.yaml",
     "gradle-wrapper-path": "android/gradle/wrapper/gradle-wrapper.properties",
     "merge-method": "squash",
