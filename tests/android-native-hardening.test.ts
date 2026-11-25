@@ -1590,7 +1590,10 @@ describe("Android native hardening", () => {
   });
 
   it("keeps maintained local owner commands bound to the separate DPC", () => {
-    const readme = readRepoFile("README.md");
+    const capabilities = readRepoFile(
+      "docs",
+      "ANDROID_ENTERPRISE_CAPABILITIES.md"
+    );
     const localTesting = readRepoFile(
       "docs",
       "ANDROID_LOCAL_DEVICE_TESTING.md"
@@ -1611,7 +1614,7 @@ describe("Android native hardening", () => {
     expect(localTesting).toContain(":app:assembleDebug :dpc:assembleDebug");
     expect(localTesting).toContain("SECPAL_DPC_CERT_SHA256");
     expect(localTesting).toContain("SECPAL_WORK_CERT_SHA256");
-    expect(readme).toContain(
+    expect(capabilities).toContain(
       "dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver"
     );
     expect(localTesting).not.toContain("dpm set-device-owner app.secpal/");
