@@ -5,12 +5,10 @@ SPDX-License-Identifier: CC0-1.0
 
 # Android Enterprise capabilities
 
-Privileged device management is implemented by the separate `io.secpal.dpc`
-application. The current Work build retains the `app.secpal` package
-identity and an independent signing authority. The two builds pin each
-other's public signing certificates. The accepted
+The checked-in builds separate device management and the Work app. They pin
+each other's public signing certificates. The accepted
 [client trust and recovery contract (ADR-026)](https://github.com/SecPal/.github/blob/main/docs/adr/20261002-client-trust-offline-recovery-adr026.md)
-defines client-family identity and endpoint authorization.
+owns client-family identity and endpoint authorization.
 
 ## Owner modes
 
@@ -41,37 +39,27 @@ The currently supported provisioning and managed-configuration keys are:
 
 Managed configuration and provisioning extras target `io.secpal.dpc`. Work itself is never Device Owner or Profile Owner. Without that authenticated owner, privileged controls remain inactive.
 
-For local dedicated-device testing, build both APKs with independent local debug certificates and mutual public certificate pins. The complete build/install/owner/rollback sequence is in [Local device testing](ANDROID_LOCAL_DEVICE_TESTING.md#safe-dedicated-device-test-flow). The debug DPC is `testOnly`, so its owner role can be removed with:
-
-```bash
-adb shell dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver
-```
-
-Release builds cannot use that test rollback path. Existing single-package managed installations require explicit reprovisioning; updating Work does not transfer the owner role.
-
-The DPC debug receiver accepts `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY` and `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`. It requires Android’s `DUMP` permission and targets the DPC package:
-
-```bash
-adb shell am broadcast --include-stopped-packages \
-    -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
-adb shell am start -n app.secpal/.MainActivity
-adb shell input keyevent KEYCODE_HOME
-```
-
-Work enables its HOME component only from an authenticated kiosk snapshot. The former unmanaged debug kiosk simulation has been removed: debug policy does not manufacture an owner role or Work capabilities. To clear the test policy:
-
-```bash
-adb shell am broadcast --include-stopped-packages \
-    -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY \
-    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
-adb shell am start -n app.secpal/.MainActivity
-```
+Use the [local device testing runbook](ANDROID_LOCAL_DEVICE_TESTING.md)
+for build, installation, owner assignment, debug policy and rollback. The
+debug receiver requires Android's `DUMP` permission. Debug policy creates
+neither owner authority nor authenticated kiosk state. Work enables its HOME
+component only from an authenticated kiosk snapshot. Existing single-package
+managed installations require explicit reprovisioning.
 
 Gesture navigation is an Android and device-dependent provisioning step.
 When the device requires its settings UI, the native provisioning handoff
 opens the system screen. The WebView has no lock-task exit authority.
+
+## Samsung hardware keys
+
+The DPC accepts Samsung Knox XCover/PTT and SOS key signals in Device Owner
+and Profile Owner modes. Its receiver requires the platform-signature-protected
+Knox permission, checks the managed mode and verifies the configured Work
+signing certificate before launching Work for an admitted short or long press.
+
+OEM launch behavior depends on the device and its Knox configuration.
+[Real-device validation notes](ANDROID_LOCAL_DEVICE_TESTING.md#samsung-xcover-hard-key-validation-notes)
+record the tested behavior and the remaining physical-key coverage.
 
 ## Scope of evidence
 
