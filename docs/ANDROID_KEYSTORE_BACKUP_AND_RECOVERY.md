@@ -83,13 +83,10 @@ chmod 600 "$HOME/.config/secpal/android-upload.jks"
 chmod 600 "$HOME/.config/secpal/android-release.env"
 ```
 
-Validate the restored setup:
-
-```bash
-cd /home/user/code/SecPal/android
-npm run native:assemble:release:signed
-npm run native:bundle:release:signed
-```
+Validate locally with the signed APK and AAB build-only commands in
+[Android Release and Distribution](ANDROID_RELEASE_DISTRIBUTION.md). Supply an
+explicit valid `SECPAL_ANDROID_VERSION_CODE` for each signed build. Recovery
+validation does not publish an artifact or change the Play account.
 
 ## Rotation Policy
 
@@ -98,7 +95,6 @@ Do not rotate the upload key casually.
 Changing the upload key has consequences for:
 
 - direct APK upgrades
-- DPC rollouts using the same app identity
 - Play Console upload configuration
 
 Recommended rule:
@@ -114,4 +110,4 @@ For the current SecPal plan, the recommended model is:
 2. enroll in Google Play App Signing when the Play Console is ready
 3. continue uploading with the same local upload key unless there is a clear reason to rotate it later
 
-This keeps direct distribution and Play distribution aligned while still letting Google manage the final app-signing key inside Play.
+Google Play's distribution key is a separate authority from its upload key. Verify release certificate compatibility before offering an in-place upgrade across channels.
