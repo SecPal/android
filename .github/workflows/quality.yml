@@ -23,40 +23,40 @@ jobs:
 
   reuse:
     name: Check REUSE Compliance
-    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-reuse.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
 
   license-compatibility:
     name: Check License Compatibility
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-license-compatibility.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
 
   prettier:
     name: Formatting Check
-    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-prettier.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
     with:
       node-version: "26.11.1"
 
   markdown-lint:
     name: Markdown Lint
-    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-markdown-lint.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
     with:
       node-version: "26.11.1"
 
   ai-instructions:
     name: AI Instructions
-    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-ai-instructions.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
     with:
       node-version: "26.11.1"
 
   eslint:
     name: ESLint
-    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-lint.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
     with:
       node-version: "26.11.1"
 
   typecheck:
     name: TypeScript Check
-    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-node-build.yml@1010593808ca85a67f8ae66af79b8b256a586f63 # main
     with:
       node-version: "26.11.1"
       build-command: "npm run typecheck"
