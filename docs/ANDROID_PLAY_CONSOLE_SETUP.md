@@ -16,7 +16,6 @@ Use this baseline consistently:
 - application ID: `app.secpal` (Android identifier only, not a web domain)
 - technical Android contact: `android@secpal.app`
 - public support contact: `support@secpal.app`
-- one shared app for direct download, DPC capability, and Google Play
 
 ## 1. Create The Developer Account
 
@@ -51,18 +50,15 @@ Recommended model:
 3. keep the Play service-account JSON outside the repository, for example at `~/.config/secpal/google-play-service-account.json`
 4. upload signed artifacts using the same local upload key, optionally through the repo-local Fastlane lane with `SECPAL_ANDROID_PLAY_JSON_KEY_PATH`
 
-That preserves compatibility with direct distribution while still using the standard Play signing model.
+Verify the Play distribution signing certificate independently of the upload key. See [Work release identity](ANDROID_RELEASE_DISTRIBUTION.md#work-release-identity).
 
 ## 4. Upload The First Internal Build
 
 Before any public rollout:
 
 1. create an internal testing track
-2. upload the signed AAB produced by `SECPAL_ANDROID_VERSION_CODE=2026072201 npm run native:bundle:release:signed` or `npm run fastlane:android:deploy:internal`
-3. verify package name, version code, and release notes
-4. confirm that the uploaded package name is still `app.secpal`
-
-When you use `npm run fastlane:android:deploy:internal`, the lane selects a fresh UTC `YYYYMMDDXX` `versionCode` after checking the local published baseline, Direct Stable, Direct Beta, and the configured Play tracks `internal`, `alpha`, `beta`, and `production`. If you need to force a specific value for a one-off upload, pass `SECPAL_ANDROID_DEPLOY_VERSION_CODE=...` explicitly in the shell. `SECPAL_ANDROID_VERSION_CODE` is reserved for Fastlane's temporary Gradle build value and is not a publishing override.
+2. use the internal-track upload procedure in [Android Release and Distribution](ANDROID_RELEASE_DISTRIBUTION.md)
+3. verify the delivered application ID, version code and release notes
 
 ## 5. Store Listing Requirements
 
@@ -77,7 +73,7 @@ Prepare at least:
 - support URL on `secpal.app` when available
 - privacy policy URL on `secpal.app`
 
-Keep the wording aligned with the single-app strategy: one SecPal app, with managed and enterprise behavior depending on installation and policy state.
+Describe the Work application and the actually available features.
 
 The repo-local Fastlane metadata flow is:
 
@@ -112,17 +108,11 @@ Recommended sequence:
 2. closed testing
 3. production
 
-If DPC-related features are introduced incrementally, keep them behind controlled enablement rather than branching into a second Play app.
+## 8. Managed Google Play
 
-## 8. Managed Google Play And DPC
-
-The current SecPal decision is to keep DPC capability inside the same app.
-
-That means:
-
-- managed Google Play should distribute the same `app.secpal` package
-- direct APK distribution should use the same package and signing identity
-- enterprise behavior should be controlled by policy, provisioning mode, or configuration, not by a separate package name
+The Work listing covers the current Work application identity. The separate
+DPC owns device-management authority. This Console setup grants no DPC or
+endpoint approval.
 
 ## 9. First Publish Gate
 
@@ -134,4 +124,4 @@ Do not publish to production until all of these are true:
 - store assets are final enough for public exposure
 - keystore backup and recovery path is documented and tested
 - versioning policy is understood
-- direct-download and Play paths do not diverge in package name or signing identity
+- package and distribution certificate compatibility is verified for any advertised cross-channel upgrade
