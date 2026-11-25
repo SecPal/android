@@ -11,7 +11,7 @@ Android app for SecPal — operations software for German private security servi
 
 - Ship a secure SecPal mobile app for Android first
 - Keep iOS support possible via Capacitor without coupling Android-specific code into shared app logic
-- Prepare staged Android Enterprise support (DPC, profile owner/device owner flows)
+- Support authenticated device management through the separate Android DPC
 
 ## Frontend Source of Truth
 
@@ -272,64 +272,8 @@ SecPal-owned AGPL-covered files use `AGPL-3.0-or-later`.
 
 Official SecPal product surfaces retain their intentional `Powered by SecPal – A guard's best friend` branding. This branding is not an additional license condition.
 
-## Roadmap
+## Android Enterprise
 
-See `docs/ANDROID_ENTERPRISE_ROADMAP.md` for the staged approach to DPC and admin capabilities.
-
-Privileged management runs in the separate `io.secpal.dpc` application. Work keeps `app.secpal`, its signing authority, UI and release channels. Each build pins the other application’s public signing certificate; management never establishes endpoint identity or user, session or business authorization.
-
-## Dedicated Device Mode
-
-Work uses normal Android behavior without an authenticated DPC. When `io.secpal.dpc` is provisioned as Device Owner, it configures dedicated-device policy and Work consumes the resulting capabilities. Profile Owner management does not grant Device Owner kiosk capabilities.
-
-In dedicated-device mode, SecPal applies native Android policy from the DPC side instead of relying on the web layer:
-
-- SecPal becomes the persistent home activity for the device
-- a dedicated native home screen shows only approved apps such as SecPal, compatible Phone/SMS handlers, and other allowlisted packages in a homescreen-like icon grid
-- kiosk lock-task mode is entered automatically when policy enables it
-- launchable apps outside the allowlist are hidden from the launcher surface
-- status-bar shortcuts and common device-configuration surfaces are disabled while dedicated-device kiosk policy is active, and common Settings intents are redirected back to the managed home screen so users cannot pivot into Settings and change system state
-- SecPal itself remains the normal app experience when launched from that managed home screen
-
-The currently supported provisioning and managed-configuration keys are:
-
-- `secpal_kiosk_mode_enabled`: enable dedicated-device kiosk enforcement
-- `secpal_lock_task_enabled`: keep Android lock task active inside dedicated-device mode; set this to `false` only when SecPal should still act as the managed home screen but users should be able to move normally between allowed apps. If you omit this flag, SecPal keeps lock task enabled by default, including the Phone/SMS dedicated-device case.
-- `secpal_allow_phone`: allow launching a compatible dialer from the dedicated-device shell when Android exposes one on the device
-- `secpal_allow_sms`: allow launching a compatible SMS app from the dedicated-device shell when Android exposes one on the device
-- `secpal_prefer_gesture_navigation`: prefer gesture navigation for dedicated-device provisioning; if you omit this flag, SecPal now defaults it to `true` when kiosk mode is enabled and tries to apply gesture navigation during provisioning, falling back to the official system navigation screen on first launch when a device does not accept the managed settings silently
-- `secpal_allowed_packages`: additional package allowlist as a string array or comma-separated list
-
-Managed configuration and provisioning extras target `io.secpal.dpc`. Work itself is never Device Owner or Profile Owner. Without that authenticated owner, privileged controls remain inactive.
-
-For local dedicated-device testing, build both APKs with independent local debug certificates and mutual public certificate pins. The complete build/install/owner/rollback sequence is in [Local device testing](docs/ANDROID_LOCAL_DEVICE_TESTING.md#safe-dedicated-device-test-flow). The debug DPC is `testOnly`, so its owner role can be removed with:
-
-```bash
-adb shell dpm remove-active-admin io.secpal.dpc/app.secpal.SecPalDeviceAdminReceiver
-```
-
-Release builds cannot use that test rollback path. Existing single-package managed installations require explicit reprovisioning; updating Work does not transfer the owner role.
-
-The DPC debug receiver accepts `app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY` and `app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY`. It requires Android’s `DUMP` permission and targets the DPC package:
-
-```bash
-adb shell am broadcast --include-stopped-packages \
-    -a app.secpal.action.DEBUG_SET_ENTERPRISE_POLICY \
-    --ez secpal_kiosk_mode_enabled true \
-    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
-adb shell am start -n app.secpal/.MainActivity
-adb shell input keyevent KEYCODE_HOME
-```
-
-Work enables its HOME component only from an authenticated kiosk snapshot. The former unmanaged debug kiosk simulation has been removed: debug policy does not manufacture an owner role or Work capabilities. To clear the test policy:
-
-```bash
-adb shell am broadcast --include-stopped-packages \
-    -a app.secpal.action.DEBUG_CLEAR_ENTERPRISE_POLICY \
-    -n io.secpal.dpc/app.secpal.DebugEnterprisePolicyReceiver
-adb shell am start -n app.secpal/.MainActivity
-```
-
-The Android wrapper keeps the gesture-navigation settings hand-off inside the native provisioning flow instead of exposing lock-task exit to WebView JavaScript. Android does not offer a portable public API that lets SecPal silently force that OEM-specific system setting by itself, so devices that require the OEM settings UI are handled only during the provisioning hand-off.
-
-During dedicated-device provisioning, SecPal now also tries to apply the gesture-navigation preference automatically as part of the provisioning flow itself. On devices where Android accepts the managed secure/global settings directly, no extra user step is required. On devices that still insist on the OEM navigation settings UI, SecPal marks that setup as pending and opens the official gesture-navigation screen automatically on the first managed launch after provisioning so the remaining step still happens inside the provisioning hand-off instead of later from an app menu.
+See [current Android Enterprise capabilities](docs/ANDROID_ENTERPRISE_CAPABILITIES.md)
+for the separate DPC, owner modes, managed configuration and qualification
+boundaries.
