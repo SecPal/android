@@ -41,12 +41,13 @@ permissions:
 jobs:
   auto-merge:
     # yamllint disable-line rule:line-length
-    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@70c90d00ce8f293c217ea8fe4bc5caf0554a6c43 # main
+    uses: SecPal/.github/.github/workflows/reusable-dependabot-auto-merge.yml@321914d2ae11d7a3720e2d53b85ad628b397edf0 # main
     with:
       allowed-ecosystems: "github_actions,npm_and_yarn,pre_commit,gradle,bundler"
       pre-commit-path: ".pre-commit-config.yaml"
       shared-sha-workflow-paths: >-
-        [".github/workflows/check-conflict-markers.yml",".github/workflows/pr-size.yml"]
+        [".github/workflows/check-conflict-markers.yml",".github/workflows/pr-size.yml",
+         ".github/workflows/reusable-repository-security.yml"]
       gradle-wrapper-path: "android/gradle/wrapper/gradle-wrapper.properties"
       phase: "2" # Verified PATCH and MINOR; Source Safety must be required
       merge-method: "squash" # Use squash merge for cleaner history
