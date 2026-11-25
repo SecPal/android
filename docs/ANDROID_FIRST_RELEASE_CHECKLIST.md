@@ -12,7 +12,6 @@ This checklist is the baseline for the first real SecPal Android release.
 - app name is `SecPal`
 - public developer or publisher name is `SecPal`
 - application ID is `app.secpal` (Android identifier only, not a web domain)
-- one shared app identity is used for direct download, DPC rollout, and Google Play
 - technical Android contact is `android@secpal.app`
 - public support contact is `support@secpal.app`
 
@@ -21,7 +20,7 @@ This checklist is the baseline for the first real SecPal Android release.
 - upload key exists outside the repository under `~/.config/secpal/`
 - `android-upload.jks` and `android-release.env` are backed up together
 - recovery of the keystore has been tested on a clean environment or documented dry-run
-- the team understands that the same signing identity is used for direct distribution and Play uploads
+- the direct signing certificate, Play upload key and Play distribution certificate are verified for their respective roles
 
 ## Repository Validation
 
@@ -38,8 +37,7 @@ This checklist is the baseline for the first real SecPal Android release.
 - `npm run test:run`
 - `npm run cap:sync`
 - `npm run native:assemble:debug`
-- `npm run native:assemble:release:signed`
-- `npm run native:bundle:release:signed`
+- signed APK and AAB pass the [build-only procedure](ANDROID_RELEASE_DISTRIBUTION.md#environment-variables-for-release-builds) with an explicit version code
 
 ## Direct Download Readiness
 
@@ -50,7 +48,6 @@ This checklist is the baseline for the first real SecPal Android release.
 - the release is running on the authorized local signing workstation, publishes direct APKs to Uberspace, and the shared publishing lock is available
 - upgrade path from older internal builds is understood
 - installation instructions for enterprise customers are prepared
-- DPC-related onboarding assumes the same app package and signature as the public app
 
 ## Google Play Readiness
 
@@ -63,11 +60,11 @@ This checklist is the baseline for the first real SecPal Android release.
 
 See `docs/ANDROID_PLAY_CONSOLE_SETUP.md` for the operational Play Console setup sequence.
 
-## DPC Strategy
+## Device management
 
-- DPC capability remains part of the same `SecPal` app instead of a separate enterprise-only app
-- feature enablement depends on installation path, policy mode, and managed configuration rather than a separate package name
-- package name and signing key are treated as long-term stable identifiers
+If managed deployment is in release scope, verify the separate DPC build,
+its signing authority and the Work/DPC certificate pins. Device-management
+qualification follows the [local device testing runbook](ANDROID_LOCAL_DEVICE_TESTING.md).
 
 ## Go Or No-Go
 

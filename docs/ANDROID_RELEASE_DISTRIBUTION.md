@@ -120,11 +120,12 @@ This repository provides helper scripts for that layout:
 - `scripts/setup-android-release-keystore.sh`
 - `scripts/load-android-release-env.sh`
 
-For a build without publishing, set `BUILD_ONLY_VERSION_CODE` to an explicit
-valid `YYYYMMDDXX` code.
+The build-only example uses today's UTC date with suffix `01`. It neither
+reserves nor publishes that code. Publication uses the Fastlane code allocator.
 
 ```bash
 bash ./scripts/setup-android-release-keystore.sh
+BUILD_ONLY_VERSION_CODE="$(date -u +%Y%m%d)01"
 SECPAL_ANDROID_VERSION_CODE="$BUILD_ONLY_VERSION_CODE" \
   npm run native:assemble:release:signed
 SECPAL_ANDROID_VERSION_CODE="$BUILD_ONLY_VERSION_CODE" \
@@ -203,8 +204,6 @@ Example:
 
 ```bash
 npm run fastlane:install
-SECPAL_ANDROID_VERSION_CODE="$BUILD_ONLY_VERSION_CODE" \
-  npm run fastlane:android:build:signed-aab
 SECPAL_ANDROID_PLAY_JSON_KEY_PATH="$HOME/.config/secpal/google-play-service-account.json" \
   npm run fastlane:android:deploy:internal
 ```
