@@ -33,6 +33,7 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
     "pull-requests": "write",
     checks: "read",
     statuses: "read",
+    attestations: "read",
   });
   expect(workflow.jobs["auto-merge"].with).toMatchObject({
     phase: "2",
