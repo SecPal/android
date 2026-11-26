@@ -47,37 +47,27 @@ updates:
     target-branch: "main"
     pull-request-branch-name:
       separator: "-"
+    # Let Dependabot update each SecPal component independently, including merge authority.
     groups:
-      shared-no-op-workflow-pins:
-        patterns:
-          - "SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml"
-          - "SecPal/.github/.github/workflows/reusable-pr-size.yml"
-      # SecPal reusable workflows track immutable commits on main rather than
-      # releases, so Dependabot cannot assign them a semantic update type.
-      shared-workflow-pins:
-        patterns:
-          - "SecPal/.github/.github/workflows/*"
-      # Keep versioned action groups semver-homogeneous so their PR titles and
-      # the reusable auto-merge policy preserve the actual update class.
       github-actions-patch:
         patterns:
           - "*"
         exclude-patterns:
-          - "SecPal/.github/.github/workflows/*"
+          - "SecPal/.github/*"
         update-types:
           - "patch"
       github-actions-minor:
         patterns:
           - "*"
         exclude-patterns:
-          - "SecPal/.github/.github/workflows/*"
+          - "SecPal/.github/*"
         update-types:
           - "minor"
       github-actions-major:
         patterns:
           - "*"
         exclude-patterns:
-          - "SecPal/.github/.github/workflows/*"
+          - "SecPal/.github/*"
         update-types:
           - "major"
 
