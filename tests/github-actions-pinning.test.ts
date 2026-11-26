@@ -902,22 +902,16 @@ jobs:
     const groups = dependabot.updates?.find(
       (candidate) => candidate["package-ecosystem"] === "github-actions"
     )?.groups;
-    const sharedWorkflowPattern = "SecPal/.github/.github/workflows/*";
-
-    expect(Object.keys(groups ?? {})[0]).toBe("shared-no-op-workflow-pins");
-    expect(groups?.["shared-no-op-workflow-pins"]).toEqual({
-      patterns: [
-        "SecPal/.github/.github/workflows/reusable-check-conflict-markers.yml",
-        "SecPal/.github/.github/workflows/reusable-pr-size.yml",
-      ],
-    });
-    expect(groups?.["shared-workflow-pins"]).toEqual({
-      patterns: [sharedWorkflowPattern],
-    });
+    const sharedComponentPattern = "SecPal/.github/*";
+    expect(Object.keys(groups ?? {}).sort()).toEqual([
+      "github-actions-major",
+      "github-actions-minor",
+      "github-actions-patch",
+    ]);
     for (const updateType of ["patch", "minor", "major"]) {
       expect(groups?.[`github-actions-${updateType}`]).toEqual({
         patterns: ["*"],
-        "exclude-patterns": [sharedWorkflowPattern],
+        "exclude-patterns": [sharedComponentPattern],
         "update-types": [updateType],
       });
     }
