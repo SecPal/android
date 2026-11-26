@@ -42,13 +42,9 @@ it("grants the accepted callee its read ceiling with phase two and complete stat
     "gradle-wrapper-path": "android/gradle/wrapper/gradle-wrapper.properties",
     "merge-method": "squash",
   });
-  expect(
-    JSON.parse(workflow.jobs["auto-merge"].with["shared-sha-workflow-paths"])
-  ).toEqual([
-    ".github/workflows/check-conflict-markers.yml",
-    ".github/workflows/pr-size.yml",
-    ".github/workflows/reusable-repository-security.yml",
-  ]);
+  expect(workflow.jobs["auto-merge"].with).not.toHaveProperty(
+    "shared-sha-workflow-paths"
+  );
   expect(workflow.jobs["auto-merge"].uses).toMatch(
     /^SecPal\/\.github\/\.github\/workflows\/reusable-dependabot-auto-merge\.yml@[0-9a-f]{40}$/
   );
