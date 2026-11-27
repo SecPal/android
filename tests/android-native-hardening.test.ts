@@ -1581,12 +1581,16 @@ describe("Android native hardening", () => {
     );
   });
 
-  it("documents the ImageMagick prerequisite for brand asset sync", () => {
+  it("routes local device setup to the guide with the brand asset prerequisites", () => {
     const readme = readRepoFile("README.md");
+    const guide = readRepoFile("docs", "ANDROID_LOCAL_DEVICE_TESTING.md");
 
-    expect(readme).toContain("ImageMagick");
-    expect(readme).toContain("npm run brand:sync");
-    expect(readme).toContain("magick");
+    expect(readme).toContain("docs/ANDROID_LOCAL_DEVICE_TESTING.md");
+    expect(readme).toContain("Device Owner");
+    expect(readme).toContain("Profile Owner");
+    expect(guide).toContain("ImageMagick");
+    expect(guide).toContain("npm run brand:sync");
+    expect(guide).toContain("magick");
   });
 
   it("keeps maintained local owner commands bound to the separate DPC", () => {
@@ -1701,26 +1705,10 @@ describe("Android native hardening", () => {
     expect(
       packageJson.scripts["fastlane:android:withdraw:direct-apks"]
     ).toBeUndefined();
-    expect(readme).toContain("Fastlane");
-    expect(readme).toContain("npm run fastlane:android:build:signed-aab");
-    expect(readme).toContain("npm run fastlane:android:deploy:internal");
-    expect(readme).toContain("npm run fastlane:android:deploy:direct-apk");
-    expect(readme).toContain("apk.secpal.app");
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_CHANNEL");
-    expect(readme).not.toContain(
-      "npm run fastlane:android:withdraw:direct-apks"
-    );
-    expect(readme).not.toContain("SECPAL_ANDROID_WITHDRAW_VERSIONS");
-    expect(readme).not.toContain("atomically marks Stable");
-    expect(readme).toContain("https://apk.secpal.app/android/beta/latest.json");
-    expect(readme).toContain(
-      "https://apk.secpal.app/android/stable/latest.json"
-    );
-    expect(readme).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
-    expect(readme).toContain(
-      "signed APK and AAB embed the canonical schema-4 Android bridge"
-    );
+    expect(readme).toContain("docs/ANDROID_RELEASE_DISTRIBUTION.md");
+    expect(readme).not.toContain("npm run fastlane:android:");
+    expect(readme).not.toContain("SECPAL_ANDROID_DIRECT_SSH_HOST");
+    expect(readme).not.toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("Fastlane");
     expect(distributionDoc).toContain("SECPAL_ANDROID_PLAY_JSON_KEY_PATH");
     expect(distributionDoc).toContain("internal testing track");
@@ -1746,7 +1734,11 @@ describe("Android native hardening", () => {
     expect(distributionDoc).toContain(
       "signed APK and AAB embed the production `android-native` frontend metadata"
     );
+    expect(distributionDoc).toContain(
+      "https://apk.secpal.app/android/stable/latest.json"
+    );
     expect(distributionDoc).toContain("content-hashed, same-origin");
+    expect(distributionDoc).toContain("canonical schema-4 Android");
     expect(fastfile).toContain('File.expand_path("..", __dir__)');
     expect(fastfile).toContain("deploy_direct_apk");
     expect(fastfile).toContain("deploy_direct_apk_beta");
@@ -1755,7 +1747,6 @@ describe("Android native hardening", () => {
       /ENV\.fetch\(\s*"SECPAL_ANDROID_DIRECT_SSH_HOST",\s*"secpal-uberspace"\s*\)/
     );
     expect(fastfile).toContain('"/var/www/virtual/secpal/apk.secpal.app"');
-    expect(readme).toContain("SECPAL_ANDROID_DIRECT_SSH_HOST=secpal-uberspace");
     expect(distributionDoc).toContain(
       "Uberspace is the authorized release publication target"
     );
