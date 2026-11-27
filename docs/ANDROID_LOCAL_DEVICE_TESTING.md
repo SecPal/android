@@ -34,6 +34,10 @@ fnm install 26
 fnm use 26
 ```
 
+Regenerating launcher icons or splash assets with `npm run brand:sync` needs
+ImageMagick 7 (`magick`) or ImageMagick 6 (`convert`). Use the ImageMagick
+package for your distribution.
+
 The Android repository expects Java 21 and an Android SDK that is available under `~/Android/Sdk` unless you override it explicitly.
 
 Required SDK components:
