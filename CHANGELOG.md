@@ -114,6 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Keep the local Android device guide focused on repeatable validation and link the scoped Samsung evidence from the Enterprise guide.
+
 - Consolidate runtime discovery and push references in the Android bootstrap guide and remove the dated audit.
 
 - Consolidate the Android credential boundary and the current Certificate Transparency probe and recovery procedure.
