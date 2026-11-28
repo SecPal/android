@@ -28,7 +28,7 @@ portable integration and self-hosting.
 The native shell keeps bearer credentials in Keystore-backed storage and
 controls bridge access from the WebView. Runtime confirmation binds sign-in
 and push to the selected deployment. The separate DPC owns Device Owner or
-Profile Owner enforcement. The Work app consumes authenticated managed state.
+Profile Owner enforcement. The Android app consumes authenticated management state.
 
 The [Android Enterprise capabilities](docs/ANDROID_ENTERPRISE_CAPABILITIES.md)
 describe the current implementation and its evidence.
@@ -63,6 +63,9 @@ Capacitor sync, debug APKs, WebView smoke tests and device setup. See
 | Build, sign and distribute reviewed artifacts           | [Release and distribution](docs/ANDROID_RELEASE_DISTRIBUTION.md) and [first release checklist](docs/ANDROID_FIRST_RELEASE_CHECKLIST.md)   |
 | Configure Google Play or recover signing inputs         | [Play Console setup](docs/ANDROID_PLAY_CONSOLE_SETUP.md) and [keystore backup and recovery](docs/ANDROID_KEYSTORE_BACKUP_AND_RECOVERY.md) |
 
-Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
-File-level SPDX and [REUSE](REUSE.toml) metadata describe licensing. See
-[LICENSE](LICENSE) for the project license.
+See the [changelog](CHANGELOG.md) for project history and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting.
+See the [project license](LICENSE), [REUSE metadata](REUSE.toml) and
+[Third-Party Notices](THIRD-PARTY-NOTICES.md) for licensing and attribution.
+The [schema-3 withdrawal record](docs/release-evidence/2026-07-24-schema-3-artifact-withdrawal.md)
+preserves the evidence for that release decision.
