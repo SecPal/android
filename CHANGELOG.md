@@ -114,6 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Consolidate the Android credential boundary and the current Certificate Transparency probe and recovery procedure.
+
 - Moved contributor pull-request delivery and review to native GitHub reviews,
   checks, and merge protections while preserving SSH commit verification.
 

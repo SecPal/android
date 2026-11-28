@@ -5,370 +5,74 @@ SPDX-License-Identifier: CC0-1.0
 
 # Android Authentication Architecture
 
-**Status:** Target architecture and mandatory direction for all future Android auth work.
-
-## Purpose
-
-SecPal uses one shared React UI codebase across web and Android, but authentication is intentionally **not** shared end to end.
-
-- **Web / PWA:** Laravel Sanctum SPA mode with httpOnly session cookies and CSRF.
-- **Android app:** Bearer-token authentication with native token storage and native request handling.
-
-This separation is deliberate. The Android app exists to provide native security boundaries, secure local storage, and device capabilities that a pure browser or TWA-style wrapper cannot guarantee.
-
-## Non-Negotiable Rules
-
-1. Android must **not** authenticate through `POST /v1/auth/login`.
-2. Android must **not** depend on `/sanctum/csrf-cookie`, session cookies, or browser-style cookie auth.
-3. Android must authenticate via `POST /v1/auth/token` and use `Authorization: Bearer <token>` for authenticated API requests.
-4. Android bearer tokens must be stored only in Android-native secure storage backed by the Android Keystore.
-5. Bearer tokens must never be persisted in JavaScript-accessible storage.
-
-Forbidden storage and exposure paths:
-
-- `localStorage`
-- `sessionStorage`
-- `IndexedDB`
-- `document.cookie`
-- Capacitor `Preferences`
-- query parameters
-- logs, crash reports, analytics payloads, clipboard, or screenshots
-
-## Architecture Boundary
-
-### Shared UI
-
-The Android app continues to embed the shared web UI from `../frontend/dist` inside the Capacitor WebView.
-
-At packaging time, the Android wrapper verifies that the shared frontend was
-built through its `android-native` surface, writes the canonical bootstrap as a
-content-hashed same-origin JavaScript asset, and inserts its empty external
-script element before the application module. The document retains the strict
-self-only script CSP without hashes or inline execution, while the shared UI
-still sees the native auth facade from its first render.
-
-The shared UI is responsible for:
-
-- rendering screens
-- collecting user input
-- presenting authenticated state
-- rendering API results
-
-The shared UI is **not** the owner of Android authentication secrets.
-
-### Native Android Auth Layer
-
-Android authentication must be implemented in a native boundary with four responsibilities:
-
-1. **Native Auth Adapter**
-   - accepts login requests from the WebView
-   - calls `POST /v1/auth/token`
-   - normalizes auth failures for the UI
-
-2. **Secure Token Store**
-   - stores the bearer token in Keystore-backed encrypted storage
-   - exposes read, write, rotate, and delete operations only to native code
-
-3. **Native Authenticated API Client**
-   - attaches the `Authorization` header for protected requests
-   - owns retry, token-expiry handling, and logout cleanup
-
-4. **WebView Bridge**
-   - exposes only sanitized auth state and operation results to the shared UI
-   - never returns the raw bearer token to JavaScript
-
-## Request Flows
-
-### Login
-
-1. User enters credentials in the shared UI.
-2. The UI submits the credentials to the native auth adapter.
-3. The native auth adapter calls `POST /v1/auth/token`.
-4. The native layer stores the returned bearer token in secure storage.
-5. The native layer calls `GET /v1/me` with the bearer token.
-6. The native layer returns sanitized user/session state to the UI.
-
-### Authenticated API Calls
-
-1. The shared UI requests a protected operation.
-2. The WebView bridge hands the request to the native authenticated API client.
-3. The native client loads the token from secure storage.
-4. The native client sends the request with `Authorization: Bearer <token>`.
-5. The response is normalized and returned to the UI.
-
-For the current Android implementation, the wrapper bootstrap also patches
-authenticated `/v1/` fetch traffic in the WebView so the shared UI can keep
-using its existing service modules while protected requests are executed
-natively instead of through browser cookies. The native broker does not accept
-that prefix as authority. `NativeAuthRequestPolicy` is the reviewed mobile
-inventory and matches each request by canonical method and route template,
-permitted query keys, request media type, and expected response kind.
-Focused Java and packaged-asset parity tests bind that inventory to the route
-families present in the shipped Android frontend. Retired Android
-enrollment-session operations and route families that are merely implemented by
-dormant frontend service exports are not authorized. Public bootstrap and
-release metadata plus onboarding invitation validation and completion stay on
-the unauthenticated browser transport and never enter the bearer broker.
-
-The native scheduler separates ordinary interactive auth work, broker requests,
-and destructive session transitions. Each worker lane has one thread; ordinary
-and broker lanes admit at most eight queued calls, while session transitions use
-a zero-capacity queue and fail immediately when another transition is active.
-Broker uploads are limited to 12 MiB, broker responses to 8 MiB, and dedicated
-authentication/session JSON responses to 256 KiB. A 144 MiB aggregate working-
-set budget reserves conservative space for Base64 and bridge serialization as
-well as the response buffers that can briefly coexist while cancellation
-propagates. Connect, read, and write deadlines start at 15 seconds, and broker
-operations have a 30-second base total lifetime that scales only for the maximum
-bounded upload at the documented minimum transfer rate.
-
-The injected fetch adapter admits one native-bound fetch at a time and keeps at
-most eight queued operations. It snapshots each native-bound fetch's URL,
-headers, signal, and body source at invocation so later caller mutation cannot
-change the request, but postpones runtime restoration and bounded body-stream
-reading until the operation owns the active slot. Public, health, Sanctum, and
-foreign-origin routes bypass this scheduler and remain independent from a slow
-or saturated bearer request lane. The total lifetime starts at fetch invocation,
-includes time spent in the WebView queue, and scales only to the 12 MiB upload
-limit. Queue saturation fails with `NATIVE_AUTH_BUSY`; deadline expiry fails
-with `REQUEST_TIMEOUT`. Completion checks the absolute deadline independently
-of timer callback ordering, so main-thread delays cannot publish an expired
-result.
-
-Admission validates the complete method, target, media contract, request size,
-and bridge call shape before token access or connection creation. Cancellation,
-backgrounding, logout, credential replacement, runtime reset, runtime switch,
-and plugin teardown invalidate older generations, disconnect active broker and
-session transports, remove queued work and cancelled deadlines, and allow at
-most one terminal callback. Multi-step sign-in keeps its invocation-time origin
-and a distinct session binding across the expected system passkey UI pause. It
-revalidates that binding before sending a passkey assertion or persisting
-credentials, so logout, credential replacement, and tenant changes still fail
-closed. Local session mutations pass an atomic generation gate so a timeout
-cannot publish or apply a stale result later. Foregrounding only reopens
-admission; cancelled broker and session work is never resumed or retried. The
-WebView fetch generation is invalidated before logout or runtime mutation can
-activate different credentials or routing state. Older queued operations and
-late completions fail with `SESSION_INVALIDATED` and cannot fall through to the
-browser transport. Password and passkey credential replacement close WebView
-admission before the native login begins. Android background notification
-invalidates WebView work before native cancellation; foreground notification
-only reopens admission and never resumes the invalidated queue.
-
-The broker parses path and query components before matching. It rejects dot
-segments, nested or invalid percent encoding, invalid UTF-8, encoded separators,
-backslashes, fragments, authority-like paths, duplicate or unlisted query keys,
-unsupported media types, and individual request or response bodies beyond the
-native limits before returning data to the WebView. Automatic redirects are
-disabled. Authenticated 301, 302, 303, 307, and 308 responses fail closed, so a
-bearer header is never replayed to a redirect target. Rejected response media
-types preserve the originating HTTP status so authentication failures still
-trigger native credential and frontend session cleanup.
-
-Keeping the bearer token native does not eliminate the authority of same-origin
-script execution. A same-origin XSS can still invoke inventoried operations and
-read their allowed responses with the signed-in user's server-authorized
-permissions. The route table reduces that oracle to proven Android callers; it
-does not duplicate or replace API authorization. Preventing and containing XSS,
-retaining server-side authorization, and minimizing each inventoried response
-remain required.
-
-### Logout
-
-1. The shared UI requests logout.
-2. The native layer calls the canonical logout endpoint for token clients.
-3. The native layer deletes the bearer token from secure storage.
-4. The native layer clears any cached authenticated state.
-5. The UI is reset to the logged-out state.
-
-## Production Security Requirements
-
-The Android implementation must be production-first from the start.
-
-Required security properties:
-
-- token storage backed by the Android Keystore
-- device-specific token naming for revocation and auditability
-- no bearer token visibility in WebView JavaScript
-- explicit logout and token revocation path
-- clear handling for expired or revoked tokens
-- no silent fallback from native bearer auth to browser session auth
-- no auth shortcuts that rely on WebView cookies
-- no automatic redirect handling for bearer-authenticated connections
-- no generic path-prefix authorization in the native request broker
-
-### Capacitor Core Plugin Boundary
-
-The packaged Android bridge does not register Capacitor's `CapacitorHttp`,
-`CapacitorCookies`, or `WebView` core plugins. Neither the Android wrapper nor
-the shared frontend has a live caller for arbitrary native HTTP, WebView cookie
-mutation, or runtime server-base-path mutation. Android authenticated requests
-remain confined to the SecPal native auth plugin and its allowlisted API
-contract.
-
-Capacitor's same-origin `/_capacitor_http_interceptor_` route is also rejected
-with a local `403 Forbidden` response before it can open the target URL. This
-closes the native `HttpURLConnection` path independently of plugin registration
-or the framework's automatic fetch-patching configuration.
-
-SystemBars remains registered internally only for its native lifecycle
-initialization, safe-area CSS, and inset handling. It is omitted from generated
-native plugin headers, `Capacitor.isPluginAvailable("SystemBars")` returns
-`false`, and the native dispatcher rejects raw SystemBars calls before resolving
-the plugin handle. The shared frontend bundle can still contain Capacitor's
-web-only JavaScript proxies for core plugins; those proxies are not evidence of
-native availability. Its own
-`setStyle`, `show`, `hide`, and `setAnimation` annotations are also removed as
-defense in depth.
-
-Capacitor does not currently provide a supported host configuration for
-excluding individual Android core plugins. The repository therefore applies an
-exact, fail-closed source transformation through
-`scripts/patch-capacitor-android-unchecked.mjs` during `postinstall`,
-`cap:sync`, and `cap:add:android`. A Capacitor upgrade must preserve or
-deliberately update that transformation, run the focused patch/static tests,
-assemble the debug app, and inspect the packaged WebView regression test. If
-the upstream registration, native HTTP interceptor, export, dispatch, or
-SystemBars method shape changes, install or sync must fail instead of accepting
-the new bridge surface.
-
-SecPal/android issue #422 tracks a supported upstream exclusion mechanism and
-the eventual removal of these source transformations.
-
-Recommended hardening:
-
-- biometric or device-credential gate before revealing highly sensitive data
-- minimized token lifetime with documented renewal behavior
-- central handling for `401` and revoked-device states
-- redaction of auth-sensitive values from crash and telemetry output
-
-### Transport Trust Policy
-
-Android release networking remains HTTPS-only. The application manifest and
-Network Security Configuration both prohibit cleartext traffic, and the native
-HTTP client rejects a non-HTTPS API origin before opening a connection. The
-Cordova access allowlist remains restricted to the first-party HTTPS API and
-frontend origins.
-
-TLS connections use only the Android system trust store. Android performs the
-normal X.509 certificate-chain and hostname validation; release builds do not
-add trust for user-installed CAs and have no debug trust override. This
-system-PKI policy trusts the public CAs accepted by the Android platform and
-therefore does not prevent every possible CA compromise or mis-issuance.
-
-SecPal removed app-level static SPKI pinning after a legitimate certificate
-change locked a signed client out of a correctly configured API. The previous
-pins had no documented provenance, separately controlled backup key,
-certificate-renewal integration, or auditable rotation and recovery process.
-A source test that preserves literal hashes cannot prove live connectivity
-across future certificate changes.
-
-Static pinning must not be reintroduced until an operational design provides
-all of the following:
-
-- documented pin provenance
-- a fully controlled backup key
-- certificate-renewal integration
-- a planned overlap period
-- live-chain monitoring
-- client compatibility testing before certificate changes
-- a recovery procedure for already published clients
-
-### Certificate Transparency
-
-SecPal enables Android's platform Certificate Transparency (CT) policy for all
-remote HTTPS destinations on Android 16 (API 36) and later. This includes the
-instance URL entered during runtime discovery, a different canonical
-`api_base_url` returned by that instance, SecPal-operated endpoints, and any
-other remote HTTPS host used by the generic app. Network Security Configuration
-is packaged into the APK and cannot add a domain after installation, so a static
-allowlist cannot cover customer API origins that are intentionally unknown at
-build time.
-
-The unqualified Network Security Configuration remains the API 24 through 35
-fallback and does not contain the API-36-only element. A qualified `res/xml-v36`
-configuration enables CT in its `base-config` while retaining cleartext
-prohibition and system-only trust anchors. It must not contain a per-domain CT
-opt-out. Android 17 would otherwise add an implicit localhost configuration
-that permits loopback cleartext and disables CT. The `res/xml-v37`
-configuration explicitly defines `localhost`, which suppresses that implicit
-configuration for all loopback hosts; the explicit host and every other
-loopback address then retain the inherited cleartext prohibition, global CT
-policy, and system-only trust.
-
-The project must continue compiling with SDK 36 or newer so the API 36
-regression can call
-`NetworkSecurityPolicy.isCertificateTransparencyVerificationRequired(...)`.
-The explicit XML opt-in is not gated by the app's target SDK, so target SDK 35
-remains valid. Android 16 disables CT by default but honors this opt-in; Android
-15 and lower do not provide CT enforcement. Android platform source and CTS use
-the same policy API to prove the effective per-host setting:
-
-- [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config#CertificateTransparency)
-- [Android 16 Network Security Configuration parser](https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/packages/NetworkSecurityConfig/platform/src/android/security/net/config/XmlConfigSource.java)
-- [Android CT Network Security Configuration platform regression](https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/tests/NetworkSecurityConfigTest/src/android/security/net/config/XmlConfigTests.java)
-
-Device regressions install the `ctRegression` app variant on representative API
-24, 29, 35, 36, and 37 stable emulators. That variant inherits release
-minification, shrinking, dependencies, manifest policy, and resources, remains
-non-debuggable, uses an isolated `.ctregression` application ID, and is signed
-with the debug key only so the test runner can install it. It is not a
-distributable release artifact. Its dedicated test-only manifest retains the
-non-exported bridge-isolation activity required by instrumented tests but does
-not register the exported debug enterprise-policy receiver. APIs below 36 must
-load the fallback policy and reject cleartext. API 36 must report CT as required for both SecPal-operated
-hosts and an arbitrary customer API hostname. API 37 must also prove that the
-platform's implicit localhost cleartext exception is suppressed. The API 37
-harness retries once only when Gradle reports either both a failed package
-install commit and a broken PackageManager connection or an Android system
-crash before the first instrumented test starts; policy assertions and all
-other instrumentation failures remain fail-closed. The release-resource verifier
-accepts the policy only from the canonical `xml`,
-`xml-v36`, and `xml-v37` resource directories and parses decoded XML values. It
-independently rejects a missing, disabled, or domain-scoped API 36 policy, any
-CT element selectable below API 36, a missing API 37 localhost hardening
-policy, configuration-qualified replacements, user or inline CAs, debug trust
-overrides, cleartext, and certificate pins.
-
-#### Certificate Transparency operations
-
-CT adds a public auditability requirement on top of ordinary Android system-PKI
-chain and hostname validation. It reduces exposure to publicly trusted
-mis-issuance that was not logged correctly. It does not restrict the app to one
-CA or key, so legitimate renewal, key rotation, and chain changes remain
-possible without an app update. It also does not replace certificate expiry,
-revocation, DNS, TLS, or endpoint monitoring.
-
-The availability cost is deliberate: an otherwise trusted public certificate
-on any destination that lacks enough acceptable Signed Certificate Timestamps
-is rejected by published API 36 clients. Android evaluates SCT count, log state,
-and distinct log operators under the current
-[Android CT policy](https://developer.android.com/privacy-and-security/certificate-transparency-policy).
-The platform disables enforcement if its downloaded log list is missing or more
-than 70 days old; SecPal must not copy or independently enforce against that log
-list.
-
-Monitoring and certificate-lifecycle ownership have three layers:
-
-1. The scheduled `Android Certificate Transparency` workflow performs a daily
-   reference handshake to `https://api.secpal.dev/` from the packaged app on an
-   API 36 Google APIs image. It first asserts that the global app policy requires
-   CT and that the Android 16 compatibility-v2 log list has a structurally valid
-   timestamp inside the platform's enforcement window. This proves the SecPal
-   reference chain and test lane, not unknown customer chains.
-2. SecPal's certificate-renewal process must run the reference workflow after
-   every issuance, renewal, key rotation, CA change, or served-chain change.
-   Deployment must not complete until it passes.
-3. Customer operators must apply the equivalent gate to both the discovery URL
-   given to users and any different canonical API origin returned by bootstrap.
-   Their issuance and renewal automation must test the exact served certificate
-   and complete chain with an API 36 SecPal build before promotion, then retain a
-   continuous API 36 probe. Ordinary expiry, DNS, TLS, and endpoint checks remain
-   required because a successful CT check does not cover those failure modes.
-
-The workflow's manual `probe_url` input runs the same API 36 check against an
-arbitrary public HTTPS URL. A SecPal operator can invoke it before a customer
-certificate rollout with:
+## Current native boundary
+
+The Android shell runs the shared frontend in its packaged WebView.
+[Native authentication](../android/app/src/main/java/app/secpal/SecPalNativeAuthPlugin.java)
+keeps bearer credentials in [Keystore-backed storage](../android/app/src/main/java/app/secpal/KeystoreTokenStorage.java).
+The bridge carries sanitized authentication state and permitted results.
+Bearer credentials stay out of WebView JavaScript, its storage and diagnostic
+output. The [native request policy](../android/app/src/main/java/app/secpal/NativeAuthRequestPolicy.java)
+limits authenticated requests to the selected HTTPS deployment and allowed
+operations. Native bearer requests do not follow redirects or fall back
+to browser session authentication.
+
+Keep the packaged CSP and narrow bridge. `Capacitor.isPluginAvailable("SystemBars")` returns
+`false` because SystemBars is retained for native lifecycle handling. The
+frontend can contain web-only JavaScript proxies without native counterparts.
+The `/_capacitor_http_interceptor_` route is also rejected.
+
+Use the [runtime bootstrap contract](ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md) for
+deployment binding and the [OpenAPI contract](https://github.com/SecPal/contracts/blob/main/docs/openapi.yaml)
+for HTTP requests. The [API routes](https://github.com/SecPal/api/blob/main/routes/api.php) own server behavior.
+See the [API session guide](https://github.com/SecPal/api/blob/main/docs/guides/sanctum-spa-auth.md)
+for browser/PWA sessions.
+
+Passkey sign-in and registration require Android 14 (API 34) or later.
+On Android API 24 through 33, password sign-in remains available where tenant policy allows.
+On API 24 through 33 the native capability reports passkeys unavailable.
+Apply tenant policy when presenting a compatible sign-in method.
+
+## Accepted target
+
+[ADR-026](https://github.com/SecPal/.github/blob/main/docs/adr/20261002-client-trust-offline-recovery-adr026.md)
+defines the target for USER and WORK, endpoint trust, offline authorization and
+recovery. The current implementation and its evidence are described in
+[Android Enterprise capabilities](ANDROID_ENTERPRISE_CAPABILITIES.md).
+Bridge and membership implementation remains tracked in [#404](https://github.com/SecPal/android/issues/404),
+[#405](https://github.com/SecPal/android/issues/405) and
+[#907](https://github.com/SecPal/android/issues/907).
+
+## Certificate Transparency
+
+Release transport requires HTTPS, system trust anchors and platform chain and
+hostname validation. Android 16 (API 36) and later apply Certificate Transparency
+(CT) to all remote HTTPS destinations, including the discovery URL and any
+different canonical API origin from bootstrap. API 24 through 35 uses HTTPS
+with the system trust store. The API 37 policy also suppresses the platform's
+implicit localhost exception. Source and device verification live in the
+[release resource verifier](../scripts/verify-android-network-security.mjs) and
+[CT workflow](../.github/workflows/android-certificate-transparency.yml). Keep
+compiling with SDK 36 or newer for the regression API. The explicit opt-in
+also applies when targeting SDK 35, so target SDK 35 remains valid.
+
+Android supplies the CT policy and log list. Its platform check is inactive
+when the log list is missing or older than 70 days. The live probe first
+checks that the device requires CT for the origin and has a current log list.
+See the [Android CT policy](https://developer.android.com/privacy-and-security/certificate-transparency-policy)
+and [platform configuration](https://developer.android.com/privacy-and-security/security-config#CertificateTransparency).
+
+### Certificate Transparency operations
+
+The [scheduled workflow](../.github/workflows/android-certificate-transparency.yml)
+probes the SecPal reference origin on API 36 and 37. Run the same check after
+issuance, renewal, key rotation or a change to the CA or served chain. Require
+a passing result before promotion. Customer operators need the same check
+for the exact certificate and chain on their discovery origin and any separate
+canonical API origin. Retain continuous CT probes and normal expiry, DNS, TLS
+and endpoint monitoring. The reference probe covers the tested origin.
+
+Dispatch the workflow once for each affected public HTTPS URL:
 
 ```shell
 gh workflow run android-certificate-transparency.yml \
@@ -376,105 +80,52 @@ gh workflow run android-certificate-transparency.yml \
   -f probe_url=https://customer.example/
 ```
 
-For a directly attached API 36 test device, the equivalent repository-local
-sequence first proves that the platform's compatibility-v2 log list is present
-and inside the 70-day enforcement window, then runs the packaged-app probe.
-`jq` must be available on the development host:
+An attached API 36 test device can run the packaged-app probe for one origin.
+Use a development host with `jq` and an authorized test device with a readable
+CT log list. Run the whole block from the repository root:
 
 ```shell
-device_serial=DEVICE_SERIAL
-probe_url=https://customer.example/
-log_list="$(
-  bash ./scripts/with-android-env.sh adb -s "$device_serial" \
-    shell cat /data/misc/keychain/ct/v2/current/log_list.json
-)"
-now_timestamp_ms=$(( $(date +%s) * 1000 ))
-minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
-jq -e \
-  --argjson minimum "$minimum_timestamp_ms" \
-  --argjson maximum "$now_timestamp_ms" \
-  '(.version | type == "string") and
-  (.log_list_timestamp | type == "number") and
-  (.log_list_timestamp >= $minimum) and
-  (.log_list_timestamp <= $maximum) and
-  ([.operators[].logs[]] | length > 0)' \
-  <<<"$log_list" >/dev/null
 (
-  cd android
-  ANDROID_SERIAL="$device_serial" ./gradlew \
-    :app:connectedCtRegressionAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=app.secpal.CertificateTransparencyInstrumentedTest#apiEndpointPassesThePlatformCertificateTransparencyPolicy" \
-    -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
-    "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=$probe_url"
+  set -e
+  device_serial=DEVICE_SERIAL
+  probe_url=https://customer.example/
+  log_list="$(
+    bash ./scripts/with-android-env.sh adb -s "$device_serial" \
+      shell cat /data/misc/keychain/ct/v2/current/log_list.json
+  )"
+  now_timestamp_ms=$(( $(date +%s) * 1000 ))
+  minimum_timestamp_ms=$(( now_timestamp_ms - 70 * 24 * 60 * 60 * 1000 ))
+  jq -e \
+    --argjson minimum "$minimum_timestamp_ms" \
+    --argjson maximum "$now_timestamp_ms" \
+    '(.version | type == "string") and
+    (.log_list_timestamp | type == "number") and
+    (.log_list_timestamp >= $minimum) and
+    (.log_list_timestamp <= $maximum) and
+    (.operators | type == "array" and length > 0) and
+    all(.operators[];
+      (.name | type == "string") and
+      (.logs | type == "array")) and
+    ([.operators[].logs[]] | length > 0)' \
+    <<<"$log_list" >/dev/null
+  (
+    cd android
+    ANDROID_SERIAL="$device_serial" ./gradlew \
+      :app:connectedCtRegressionAndroidTest \
+      "-Pandroid.testInstrumentationRunnerArguments.class=app.secpal.CertificateTransparencyInstrumentedTest#apiEndpointPassesThePlatformCertificateTransparencyPolicy" \
+      -Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbe=true \
+      "-Pandroid.testInstrumentationRunnerArguments.secpalLiveCtProbeUrl=$probe_url"
+  )
 )
 ```
 
-Both the discovery URL and a different canonical API origin require separate
-probe runs. Customer renewal automation may request these workflow runs or
-execute the same device command in its own controlled test lane. The scoped
-buildscript pin upgrades AGP's build-time-only Tink dependency before Gradle
-loads its generated protobuf types. The CT regression pre-build fails if Tink
-or Google Play services FIDO reaches the test app's runtime classpath, matching
-the release artifact prohibition.
+For a failed probe, distinguish runner or log-list availability from a
+reproducible handshake failure. Freeze the certificate rollout, then restore a
+still-valid CT-compliant certificate and complete chain or reissue through an
+appropriate CA. Re-run the live probe and API health checks, retain incident
+evidence and correct renewal automation before the next rollout.
 
-The app's real discovery and API requests are the final enforcement point. A
-customer origin that is system-trusted but not CT-compliant fails closed during
-the TLS handshake; the app must not fall back to a fixed SecPal origin or a less
-strict transport.
-
-If a scheduled or renewal-triggered probe fails, SecPal or the responsible
-customer operator first distinguishes runner or platform-log-list availability
-from a reproducible API 36 handshake failure. For a real production failure:
-
-1. freeze further certificate and chain rollout;
-2. restore the last known CT-compliant certificate and complete served chain
-   if it is still valid, or urgently reissue through a CA that supplies
-   Android-policy-compliant SCTs;
-3. verify the restored chain through the manual API 36 workflow and normal API
-   health checks before ending the incident;
-4. preserve incident evidence and correct the issuance/renewal guard before the
-   next rollout.
-
-Already published clients cannot receive a remotely changed Network Security
-Configuration. Server-side restoration by SecPal or customer operators is
-therefore the only immediate recovery for affected API 36 clients; an app update
-that relaxes CT is not a timely primary recovery path. Release builds must never
-add user-installed CAs, inline emergency roots, permissive hostname verifiers,
-trust-all TLS code, debug overrides, or other TLS bypasses as recovery
-mechanisms. Older supported clients keep the fallback system-PKI policy and are
-not made dependent on the API 36 element.
-
-## Prohibited Shortcuts
-
-The following approaches are explicitly out of scope and must not be introduced:
-
-- storing bearer tokens in the shared React app state and persisting them in browser-style storage
-- building Android auth as a small variation of the PWA cookie flow
-- exposing the raw access token through a Capacitor bridge for convenience
-- using the WebView as the system of record for Android auth state
-- keeping a temporary dual-path where Android can switch back to cookie auth when bearer auth fails
-
-## Repository Guidance
-
-- Changes to browser or PWA auth belong in the `frontend` repository and stay cookie-based.
-- Changes to Android auth belong in the `android` repository and must preserve the native security boundary.
-- Shared UI code may depend on an abstract auth facade, but platform-specific auth implementations must remain separate.
-
-## Passkey Compatibility
-
-Android API 24 through 33 remain supported for the application, including password authentication where the tenant policy permits it, token storage, runtime bootstrap, push, and other non-passkey features. The Google Play services Credential Manager provider is intentionally not packaged because its FIDO dependency ships vulnerable generated Tink protobuf code.
-
-Passkey sign-in and registration therefore require Android 14 (API 34) or newer. The native `SecPalNativeAuth` plugin exposes `getPasskeyCapabilities()`, which returns `passkeysAvailable` and, when unavailable, a stable `reason`. On API 24 through 33 the reason is `PASSKEY_ANDROID_VERSION_UNSUPPORTED`. The shared frontend must query this method before presenting passkey controls, hide or disable those controls when unavailable, and retain password sign-in when the tenant permits it. It must not silently replace a passkey-required tenant policy with password authentication; such tenants must receive a clear compatibility message.
-
-A future restoration of pre-Android-14 passkey support requires a verified upstream Credential Manager/Google Play services FIDO dependency path that neither packages vulnerable generated protobuf code nor produces the associated release-build warning.
-
-## Design Intent
-
-Capacitor is used here as a native application shell, not as a way to blur security boundaries between browser and mobile authentication.
-
-SecPal's long-term target is therefore:
-
-- one shared UI codebase
-- two intentionally different auth transports
-- browser sessions for web
-- native bearer tokens for Android
+The policy for published clients is packaged in their APK. Recover the
+served chain on the server. Keep system trust, hostname verification and native
+origin binding intact. Release recovery must never add user-installed CAs,
+emergency roots, trust-all TLS, debug overrides or a fallback deployment.
