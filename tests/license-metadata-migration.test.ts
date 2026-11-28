@@ -32,18 +32,6 @@ const historicalLicenseReferenceLines = [
     obsoleteLicenseReference,
     "` for SecPal-owned AGPL-covered code, fastlane assets, and related metadata, linked the repo docs to the new AGPL section 7(b)/(c) terms, and tightened the Android discovery/about legal footer so it exposes the SecPal attribution terms alongside the existing `Powered by SecPal` notice.",
   ].join(""),
-  [
-    "docs/THIRD_PARTY_LICENSE_AUDIT.md:",
-    "`",
-    obsoleteLicenseReference,
-    "`.",
-  ].join(""),
-  [
-    "docs/THIRD_PARTY_LICENSE_AUDIT.md:",
-    "`",
-    obsoleteLicenseReference,
-    "` is used only with the existing SecPal-owned",
-  ].join(""),
 ].sort();
 
 function gitGrepLines(pattern: string): string[] {
