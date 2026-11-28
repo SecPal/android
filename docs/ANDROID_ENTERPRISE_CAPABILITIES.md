@@ -58,8 +58,13 @@ Knox permission, checks the managed mode and verifies the configured Work
 signing certificate before launching Work for an admitted short or long press.
 
 OEM launch behavior depends on the device and its Knox configuration.
-[Real-device validation notes](ANDROID_LOCAL_DEVICE_TESTING.md#samsung-xcover-hard-key-validation-notes)
-record the tested behavior and the remaining physical-key coverage.
+The April 2026 managed Samsung XCover 7 (`SM-G556B`, Android 16) runs
+recorded physical key delivery while kiosk mode was active. The later run
+provides indirect short- and long-press navigation evidence from native logs.
+It used the former single-package owner layout. See the
+[device investigation](https://github.com/SecPal/android/issues/145),
+[April 26 run](https://github.com/SecPal/android/issues/123#issuecomment-4322776307),
+and [signed historical source](https://github.com/SecPal/android/blob/9751f06ad0043cc71c9d2da877b54a5d1f8956fc/docs/ANDROID_LOCAL_DEVICE_TESTING.md#samsung-xcover-hard-key-validation-notes).
 
 ## Scope of evidence
 
