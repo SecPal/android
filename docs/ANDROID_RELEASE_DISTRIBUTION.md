@@ -78,9 +78,8 @@ Keep in mind that direct distribution still needs:
 - a stable signing key
 - a versioning strategy that never goes backwards
 
-Runtime discovery and notification contracts are maintained in
-[Android runtime bootstrap](ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md) and the
-[SecPal API contract](https://github.com/SecPal/contracts).
+Use the [Android runtime bootstrap guide](ANDROID_RUNTIME_BOOTSTRAP_CONTRACT.md)
+for deployment binding and notification ownership.
 
 ## Play Store Considerations
 
