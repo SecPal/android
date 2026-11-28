@@ -5,10 +5,8 @@ SPDX-License-Identifier: CC0-1.0
 
 # Third-Party Notices
 
-This notice records third-party material committed to this repository. It does
-not relicense that material. Dependency inventories are maintained separately
-in `package-lock.json` and the Gradle resolution reports described in
-[docs/THIRD_PARTY_LICENSE_AUDIT.md](docs/THIRD_PARTY_LICENSE_AUDIT.md).
+This notice records the provenance of committed third-party material and
+links to the dependency inventories and notices shipped with the app.
 
 ## Gradle Wrapper
 
@@ -21,7 +19,8 @@ Copyright © 2015-2021 the original authors.
 Copyright 2015 the original author or authors.
 ```
 
-The Wrapper is licensed under Apache-2.0. Its JAR embeds `META-INF/LICENSE`;
+The Wrapper uses [Gradle's Apache-2.0 license](https://docs.gradle.org/current/userguide/licenses.html).
+Its JAR embeds `META-INF/LICENSE`;
 the complete license text is also available at
 [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt).
 
@@ -51,12 +50,24 @@ complete CC0 text is at [LICENSES/CC0-1.0.txt](LICENSES/CC0-1.0.txt).
 
 ## Dependencies and shipped notices
 
-npm dependencies are package-managed third-party software, not copied source;
-their exact resolved inventory is `package-lock.json`. Android/Maven artifacts
-are likewise resolved at build time and are not vendored in this repository.
-The audit records the reproduction commands and current inventory in
-[docs/THIRD_PARTY_LICENSE_AUDIT.md](docs/THIRD_PARTY_LICENSE_AUDIT.md).
+The [npm lockfile](package-lock.json), [Bundler lockfile](Gemfile.lock), and
+Gradle release runtime locks for the [app](android/app/gradle.lockfile) and
+[DPC](android/dpc/gradle.lockfile) record resolved dependencies. For the
+native runtime graph, run Gradle from `android/`:
 
-Release APK/AAB builds still need a user-accessible OSS-notices surface for
-their resolved Google Play services and Firebase graph. That release-artifact
-work is tracked in [#334](https://github.com/SecPal/android/issues/334).
+```sh
+./gradlew :app:dependencies --configuration releaseRuntimeClasspath
+./gradlew :dpc:dependencies --configuration releaseRuntimeClasspath
+```
+
+The app packages generated native OSS notices for its release runtime,
+including its Google Play services and Firebase dependencies. The app opens
+the native notices screen from [the completed #334 integration](https://github.com/SecPal/android/issues/334).
+The [OSS notices verifier](scripts/verify-android-oss-licenses.sh) checks the
+resolved app graph and the generated APK and AAB notice resources.
+
+The packaged frontend carries its own
+[dependency notices](android/app/src/main/assets/public/THIRD-PARTY-DEPENDENCY-NOTICES.md),
+[third-party source notices](android/app/src/main/assets/public/THIRD-PARTY-NOTICES.md),
+and [SPDX dependency inventory](android/app/src/main/assets/public/dependencies.spdx.json)
+from the pinned frontend artifact.

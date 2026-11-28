@@ -33,26 +33,20 @@ The signed-build wrappers and Fastlane signing/publication boundaries enforce
 this read-only precondition before signing, Play upload or Direct APK mutation.
 The check records the accepted commit, run and evidence artifact reference.
 
-Only authenticated v2 evidence from the accepted shared scanner/policy with a
-CLEAN gate and a still-fresh database is acceptable. Missing, malformed, failed,
-skipped, ACTIONABLE, REVIEW_REQUIRED and UNKNOWN_STALE evidence blocks release.
-If the database evidence has expired, rerun Quality Checks on that exact main
-commit and wait for successful fresh evidence. A successful build alone is
-insufficient. Commit any packaging/source changes and obtain evidence for that
-new commit before signing.
+The [release verifier](../scripts/verify-repository-security.mjs) pins the
+accepted scanner, configuration and policy. It requires authenticated v5
+evidence for the exact commit with a `CLEAN` result, zero findings and a
+database still fresh at acceptance. Obtain a successful fresh Quality Checks
+run on the exact source before signing when the evidence has expired. The
+daily repository scan provides monitoring evidence. Release acceptance uses
+the successful protected-main push run for the release commit.
 
-The reviewed country-reference exception is bound to the exact source blob and
-expires at **2026-10-18T00:00:00Z**. The current release acceptance also stops at
-that boundary; old artifacts cannot extend it. Any successor requires fresh
-independent central policy review and an explicit reviewed adoption update.
-There are no Android-local scanner exceptions or signing secrets in scanning CI.
-
-Repository source scanning covers supported npm and Bundler lockfile dependency
-surfaces, supported configuration rules and secrets. It does not establish a
-Gradle vulnerability inventory from this repository's unlocked build scripts,
-AndroidManifest semantics, or final signed APK/AAB safety. Existing packaging,
-runtime-schema, signing identity, version and publication-lock checks remain
-independent requirements. Release credentials stay on the operator workstation.
+Source scanning covers supported npm, Bundler and locked app/DPC Gradle
+runtime dependencies, supported configuration and secrets. APK/AAB packaging,
+runtime schema, licensing, signing identity, version and publication-lock
+checks still apply. See [Third-Party Notices](../THIRD-PARTY-NOTICES.md)
+for the inventory and shipped notice checks. Release credentials stay on the
+operator workstation.
 
 ## Google Developer Account
 

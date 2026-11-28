@@ -114,6 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Point Android license and release documentation to the current dependency locks, shipped notices and exact source acceptance. Remove the dated license audit.
+
 - Keep the local Android device guide focused on repeatable validation and link the scoped Samsung evidence from the Enterprise guide.
 
 - Consolidate runtime discovery and push references in the Android bootstrap guide and remove the dated audit.

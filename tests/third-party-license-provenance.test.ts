@@ -92,22 +92,21 @@ describe("third-party license provenance", () => {
     expect(annotationBlock).toMatch(/SPDX-License-Identifier\s*=\s*"MIT"/);
   });
 
-  it("pins the audit tool and uses version-agnostic Gradle licensing evidence", () => {
-    const audit = readFileSync(
-      resolve(repoRoot, "docs/THIRD_PARTY_LICENSE_AUDIT.md"),
+  it("routes current dependency and notice evidence to its owners", () => {
+    const notice = readFileSync(
+      resolve(repoRoot, "THIRD-PARTY-NOTICES.md"),
       "utf8"
     );
-
-    const auditToolVersions = Array.from(
-      audit.matchAll(
-        /npx --yes license-checker-rseidelsohn@(\d+\.\d+\.\d+) --(?:production --)?json/g
-      ),
-      ([, version]) => version
-    );
-    expect(auditToolVersions).toHaveLength(2);
-    expect(new Set(auditToolVersions).size).toBe(1);
-    expect(audit).toContain(
+    expect(notice).toContain(
       "https://docs.gradle.org/current/userguide/licenses.html"
+    );
+    expect(notice).toContain("](package-lock.json)");
+    expect(notice).toContain("](Gemfile.lock)");
+    expect(notice).toContain("](android/app/gradle.lockfile)");
+    expect(notice).toContain("](android/dpc/gradle.lockfile)");
+    expect(notice).toContain("](scripts/verify-android-oss-licenses.sh)");
+    expect(notice).toContain(
+      "](android/app/src/main/assets/public/THIRD-PARTY-DEPENDENCY-NOTICES.md)"
     );
   });
 });
